@@ -677,7 +677,7 @@ Streams transport has (in `packages/sandloom-redis/src/sandloom_redis/eventbus/`
 |---|---|---|
 | `streams` | the kernel's durable bus over a `streams` `EventTransportProvider` | sandloom-redis |
 | `memory` | the kernel's in-process volatile bus (`memory_bus.py`), no transport | kernel, `development_only` |
-| `redis` | the kernel's volatile bus (`pubsub_bus.py`) over a `broadcast` instance (option `broadcast`, default `default`) | kernel bus, `broadcast.redis` from sandloom-redis |
+| `broadcast` | the kernel's volatile bus (`pubsub_bus.py`) over a `broadcast` instance (option `broadcast`, default `default`); named `redis` until 0.7.0a15, which startup now refuses (no alias) | kernel bus, `broadcast.redis` from sandloom-redis |
 
 **One capability, two driver shapes.** Every `eventbus` registration is an `InfraProvider` with
 `capability = "eventbus"` and major 2, and the kernel reads every one through `ProviderLifecycle`
@@ -711,7 +711,7 @@ note in `idk-eventbus-contract`, no alias.
 | `durable` | `durable` | guarantee | unchanged name; `app_factory/__init__.py:408` keeps refusing a production bus without it |
 | `at_least_once` | removed, use `durable` | | every transport delivers at least once (Semantics below), and only transports declare `durable` |
 | `consumer_groups` | removed, use `durable` | | groups are required operations of every transport |
-| `wildcard_subscribe` | `wildcard_subscribe` | behaviour | volatile-bus shape only: a `prefix.*` subscription; `memory` declares it, `redis` declares it and refuses at `aopen` a `broadcast` instance without `pattern_subscribe`; no transport declares it (`core/eventing/streams_bus.py` refuses it) |
+| `wildcard_subscribe` | `wildcard_subscribe` | behaviour | volatile-bus shape only: a `prefix.*` subscription; `memory` declares it, `broadcast` declares it and refuses at `aopen` a `broadcast` instance without `pattern_subscribe`; no transport declares it (`core/eventing/streams_bus.py` refuses it) |
 | (new) | `shared`, `blocking_consume`, `group_start_id`, `lease_renewal`, `dlq_ops`, `inspection`, `inventory` | see the table below | transport shape |
 
 ```python
@@ -1276,13 +1276,16 @@ For the orchestrator's review; each departs from or details `design.md`.
 12. **Lease drivers on Redis run the `noeviction` check** like `atomic_store.redis`, since the fence
     key has no TTL.
 13. **`broadcast` gaps surface as `Unavailable` from the iterator**; the payload floor is 1 MiB.
-14. **`eventbus` driver names stay** (`streams`, `memory`); only `streams` is a transport
-    provider. The kernel's volatile bus over `broadcast` was first named `redis`; deviation
-    (`eventbus-broadcast-driver`, 0.7.0a15): it talks to no service, so it is named after the
-    capability it runs on, `broadcast`, as `atomic_store`'s `database` driver is. `redis` stays
-    one release as a deprecated alias (`DEPRECATED_DRIVER_ALIASES` in `core/infra/driver_aliases.py`)
-    that resolves to `broadcast` and logs one WARNING per instance. `MemoryTransport` is the
-    kit reference, not an `INFRA` choice.
+14. **`eventbus` driver names: `streams` and `memory` stay; the volatile bus over `broadcast`
+    is renamed.** Only `streams` is a transport provider. The kernel's volatile bus over
+    `broadcast` was first named `redis`; deviation (`eventbus-broadcast-driver`, 0.7.0a15): it
+    talks to no service, so it is named after the capability it runs on, `broadcast`, as
+    `atomic_store`'s `database` driver is. The old name has no alias (ADR-0010, ADR-0016):
+    startup refuses `eventbus` / `redis` from `INFRA`, a composition's `DEFAULT_INFRA`, a
+    configuration built in code (`InfraRegistry.__init__`, `set_config`, `configure_instance`)
+    and `EVENT_BUS_BACKEND`, with an error that names `broadcast` and prints no option
+    (`core/config/removed_drivers.py`). `MemoryTransport` is the kit reference, not an `INFRA`
+    choice.
 15. **Group ownership and `never_dead_letter` are required** eventbus operations, not features; the
     optional diagnostics fold into `inspection` and `inventory`, DLQ inspection and replay into
     `dlq_ops`; `batch_publish`/`batch_ack` become required with loop defaults plus hints.

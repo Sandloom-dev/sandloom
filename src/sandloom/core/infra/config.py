@@ -33,15 +33,14 @@ passed verbatim to that driver as an option.
 from __future__ import annotations
 
 import importlib
-import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
 from sandloom.core.config.common import Environment
+from sandloom.core.config.removed_drivers import removed_driver_problem
 from sandloom.core.config.settings import Settings
-from sandloom.core.infra.driver_aliases import canonical_driver
 
 #: Capabilities whose ``default`` instance a composition selects (options from
 #: the flat settings: DATABASE_URL, …). This is NOT the set of valid
@@ -60,8 +59,6 @@ DEFAULTED_CAPABILITIES: tuple[str, ...] = (
 
 
 DEFAULT_INSTANCE = "default"
-
-logger = logging.getLogger("sandloom.core.infra")
 
 #: The synthesized instances the kernel itself uses in every composition, so
 #: they count as required whether or not a module names them: the database
@@ -272,12 +269,12 @@ def _select(
     a composition default that selects the same driver are kept (flat settings
     below them), another driver starts from the flat options alone."""
     existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
-    resolved = _resolved_driver(capability, DEFAULT_INSTANCE, driver)
+    _refuse_removed_driver(capability, DEFAULT_INSTANCE, driver)
     merged = dict(options)
-    if existing is not None and existing.driver == resolved:
+    if existing is not None and existing.driver == driver:
         merged.update(existing.options)
     config.setdefault(capability, {})[DEFAULT_INSTANCE] = InstanceConfig(
-        capability=capability, name=DEFAULT_INSTANCE, driver=resolved, options=merged
+        capability=capability, name=DEFAULT_INSTANCE, driver=driver, options=merged
     )
 
 
@@ -346,6 +343,14 @@ class InfraConfigError(ValueError):
     """Raised when the INFRA declaration is structurally invalid."""
 
 
+def _refuse_removed_driver(capability: str, instance: str, driver: str) -> None:
+    """Refuse an instance that names a driver that was removed
+    (:mod:`sandloom.core.config.removed_drivers`), naming the new spelling."""
+    problem = removed_driver_problem(capability, instance, driver)
+    if problem is not None:
+        raise InfraConfigError(problem)
+
+
 def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
     """Merge the raw ``INFRA`` mapping into ``base`` in place.
 
@@ -368,15 +373,12 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
                 )
             existing = bucket.get(inst_name)
             options = {k: v for k, v in spec.items() if k != "driver"}
-            named = spec.get("driver")
-            if named:
-                driver = _resolved_driver(capability, str(inst_name), str(named))
-            elif existing is not None:
-                driver = existing.driver
-            else:
+            driver = spec.get("driver") or (existing.driver if existing else None)
+            if not driver:
                 raise InfraConfigError(
                     f"INFRA[{capability!r}][{inst_name!r}] needs a 'driver'"
                 )
+            _refuse_removed_driver(capability, str(inst_name), str(driver))
             if existing is not None and existing.driver == driver:
                 # Override: keep prior options not re-specified, layer new ones.
                 # A different driver starts empty: the prior options are another
@@ -492,45 +494,6 @@ def fill_driver_defaults(
                 _apply_fill(cfg, fill, settings)
 
 
-#: The ``(capability, instance, written name)`` of every deprecated spelling
-#: already warned about in this process: the configuration is read many times
-#: (every resolver, every tool), the WARNING is logged once per spelling.
-_WARNED_ALIASES: set[tuple[str, str, str]] = set()
-
-
-def _resolved_driver(capability: str, instance: str, written: str) -> str:
-    """The driver ``written`` for ``instance``, resolved
-    (``driver_aliases.DEPRECATED_DRIVER_ALIASES``); a deprecated spelling logs
-    one WARNING that names the new one, the first time it is read."""
-    resolved = canonical_driver(capability, written)
-    key = (capability, instance, written)
-    if resolved != written and key not in _WARNED_ALIASES:
-        _WARNED_ALIASES.add(key)
-        logger.warning(
-            "%s instance %r: driver %r is a deprecated spelling of %r and goes "
-            'away in a later release; write INFRA={"%s": {"%s": {"driver": "%s"}}}',
-            capability,
-            instance,
-            written,
-            resolved,
-            capability,
-            instance,
-            resolved,
-        )
-    return resolved
-
-
-def resolve_driver_aliases(config: InfraConfig) -> None:
-    """Resolve the deprecated driver spellings of ``config`` in place.
-
-    The loaders resolve what they read (``INFRA``, the composition's selection,
-    ``EVENT_BUS_BACKEND``); an explicit configuration built by hand (a tool, a
-    test) is resolved here, where the registry takes it."""
-    for capability, instances in config.items():
-        for cfg in instances.values():
-            cfg.driver = _resolved_driver(capability, cfg.name, cfg.driver)
-
-
 def load_infra_config(settings: Settings) -> InfraConfig:
     """Return the merged infrastructure configuration: the composition's
     selection, the flat settings that select a driver or give an option the
@@ -557,7 +520,6 @@ __all__ = [
     "use_default_infra",
     "database_instance_url",
     "eventbus_driver",
-    "resolve_driver_aliases",
     "fill_driver_defaults",
     "InstanceConfig",
     "InfraConfig",

@@ -183,11 +183,10 @@ talks to no service of its own: it runs on the `broadcast` instance named by its
 needs the `redis` package: the Redis client belongs to the `redis` driver of
 `broadcast`, which you still select under `INFRA.broadcast`. Behavior is the same.
 
-The old spelling keeps working in this release. An `eventbus` instance that writes
-`"driver": "redis"` loads as `broadcast`, wherever it writes it: `INFRA`, the composition's
-`DEFAULT_INFRA` or `EVENT_BUS_BACKEND`. Startup logs one WARNING per instance that names
-the new spelling. The alias goes away in a later release, and startup then refuses an
-instance that still writes `redis`. Other capabilities keep their `redis` driver.
+The old name has no alias. Startup refuses an `eventbus` instance that still writes
+`"driver": "redis"`, wherever it writes it: `INFRA`, the composition's `DEFAULT_INFRA`,
+a configuration built in code or `EVENT_BUS_BACKEND`. The error names the new spelling.
+It prints no option, so no url or password. Other capabilities keep their `redis` driver.
 
 ## Upgrading the Celery driver's connection checks
 

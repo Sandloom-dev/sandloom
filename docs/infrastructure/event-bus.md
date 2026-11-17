@@ -22,7 +22,7 @@ does not support wildcard subscriptions.
 
 ### `broadcast`
 
-Pub/Sub over a `broadcast` instance (Redis Pub/Sub with the `redis` broadcast driver): volatile, delivered only to live subscribers, with wildcard subscriptions. The driver was called `redis` before 0.7.0a15; that spelling still loads and logs a WARNING (see [the upgrade note](../operate/upgrade.md#upgrading-to-070a15-the-volatile-event-bus-driver-is-broadcast)).
+Pub/Sub over a `broadcast` instance (Redis Pub/Sub with the `redis` broadcast driver): volatile, delivered only to live subscribers, with wildcard subscriptions. The driver was called `redis` before 0.7.0a15; startup now refuses that name (see [the upgrade note](../operate/upgrade.md#upgrading-to-070a15-the-volatile-event-bus-driver-is-broadcast)).
 
 **Limits.** For development and tests. In production the provider is built only if
 `SANDLOOM_ACCEPTED_RISKS` lists `volatile_event_bus`. Even then, startup refuses a volatile

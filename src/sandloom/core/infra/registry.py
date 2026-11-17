@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 
+from sandloom.core.config.removed_drivers import removed_driver_problem
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.config import (
@@ -382,12 +383,25 @@ class InstanceSnapshot:
     provider: InfraProvider | None
 
 
+def _refuse_removed_drivers(config: Iterable[InstanceConfig]) -> None:
+    """Refuse a configuration that names a driver that was removed, from every
+    way the registry takes one (the loaders refuse what they read; a
+    configuration built by hand reaches the registry here)."""
+    for cfg in config:
+        problem = removed_driver_problem(cfg.capability, cfg.name, cfg.driver)
+        if problem is not None:
+            raise InfraRegistryError(problem)
+
+
 class InfraRegistry:
     """Holds drivers + configuration and resolves provider instances."""
 
     def __init__(
         self, config: InfraConfig | None = None, *, strict_capabilities: bool = False
     ) -> None:
+        _refuse_removed_drivers(
+            cfg for instances in (config or {}).values() for cfg in instances.values()
+        )
         # (capability, driver) -> registration (factory + features + schema)
         self._drivers: dict[tuple[str, str], DriverRegistration] = {}
         # When strict, a driver cannot be registered for a capability that has
@@ -938,7 +952,13 @@ class InfraRegistry:
         )
 
     def set_config(self, config: InfraConfig) -> None:
-        """Replace the configuration (clears any built providers)."""
+        """Replace the configuration (clears any built providers).
+
+        A configuration that names a removed driver is refused whole: the
+        registry keeps the one it had."""
+        _refuse_removed_drivers(
+            cfg for instances in config.values() for cfg in instances.values()
+        )
         self._config = {}
         for capability, instances in config.items():
             bucket = self._config.setdefault(capability, {})
@@ -949,6 +969,7 @@ class InfraRegistry:
 
     def configure_instance(self, config: InstanceConfig) -> None:
         """Add/override a single named instance (clears its cached provider)."""
+        _refuse_removed_drivers([config])
         self._config.setdefault(config.capability, {})[config.name] = config
         retired = self._providers.pop((config.capability, config.name), None)
         if retired is not None:

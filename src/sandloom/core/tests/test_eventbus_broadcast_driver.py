@@ -1,20 +1,25 @@
-"""The volatile event bus driver is ``broadcast``; ``redis`` is its deprecated alias.
+"""The volatile event bus driver is ``broadcast``; ``redis`` is refused by name.
 
 The ``eventbus`` driver that runs over a ``broadcast`` instance is named after
-the capability it runs on. The old spelling ``redis`` keeps working for one
-release: the configuration loads it as ``broadcast`` and logs one WARNING that
-names the new spelling (``DEPRECATED_DRIVER_ALIASES``). The driver imports
-nothing of Redis, so it loads where the client is absent.
+the capability it runs on. The old name ``redis`` has no alias (ADR-0010,
+ADR-0016): every way a configuration reaches the kernel refuses it with a
+message that names ``broadcast`` and prints no option, so no url or password.
+The driver imports nothing of Redis, so it loads where the client is absent.
 """
 
 from __future__ import annotations
 
-import logging
 import sys
 
 import pytest
+from pydantic import ValidationError
 
 import sandloom.core.infra.config as config_module
+from sandloom.core.config.eventing import EventingConfig
+from sandloom.core.config.removed_drivers import (
+    REMOVED_DRIVERS,
+    removed_driver_problem,
+)
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.eventing.volatile_provider import BroadcastEventBusProvider
@@ -22,19 +27,21 @@ from sandloom.core.infra.active import use_infra
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
     InfraConfig,
+    InfraConfigError,
     InstanceConfig,
     eventbus_driver,
     load_infra_config,
-    resolve_driver_aliases,
     use_default_infra,
 )
-from sandloom.core.infra.driver_aliases import canonical_driver
+from sandloom.core.infra.registry import InfraRegistry, InfraRegistryError
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
-_LOGGER = "sandloom.core.infra"
+#: A url that carries a password: no refusal may print it.
+_SECRET_URL = "redis://:s3cr3t-pa55@redis.internal:6379/0"
+_FIX = 'INFRA={"eventbus": {"default": {"driver": "broadcast"}}}'
 
 
-def _config(bus_driver: str) -> InfraConfig:
+def _config(bus_driver: str, **options: object) -> InfraConfig:
     """The two instances the bus needs, with the memory ``broadcast`` driver."""
     return {
         "broadcast": {
@@ -44,7 +51,10 @@ def _config(bus_driver: str) -> InfraConfig:
         },
         "eventbus": {
             DEFAULT_INSTANCE: InstanceConfig(
-                capability="eventbus", name=DEFAULT_INSTANCE, driver=bus_driver
+                capability="eventbus",
+                name=DEFAULT_INSTANCE,
+                driver=bus_driver,
+                options=dict(options),
             )
         },
     }
@@ -52,152 +62,184 @@ def _config(bus_driver: str) -> InfraConfig:
 
 @pytest.fixture(autouse=True)
 def fresh_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No composition selection, no process ``INFRA`` and no WARNING already
-    given: each test states its own configuration and sees its own warnings."""
+    """No composition selection and no process ``INFRA``: each test states its
+    own configuration."""
     monkeypatch.setattr(config_module, "_PIN", None)
     monkeypatch.setattr(config_module, "_APP", None)
-    monkeypatch.setattr(config_module, "_WARNED_ALIASES", set())
     use_default_infra({})
     monkeypatch.setattr(settings, "infra", {}, raising=False)
     monkeypatch.setattr(settings, "event_bus_backend", None)
 
 
-def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
-    return [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == _LOGGER and record.levelno == logging.WARNING
-    ]
+def _assert_refusal(error: BaseException) -> None:
+    """The refusal names the new spelling, and prints no option or secret."""
+    text = str(error)
+    assert _FIX in text
+    assert "'redis'" in text and "'broadcast'" in text
+    assert "s3cr3t" not in text and "redis.internal" not in text
 
 
 # ------------------------------------------------------------------ the table
-def test_only_the_eventbus_redis_spelling_is_an_alias() -> None:
-    assert canonical_driver("eventbus", "redis") == "broadcast"
-    assert canonical_driver("eventbus", "broadcast") == "broadcast"
-    # The Redis drivers of every other capability keep their name.
+def test_only_the_eventbus_redis_driver_is_removed() -> None:
+    assert set(REMOVED_DRIVERS) == {("eventbus", "redis")}
+    assert removed_driver_problem("eventbus", "default", "redis") is not None
+    # The Redis drivers of every other capability keep their name, and the
+    # new name is no removed one.
     for capability in ("cache", "broadcast", "lease", "atomic_store"):
-        assert canonical_driver(capability, "redis") == "redis"
-    assert canonical_driver("eventbus", "streams") == "streams"
+        assert removed_driver_problem(capability, "default", "redis") is None
+    assert removed_driver_problem("eventbus", "default", "broadcast") is None
+    assert removed_driver_problem("eventbus", "default", "streams") is None
+
+
+def test_the_refusal_names_the_instance_it_refuses() -> None:
+    problem = removed_driver_problem("eventbus", "side", "redis")
+    assert problem is not None
+    assert "instance 'side'" in problem
+    assert '{"eventbus": {"side": {"driver": "broadcast"}}}' in problem
 
 
 # -------------------------------------------------------------- the loaders
-def test_infra_driver_redis_loads_as_broadcast_and_warns_once(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_infra_driver_redis_is_refused_without_printing_options(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
     monkeypatch.setattr(
         settings,
         "infra",
-        {"eventbus": {"default": {"driver": "redis", "broadcast": "side"}}},
+        {"eventbus": {"default": {"driver": "redis", "url": _SECRET_URL}}},
+        raising=False,
+    )
+    with pytest.raises(InfraConfigError) as refused:
+        load_infra_config(settings)
+    _assert_refusal(refused.value)
+
+
+def test_infra_redis_on_a_named_instance_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"eventbus": {"side": {"driver": "redis", "url": _SECRET_URL}}},
+        raising=False,
+    )
+    with pytest.raises(InfraConfigError, match="instance 'side'"):
+        load_infra_config(settings)
+
+
+def test_the_new_spelling_loads(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"eventbus": {"default": {"driver": "broadcast", "broadcast": "side"}}},
         raising=False,
     )
     cfg = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE]
     assert (cfg.driver, cfg.options) == ("broadcast", {"broadcast": "side"})
-    # The readers that run before the registry see the new name only, and a
-    # configuration read again does not repeat the WARNING.
     assert eventbus_driver(settings) == "broadcast"
-    load_infra_config(settings)
-    (message,) = _warnings(caplog)
-    assert 'INFRA={"eventbus": {"default": {"driver": "broadcast"}}}' in message
-    assert "'redis'" in message and "later release" in message
 
 
-def test_the_new_spelling_logs_no_warning(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize("from_app", [False, True])
+def test_a_composition_selecting_redis_is_refused(from_app: bool) -> None:
+    with pytest.raises(InfraConfigError) as refused:
+        use_default_infra(
+            {"eventbus": {"default": {"driver": "redis", "url": _SECRET_URL}}},
+            from_app=from_app,
+        )
+    _assert_refusal(refused.value)
+
+
+def test_event_bus_backend_redis_is_refused_by_name_not_as_a_bare_value() -> None:
+    with pytest.raises(ValidationError) as refused:
+        EventingConfig.model_validate({"EVENT_BUS_BACKEND": "redis"})
+    assert "EVENT_BUS_BACKEND" in str(refused.value)
+    assert "removed in 0.7.0a15" in str(refused.value)
+    assert "broadcast" in str(refused.value)
+    # The other names still validate; an unknown one is still a bare refusal.
+    for name in ("memory", "broadcast", "streams"):
+        assert EventingConfig.model_validate({"EVENT_BUS_BACKEND": name})
+    with pytest.raises(ValidationError):
+        EventingConfig.model_validate({"EVENT_BUS_BACKEND": "kafka"})
+
+
+def test_event_bus_backend_redis_that_bypassed_validation_is_refused_at_load(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
-    monkeypatch.setattr(
-        settings,
-        "infra",
-        {"eventbus": {"default": {"driver": "broadcast"}}},
-        raising=False,
-    )
-    assert load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].driver == (
-        "broadcast"
-    )
-    assert _warnings(caplog) == []
-
-
-def test_event_bus_backend_redis_is_the_alias_too(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
     monkeypatch.setattr(settings, "event_bus_backend", "redis")
-    assert load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].driver == (
-        "broadcast"
-    )
-    assert eventbus_driver(settings) == "broadcast"
-    assert len(_warnings(caplog)) == 1
+    with pytest.raises(InfraConfigError) as refused:
+        load_infra_config(settings)
+    _assert_refusal(refused.value)
 
 
-def test_a_composition_selecting_redis_is_resolved_and_infra_options_layer_on_it(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_only_the_eventbus_capability_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
-    use_default_infra({"eventbus": {"default": {"driver": "redis"}}})
     monkeypatch.setattr(
         settings,
         "infra",
-        {"eventbus": {"default": {"broadcast": "side"}}},
+        {
+            "cache": {"default": {"driver": "redis"}},
+            "broadcast": {"default": {"driver": "redis"}},
+            "lease": {"beat": {"driver": "redis"}},
+            "atomic_store": {"security": {"driver": "redis"}},
+        },
         raising=False,
     )
-    cfg = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE]
-    # INFRA states no driver: the composition's, resolved, with INFRA's options.
-    assert (cfg.driver, cfg.options) == ("broadcast", {"broadcast": "side"})
-    assert len(_warnings(caplog)) == 1
+    config = load_infra_config(settings)
+    assert config["cache"][DEFAULT_INSTANCE].driver == "redis"
+    assert config["broadcast"][DEFAULT_INSTANCE].driver == "redis"
+    assert config["lease"]["beat"].driver == "redis"
+    assert config["atomic_store"]["security"].driver == "redis"
 
 
-def test_only_the_eventbus_capability_is_aliased(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
-    monkeypatch.setattr(
-        settings,
-        "infra",
-        {"cache": {"default": {"driver": "redis"}}},
-        raising=False,
+# ---------------------------------------------------- the registry entry points
+def test_a_registry_built_with_a_hand_made_redis_bus_is_refused() -> None:
+    with pytest.raises(InfraRegistryError) as refused:
+        InfraRegistry(_config("redis", url=_SECRET_URL))
+    _assert_refusal(refused.value)
+
+
+def test_set_config_refuses_redis_and_keeps_the_configuration_it_had() -> None:
+    registry = InfraRegistry(_config("memory"))
+    with pytest.raises(InfraRegistryError) as refused:
+        registry.set_config(_config("redis", url=_SECRET_URL))
+    _assert_refusal(refused.value)
+    kept = registry.instance_config("eventbus")
+    assert kept is not None and kept.driver == "memory"
+
+
+def test_configure_instance_refuses_redis_and_keeps_the_instance_it_had() -> None:
+    registry = InfraRegistry(_config("memory"))
+    with pytest.raises(InfraRegistryError) as refused:
+        registry.configure_instance(
+            InstanceConfig(
+                capability="eventbus",
+                name=DEFAULT_INSTANCE,
+                driver="redis",
+                options={"url": _SECRET_URL},
+            )
+        )
+    _assert_refusal(refused.value)
+    kept = registry.instance_config("eventbus")
+    assert kept is not None and kept.driver == "memory"
+
+
+def test_the_registry_still_takes_the_redis_driver_of_other_capabilities() -> None:
+    registry = InfraRegistry()
+    registry.configure_instance(
+        InstanceConfig(capability="cache", name=DEFAULT_INSTANCE, driver="redis")
     )
-    assert load_infra_config(settings)["cache"][DEFAULT_INSTANCE].driver == "redis"
-    assert _warnings(caplog) == []
+    cache = registry.instance_config("cache")
+    assert cache is not None and cache.driver == "redis"
 
 
-# ---------------------------------------------------- the registry at startup
-def test_an_explicit_configuration_with_the_alias_builds_the_broadcast_driver(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
-    registry = build_infra_registry(
-        InMemorySchemaRegistry(), config=_config("redis"), load_plugins=False
-    )
-    provider = registry.provider("eventbus")
-    assert isinstance(provider, BroadcastEventBusProvider)
-    assert provider.driver == "broadcast"
-    (message,) = _warnings(caplog)
-    assert 'INFRA={"eventbus": {"default": {"driver": "broadcast"}}}' in message
-
-
-def test_the_new_spelling_builds_with_no_warning(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
-    registry = build_infra_registry(
-        InMemorySchemaRegistry(), config=_config("broadcast"), load_plugins=False
-    )
-    assert isinstance(registry.provider("eventbus"), BroadcastEventBusProvider)
-    assert _warnings(caplog) == []
-
-
-def test_every_instance_that_wrote_the_alias_is_warned_about(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    caplog.set_level(logging.WARNING, logger=_LOGGER)
-    config = _config("redis")
-    config["eventbus"]["side"] = InstanceConfig(
-        capability="eventbus", name="side", driver="redis"
-    )
-    resolve_driver_aliases(config)
-    assert {cfg.driver for cfg in config["eventbus"].values()} == {"broadcast"}
-    assert len(_warnings(caplog)) == 2
+def test_build_infra_registry_refuses_an_explicit_redis_bus() -> None:
+    with pytest.raises(InfraRegistryError) as refused:
+        build_infra_registry(
+            InMemorySchemaRegistry(),
+            config=_config("redis", url=_SECRET_URL),
+            load_plugins=False,
+        )
+    _assert_refusal(refused.value)
 
 
 # ----------------------------------------------- no Redis package, no import

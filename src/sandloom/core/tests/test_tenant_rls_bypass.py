@@ -472,7 +472,15 @@ async def test_verification_failure_aborts_startup_in_every_environment() -> Non
         async def aopen(self) -> None:
             raise TenantRLSConfigError("app role is a SUPERUSER")
 
-    reg = InfraRegistry(config={"database": {"default": None}})  # type: ignore[dict-item]
+    reg = InfraRegistry(
+        config={
+            "database": {
+                "default": InstanceConfig(
+                    capability="database", name="default", driver="sqlalchemy"
+                )
+            }
+        }
+    )
     reg.provider = lambda *_a, **_k: _Bad()  # type: ignore[method-assign,assignment,return-value]
     with pytest.raises(InfraStartupError, match="SUPERUSER"):
         await reg.aopen_all(strict=False)

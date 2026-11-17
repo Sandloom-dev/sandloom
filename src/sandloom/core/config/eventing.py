@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from sandloom.core.config.removed_drivers import removed_driver_problem
+
 #: Default age bound of an event stream, in seconds (7 days): the one value of
 #: the ``streams`` driver's ``retention_seconds`` option and the transport's own
 #: default.
@@ -21,18 +23,17 @@ class EventingConfig(BaseModel):
 
     # Event bus transport: unset (None) = the composition's selection (no kernel
     # default, never memory); the volatile memory/broadcast drivers are refused
-    # in prod (see infra.config). ``redis`` is the deprecated spelling of
-    # ``broadcast`` (infra.driver_aliases.DEPRECATED_DRIVER_ALIASES).
-    event_bus_backend: Literal["memory", "broadcast", "redis", "streams"] | None = (
-        Field(
-            default=None,
-            alias="EVENT_BUS_BACKEND",
-            description=(
-                "Event transport selector: unset leaves the bus to the composition's "
-                "selection (startup refuses when none names one); volatile "
-                "production transports require accepted risk."
-            ),
-        )
+    # in prod (see infra.config). A driver name that was removed is refused by
+    # name in the validator below (config.removed_drivers), not as a bare
+    # "not a permitted value".
+    event_bus_backend: Literal["memory", "broadcast", "streams"] | None = Field(
+        default=None,
+        alias="EVENT_BUS_BACKEND",
+        description=(
+            "Event transport selector: unset leaves the bus to the composition's "
+            "selection (startup refuses when none names one); volatile "
+            "production transports require accepted risk."
+        ),
     )
 
     @field_validator("event_bus_backend", mode="before")
@@ -47,6 +48,10 @@ class EventingConfig(BaseModel):
                 "EVENT_BUS_BACKEND to leave the bus to the composition's "
                 "selection, or name a driver (memory, broadcast, streams)"
             )
+        if isinstance(value, str):
+            removed = removed_driver_problem("eventbus", "default", value.strip())
+            if removed is not None:
+                raise ValueError(f"EVENT_BUS_BACKEND: {removed}")
         return value
 
     # Logical service name of this process (e.g. "billing-api"). It names the

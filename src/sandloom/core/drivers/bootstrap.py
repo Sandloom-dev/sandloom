@@ -21,7 +21,6 @@ from sandloom.core.infra.config import (
     InstanceConfig,
     fill_driver_defaults,
     load_infra_config,
-    resolve_driver_aliases,
 )
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
 from sandloom.core.infra.ports._base import DriverTier, InfraProvider
@@ -332,7 +331,6 @@ def build_infra_registry(
     configuration from the settings itself)."""
     resolved_settings = settings or _default_settings
     cfg = config if config is not None else load_infra_config(resolved_settings)
-    resolve_driver_aliases(cfg)
     # Strict in production: a driver cannot be registered for a capability with
     # no spec, and a built instance must report the features it declared.
     registry = InfraRegistry(strict_capabilities=True)
