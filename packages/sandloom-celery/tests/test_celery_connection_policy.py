@@ -228,6 +228,12 @@ def test_an_aws_sqs_queue_url_is_accepted(url: str) -> None:
         f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q\n",
         f"https://stray.sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q",
         f"https://sqs-fips.eu-west-1.amazonaws.com.stray.example/{_ACCOUNT}/q",
+        # the China regions have no FIPS endpoint
+        f"https://sqs-fips.cn-north-1.amazonaws.com.cn/{_ACCOUNT}/q",
+        # a trailing dot, the legacy and the dual-stack names are none of the forms
+        f"https://sqs.eu-west-1.amazonaws.com./{_ACCOUNT}/q",
+        f"https://eu-west-1.queue.amazonaws.com/{_ACCOUNT}/q",
+        f"https://sqs.eu-west-1.api.aws/{_ACCOUNT}/q",
         # a VPC endpoint of another service, another suffix, or a dot in its label
         f"https://vpce-0a1b2c3d-abcd1234.s3.eu-west-1.vpce.amazonaws.com/{_ACCOUNT}/q",
         f"https://vpce-0a1b2c3d-abcd1234.sqs.eu-west-1.vpce.stray.example/{_ACCOUNT}/q",
@@ -264,6 +270,57 @@ def test_the_regions_infra_states_come_from_the_aws_hosts_of_an_sqs_url(
     broker: str, regions: set[str]
 ) -> None:
     assert ConnectionOptions(broker).queue_pin().regions == regions
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "sqs.eu-west-1.amazonaws.com",
+        "sqs-fips.us-east-1.amazonaws.com",
+        "sqs.cn-north-1.amazonaws.com.cn",
+        "vpce-0a1b2c3d-abcd1234.sqs.eu-west-1.vpce.amazonaws.com",
+        # an emulator or a proxy: no AWS domain, no region, nothing to pin
+        "localhost:4566",
+        "elasticmq.internal",
+        "sqs.eu-west-1.amazonaws.com.stray.example",
+    ],
+)
+def test_an_sqs_host_that_names_a_region_or_no_aws_domain_is_accepted(
+    host: str,
+) -> None:
+    validate_connection(ConnectionOptions(f"sqs://K:S@{host}"))
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        # a trailing dot: the host is the same, its region is not read
+        "sqs.eu-west-1.amazonaws.com.",
+        "elasticmq.internal.",
+        # the legacy and the dual-stack names
+        "eu-west-1.queue.amazonaws.com",
+        "queue.amazonaws.com",
+        "sqs.eu-west-1.api.aws",
+        # no FIPS endpoint in China
+        "sqs-fips.cn-north-1.amazonaws.com.cn",
+        # an AWS domain of no SQS form
+        "stray.eu-west-1.amazonaws.com",
+        "sqs.eu-west-1.vpce.amazonaws.com",
+    ],
+)
+def test_an_infra_sqs_host_that_sets_no_region_pin_is_refused(host: str) -> None:
+    """The queue-url pin reads the region out of the INFRA host: a host of the AWS
+    domains that it cannot read would leave the pin silently off."""
+    good = "sqs://K:S@sqs.us-east-1.amazonaws.com"
+    for broker in (
+        f"sqs://KEY:infra-secret@{host}",
+        f"{good};sqs://KEY:infra-secret@{host}",
+    ):
+        with pytest.raises(ValueError, match="SQS host") as refused:
+            validate_connection(ConnectionOptions(broker))
+        assert "infra-secret" not in str(refused.value)
+        with pytest.raises(ValidationError, match="SQS host"):
+            CeleryTaskQueueOptions.model_validate({"broker": broker})
 
 
 def test_a_queue_url_is_pinned_to_the_region_of_the_infra_host() -> None:

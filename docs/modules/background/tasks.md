@@ -272,7 +272,7 @@ scheme stays supported. The allowed keys:
   `backoff_tasks`. The credentials and the region of a queue come from the `INFRA` url
   and `region`. The queue `url` is `https://<host>/<account>/<name>` with an AWS host:
   `sqs.<region>.amazonaws.com` (`.amazonaws.com.cn` in China), the FIPS
-  `sqs-fips.<region>.amazonaws.com` or a VPC endpoint
+  `sqs-fips.<region>.amazonaws.com` (not in China) or a VPC endpoint
   `vpce-<id>.sqs.<region>.vpce.amazonaws.com`;
 - `result_backend_transport_options` of any backend: `retry_policy`,
   `result_chord_ordered` and `global_keyprefix`.
@@ -287,6 +287,17 @@ url has an AWS host, the queue urls and the `region` option of the conf must nam
 region of that host. When it has none, the `region` option of the conf is the pin. With
 neither, kombu takes the region from the environment. The check does not read it, so a
 queue of any region passes.
+
+The `INFRA` broker url of an `sqs://` instance takes these host forms: the three
+above (`sqs.<region>.amazonaws.com`, the FIPS and the VPC endpoint names, each
+naming its region), a host with no AWS domain (an emulator or a proxy, no region to
+pin) or no host. A host under `amazonaws.com`, `amazonaws.com.cn` or `api.aws` of any
+other form, and any host with a trailing dot, is refused at startup, because the pin
+could not read its region: the legacy `<region>.queue.amazonaws.com`, the dual-stack
+`sqs.<region>.api.aws`, `sqs.<region>.amazonaws.com.` and
+`sqs-fips.<region>.amazonaws.com.cn` (the China regions have no FIPS endpoint). A queue
+`url` of any form only names a queue: the `INFRA` host picks the endpoint that carries
+the traffic.
 
 The `INFRA` option `sqs_account_id` pins the account. It has 12 digits and any other
 scheme refuses it. A queue url of another account is then refused. Left out, any account

@@ -208,7 +208,15 @@ Check each of these before the first start:
    queue `url` and the backoff keys. Its credentials and region come from the `INFRA`
    url and the `region` option. The queue `url` must be in the region of the `INFRA`
    url's AWS host, or of the conf `region`. With the `INFRA` option `sqs_account_id` it
-   must be in that account too. VPC endpoint and FIPS hosts are accepted.
+   must be in that account too. VPC endpoint and FIPS hosts are accepted. A conf
+   `region` (in `broker_transport_options`) that differs from the region of the `INFRA`
+   host is refused. A FIPS or VPC endpoint queue `url` does not move traffic: the
+   `INFRA` host picks the endpoint. An `INFRA` broker host under an AWS domain that
+   names no readable region is refused, because it would leave the queue-url pin off:
+   a trailing dot (`sqs.eu-west-1.amazonaws.com.`), the legacy
+   `<region>.queue.amazonaws.com`, the dual-stack `sqs.<region>.api.aws` and
+   `sqs-fips.<region>.amazonaws.com.cn` (the China regions have no FIPS endpoint). Use
+   `sqs.<region>.amazonaws.com`. An emulator or proxy host is accepted.
 4. **A `;`-separated url.** A space or an empty chunk around a `;` is refused, and so
    are urls of different schemes.
 5. **A config module that sets a result backend's endpoint, project or path.** For
