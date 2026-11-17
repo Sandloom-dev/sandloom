@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import sys
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.config.settings import settings as _default_settings
@@ -47,9 +46,6 @@ KNOWN_DRIVER_PACKAGES: dict[tuple[str, str], tuple[str, str]] = {
     ("eventbus", "streams"): ("sandloom_redis", "pip install sandloom-redis"),
     ("taskqueue", "celery"): ("sandloom_celery", "pip install sandloom-celery"),
 }
-#: The module of the ``sandloom-redis`` cache driver, whose default client
-#: exists once it was imported (:func:`close_default_cache`).
-_REDIS_CACHE_MODULE = "sandloom_redis.cache"
 _DRIVERS = "sandloom.core.drivers"
 
 logger = logging.getLogger("sandloom.core.infra")
@@ -437,17 +433,6 @@ async def close_default_database() -> None:
     await driver.close_default_engine()
 
 
-async def close_default_cache() -> None:
-    """Close the process-wide default cache client (driver-owned).
-
-    The client exists only once the ``sandloom_redis`` package's cache module
-    was imported, so a build without the package has nothing to close.
-    """
-    driver = sys.modules.get(_REDIS_CACHE_MODULE)
-    if driver is not None:
-        await driver.close_default_client()
-
-
 __all__ = [
     "BUILTIN_DRIVER_ROWS",
     "SQLALCHEMY_SQL_DIALECTS",
@@ -457,6 +442,5 @@ __all__ = [
     "build_infra_registry",
     "unverified_noeviction_allowed",
     "volatile_event_bus_allowed",
-    "close_default_cache",
     "close_default_database",
 ]

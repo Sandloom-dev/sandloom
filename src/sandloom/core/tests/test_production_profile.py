@@ -139,7 +139,7 @@ def test_default_production_config_is_refused_with_every_reason() -> None:
                     },
                 }
             },
-            "atomic_store/security runs on the same Redis server as the default cache",
+            "atomic_store/security runs on the same server as the default cache",
         ),
         (
             {

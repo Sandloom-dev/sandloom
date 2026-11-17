@@ -1,9 +1,10 @@
 """Backup plan and restore verification (``sandloom backup plan|verify``, H-20).
 
 * :func:`build_backup_plan` — what must be backed up, per configured database
-  instance and per Redis endpoint (security store, cache, broker, event bus),
-  and how: ``pg_dump`` + PITR for PostgreSQL, AOF/RDB for Redis, and what a
-  restore of each implies (``sandloom backup reconcile-security`` for the security
+  instance and per server a driver says holds data (security store, cache,
+  broker, event bus: ``InfraProvider.backup_hint``), and how: ``pg_dump`` + PITR
+  for PostgreSQL, what the drivers advise for their servers, and what a restore
+  of each implies (``sandloom backup reconcile-security`` for the security
   atomic_store).
 * :func:`verify_dump` — restore a ``pg_dump`` into a throw-away database on a
   scratch server, check that every migration chain the database hosts is at
@@ -24,7 +25,7 @@ import subprocess
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import SplitResult, urlsplit, urlunsplit
@@ -48,6 +49,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.descriptors import ModuleDescriptor
+from sandloom.core.infra.config import DEFAULT_INSTANCE
+from sandloom.core.infra.ports._base import BACKUP_CRITICALITIES, BackupHint
+from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.infra.tool_infra import filled_infra_config
 from sandloom.core.migrations.migrations import (
     _mask_url,
@@ -88,7 +92,8 @@ SCRATCH_PREFIX = "sandloom_restore_verify_"
 # --------------------------------------------------------------------------- #
 @dataclass(slots=True)
 class PlanItem:
-    # "postgres" | "redis" | "objectstore" | "secrets" | "warning"
+    # "postgres" | "objectstore" | "secrets" | "warning", or the kind a driver's
+    # ``BackupHint`` names for its server (``redis``)
     kind: str
     name: str
     target: str  # masked URL / path
@@ -162,25 +167,30 @@ def _postgres_item(
     )
 
 
+def _atomic_store_note(name: str, atomic: Mapping[str, Any]) -> str:
+    """What the ``atomic_store`` instance ``name`` holds for the kernel, as the
+    suffix of its role line (empty for an instance of another name)."""
+    if name == "security":
+        tail = "]" if "idempotency" in atomic else ", idempotency]"
+        return " [SECURITY: revocation marks, user blocks, RPC nonces" + tail
+    if name == "idempotency":
+        return " [IDEMPOTENCY: guard / task-enqueue dedupe records]"
+    return ""
+
+
 def _atomic_store_roles(
-    atomic: Mapping[str, Any], driver: str = "redis"
+    atomic: Mapping[str, Any], driver: str
 ) -> list[tuple[str, str]]:
-    """``(url, role)`` of every ``atomic_store`` instance of ``driver`` (``redis``,
-    or ``database``: the rows of ``infra_atomic_store``)."""
-    separate = "idempotency" in atomic
+    """``(url, role)`` of every ``atomic_store`` instance of the ``database``
+    driver (the rows of ``infra_atomic_store``)."""
     where = " (infra_atomic_store)" if driver == "database" else ""
     found: list[tuple[str, str]] = []
     for name, inst in sorted(atomic.items()):
         url = inst.options.get("url")
         if inst.driver != driver or not isinstance(url, str) or not url:
             continue
-        role = f"atomic_store:{name}{where}"
-        if name == "security":
-            role += " [SECURITY: revocation marks, user blocks, RPC nonces"
-            role += "]" if separate else ", idempotency]"
-        elif name == "idempotency":
-            role += " [IDEMPOTENCY: guard / task-enqueue dedupe records]"
-        found.append((url, role))
+        note = _atomic_store_note(name, atomic)
+        found.append((url, f"atomic_store:{name}{where}{note}"))
     return found
 
 
@@ -213,85 +223,138 @@ def _database_store_items(
     return extra
 
 
-def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
-    """``{redis url: [role, ...]}`` across cache / eventbus / taskqueue."""
-    roles: dict[str, list[str]] = {}
-    for name, inst in sorted((config.get("cache") or {}).items()):
-        url = inst.options.get("url")
-        if not isinstance(url, str) or not url:
-            continue
-        roles.setdefault(url, []).append(f"cache:{name}")
-    for url, role in _atomic_store_roles(config.get("atomic_store") or {}):
-        roles.setdefault(url, []).append(role)
-    for name, inst in sorted((config.get("eventbus") or {}).items()):
-        # The volatile ``broadcast`` bus keeps no data: only ``streams`` has any.
-        if inst.driver != "streams":
-            continue
-        # A bus with no url of its own runs on the default cache client, so its
-        # data lives where ``cache.default`` points (INFRA).
-        default_cache = (config.get("cache") or {}).get("default")
-        url = inst.options.get("url") or (
-            default_cache.options.get("url") if default_cache else None
-        )
-        if not url:  # no url anywhere: no Redis to back up
-            continue
-        roles.setdefault(url, []).append(f"eventbus:{name} ({inst.driver})")
-    for name, inst in sorted((config.get("taskqueue") or {}).items()):
-        broker = inst.options.get("broker")
-        if isinstance(broker, str) and broker.startswith(("redis://", "rediss://")):
-            roles.setdefault(broker, []).append(f"taskqueue:{name} broker")
-    return roles
+#: The restore notes of the ``security`` atomic_store instance, whichever driver
+#: holds it: they name the kernel's own repair commands.
+_SECURITY_RESTORE = (
+    "a snapshot older than a later block / revocation LIFTS it silently: "
+    "run sandloom backup reconcile-security --apply before admitting traffic",
+    "if the snapshot age is unknown and the outbox no longer covers the "
+    "access-token lifetime: sandloom security revoke-sessions --all (or rotate "
+    "the JWT signing key)",
+)
+#: Capabilities the plan lists by itself (a database dump, an object store's
+#: copy); every other one asks its drivers (``InfraProvider.backup_hint``).
+_LISTED_BY_THE_PLAN = frozenset({"database", "objectstore"})
+#: The order the roles of a server are listed in; another capability follows by name.
+_ROLE_ORDER = ("cache", "atomic_store", "eventbus", "taskqueue")
 
 
-def _redis_item(url: str, roles: list[str]) -> PlanItem:
-    security = any("SECURITY" in r for r in roles)
-    streams = any(r.startswith("eventbus:") and "streams" in r for r in roles)
-    backup = [
-        "appendonly yes + appendfsync everysec (AOF) AND periodic RDB "
-        "snapshots (save / BGSAVE); copy dump.rdb + the appendonly dir off-host",
-    ]
-    restore: list[str] = []
-    if security:
-        backup.insert(
-            0,
-            "maxmemory-policy noeviction (an evicted block mark = an unblocked "
-            "user); a SEPARATE instance from the best-effort cache in prod",
+@dataclass(slots=True)
+class _Server:
+    """What the drivers say about one server: the instances that run on it."""
+
+    kind: str
+    url: str
+    roles: list[str] = field(default_factory=list)
+    criticality: str = "optional"
+    backup: list[str] = field(default_factory=list)
+    restore: list[str] = field(default_factory=list)
+    tolerable: list[str] = field(default_factory=list)
+
+    def add(self, role: str, hint: BackupHint) -> None:
+        self.roles.append(role)
+        self.criticality = min(
+            self.criticality, hint.criticality, key=BACKUP_CRITICALITIES.index
         )
-        restore += [
-            "a snapshot older than a later block / revocation LIFTS it silently: "
-            "run sandloom backup reconcile-security --apply before admitting traffic",
-            "if the snapshot age is unknown and the outbox no longer covers the "
-            "access-token lifetime: sandloom security revoke-sessions --all (or rotate "
-            "the JWT signing key)",
-        ]
-    if streams:
-        restore += [
-            "events delivered to the stream after the snapshot are lost from it "
-            "(the outbox already marked them delivered): rebuild projections "
-            "(sandloom projection rebuild) and replay affected consumers by hand",
-            "consumer-group offsets come back older: consumers re-read and dedupe",
-        ]
-    if any(r.startswith("taskqueue:") for r in roles):
-        restore.append(
-            "queued Celery tasks newer than the snapshot are lost and older ones "
-            "may run again: task effects need DB-atomic idempotency; re-enqueue "
-            "what is missing (docs/operate/operator-reference.md: "
-            "uncertain task enqueues)"
+        _restate(self.backup, hint.backup)
+        _restate(self.restore, hint.restore)
+        if hint.tolerable_loss is not None:
+            self.tolerable.append(hint.tolerable_loss)
+
+    def item(self) -> PlanItem:
+        restore = list(self.restore)
+        # A server that also holds something that must survive has no tolerable loss.
+        if self.tolerable and len(self.tolerable) == len(self.roles):
+            restore.extend(dict.fromkeys(self.tolerable))
+        return PlanItem(
+            kind=self.kind,
+            name=", ".join(r.split(" ")[0] for r in self.roles),
+            target=_mask_url(self.url),
+            roles=self.roles,
+            criticality=self.criticality,
+            backup=self.backup,
+            restore=restore,
         )
-    if not security and not streams and all(r.startswith("cache:") for r in roles):
-        restore.append(
-            "losing it is tolerable: rate-limit windows reset, cache-backed "
-            "idempotency replays are forgotten (DB-atomic dedupe is unaffected)"
-        )
-    return PlanItem(
-        kind="redis",
-        name=", ".join(r.split(" ")[0] for r in roles),
-        target=_mask_url(url),
-        roles=roles,
-        criticality="critical" if security else ("required" if streams else "optional"),
-        backup=backup,
-        restore=restore,
-    )
+
+
+def _restate(steps: list[str], new: Sequence[str]) -> None:
+    """Add ``new`` to ``steps``: a step already listed moves to its latest place."""
+    for step in new:
+        if step in steps:
+            steps.remove(step)
+        steps.append(step)
+
+
+def _default_cache_url(config: Any, registry: InfraRegistry) -> str | None:
+    """The url ``cache.default`` is configured with (the option its driver
+    declares as the one that holds it)."""
+    default = (config.get("cache") or {}).get(DEFAULT_INSTANCE)
+    driver = registry.driver_class("cache", default.driver) if default else None
+    option = driver.url_option if driver is not None else None
+    url = default.options.get(option) if default is not None and option else None
+    return url if isinstance(url, str) and url else None
+
+
+def _role_rank(capability: str) -> tuple[int, str]:
+    known = capability in _ROLE_ORDER
+    return (_ROLE_ORDER.index(capability) if known else len(_ROLE_ORDER), capability)
+
+
+#: ``atomic_store`` instances the kernel needs to survive a restore. A driver
+#: that returns no hint for one leaves it out of the plan: the plan says so.
+_MUST_SURVIVE = ("security", "idempotency")
+#: Drivers of those instances the plan needs no hint of: the database store is
+#: folded into its database's item, the memory store is lost by design.
+_NEEDS_NO_HINT = frozenset({"database", "memory"})
+
+
+def _servers(
+    config: Any, registry: InfraRegistry
+) -> tuple[list[PlanItem], list[str], list[str]]:
+    """``(items, missing, silent)``: one item per server the configured drivers
+    say hold data (their ``backup_hint``), the ``capability:instance`` of every
+    instance whose driver is not installed here, which cannot say, and that of
+    every security or idempotency store whose driver gave no hint."""
+    servers: dict[tuple[str, str], _Server] = {}
+    missing: list[str] = []
+    silent: list[str] = []
+    for capability in sorted(
+        (c for c in config if c not in _LISTED_BY_THE_PLAN), key=_role_rank
+    ):
+        for name, inst in sorted((config.get(capability) or {}).items()):
+            driver = registry.driver_class(capability, inst.driver)
+            if driver is None:
+                missing.append(f"{capability}:{name} ({inst.driver})")
+                continue
+            hint = driver.backup_hint(inst.options)
+            if hint is None:
+                if (
+                    capability == "atomic_store"
+                    and name in _MUST_SURVIVE
+                    and inst.driver not in _NEEDS_NO_HINT
+                ):
+                    silent.append(f"{capability}:{name} ({inst.driver})")
+                continue
+            url = hint.url or _default_cache_url(config, registry)
+            if url is None:  # no url anywhere: no server to back up
+                continue
+            role = f"{capability}:{name}"
+            if capability == "atomic_store":
+                role += _atomic_store_note(name, config["atomic_store"])
+                if name == "security":
+                    hint = replace(
+                        hint,
+                        criticality="critical",
+                        restore=(*_SECURITY_RESTORE, *hint.restore),
+                    )
+                elif name == "idempotency" and hint.criticality == "optional":
+                    # The kernel keeps idempotency through a restore (_MUST_SURVIVE):
+                    # its server is at least required, a stronger driver value stays.
+                    hint = replace(hint, criticality="required")
+            servers.setdefault((hint.kind, url), _Server(hint.kind, url)).add(
+                role, hint
+            )
+    return [server.item() for server in servers.values()], missing, silent
 
 
 def _secrets_item(models: Sequence[type[BaseModel]]) -> PlanItem:
@@ -333,7 +396,7 @@ def build_backup_plan(
     (``core.module_settings.records()``), whose secrets the plan lists."""
     # Filled as the application is: ``load_infra_config`` alone fills no driver
     # option, so a bound a driver takes from the settings would be missing.
-    config, unfilled = filled_infra_config(settings)
+    config, unfilled, registry = filled_infra_config(settings)
     items: list[PlanItem] = []
     postgres: dict[str, PlanItem] = {}
     for name, inst in sorted((config.get("database") or {}).items()):
@@ -344,8 +407,12 @@ def build_backup_plan(
     items.extend(
         _database_store_items(config.get("atomic_store") or {}, postgres, descriptors)
     )
-    for url, roles in _redis_roles(config, settings).items():
-        items.append(_redis_item(url, roles))
+    # Drivers that did not all load cannot say which servers hold data: the
+    # warning below says so, and none is listed from a half-loaded registry.
+    servers, missing, silent = (
+        _servers(config, registry) if unfilled is None else ([], [], [])
+    )
+    items.extend(servers)
     for name, inst in sorted((config.get("objectstore") or {}).items()):
         where = inst.options.get("bucket") or inst.options.get("path") or "?"
         items.append(
@@ -360,19 +427,34 @@ def build_backup_plan(
                 restore=["restore to the same logical keys; no reconciliation"],
             )
         )
+    unlisted: list[str] = []
     if unfilled is not None:
+        unlisted.append(
+            f"an installed driver failed to load ({unfilled}): this plan cannot "
+            "ask the drivers which servers hold your data, so it lists none of "
+            "the cache, atomic_store, event bus or task queue servers; fix the "
+            "installation and rerun"
+        )
+    if missing:
+        unlisted.append(
+            f"no driver is installed here for {', '.join(missing)}: the servers "
+            "behind them are not in this plan; run it where the drivers are "
+            "installed"
+        )
+    if silent:
+        unlisted.append(
+            f"the driver of {', '.join(silent)} reports no backup hint: the "
+            "server holding that state is not in this plan, and the state must "
+            "survive a restore; back it up as its driver documents"
+        )
+    if unlisted:
         items.append(
             PlanItem(
                 kind="warning",
-                name="redis endpoints",
+                name="backing servers",
                 target="incomplete",
                 criticality="critical",
-                backup=[
-                    "an installed driver failed to load "
-                    f"({unfilled}): this plan lists the Redis endpoints INFRA "
-                    "states as written and cannot confirm what the driver adds; "
-                    "fix the installation and rerun"
-                ],
+                backup=unlisted,
             )
         )
     items.append(_secrets_item(models))

@@ -44,6 +44,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.driverkit import (
     DEFAULT_INSTANCE,
+    BackupHint,
     CacheProvider,
     HealthResult,
     InfraError,
@@ -60,6 +61,7 @@ from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoin
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._url import require_url
+from sandloom_redis.backup import cache_hint
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
 #: TypeError is not counted), by instance and operation.
@@ -439,6 +441,16 @@ class RedisCacheProvider(CacheProvider):
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
         return isolated_redis_options(options, worker_id)
+
+    @classmethod
+    def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:
+        """The server this cache runs on, for ``sandloom backup plan``."""
+        return cache_hint(options)
+
+    @classmethod
+    async def aclose_shared(cls) -> None:
+        """Close the process-wide default client (and its transport siblings)."""
+        await close_default_client()
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:

@@ -382,7 +382,7 @@ def test_development_and_test_keep_the_implicit_security_store() -> None:
     [
         (
             {"driver": "redis", "url": "redis://cache-redis:6379/7"},
-            "atomic_store/idempotency runs on the same Redis server as the default",
+            "atomic_store/idempotency runs on the same server as the default",
         ),
         (
             {"driver": "memory"},
@@ -416,7 +416,81 @@ def test_strict_profile_warns_when_sharing_the_security_redis() -> None:
     cfg = _settings(INFRA=infra)
     errors, warnings = production_profile.config_problems(cfg)
     assert errors == []
-    assert any("same Redis server as atomic_store/security" in w for w in warnings)
+    assert any("same server as atomic_store/security" in w for w in warnings)
+
+
+# The refusal compares urls and names no driver. A url that leaves its port out
+# matches any port (the kernel knows no driver's default), so it refuses at
+# least what the old test of the Redis default port 6379 refused.
+@pytest.mark.parametrize(
+    ("left", "right", "same"),
+    [
+        ("redis://host:6379/1", "redis://host:6379/4", True),
+        ("redis://Host/1", "redis://host:6379/4", True),
+        ("redis://host:6379/1", "redis://host/4", True),
+        ("rediss://host:6379/1", "redis://host:6379/4", True),
+        ("valkey://host:6379/1", "valkey://host:6379/4", True),
+        # both ports stated: one host and port is one server, whatever the scheme
+        ("valkey://host:6379/1", "redis://host:6379/4", True),
+        ("redis://host:6379/1", "memcached://host:6379", True),
+        # a port left out: only the same scheme (or its TLS form) may match
+        ("valkey://host/1", "redis://host:6379/4", False),
+        ("redis://host:6380/1", "redis://host:6379/4", False),
+        ("valkey://host:6380/1", "redis://host:6379/4", False),
+        ("redis://other:6379/1", "redis://host:6379/4", False),
+        ("postgresql://host/app", "redis://host:6379/4", False),
+        ("redis://host:6379/1", None, False),
+        (None, "redis://host:6379/4", False),
+        ("redis://host:99999999/1", "redis://host:6379/4", False),
+    ],
+)
+def test_the_same_server_check_compares_urls_and_names_no_driver(
+    left: str | None, right: str | None, same: bool
+) -> None:
+    assert production_profile._same_server(left, right) is same
+
+
+def test_a_store_of_any_driver_on_the_cache_server_is_refused() -> None:
+    infra = {
+        "cache": {"default": {"driver": "valkey", "url": "valkey://shared:6379/0"}},
+        "atomic_store": {
+            "security": {"driver": "valkey", "url": "valkey://shared:6379/1"}
+        },
+    }
+    problems = production_profile._atomic_store_problems(object(), infra, [])
+    assert any("same server as the default cache" in p for p in problems)
+
+
+def test_a_database_store_on_the_cache_host_is_not_a_shared_server() -> None:
+    infra = {
+        "cache": {"default": {"driver": "redis", "url": "redis://shared:6379/0"}},
+        "atomic_store": {
+            "security": {"driver": "database", "url": "postgresql://shared/app"}
+        },
+    }
+    assert production_profile._atomic_store_problems(object(), infra, []) == []
+
+
+def test_the_url_is_read_from_the_option_the_driver_declares(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A driver whose url option is not ``url`` is still compared, as the backup
+    plan reads it (``InfraProvider.url_option``)."""
+    monkeypatch.setattr(
+        production_profile,
+        "declared_url_options",
+        lambda _selection: {"cache.valkey": "dsn", "atomic_store.valkey": "dsn"},
+    )
+    infra = {
+        "cache": {"default": {"driver": "valkey", "dsn": "valkey://shared:6379/0"}},
+        "atomic_store": {
+            "security": {"driver": "valkey", "dsn": "valkey://shared:6379/1"}
+        },
+    }
+    problems = production_profile._atomic_store_problems(object(), infra, [])
+    assert any("same server as the default cache" in p for p in problems)
+    infra["atomic_store"]["security"]["dsn"] = "valkey://other:6379/1"
+    assert production_profile._atomic_store_problems(object(), infra, []) == []
 
 
 class _Provider:
@@ -542,21 +616,12 @@ async def test_the_in_memory_store_expires_a_row_after_its_ttl() -> None:
     assert await mem.get("k") is None
 
 
-def test_backup_plan_labels_the_idempotency_redis() -> None:
-    config = {
-        "cache": {
-            "default": SimpleNamespace(options={"url": "redis://default:6379/0"})
-        },
-        "atomic_store": {
-            name: SimpleNamespace(
-                driver="redis", options={"url": f"redis://{name}:6379/0"}
-            )
-            for name in ("security", "idempotency")
-        },
-    }
-    roles = backup._redis_roles(config, SimpleNamespace())
-    assert roles["redis://security:6379/0"] == [
-        "atomic_store:security [SECURITY: revocation marks, user blocks, RPC nonces]"
-    ]
-    assert "IDEMPOTENCY" in roles["redis://idempotency:6379/0"][0]
-    assert roles["redis://default:6379/0"] == ["cache:default"]
+def test_backup_plan_labels_the_security_and_idempotency_stores() -> None:
+    both = {"security": object(), "idempotency": object()}
+    assert backup._atomic_store_note("security", both) == (
+        " [SECURITY: revocation marks, user blocks, RPC nonces]"
+    )
+    assert "IDEMPOTENCY" in backup._atomic_store_note("idempotency", both)
+    # with no idempotency instance the security store holds its records too
+    assert "idempotency]" in backup._atomic_store_note("security", {"security": 1})
+    assert backup._atomic_store_note("other", both) == ""

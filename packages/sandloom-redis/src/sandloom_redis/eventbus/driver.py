@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import sandloom_redis.cache as _redis_cache
 from sandloom.driverkit import (
+    BackupHint,
     EventTransportProvider,
     HealthResult,
     InfraProvider,
@@ -32,6 +33,7 @@ from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._url import require_url
+from sandloom_redis.backup import streams_hint
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 from sandloom_redis.eventbus.streams_transport_base import _mapped
 
@@ -196,6 +198,17 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
     #: ``url`` of its own: it runs on the default cache client, which must have
     #: one (``aopen``). A provider built by hand brings its own client.
     _uses_default_client = False
+
+    @classmethod
+    def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint:
+        """The server the stream lives on, for ``sandloom backup plan``."""
+        return streams_hint(options)
+
+    @classmethod
+    async def aclose_shared(cls) -> None:
+        """Close the process-wide default client an instance with no ``url``
+        of its own runs on (idempotent: the cache driver closes it too)."""
+        await _redis_cache.close_default_client()
 
     def __init__(
         self,

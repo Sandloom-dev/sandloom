@@ -1,7 +1,8 @@
 """``sandloom backup plan|verify`` and the operator guard rails (H-20).
 
-* the plan names every database instance and Redis endpoint, flags the
-  security cache as critical and never prints a password;
+* the plan names every database instance and every backing server the
+  configured drivers say hold data (``InfraProvider.backup_hint``), flags the
+  security store as critical and never prints a password;
 * ``verify`` restores into a throw-away database, checks every hosted
   migration chain is at its head plus basic integrity, and drops it;
 * a restore that fails, or a database behind its chain head, fails the
@@ -17,7 +18,7 @@ import argparse
 import os
 import shlex
 import subprocess
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, ClassVar
@@ -29,11 +30,23 @@ from sqlalchemy import Table
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import sandloom.core.drivers.bootstrap as bootstrap
 import sandloom.core.infra.config as infra_config
 import sandloom.core.infra.tool_infra as tool_infra
+import sandloom.core.migrations.backup as backup_module
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
-from sandloom.core.infra.registry import DriverConflictError, DriverLoadError
+from sandloom.core.infra.ports._base import (
+    BackupCriticality,
+    BackupHint,
+    InfraProvider,
+)
+from sandloom.core.infra.registry import (
+    DriverConflictError,
+    DriverLoadError,
+    InfraRegistry,
+)
+from sandloom.core.infra.tool_infra import FilledInfraConfig
 from sandloom.core.migrations.backup import (
     CORE_TABLES,
     CORE_VERSION_TABLE,
@@ -48,6 +61,7 @@ from sandloom.core.migrations.backup import (
     verify_dump,
 )
 from sandloom.core.migrations.migrations import core_chain_dir
+from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import reload_test_env
 from sandloom.core.testing.migrations import (
     MigrationChain,
@@ -102,18 +116,21 @@ class _KeyedModule(BaseModel):
 def test_plan_covers_databases_and_security_redis_without_secrets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        settings,
-        "infra",
+    _use_stub_drivers(
+        monkeypatch,
         {
             "database": {
+                "default": {
+                    "driver": "sqlalchemy",
+                    "url": "postgresql+asyncpg://u:s3cret@db1:5432/app",
+                },
                 "analytics": {
                     "driver": "sqlalchemy",
                     "url": "postgresql+asyncpg://u:s3cret@db2:5432/analytics",
-                }
+                },
             },
             "atomic_store": {
-                "security": {"driver": "redis", "url": "redis://:pw@sec:6379/0"}
+                "security": {"driver": "stubstore", "url": "stub://:pw@sec:6379/0"}
             },
         },
     )
@@ -123,12 +140,12 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
     assert ("postgres", "default") in names
     assert ("postgres", "analytics") in names
     security = [
-        i for i in items if i.kind == "redis" and "atomic_store:security" in i.name
+        i for i in items if i.kind == "stubserver" and "atomic_store:security" in i.name
     ]
     assert len(security) == 1
     assert security[0].criticality == "critical"
     assert any("reconcile-security" in step for step in security[0].restore)
-    assert any("noeviction" in step for step in security[0].backup)
+    assert any("never evict" in step for step in security[0].backup)
     assert "s3cret" not in text and ":pw@" not in text
     assert "pg_dump --format=custom" in text
     # the kernel's keys, and each loaded module's declared secret and loss note
@@ -167,96 +184,320 @@ def test_plan_flags_a_database_security_store_on_a_listed_and_on_its_own_databas
     assert separate.kind == "postgres" and separate.criticality == "critical"
     assert any("IDEMPOTENCY" in r for r in separate.roles)
     assert not any(
-        "atomic_store" in r for i in items if i.kind == "redis" for r in i.roles
+        "atomic_store" in r
+        for i in items
+        if i.kind not in ("postgres", "objectstore")
+        for r in i.roles
     )
     assert "s3cret" not in format_plan(items)
 
 
-#: What a stand-in composition states, the urls the Redis and Celery drivers
-#: would take from ``INFRA``: the kernel test needs no driver package (the
-#: no-Redis lane has none). The plan knows a Redis store by the driver name
-#: ``redis``; no driver fills a url (no flat setting carries one any more).
+#: Stand-in drivers: the kernel test needs no driver package (the no-Redis lane
+#: has none). Each says what ``InfraProvider.backup_hint`` lets a real driver
+#: say; the real Redis and Celery hints are tested in their packages.
+class _ServerDriver(InfraProvider):
+    """A driver whose instance runs on the server its ``url`` names."""
+
+    contract_version = 1
+    url_option = "url"
+    hint_url_option = "url"
+    steps: ClassVar[tuple[str, ...]] = ("persist it",)
+    loss: ClassVar[str | None] = "losing it is tolerable"
+    criticality: ClassVar[BackupCriticality] = "optional"
+
+    @classmethod
+    def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:
+        url = options.get(cls.hint_url_option)
+        if not isinstance(url, str):
+            return None
+        return BackupHint(
+            url=url,
+            kind="stubserver",
+            criticality=cls.criticality,
+            backup=cls.steps,
+            restore=("restore it",),
+            tolerable_loss=cls.loss,
+        )
+
+
+class _CacheDriver(_ServerDriver):
+    steps = ("persist it",)
+
+
+class _StoreDriver(_ServerDriver):
+    steps = ("never evict it", "persist it")
+    loss = None
+    criticality = "required"
+
+
+class _OtherLossDriver(_ServerDriver):
+    loss = "losing the other one is tolerable too"
+
+
+class _BrokerDriver(_ServerDriver):
+    url_option = "broker"
+    hint_url_option = "broker"
+    loss = None
+
+
+class _SharedClientDriver(_ServerDriver):
+    """No url of its own: it uses the process default (the default cache's)."""
+
+    @classmethod
+    def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:
+        return BackupHint(url=None, kind="stubserver")
+
+
+class _SilentDriver(InfraProvider):
+    """A driver that says nothing (the base answer): nothing to back up."""
+
+    contract_version = 1
+    url_option = "url"
+
+
+_STUB_DRIVERS: dict[tuple[str, str], type[InfraProvider]] = {
+    ("cache", "stubcache"): _CacheDriver,
+    ("cache", "silent"): _SilentDriver,
+    ("atomic_store", "stubstore"): _StoreDriver,
+    ("atomic_store", "silentstore"): _SilentDriver,
+    ("atomic_store", "besteffort"): _CacheDriver,
+    ("cache", "otherloss"): _OtherLossDriver,
+    ("eventbus", "stubshared"): _SharedClientDriver,
+    ("taskqueue", "stubbroker"): _BrokerDriver,
+}
+
+
+class _StubRegistry(InfraRegistry):
+    """The registry the plan asks for classes: the stand-ins, then the kernel's
+    own drivers (the ones the kernel adds to every composition)."""
+
+    def __init__(self) -> None:
+        super().__init__(strict_capabilities=True)
+        bootstrap.register_builtin_drivers(
+            self, InMemorySchemaRegistry(), settings=settings
+        )
+
+    def driver_class(self, capability: str, driver: str) -> type[InfraProvider] | None:
+        stub = _STUB_DRIVERS.get((capability, driver))
+        return stub if stub is not None else super().driver_class(capability, driver)
+
+
+def _use_stub_drivers(
+    monkeypatch: pytest.MonkeyPatch,
+    infra: dict[str, Any],
+    *,
+    unfilled: str | None = None,
+) -> None:
+    """The composition states ``infra`` and the registry knows the stand-ins."""
+    monkeypatch.setattr(settings, "infra", {})
+    monkeypatch.setattr(infra_config, "_APP", None)
+    monkeypatch.setattr(infra_config, "_PIN", infra_config._checked(infra))
+    registry = _StubRegistry()
+
+    def filled(flat: Any) -> FilledInfraConfig:
+        return FilledInfraConfig(
+            infra_config.load_infra_config(flat), unfilled, registry
+        )
+
+    monkeypatch.setattr(backup_module, "filled_infra_config", filled)
+
+
 _STUB_INFRA = {
-    "cache": {"default": {"driver": "redis", "url": "redis://cachehost:6379/3"}},
+    "cache": {"default": {"driver": "stubcache", "url": "stub://cachehost:6379/3"}},
     "atomic_store": {
-        "security": {"driver": "redis", "url": "redis://cachehost:6379/3"}
+        "security": {"driver": "stubstore", "url": "stub://cachehost:6379/3"}
     },
     "taskqueue": {
-        "default": {"driver": "celery", "broker": "redis://brokerhost:6379/4"}
+        "default": {"driver": "stubbroker", "broker": "stub://brokerhost:6379/4"}
     },
 }
 
 
-def _select_stub_drivers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The composition selects the stand-in drivers with their own urls."""
-    monkeypatch.setattr(settings, "infra", {})
-    monkeypatch.setattr(infra_config, "_APP", None)
-    monkeypatch.setattr(infra_config, "_PIN", infra_config._checked(_STUB_INFRA))
-
-    def fill(config: infra_config.InfraConfig, flat: Any, _lookup: Any) -> None:
-        infra_config.fill_driver_defaults(config, flat, lambda _cap, _driver: None)
-
-    monkeypatch.setattr(tool_infra, "fill_driver_defaults", fill)
-
-
-def test_plan_lists_the_redis_targets_a_composition_states(
+def test_plan_lists_the_targets_the_drivers_say_a_composition_runs_on(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The urls the composition (or ``INFRA``) states reach the plan as written:
-    the cache, the security store that states the same url and the broker."""
-    _select_stub_drivers(monkeypatch)
-    items = [i for i in build_backup_plan(settings) if i.kind == "redis"]
+    """The cache, the security store that states the same url and the broker:
+    one item per server, each role listed, the kernel naming no driver."""
+    _use_stub_drivers(monkeypatch, _STUB_INFRA)
+    items = [i for i in build_backup_plan(settings) if i.kind == "stubserver"]
     by_target = {i.target: i for i in items}
-    cache = by_target["redis://cachehost:6379/3"]
-    assert "cache:default" in cache.roles
+    cache = by_target["stub://cachehost:6379/3"]
+    assert cache.roles[0] == "cache:default"
     assert any("atomic_store:security" in r and "SECURITY" in r for r in cache.roles)
     assert cache.criticality == "critical"
-    broker = by_target["redis://brokerhost:6379/4"]
-    assert broker.roles == ["taskqueue:default broker"]
+    # the keep-last merge: a step two roles state is listed once, at its latest place
+    assert cache.backup == ["never evict it", "persist it"]
+    # a role that must survive on the server removes the "tolerable loss" line
+    assert "losing it is tolerable" not in cache.restore
+    assert any("reconcile-security" in step for step in cache.restore)
+    broker = by_target["stub://brokerhost:6379/4"]
+    assert broker.roles == ["taskqueue:default"]
+    assert broker.restore == ["restore it"]
 
 
-def test_plan_lists_no_redis_target_for_an_instance_that_states_no_url(
+def test_a_server_of_best_effort_roles_only_says_its_loss_is_tolerable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No flat setting fills a missing url: nothing is listed, never a guess."""
-    _select_stub_drivers(monkeypatch)
-    bare = {
-        "cache": {"default": {"driver": "redis"}},
-        "taskqueue": {"default": {"driver": "celery"}},
+    _use_stub_drivers(
+        monkeypatch,
+        {"cache": {"default": {"driver": "stubcache", "url": "stub://c:1/0"}}},
+    )
+    (cache,) = [i for i in build_backup_plan(settings) if i.kind == "stubserver"]
+    assert cache.criticality == "optional"
+    assert cache.restore == ["restore it", "losing it is tolerable"]
+
+
+def test_a_server_of_best_effort_roles_keeps_each_distinct_loss_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_stub_drivers(
+        monkeypatch,
+        {
+            "cache": {
+                "default": {"driver": "stubcache", "url": "stub://c:1/0"},
+                "other": {"driver": "otherloss", "url": "stub://c:1/0"},
+            },
+        },
+    )
+    (server,) = [i for i in build_backup_plan(settings) if i.kind == "stubserver"]
+    assert server.restore == [
+        "restore it",
+        "losing it is tolerable",
+        "losing the other one is tolerable too",
+    ]
+
+
+def test_a_separate_idempotency_store_is_at_least_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The kernel keeps idempotency through a restore: a driver that calls its
+    server optional is raised to required (a stronger value stays)."""
+    _use_stub_drivers(
+        monkeypatch,
+        {
+            "cache": {"default": {"driver": "stubcache", "url": "stub://c:1/0"}},
+            "atomic_store": {
+                "idempotency": {"driver": "besteffort", "url": "stub://i:2/0"}
+            },
+        },
+    )
+    by_target = {
+        i.target: i for i in build_backup_plan(settings) if i.kind == "stubserver"
     }
-    monkeypatch.setattr(infra_config, "_PIN", infra_config._checked(bare))
-    assert not [i for i in build_backup_plan(settings) if i.kind == "redis"]
+    assert by_target["stub://i:2/0"].criticality == "required"
+    assert by_target["stub://c:1/0"].criticality == "optional"
+
+
+def test_plan_lists_a_driver_with_no_url_of_its_own_on_the_default_cache_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_stub_drivers(
+        monkeypatch,
+        {
+            "cache": {"default": {"driver": "stubcache", "url": "stub://c:1/0"}},
+            "eventbus": {"extra": {"driver": "stubshared"}},
+        },
+    )
+    (server,) = [i for i in build_backup_plan(settings) if i.kind == "stubserver"]
+    assert server.roles == ["cache:default", "eventbus:extra"]
+
+
+def test_plan_lists_no_target_for_an_instance_that_states_no_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A driver with no url to hint says nothing: nothing is listed, never a
+    guess; a driver that says nothing at all adds no item either."""
+    _use_stub_drivers(
+        monkeypatch,
+        {
+            "cache": {"default": {"driver": "stubcache"}, "x": {"driver": "silent"}},
+            "eventbus": {"extra": {"driver": "stubshared"}},
+            "taskqueue": {"default": {"driver": "stubbroker"}},
+        },
+    )
+    items = build_backup_plan(settings)
+    assert not [i for i in items if i.kind == "stubserver"]
+    assert not [i for i in items if i.kind == "warning"]
+
+
+@pytest.mark.parametrize("role", ["security", "idempotency"])
+def test_a_must_survive_store_whose_driver_gives_no_hint_is_named_in_a_warning(
+    monkeypatch: pytest.MonkeyPatch, role: str
+) -> None:
+    """A driver that returns no hint leaves its server out of the plan; for the
+    state that must survive a restore the plan says so, naming the instance."""
+    infra = {
+        "cache": {"default": {"driver": "stubcache", "url": "stub://c:1/0"}},
+        "atomic_store": {role: {"driver": "silentstore", "url": "stub://s:1/0"}},
+    }
+    _use_stub_drivers(monkeypatch, infra)
+    items = build_backup_plan(settings)
+    (warning,) = [i for i in items if i.kind == "warning"]
+    assert warning.criticality == "critical"
+    assert warning.name == "backing servers"
+    assert f"atomic_store:{role} (silentstore)" in " ".join(warning.backup)
+    assert "reports no backup hint" in format_plan(items)
+
+
+def test_an_unremarkable_silent_store_adds_no_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the stores the kernel needs to survive are named: another instance
+    of a silent driver, and the memory and database drivers, are not."""
+    infra = {
+        "atomic_store": {
+            "other": {"driver": "silentstore", "url": "stub://s:1/0"},
+            "security": {"driver": "memory"},
+            "idempotency": {"driver": "database"},
+        },
+    }
+    _use_stub_drivers(monkeypatch, infra)
+    assert not [i for i in build_backup_plan(settings) if i.kind == "warning"]
 
 
 @pytest.mark.parametrize("error", [DriverLoadError, DriverConflictError])
 def test_plan_survives_an_installed_driver_that_fails_to_load_and_says_so(
     monkeypatch: pytest.MonkeyPatch, error: type[Exception]
 ) -> None:
-    """A read-only tool still plans: the configuration comes back unfilled, the
-    Redis targets INFRA states are listed as written, and the plan says why."""
-    _select_stub_drivers(monkeypatch)
-
-    def broken(registry: object, config: object) -> None:
-        raise error("sandloom_stub.cache cannot be imported")
-
-    monkeypatch.setattr(tool_infra, "load_selected_plugins", broken)
+    """A read-only tool still plans: with a driver that fails to load the
+    kernel cannot ask the drivers, so it lists no backing server, warns
+    (critical) why, and the rest of the plan stands."""
+    _use_stub_drivers(
+        monkeypatch, _STUB_INFRA, unfilled=str(error("cannot be imported"))
+    )
     items = build_backup_plan(settings)
-    assert [i for i in items if i.target == "redis://cachehost:6379/3"]
+    assert not [i for i in items if i.kind == "stubserver"]
     (warning,) = [i for i in items if i.kind == "warning"]
     assert warning.criticality == "critical"
     text = format_plan(items)
-    assert "cannot be imported" in text and "as written" in text
+    assert "cannot be imported" in text
+    assert "lists none of the cache, atomic_store" in text
     assert any(i.kind == "secrets" for i in items)  # the rest of the plan stands
+
+
+def test_a_driver_that_is_not_installed_here_is_named_in_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The plan never goes quiet about an instance whose driver cannot say."""
+    infra = {
+        "cache": {"default": {"driver": "stubcache", "url": "stub://c:1/0"}},
+        "atomic_store": {"security": {"driver": "uninstalled", "url": "x://s/0"}},
+    }
+    _use_stub_drivers(monkeypatch, infra)
+    items = build_backup_plan(settings)
+    assert [i for i in items if i.kind == "stubserver"]  # what is known stays
+    (warning,) = [i for i in items if i.kind == "warning"]
+    assert warning.criticality == "critical"
+    assert "atomic_store:security (uninstalled)" in format_plan(items)
 
 
 def test_plan_refuses_a_failure_that_is_not_a_driver_load_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _select_stub_drivers(monkeypatch)
-
     def broken(registry: object, config: object) -> None:
         raise RuntimeError("not a driver problem")
 
+    monkeypatch.setattr(settings, "infra", {})
     monkeypatch.setattr(tool_infra, "load_selected_plugins", broken)
     with pytest.raises(RuntimeError, match="not a driver problem"):
         build_backup_plan(settings)
@@ -265,7 +506,7 @@ def test_plan_refuses_a_failure_that_is_not_a_driver_load_error(
 def test_plan_has_no_warning_when_every_driver_loads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _select_stub_drivers(monkeypatch)
+    _use_stub_drivers(monkeypatch, _STUB_INFRA)
     assert not [i for i in build_backup_plan(settings) if i.kind == "warning"]
 
 

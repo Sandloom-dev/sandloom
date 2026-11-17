@@ -7,6 +7,7 @@ rows over a lowered budget are surfaced as dead; dead rows can be requeued.
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from sandloom.core.config.settings import settings as _settings
+from sandloom.core.infra.errors import Unavailable
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.outbox_store import sql_alchemy_outbox_store
 from sandloom.core.sql_alchemy.uow import SQLAlchemyUnitOfWork
@@ -97,13 +99,6 @@ async def _rows(factory: Any) -> list[OutboxMessage]:
         return list((await uow.session.execute(select(OutboxMessage))).scalars())
 
 
-class _RedisLikeConnectionError(Exception):
-    """Mimics redis.exceptions.ConnectionError (does NOT subclass builtins)."""
-
-
-_RedisLikeConnectionError.__name__ = "ConnectionError"
-
-
 class _DownBus:
     def __init__(self, exc: BaseException) -> None:
         self.exc = exc
@@ -130,7 +125,11 @@ class _OkBus:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "exc",
-    [ConnectionRefusedError("refused"), _RedisLikeConnectionError("redis down")],
+    # A builtin connection error, and what a driver maps its client's outage to.
+    [
+        ConnectionRefusedError("refused"),
+        Unavailable("bus down", capability="eventbus"),
+    ],
 )
 async def test_broker_outage_burns_no_attempts_and_stops_batch(
     factory: Any, monkeypatch: pytest.MonkeyPatch, exc: BaseException
@@ -149,6 +148,26 @@ async def test_broker_outage_burns_no_attempts_and_stops_batch(
     assert all(r.dead_at is None for r in rows)  # nothing dead-lettered
     assert all(r.delivery_attempts == 0 for r in rows)  # no budget burnt
     assert relay.broker_circuit().is_open()
+
+
+@pytest.mark.asyncio
+async def test_an_unmapped_publish_error_spends_an_attempt_and_is_named(
+    factory: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The safe default: an error no driver mapped is the event's fault. The
+    relay says so once, naming the class and not the message."""
+    monkeypatch.setattr(_settings, "outbox_relay_max_attempts", 10)
+    monkeypatch.setattr(relay, "_unmapped_warned", {})
+    await _seed(factory)
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        await relay._relay_once_for_store(
+            factory, sql_alchemy_outbox_store(), _FailBus()
+        )
+    [row] = await _rows(factory)
+    assert row.delivery_attempts == 1  # spent
+    lines = [r.getMessage() for r in caplog.records if "does not recognise" in r.msg]
+    assert len(lines) == 1
+    assert "RuntimeError" in lines[0] and "consumer contract" not in lines[0]
 
 
 @pytest.mark.asyncio

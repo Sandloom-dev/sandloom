@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sandloom.driverkit import (
     DEFAULT_INSTANCE,
+    BackupHint,
     HealthResult,
     InstanceConfig,
     InvalidArgument,
@@ -49,6 +50,7 @@ from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom_celery.backup import broker_hint
 from sandloom_celery.broker_probe import BrokerUnreachableError, probe_broker
 from sandloom_celery.connection_policy import ConnectionOptions, validate_connection
 from sandloom_celery.worker import (
@@ -192,6 +194,11 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         """Another database index of the Redis ``broker`` and ``backend`` URLs
         for each xdist worker (a ``memory://`` broker needs none)."""
         return isolated_redis_options(options, worker_id, keys=("broker", "backend"))
+
+    @classmethod
+    def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:
+        """The Redis server of the ``broker``, for ``sandloom backup plan``."""
+        return broker_hint(options)
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
