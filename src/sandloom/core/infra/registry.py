@@ -1991,6 +1991,15 @@ def check_driver_class(
             "install_hint to a string, development_only to a bool and tier to one "
             f"of {', '.join(DRIVER_TIERS)}",
         )
+    opens_after = provider_class.opens_after
+    if not isinstance(opens_after, tuple) or any(
+        not isinstance(name, str) or not name.isidentifier() for name in opens_after
+    ):
+        raise DriverLoadError(
+            f"Driver {key!r} declares opens_after {opens_after!r}: it is a tuple "
+            "of capability names",
+            fix='set opens_after to a tuple such as ("cache",), never a bare string',
+        )
     if spec is not None:
         unknown = frozenset(provider_class.supported_features) - spec.features
         if unknown:

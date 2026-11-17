@@ -1268,6 +1268,7 @@
         "packages/sandloom-redis/tests/test_redis_driver_entry_points.py",
         "packages/sandloom-redis/tests/test_redis_errors.py",
         "packages/sandloom-redis/tests/test_redis_eventbus_batch_publish.py",
+        "packages/sandloom-redis/tests/test_redis_eventbus_opens_after.py",
         "packages/sandloom-redis/tests/test_redis_eventbus_kit.py",
         "packages/sandloom-redis/tests/test_redis_eventbus_group_owner_transfer.py",
         "packages/sandloom-redis/tests/test_redis_eventbus_maintenance.py",

@@ -37,6 +37,7 @@ from sandloom.core.infra.config import (
 from sandloom.core.infra.contracts import InfraProvider
 from sandloom.core.infra.registry import (
     CapabilityUnavailable,
+    DriverLoadError,
     DriverUnavailableError,
     FeatureUnsupportedError,
     InfraRegistry,
@@ -464,6 +465,27 @@ async def test_drivers_that_open_after_each_other_are_refused_at_startup() -> No
     with pytest.raises(InfraStartupError, match="wait for each other"):
         await registry.aopen_all(strict=True)
     assert _Provider.opened == []
+
+
+@pytest.mark.parametrize("declared", ["cache", ["cache"], ("cache", 1), ("not a name",)])
+def test_opens_after_must_be_a_tuple_of_capability_names(declared: object) -> None:
+    """A bare string iterates by character and would order nothing, silently:
+    the class is refused when it is registered (SANDLOOM-B022)."""
+    registry, _ = _registry(_instance("eventbus", "bus"))
+    with pytest.raises(DriverLoadError, match="opens_after"):
+        registry.register_driver(
+            "eventbus", "bus", _class_driver("eventbus", opens_after=declared)
+        )
+
+
+def test_opens_after_a_tuple_of_names_is_accepted() -> None:
+    registry, _ = _registry(_instance("eventbus", "bus"))
+    registry.register_driver(
+        "eventbus", "bus", _class_driver("eventbus", opens_after=("cache", "lease"))
+    )
+    driver = registry.driver_class("eventbus", "bus")
+    assert driver is not None
+    assert driver.opens_after == ("cache", "lease")
 
 
 @pytest.mark.asyncio
