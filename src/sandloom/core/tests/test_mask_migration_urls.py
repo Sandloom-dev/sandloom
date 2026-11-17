@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from sandloom.core.cli import url_text
-from sandloom.core.migrations.backup import _postgres_item, _redis_item
+from sandloom.core.migrations.backup import _postgres_item, _Server
 from sandloom.core.migrations.migrations import _mask_dsns, _mask_url
 from sandloom.core.migrations.url_mask import mask_query_secrets, mask_url_credentials
 
@@ -96,10 +96,11 @@ def test_mask_url_hides_every_secret_and_keeps_the_hosts(
     ("url", "secret", "masked"),
     [case for case in _CASES if case[1]],
 )
-def test_the_backup_plan_prints_no_secret_of_a_redis_target(
+def test_the_backup_plan_prints_no_secret_of_a_backend_server_target(
     url: str, secret: str, masked: str
 ) -> None:
-    item = _redis_item(url, ["cache:default"])
+    # a server the drivers describe (InfraProvider.backup_hint), e.g. Redis
+    item = _Server(kind="redis", url=url, roles=["cache:default"]).item()
     assert item.target == masked
     assert secret not in item.target
 
