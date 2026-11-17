@@ -435,8 +435,6 @@ jobs:
         run: uv run python tools/packaging/check_public_api.py
 
       - name: Generated files are current
-        env:
-          SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
         run: uv run sandloom generate --check
 
       - name: Installed-wheel RPC transport smoke

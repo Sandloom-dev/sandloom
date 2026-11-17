@@ -74,10 +74,15 @@ def test_boundary_gates_run_even_for_a_docs_only_change(runner, base, full):
     }
 
 
-def test_backend_checks_generated_files_with_the_declared_composition():
-    steps = workflow("ci.yml")["jobs"]["backend-static"]["steps"]
-    step = next(s for s in steps if s.get("run") == "uv run sandloom generate --check")
-    assert step["env"]["SANDLOOM_COMPOSITION_ROOT"] == "sandloom_standard.main"
+def test_backend_checks_generated_files_without_a_declared_composition():
+    """``sandloom generate`` reads no composition root (PR #314): the step names
+    none, and a root in its env would pin what the command ignores."""
+    job = workflow("ci.yml")["jobs"]["backend-static"]
+    step = next(
+        s for s in job["steps"] if s.get("run") == "uv run sandloom generate --check"
+    )
+    assert "SANDLOOM_COMPOSITION_ROOT" not in step.get("env", {})
+    assert "SANDLOOM_COMPOSITION_ROOT" not in job.get("env", {})
 
 
 def test_uv_cache_has_one_writer_per_python_and_explicit_readers(runner):
