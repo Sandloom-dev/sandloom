@@ -442,6 +442,17 @@ def test_strict_profile_warns_when_sharing_the_security_redis() -> None:
         ("redis://host:6379/1", None, False),
         (None, "redis://host:6379/4", False),
         ("redis://host:99999999/1", "redis://host:6379/4", False),
+        # the fully-qualified spelling of a host is the same host
+        ("redis://host.:6379/1", "redis://host:6379/4", True),
+        ("redis://host./1", "redis://host/4", True),
+        ("redis://host.example.:6379/1", "redis://host:6379/4", False),
+        # a unix socket is one server by its path, whatever the driver prefix
+        ("unix:///run/cache.sock", "unix:///run/cache.sock", True),
+        ("redis+unix:///run/cache.sock?db=1", "unix:///run/cache.sock", True),
+        ("unix:///run/cache.sock", "unix:///run//./cache.sock", True),
+        ("unix:///run/cache.sock", "unix:///run/other.sock", False),
+        ("unix:///run/cache.sock", "redis://host:6379/4", False),
+        ("unix:///run/cache.sock", "postgresql://host/app", False),
     ],
 )
 def test_the_same_server_check_compares_urls_and_names_no_driver(

@@ -51,6 +51,7 @@ reports overrides; the refusals stay here.
 from __future__ import annotations
 
 import logging
+import posixpath
 from collections.abc import Iterable, Mapping
 from typing import Any
 from urllib.parse import urlsplit
@@ -75,7 +76,12 @@ def _server(url: object) -> tuple[str, str, int | None] | None:
     if not isinstance(url, str) or not url:
         return None
     parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
+    # ``c.`` is the fully-qualified spelling of ``c``: one host, so one server.
+    host = (parts.hostname or "").lower().rstrip(".")
+    if not host and parts.scheme.lower().split("+")[-1] == "unix" and parts.path:
+        # a unix socket (``unix:///run/x.sock``, ``<driver>+unix://...``) names
+        # its server by the socket path, whatever the driver prefix
+        return "unix", f"unix:{posixpath.normpath(parts.path)}", None
     if not host:
         return None
     try:

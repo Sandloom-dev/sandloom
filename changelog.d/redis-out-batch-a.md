@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- **The same-server check of the production profile sees `host.` as `host` and a unix socket by its path** (redis-out-harness). A store url spelled with the fully-qualified host (`redis://cache.:6379`) was a different server from `redis://cache:6379`, and a unix-socket url (`unix:///run/cache.sock`, `<driver>+unix://...`) was never the same server as anything, so `security` and `idempotency` stores could share the cache server's socket past the refusal. Both now compare equal: the host without its trailing dot, the socket by its normalised path whatever the driver prefix. A deployment that relied on the gap is refused at startup with the existing message. No other upgrade step.
+
 - **`sandloom test` fails one step, with its message, when the composition root is malformed or the settings refuse to load** (redis-out-harness). The migration drift step resolves `SANDLOOM_COMPOSITION_ROOT` just before it starts; a `CompositionRootError` or a `SystemExit` from the settings used to end the whole run with a traceback or a bare exit. It is now that step's failure (`sandloom test: <step>: <message>` on stderr, exit 1) and the other steps still run. No upgrade step.
 
 ### Breaking changes
