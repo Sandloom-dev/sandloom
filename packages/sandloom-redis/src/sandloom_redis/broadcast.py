@@ -35,7 +35,7 @@ from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from typing import Any, ClassVar, NamedTuple, TypeVar
 from urllib.parse import parse_qs
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sandloom.driverkit import (
     BroadcastMessage,
@@ -49,7 +49,7 @@ from sandloom.driverkit import (
 )
 from sandloom.driverkit.url_split import split_url
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._url import require_url
+from sandloom_redis._url import checked_url, require_url
 
 _CAPABILITY = "broadcast"
 _PATTERN_SUFFIX = ".*"
@@ -85,6 +85,11 @@ class RedisBroadcastOptions(BaseModel):
     socket_timeout_seconds: float = Field(default=5.0, gt=0)
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
     health_check_interval_seconds: int = Field(default=30, ge=0)
+
+    @field_validator("url")
+    @classmethod
+    def _url_parses(cls, value: str | None) -> str | None:
+        return checked_url(value)
 
 
 class _Channels(NamedTuple):

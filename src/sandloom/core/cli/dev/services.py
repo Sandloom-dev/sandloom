@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, unquote
 
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
+from sandloom.core.url_split import split_url
 
 #: (user, password) of the generated compose file's local services.
 DEV_CREDENTIALS = ("sandloom", "sandloom")

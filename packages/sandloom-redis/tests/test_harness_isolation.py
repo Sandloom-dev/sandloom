@@ -683,12 +683,12 @@ def test_an_app_with_no_redis_runs_its_tests_in_parallel(tmp_path: Path) -> None
 # stdlib ``urlsplit`` then raises a ValueError that quotes the netloc, password
 # included. No Redis package place that parses such a url puts it in an error.
 _SECRET = "S3CRETpw"
-_HOSTILE = f"redis://user:{_SECRET}@host＃x:6379/1"
+_HOSTILE = f"redis://user:{_SECRET}@host{chr(0xFF03)}x:6379/1"
 
 
 def _hostile_calls() -> dict[str, Any]:
-    from sandloom_redis import broadcast  # noqa: PLC0415 - cold: one test
-    from sandloom_redis.testing import (  # noqa: PLC0415 - cold: one test
+    from sandloom_redis import broadcast
+    from sandloom_redis.testing import (
         family,
         isolation,
         resources,
@@ -715,7 +715,55 @@ def test_a_url_urlsplit_refuses_never_puts_its_password_in_the_error(
 
 
 def test_the_ownership_message_does_not_echo_a_url_it_cannot_parse() -> None:
-    from sandloom_redis.testing import ownership  # noqa: PLC0415 - cold: one test
+    from sandloom_redis.testing import ownership
 
     assert _SECRET not in ownership._redact(_HOSTILE)
     assert ownership._redact("redis://u:pw@h:6379/1") == "redis://h:6379/1"
+
+
+@pytest.mark.parametrize(
+    "char", [chr(c) for c in (0xFF1A, 0xFF0F, 0xFF20, 0xFF03, 0xFF1F)]
+)
+@pytest.mark.parametrize(
+    "options",
+    [
+        redis_cache.RedisCacheOptions,
+        redis_atomic_store.RedisAtomicStoreOptions,
+        event_bus_driver.EventBusOptions,
+    ],
+)
+def test_an_options_model_refuses_a_url_urlsplit_cannot_read_without_its_password(
+    options: Any, char: str
+) -> None:
+    """Refused where the option is read, with one fixed message: the url never
+    reaches ``urlsplit`` or ``redis.from_url`` later, whose errors quote it."""
+    from pydantic import ValidationError
+
+    url = f"redis://user:{_SECRET}@host{char}x:6379/1"
+    with pytest.raises(ValidationError) as caught:
+        options(url=url)
+    assert _SECRET not in str(caught.value)
+    assert "cannot be parsed" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "char", [chr(c) for c in (0xFF1A, 0xFF0F, 0xFF20, 0xFF03, 0xFF1F)]
+)
+def test_the_lease_and_broadcast_options_refuse_it_too(char: str) -> None:
+    from pydantic import ValidationError
+    from sandloom_redis import broadcast, lease
+
+    url = f"redis://user:{_SECRET}@host{char}x:6379/1"
+    for model in (lease.RedisLeaseOptions, broadcast.RedisBroadcastOptions):
+        with pytest.raises(ValidationError) as caught:
+            model(url=url)
+        assert _SECRET not in str(caught.value)
+        assert "cannot be parsed" in str(caught.value)
+
+
+def test_an_options_model_keeps_a_url_it_can_read() -> None:
+    assert (
+        redis_cache.RedisCacheOptions(url="redis://u:pw@h:6379/1").url
+        == "redis://u:pw@h:6379/1"
+    )
+    assert redis_cache.RedisCacheOptions().url is None

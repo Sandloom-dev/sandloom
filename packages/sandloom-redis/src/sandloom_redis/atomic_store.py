@@ -66,7 +66,7 @@ from functools import cache
 from types import ModuleType
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sandloom.driverkit import (
     AtomicStoreProvider,
@@ -103,7 +103,7 @@ from sandloom_redis._eviction_guard import (
     refusal_of,
     refusal_reason,
 )
-from sandloom_redis._url import require_url
+from sandloom_redis._url import checked_url, require_url
 from sandloom_redis.backup import atomic_store_hint
 
 #: Failed operations of the store (connection, timeout, server error), by
@@ -126,6 +126,12 @@ class RedisAtomicStoreOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True, frozen=True)
 
     url: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _url_parses(cls, value: str | None) -> str | None:
+        return checked_url(value)
+
     socket_timeout_seconds: float = Field(default=0.5, gt=0)
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
     health_check_interval_seconds: int = Field(default=30, ge=0)

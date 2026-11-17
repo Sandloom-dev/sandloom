@@ -1,8 +1,8 @@
 """Test-run slots: two test runs in one checkout never share a database.
 
 ``sandloom dev up`` writes ``.env.test.local`` next to ``.env.test`` with the
-repository's test servers (``SANDLOOM_TEST_DATABASE_URL`` and the cache and broker URLs).
-Before anything touches a database, the process that starts a run (the
+repository's test servers (``SANDLOOM_TEST_DATABASE_URL`` and the cache and broker
+URLs). Before anything touches a database, the process that starts a run (the
 ``sandloom test`` parent, or the pytest controller of a plain ``pytest``)
 takes a *slot*:
 
@@ -50,7 +50,6 @@ from urllib.parse import urlunsplit
 
 from dotenv import dotenv_values
 
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.testing import families
 from sandloom.core.testing.env import LOCAL_ENV_FILE, find_env_file
@@ -60,6 +59,7 @@ from sandloom.core.testing.machine import (
     machine_id,
     short_hash,
 )
+from sandloom.core.url_split import split_url
 
 SLOT_HELD_ENV = "SANDLOOM_TEST_SLOT_HELD"
 OWNER_ENV = "SANDLOOM_TEST_OWNER"

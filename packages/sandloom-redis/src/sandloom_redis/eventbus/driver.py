@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
 from typing import Any, Protocol, Self, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import sandloom_redis.cache as _redis_cache
 from sandloom.driverkit import (
@@ -32,7 +32,7 @@ from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_url_options
-from sandloom_redis._url import require_url
+from sandloom_redis._url import checked_url, require_url
 from sandloom_redis.backup import streams_hint
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 from sandloom_redis.eventbus.streams_transport_base import _mapped
@@ -64,6 +64,12 @@ class EventBusOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     url: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _url_parses(cls, value: str | None) -> str | None:
+        return checked_url(value)
+
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
     health_check_interval_seconds: int = Field(default=30, ge=0)
     #: Retention of every stream (``retention()``): entries older than

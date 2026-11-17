@@ -384,10 +384,10 @@ async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
     itself resolves (``core.cache()``, rate limits). The cache is emptied
     before the test (by the harness family that owns its driver) so keys never
     leak between tests — so that url must name a disposable test database.
-    Also needed where the app was imported before ``.env.test`` was loaded (its settings snapshot names
-    another cache), as in the framework's own suite. The implicit development
-    ``security`` store (revocation marks, blocks, idempotency) follows it onto
-    the same database.
+    Also needed where the app was imported before ``.env.test`` was loaded (its
+    settings snapshot names another cache), as in the framework's own suite.
+    The implicit development ``security`` store (revocation marks, blocks,
+    idempotency) follows it onto the same database.
     """
     driver = _cache_driver(sandloom_core)
     url = resolved_cache_url()

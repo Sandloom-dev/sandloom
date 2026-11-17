@@ -5,6 +5,6 @@ it from here (ADR-0016: a driver package imports only ``sandloom.driverkit`` and
 
 from __future__ import annotations
 
-from sandloom.core.infra.url_split import split_url
+from sandloom.core.url_split import split_url
 
 __all__ = ["split_url"]

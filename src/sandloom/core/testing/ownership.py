@@ -55,10 +55,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlunsplit
 
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 from sandloom.core.testing import families
 from sandloom.core.testing.machine import checkout_root, machine_id
+from sandloom.core.url_split import split_url
 
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 TAKEOVER_ENV = "SANDLOOM_TEST_TAKE_OWNERSHIP"

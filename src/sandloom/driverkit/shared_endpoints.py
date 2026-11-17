@@ -38,7 +38,7 @@ import logging
 from typing import Literal
 from urllib.parse import parse_qs
 
-from sandloom.core.infra.url_split import split_url
+from sandloom.core.url_split import split_url
 
 __all__ = ["Role", "redis_endpoint", "register", "reset", "unregister"]
 

@@ -61,7 +61,7 @@ from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.infra import config as infra_config
 from sandloom.core.infra.registry import InfraRegistry, declared_url_options
-from sandloom.core.infra.url_split import split_url
+from sandloom.core.url_split import split_url
 
 logger = logging.getLogger("sandloom.production_profile")
 

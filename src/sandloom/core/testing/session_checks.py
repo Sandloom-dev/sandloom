@@ -26,12 +26,12 @@ from urllib.parse import parse_qs, urlunsplit
 
 import pytest
 
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.testing import connections, families, ownership, workers
 from sandloom.core.testing.env import dev_up_hint
 from sandloom.core.testing.families import INFRA_VAR, INSTANCE_URL_OPTIONS
 from sandloom.core.testing.fixtures import env_starts, find_env_file
+from sandloom.core.url_split import split_url
 
 #: Where Linux's default ephemeral range starts; macOS and Windows start higher.
 EPHEMERAL_PORTS_START = 32768

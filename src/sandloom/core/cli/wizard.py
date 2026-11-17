@@ -51,7 +51,7 @@ import sandloom.core.cli.dev.services as _services
 import sandloom.core.cli.project as _project
 import sandloom.core.cli.skills as _skills
 import sandloom.core.cli.ui as _ui
-from sandloom.core.infra.url_split import split_url
+from sandloom.core.url_split import split_url
 
 #: The standard modules, in the generator's order, with one line each.
 MODULES: tuple[tuple[str, str], ...] = (

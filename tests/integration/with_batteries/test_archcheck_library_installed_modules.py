@@ -88,10 +88,10 @@ def test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases(
         "sandloom.core",
         "sandloom.core._internal.db_provider",
         "sandloom.core.config.settings",  # static and dynamic: one report per module
-        "sandloom.core.drivers.redis_cache",
+        "sandloom.core.drivers.memory_cache",
     ], framework
     infra = "\n".join(by_rule.pop("infra-imports"))
-    assert "sandloom.core.drivers.redis_cache" in infra
+    assert "sandloom.core.drivers.memory_cache" in infra
     assert "sandloom.core._internal.db_provider" in infra
     boundaries = by_rule.pop("module-boundaries")
     # Two sibling modules (static + relative), and every spelling of an

@@ -58,10 +58,10 @@ from urllib.parse import urlunsplit
 
 from dotenv import dotenv_values, load_dotenv
 
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 from sandloom.core.testing import families
 from sandloom.core.testing.families import INFRA_VAR
+from sandloom.core.url_split import split_url
 
 WORKER_ENV = "PYTEST_XDIST_WORKER"
 #: The settings each worker gets its own instance of.
@@ -215,8 +215,8 @@ def infra_with_overrides(
 
     * the ``default`` instance of ``cache`` (``url``) and of ``taskqueue``
       (``broker``) must declare a URL of an installed backend in ``INFRA``
-      (``.env.test``): the override replaces it. No instance is created: with none declared the
-      override raises :class:`UnmatchedOverrideError`, never does nothing;
+      (``.env.test``): the override replaces it. No instance is created: with none
+      declared the override raises :class:`UnmatchedOverrideError`, never does nothing;
     * every other declared instance (any capability) whose ``url`` or ``broker``
       is the SAME server and database as the default's takes it too (in
       that option);

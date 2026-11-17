@@ -44,7 +44,6 @@ from alembic.config import Config
 
 from sandloom.core.composition import load_composition_core
 from sandloom.core.descriptors.module_names import module_name as _module_name
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.migrations import (
     _order_by_dependencies,
     core_chain_dir,
@@ -55,6 +54,7 @@ from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.migrations.schema_compare import schema_differences
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
+from sandloom.core.url_split import split_url
 
 
 def runs_no_chains(url: str) -> bool:

@@ -53,8 +53,8 @@ from sandloom.core.cli.dev.state import (
     save_state,
 )
 from sandloom.core.cli.url_text import drop_urls
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.testing.machine import sandloom_home
+from sandloom.core.url_split import split_url
 
 #: A checkout that ran ``dev up`` this recently counts as using the servers.
 ACTIVE_SECONDS = 24 * 3600

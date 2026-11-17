@@ -31,8 +31,8 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from urllib.parse import urlunsplit
 
-from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import psycopg2
+from sandloom.core.url_split import split_url
 
 SKIP_ENV = "SANDLOOM_TEST_SKIP_CONNECTION_CHECK"
 

@@ -512,19 +512,20 @@ def _refuse_a_connection(_url: str) -> None:
 # stdlib ``urlsplit`` then raises a ValueError that quotes the netloc, password
 # included. Every kernel place that parses such a url raises without it.
 _SECRET = "S3CRETpw"
-_HOSTILE = f"postgresql://user:{_SECRET}@host＃x:5432/db"
+_HOSTILE = f"postgresql://user:{_SECRET}@host{chr(0xFF03)}x:5432/db"
 
 
 def _hostile_calls() -> dict[str, Callable[[], object]]:
-    from sandloom.core import production_profile  # noqa: PLC0415 - cold: one test
-    from sandloom.core.cli import wizard  # noqa: PLC0415 - cold: one test
-    from sandloom.core.cli.dev import services  # noqa: PLC0415 - cold: one test
-    from sandloom.core.infra.url_split import split_url  # noqa: PLC0415 - cold: one test
-    from sandloom.core.testing import (  # noqa: PLC0415 - cold: one test
+    from sandloom.core import production_profile
+    from sandloom.core.cli import wizard
+    from sandloom.core.cli.dev import services
+    from sandloom.core.consumers import runtime as consumers_runtime
+    from sandloom.core.testing import (
         connections,
         ownership,
         slots,
     )
+    from sandloom.core.url_split import split_url
 
     return {
         "split_url": lambda: split_url(_HOSTILE),
@@ -537,6 +538,9 @@ def _hostile_calls() -> dict[str, Callable[[], object]]:
         "slot_database_url": lambda: slots.slot_database_url(_HOSTILE, 2),
         "headroom": lambda: connections.server_headroom(_HOSTILE),
         "plain_dsn": lambda: ownership._plain_dsn(_HOSTILE),
+        "normalize_database_url": lambda: consumers_runtime.normalize_database_url(
+            _HOSTILE
+        ),
     }
 
 
@@ -551,7 +555,7 @@ def test_a_url_urlsplit_refuses_never_puts_its_password_in_the_error(
 
 
 def test_redact_does_not_echo_a_url_it_cannot_parse() -> None:
-    from sandloom.core.cli.dev import services  # noqa: PLC0415 - cold: one test
+    from sandloom.core.cli.dev import services
 
     assert _SECRET not in services.redact(_HOSTILE)
     assert services.redact("redis://u:pw@h:6379/0") == "redis://u:<password>@h:6379/0"
