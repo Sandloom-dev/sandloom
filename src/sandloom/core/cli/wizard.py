@@ -340,9 +340,9 @@ def _services_flag(args: argparse.Namespace) -> str | None:
 
 def repeat_command(version: str, plan: Plan, *, cwd: Path) -> list[str]:
     """The argv that makes the same app with no question, pinned to this
-    version like the docs: ``uvx --from "sandloom==<v>" sandloom new …
+    version like the docs: ``uvx --from "sandloom[redis]==<v>" sandloom new …
     --yes``. It never carries the administrator's email or a password."""
-    extra = "[standard]" if plan.batteries else ""
+    extra = "[standard]" if plan.batteries else "[redis]"
     argv = ["uvx", "--from", f"sandloom{extra}=={version}", "sandloom", "new", plan.app]
     if plan.parent.resolve() != cwd.resolve():
         argv += ["--dir", str(plan.parent)]

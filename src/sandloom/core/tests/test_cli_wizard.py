@@ -289,7 +289,7 @@ def test_an_existing_directory_is_named(tmp_path: Path) -> None:
 )
 def test_the_repeat_command_round_trips(plan: wizard.Plan) -> None:
     argv = wizard.repeat_command("0.7.0a8", plan, cwd=Path("/w"))
-    extra = "[standard]" if plan.batteries else ""
+    extra = "[standard]" if plan.batteries else "[redis]"
     assert argv[:5] == ["uvx", "--from", f"sandloom{extra}==0.7.0a8", "sandloom", "new"]
     args = wizard.parser().parse_args(argv[5:])
     assert args.yes
@@ -301,7 +301,7 @@ def test_the_repeat_command_round_trips(plan: wizard.Plan) -> None:
 def test_the_repeat_command_is_shell_quoted() -> None:
     plan = wizard.Plan(app="desk", parent=Path("/a b"), agents=["claude"])
     line = wizard.repeat_line("0.7.0a8", plan, cwd=Path("/w"))
-    assert line.startswith('uvx --from "sandloom==0.7.0a8" sandloom new desk')
+    assert line.startswith('uvx --from "sandloom[redis]==0.7.0a8" sandloom new desk')
     assert "--dir '/a b'" in line
     assert line.endswith(" --yes")
 

@@ -3514,12 +3514,10 @@ sqlite = [
 ]
 standard = [
     { name = "asyncpg" },
-    { name = "celery", extra = ["redis"] },
-    { name = "redis", extra = ["hiredis"] },
     { name = "sandloom-billing" },
     { name = "sandloom-celery" },
     { name = "sandloom-identity" },
-    { name = "sandloom-redis" },
+    { name = "sandloom-redis", extra = ["hiredis"] },
     { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
 ]
@@ -3531,7 +3529,6 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.20.0,<2" },
     { name = "argon2-cffi", specifier = ">=25.1.0,<26" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.32.0,<0.33" },
-    { name = "celery", extras = ["redis"], marker = "extra == 'celery'", specifier = ">=5.6.3,<6" },
     { name = "certifi", specifier = ">=2026.10.19" },
     { name = "cryptography", specifier = ">=50.0.2,<51" },
     { name = "fastapi", specifier = ">=0.136.3,<0.137" },
@@ -3554,7 +3551,6 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'testing'", specifier = ">=3.8.0,<4" },
     { name = "python-dotenv", specifier = ">=1.2.4,<2" },
     { name = "pyyaml", marker = "extra == 'check'", specifier = ">=6.0.2,<7" },
-    { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=5.2.1,<6" },
     { name = "sandloom", extras = ["postgres", "redis"], marker = "extra == 'admin'" },
     { name = "sandloom", extras = ["postgres", "redis", "celery"], marker = "extra == 'standard'" },
     { name = "sandloom-admin", marker = "extra == 'admin'", specifier = ">=0.7.0a14,<0.8" },
@@ -3563,8 +3559,8 @@ requires-dist = [
     { name = "sandloom-celery", marker = "extra == 'standard'", specifier = ">=0.7.0a14,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'admin'", specifier = ">=0.7.0a14,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a14,<0.8" },
-    { name = "sandloom-redis", marker = "extra == 'redis'", specifier = ">=0.7.0a14,<0.8" },
     { name = "sandloom-redis", marker = "extra == 'standard'", specifier = ">=0.7.0a14,<0.8" },
+    { name = "sandloom-redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=0.7.0a14,<0.8" },
     { name = "sandloom-standard", marker = "extra == 'standard'", specifier = ">=0.7.0a14,<0.8" },
     { name = "sandloom-tenancy", marker = "extra == 'standard'", specifier = ">=0.7.0a14,<0.8" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.72.0,<3" },
@@ -3741,6 +3737,11 @@ dependencies = [
     { name = "pydantic" },
     { name = "redis" },
     { name = "sandloom" },
+]
+
+[package.optional-dependencies]
+hiredis = [
+    { name = "redis", extra = ["hiredis"] },
 ]
 
 [package.metadata]

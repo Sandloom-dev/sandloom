@@ -24,7 +24,7 @@ uvx --from "sandloom[standard]==0.7.0a14" sandloom new myapp --with identity,ten
 
 This starter selects all three [standard modules](../modules/batteries/index.md). For a
 minimal backend, use
-`uvx --from "sandloom==0.7.0a14" sandloom new myapp --no-batteries --module notes`
+`uvx --from "sandloom[redis]==0.7.0a14" sandloom new myapp --no-batteries --module notes`
 instead. That command already creates `notes`, so its printed steps add a
 different module; the other steps are the same. The
 [README](https://github.com/Sandloom-dev/sandloom#quickstart) demonstrates that minimal path.

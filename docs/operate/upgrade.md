@@ -230,7 +230,13 @@ its reset and prune, the disposable test server) and the scaffold of `sandloom n
 imports no Redis client any more, not even a guarded one. An app on the standard stack changes
 nothing but the names below, and every file `sandloom new` writes is byte for byte what it was.
 `sandloom dev` and `sandloom new` need `sandloom-redis` installed (`pip install sandloom[redis]`)
-and say so when it is not.
+and say so in one line when it is not. A bare `uvx --from "sandloom==<version>" sandloom new …`
+therefore stops with that line: run it as `uvx --from "sandloom[redis]==<version>" sandloom new …`
+(the quickstarts and the repeat command that the wizard prints say so).
+
+The `redis` and `celery` extras of `sandloom` name the driver packages alone now:
+`sandloom-redis[hiredis]` and `sandloom-celery`, which require the client libraries with their
+bounds, once. The installed set is the same.
 
 A name of the command line and of the state is renamed after what it holds, a keyed server. There
 is no alias: the old names are gone. This is for development machines only.

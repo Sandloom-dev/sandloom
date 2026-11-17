@@ -527,8 +527,7 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
         lean_checks: list[Future[Any]] = [
             pool.submit(_check_docs, sandloom, env, work),
             pool.submit(inspection_smoke.check, _python(venv), work),
-            pool.submit(_check_new_app, sandloom, env, work),
-            pool.submit(_check_battery_handoff, sandloom, env, work),
+            pool.submit(_check_new_app_needs_the_stack_package, sandloom, env, work),
             pool.submit(_check_kernel_factory, venv, env, work),
             # The internal-RPC transport from the installed lean wheel: aiohttp
             # probe + live call, then the httpx fallback on an internals mismatch.
@@ -559,6 +558,45 @@ def _check_new_app(sandloom: Path, env: dict[str, str], work: Path) -> None:
     pyproject = (work / "probe" / "pyproject.toml").read_text()
     if '"sandloom' not in pyproject:
         raise RuntimeError("the generated app does not depend on sandloom")
+
+
+def _check_new_app_needs_the_stack_package(
+    sandloom: Path, env: dict[str, str], work: Path
+) -> None:
+    """The bare kernel wheel describes no backing server of the standard stack:
+    ``sandloom new`` refuses in one line naming the extra, and writes nothing."""
+    refused = _run(
+        str(sandloom), "new", "probe", "--dir", str(work),
+        env=env, cwd=work, capture_output=True, check=False,
+    )  # fmt: skip
+    if (
+        refused.returncode == 0
+        or "sandloom[redis]" not in refused.stderr + refused.stdout
+    ):
+        raise RuntimeError(
+            "bare kernel: `sandloom new` must refuse naming `sandloom[redis]`:\n"
+            f"{refused.stdout}{refused.stderr}"
+        )
+    if "Traceback" in refused.stderr or (work / "probe").exists():
+        raise RuntimeError("bare kernel: `sandloom new` refused untidily")
+
+
+def check_scaffold_install(temp: Path, wheels: dict[str, Path]) -> None:
+    """The kernel with ``sandloom-redis``: ``sandloom new`` describes the standard
+    stack from the package's ``sandloom.stack`` entry point, and a battery the
+    bare CLI lacks is handed to ``uv sync``."""
+    venv = temp / "scaffold"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--python", str(_python(venv)),
+        str(wheels[KERNEL]), str(wheels["sandloom-redis"]),
+    )  # fmt: skip
+    env = _smoke_environment()
+    work = temp / "scaffold-work"
+    work.mkdir()
+    sandloom = _script(venv, "sandloom")
+    _check_new_app(sandloom, env, work)
+    _check_battery_handoff(sandloom, env, work)
 
 
 def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
@@ -1042,6 +1080,7 @@ def main(argv: list[str] | None = None) -> int:
                     pool.submit(check_lean_test_harness, temp, wheels[KERNEL]),
                     pool.submit(check_sqlite_install, temp, wheels[KERNEL]),
                     pool.submit(check_standard_install, temp, wheels),
+                    pool.submit(check_scaffold_install, temp, wheels),
                     *(
                         pool.submit(check_console_install, temp, wheels, p)
                         for p in release_packages.PACKAGES
