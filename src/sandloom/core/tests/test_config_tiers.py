@@ -596,7 +596,7 @@ def test_a_name_that_only_upper_cases_to_a_removed_one_is_not_refused(
     """pydantic folds a name with ``lower()``: ``ſ`` (U+017F) stays itself there,
     while ``upper()`` turns it into the ``S`` of ``SEMAPHORE``. Such a name is
     no removed setting, in the environment or among the values handed over."""
-    name = "event_bus_redis_ſemaphore_limit"
+    name = f"event_bus_redis_{chr(0x17F)}emaphore_limit"
     assert name.upper() == "EVENT_BUS_REDIS_SEMAPHORE_LIMIT"
     monkeypatch.setenv(name, "5")
     _settings()
@@ -606,7 +606,7 @@ def test_a_name_that_only_upper_cases_to_a_removed_one_is_not_refused(
 def test_an_unparsable_tracing_url_is_refused_without_echoing_its_password() -> None:
     """urllib's ``ValueError`` for a netloc that NFKC-normalizes to a delimiter
     carries the whole netloc, ``user:password`` included."""
-    url = "https://collector:pw-secret：x@otel:4317"
+    url = f"https://collector:pw-secret{chr(0xFF1A)}x@otel:4317"
     with pytest.raises(ValueError, match="TRACING_URL must be") as caught:
         _settings(TRACING_URL=url)
     assert "pw-secret" not in str(caught.value)
@@ -615,7 +615,7 @@ def test_an_unparsable_tracing_url_is_refused_without_echoing_its_password() -> 
 def test_an_unparsable_service_binding_url_is_refused_without_echoing_its_password() -> (
     None
 ):
-    url = "https://u:pw-secret：x@tenancy:2222"
+    url = f"https://u:pw-secret{chr(0xFF1A)}x@tenancy:2222"
     with pytest.raises(ValueError, match="base_url must be an absolute") as caught:
         validate_service_binding("tenancy", {"base_url": url})
     assert "pw-secret" not in str(caught.value)

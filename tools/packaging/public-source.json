@@ -1587,6 +1587,7 @@
         "src/sandloom/core/migrations/backup.py",
         "src/sandloom/core/migrations/migrations.py",
         "src/sandloom/core/migrations/schema_compare.py",
+        "src/sandloom/core/migrations/url_mask.py",
         "src/sandloom/core/migrations/urls.py",
         "src/sandloom/core/module_api/__init__.py",
         "src/sandloom/core/module_api/_bootstrap.py",

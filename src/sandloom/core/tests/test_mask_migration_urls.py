@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import pytest
 
-from sandloom.core.cli.url_text import mask_query_secrets
+from sandloom.core.cli import url_text
 from sandloom.core.migrations.backup import _postgres_item, _redis_item
 from sandloom.core.migrations.migrations import _mask_dsns, _mask_url
+from sandloom.core.migrations.url_mask import mask_query_secrets, mask_url_credentials
 
 _CASES = [
     ("redis://u:hunter2@h:6379/0", "hunter2", "redis://***@h:6379/0"),
@@ -94,3 +95,10 @@ def test_the_migration_status_error_masks_a_raw_at_and_a_query_password() -> Non
 
 def test_mask_query_secrets_masks_a_value_and_leaves_the_rest() -> None:
     assert mask_query_secrets("x?a=1&token=hunter2&b=2") == "x?a=1&token=***&b=2"
+
+
+def test_the_cli_and_the_migration_runner_mask_with_one_masker() -> None:
+    """``cli.url_text`` re-exports the leaf the runner imports: one masker, so a
+    leak fixed there is fixed in ``sandloom config``, ``doctor`` and the plan."""
+    assert url_text.mask_url_credentials is mask_url_credentials
+    assert url_text.mask_query_secrets is mask_query_secrets

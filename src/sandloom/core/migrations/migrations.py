@@ -47,13 +47,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import DBAPIError
 
-from sandloom.core.cli.url_text import mask_query_secrets, mask_url_credentials
 from sandloom.core.config.settings import settings
 from sandloom.core.config.settings import settings as _settings
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations import alembic_support
+from sandloom.core.migrations.url_mask import mask_query_secrets, mask_url_credentials
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
 from sandloom.core.sql_alchemy.models import (
