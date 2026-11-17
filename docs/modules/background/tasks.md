@@ -293,10 +293,18 @@ above each name their region. A host outside the AWS domains, such as an emulato
 proxy, names none and pins nothing. So does a url with no host.
 
 Any other host under `amazonaws.com`, `amazonaws.com.cn` or `api.aws` is refused at
-startup, as is any host with a trailing dot (`sqs.<region>.amazonaws.com.`). The pin
-could not read its region. Two forms of AWS are among them: the legacy
-`<region>.queue.amazonaws.com` and the dual-stack `sqs.<region>.api.aws`. So is
-`sqs-fips.<region>.amazonaws.com.cn`, since the China regions have no FIPS endpoint.
+startup, because the pin could not read its region. These are the legacy
+`<region>.queue.amazonaws.com` and the dual-stack `sqs.<region>.api.aws`. Another is
+`sqs-fips.<region>.amazonaws.com.cn`: the China regions have no FIPS endpoint.
+
+A trailing dot is refused on any host, an AWS one or not. A host with a percent escape
+(`amazonaws%2Ecom`) or a non-ASCII character (an ideographic full stop) is refused too.
+Kombu decodes such a host into a real AWS endpoint, which the pin would not see.
+
+The AWS hosts are read for three partitions: `aws` and `aws-us-gov` (`amazonaws.com`)
+and `aws-cn` (`amazonaws.com.cn`). A host of another partition, such as
+`amazonaws.eu` or `c2s.ic.gov`, is a proxy host to this check: it names no region and
+pins nothing. A queue `url` on an AWS host is then refused, so the check fails closed.
 
 A queue `url` only names a queue. The `INFRA` host picks the endpoint that carries the
 traffic.

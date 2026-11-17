@@ -267,6 +267,23 @@ def _chunks(url: str | None) -> list[str]:
     return url.split(";") if url and url.strip() else []
 
 
+def _sqs_host(chunk: str) -> str | None:
+    """The host of one chunk of an ``sqs://`` broker url, ``None`` for none.
+
+    Refused (``ValueError``, never the url): a host with a percent escape or a
+    non-ASCII character. Kombu hands the host to botocore decoded (``%2E`` is a dot,
+    U+3002 an ideographic full stop that IDNA reads as one), so such a host names a
+    real AWS endpoint while the region pin, reading the raw text, would see none.
+    """
+    host = urlsplit(chunk).hostname
+    if host and ("%" in host or not host.isascii()):
+        raise ValueError(
+            "the broker url has an SQS host with a percent escape or a non-ASCII "
+            "character: write the host in plain ASCII"
+        )
+    return host
+
+
 def _has_host(url: str | None) -> bool:
     return any(urlsplit(chunk).hostname for chunk in _chunks(url))
 
@@ -289,13 +306,15 @@ class ConnectionOptions:
 
     def queue_pin(self) -> QueuePin:
         """What the SQS queue urls and ``region`` of a conf must match: the regions
-        the AWS hosts of an ``sqs://`` ``broker`` url name, and the account."""
+        the AWS hosts of an ``sqs://`` ``broker`` url name, and the account. A host
+        that :func:`validate_connection` refuses for its spelling raises here too
+        (``ValueError``): its region is not read, so no pin could be built."""
         if scheme_of(self.broker) not in SQS_SCHEMES:
             return NO_QUEUE_PIN
         regions = {
             region
             for chunk in _chunks(self.broker)
-            if (region := _host_region(urlsplit(chunk).hostname))
+            if (region := _host_region(_sqs_host(chunk)))
         }
         return QueuePin(frozenset(regions), self.sqs_account_id)
 
@@ -394,7 +413,7 @@ def _check_sqs_hosts(connection: ConnectionOptions) -> None:
     if scheme_of(connection.broker) not in SQS_SCHEMES:
         return
     for chunk in _chunks(connection.broker):
-        host = urlsplit(chunk).hostname
+        host = _sqs_host(chunk)
         if not host or _host_region(host):
             continue
         if host.endswith(".") or ("." + host).endswith(_AWS_DOMAINS):

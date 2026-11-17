@@ -283,12 +283,27 @@ def test_the_regions_infra_states_come_from_the_aws_hosts_of_an_sqs_url(
         "localhost:4566",
         "elasticmq.internal",
         "sqs.eu-west-1.amazonaws.com.stray.example",
+        # no host at all
+        "",
     ],
 )
 def test_an_sqs_host_that_names_a_region_or_no_aws_domain_is_accepted(
     host: str,
 ) -> None:
     validate_connection(ConnectionOptions(f"sqs://K:S@{host}"))
+
+
+@pytest.mark.parametrize(
+    "broker",
+    [
+        "redis://sqs.eu-west-1.api.aws",
+        "redis://sqs.eu-west-1.amazonaws.com.",
+        "amqp://u:p@queue.amazonaws.com//",
+    ],
+)
+def test_the_sqs_host_checks_read_only_an_sqs_url(broker: str) -> None:
+    """Another scheme has no region pin: its host is not this check's business."""
+    validate_connection(ConnectionOptions(broker))
 
 
 @pytest.mark.parametrize(
@@ -306,6 +321,12 @@ def test_an_sqs_host_that_names_a_region_or_no_aws_domain_is_accepted(
         # an AWS domain of no SQS form
         "stray.eu-west-1.amazonaws.com",
         "sqs.eu-west-1.vpce.amazonaws.com",
+        # kombu decodes these into the real AWS host: the raw text names no region
+        "sqs.us-east-1.amazonaws%2Ecom",
+        "sqs.us-east-1.amazonaws.com%2E",
+        "sqs.us-east-1.amazonaws。com",
+        "sqs.us-east-1.amazonaws.com。",
+        "elasticmq%2Einternal",
     ],
 )
 def test_an_infra_sqs_host_that_sets_no_region_pin_is_refused(host: str) -> None:
@@ -321,6 +342,15 @@ def test_an_infra_sqs_host_that_sets_no_region_pin_is_refused(host: str) -> None
         assert "infra-secret" not in str(refused.value)
         with pytest.raises(ValidationError, match="SQS host"):
             CeleryTaskQueueOptions.model_validate({"broker": broker})
+
+
+@pytest.mark.parametrize(
+    "host", ["sqs.us-east-1.amazonaws%2Ecom", "sqs.us-east-1.amazonaws。com"]
+)
+def test_the_queue_pin_never_reads_an_encoded_host_as_no_region(host: str) -> None:
+    """A pin built from an encoded host would be empty, and any region would pass."""
+    with pytest.raises(ValueError, match="SQS host"):
+        ConnectionOptions(f"sqs://K:S@{host}").queue_pin()
 
 
 def test_a_queue_url_is_pinned_to_the_region_of_the_infra_host() -> None:

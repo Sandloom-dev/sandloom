@@ -26,8 +26,9 @@ other scheme). A `rediss://` url must state `ssl_cert_reqs`, and
 startup otherwise. For an `sqs://` `broker` it takes `sqs_account_id`, the 12-digit
 AWS account of the queues: a `predefined_queues` url of a Celery conf must be in that
 account (left out, any account passes). Such a url is also pinned to the region of
-the `INFRA` host (the conf `region` when the host names none), and an AWS host that
-names no readable region is refused.
+the `INFRA` host (the conf `region` when the host names none). A host with a trailing
+dot, a percent escape or a non-ASCII character, and an AWS host that names no readable
+region, is refused.
 
 **macOS.** The default `prefork` pool spawns its children there, and a spawned
 child never sees the task table the host registered at boot; the host refuses
