@@ -83,7 +83,7 @@ unregisters it in `aclose`. That covers an `atomic_store`, a `lease`, an event t
 task queue. The helper is
 [`sandloom.driverkit.shared_endpoints`](driverkit.md#sandloomdriverkitshared_endpoints). The
 operator is warned at startup when the instance shares a database with `cache.default`.
-The registrations are kept per process, not per app: two apps built in one process (a test
+Registrations live per process, not per app: two apps built in one process (a test
 suite) see each other's endpoints until `shared_endpoints.reset()`.
 
 `self.implicit` on the provider is `True` for an instance the kernel synthesized in
@@ -97,14 +97,17 @@ logs at INFO, and an overlap with an instance the operator wrote logs as a WARNI
 A connection option (a url, a broker, a pool bound) is an option of your instance, written in
 `INFRA`, with a default in the options schema. Do not read it from a flat setting, and do not
 take it from another instance. No instance inherits another's url, so a driver that needs a
-url refuses startup when its instance has none. The one exception is the `streams` event bus
-of `sandloom-redis`: an instance with no `url` runs on the default cache client, so a
-durable stream can land on the database of `cache.default`, which may evict. The operator
-gets the shared-database WARNING above and nothing refuses it: state the bus's own `url` in
-`INFRA`. A driver like it, one that reads what another capability's `aopen` set up,
-declares `opens_after = ("cache",)` on its class, and `aopen_all` opens those capabilities
-first whatever order `INFRA` lists them in. A cycle between two drivers is refused at
-startup. A driver whose option a flat setting still
+url refuses startup when its instance has none. One exception: the `streams` event bus of
+`sandloom-redis` runs on the default cache client when its instance has no `url`. A durable
+stream can then land on the database of `cache.default`, which may evict. The operator gets
+the shared-database WARNING above and no refusal. State the bus's own `url` in `INFRA`.
+
+A driver that reads what another capability's `aopen` set up declares
+`opens_after = ("cache",)` on its class. `aopen_all` then opens those capabilities first,
+whatever order `INFRA` lists them in. Two drivers that wait for each other are refused at
+startup.
+
+A driver whose option a flat setting still
 feeds (the readiness probe's bound, `HEALTH_CHECK_TIMEOUT_SECONDS`) declares it with
 `settings_fill`. That is a `SettingsFill` on the class. It says which setting fills which
 option when an instance leaves the option out. The kernel applies it without naming your
