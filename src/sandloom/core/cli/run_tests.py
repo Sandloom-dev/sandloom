@@ -5,7 +5,7 @@
     sandloom test --full           the parallel FULL suite (slow tests included)
     sandloom test --no-gates       tests only
     sandloom test --plan           print the steps, run nothing
-    sandloom test --ci             CI: no fixes either (ruff check --no-fix)
+    sandloom test --ci             CI: the same gates, no route-effect recording
     sandloom test --seed N         replay a test order (default: a fresh seed, printed)
     sandloom test --no-shuffle     run the tests in file order
 
@@ -16,10 +16,6 @@ before the steps and again after a failure.
 
 Steps, in order (all run; the summary lists each, exit 1 if any failed):
 
-0. ``ruff check`` (with the gates, developer mode only): first, because a
-   project's ``fix = true`` lets it rewrite source; the generated files and
-   the tests then see the fixed tree, so a green run implies a green
-   ``--ci`` run on the same tree;
 1. ``generated files`` (with the gates): the L1 modules' generated files --
    ``module.snapshot.json``, the route and contract snapshots, the exported
    producer event schemas, the contract stubs and the DTO copies in the
@@ -32,10 +28,14 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
    migration-chain coverage (SANDLOOM-T002), redundant indexes (SANDLOOM-T012) and one
    beat per module with periodic tasks in each deploy profile (SANDLOOM-T010);
 2. ``<module>``: the module's own ``tests/`` (when a module is named);
-3. ``suite``: ``pytest -m "not slow" -n auto --dist loadfile`` with
-   ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` (``--full``: without ``-m "not slow"``;
+3. ``suite``: ``pytest -m "not slow" -n auto --dist loadfile`` with the
+   environment each harness family asks for a parallel run
+   (``HarnessFamily.parallel_env``; ``sandloom-redis``:
+   ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``) (``--full``: without ``-m "not slow"``;
    serially, with a notice, when pytest-xdist is not installed);
-4. static gates: ``ruff check --no-fix`` (``--ci`` only), ``ruff format
+4. static gates: ``ruff check --no-fix`` (a project's ``fix = true`` never
+   rewrites source here: ``sandloom test`` writes nothing, so a violation
+   fails and ``ruff check --fix`` is yours to run), ``ruff format
    --check``, ``mypy``,
    ``sandloom check`` (architecture rules, SANDLOOM-Cnnn), the framework tree's
    architecture tests (which reuse the rule run ``sandloom check`` recorded,
@@ -54,13 +54,13 @@ app. Tests need the project's test services and test env, like ``pytest``.
 Every step sees the SAME test environment, loaded once before the first step
 exactly as the pytest harness loads it (:func:`load_project_test_env`): on a
 checkout ``sandloom dev up`` prepared, the run's test-run slot first
-(:mod:`sandloom.core.testing.slots`: its own database, owner and Redis
-indexes, held until ``sandloom test`` exits), then the nearest ``.env.test``
+(:mod:`sandloom.core.testing.slots`: its own database, owner and backend
+resources, held until ``sandloom test`` exits), then the nearest ``.env.test``
 (override) and its ``.env.test.local``, then the ``SANDLOOM_TEST_*`` variables on top —
 so the in-process snapshot checks work on a checkout without ``.env``. Every
-xdist step (``-n``) gets ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` unless the caller
-exported a stride, so parallel steps never collide with other runs' Redis
-indexes.
+xdist step (``-n``) gets each family's parallel-run environment unless the caller
+exported the names, so parallel steps never collide with other runs' backend
+resources.
 
 Not covered, framework tree only: the benchmark security suite
 (``benchmarks/tests``, CI job ``benchmarks-security``). It needs a superuser
@@ -88,10 +88,15 @@ import sandloom.core.cli.tool_process as _tool_process
 import sandloom.core.testing.static_checks as _static_checks_cli
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.cli import check as _check
-from sandloom.core.composition import COMPOSITION_ROOT_ENV, composition_root_name
+from sandloom.core.composition import (
+    COMPOSITION_ROOT_ENV,
+    CompositionRootError,
+    composition_root_name,
+)
 from sandloom.core.descriptors.module_names import installed_modules
 from sandloom.core.migrations.migrations import MigrationDependencyError
 from sandloom.core.testing.env import find_env_file, load_test_env
+from sandloom.core.testing.families import harness_families
 from sandloom.core.testing.slots import (
     SLOT_LOST_MESSAGE,
     SlotsExhausted,
@@ -144,13 +149,28 @@ def _run_command(step: Step, root: Path) -> int:
     for key, value in step.env.items():
         env.setdefault(key, value)
     if step.resolve_env is not None:
-        env.update(step.resolve_env())
+        try:
+            env.update(step.resolve_env())
+        except CompositionRootError as exc:  # a malformed composition root
+            print(f"sandloom test: {step.name}: {exc}", file=sys.stderr)
+            return 1
+        except SystemExit as exc:  # settings that refuse to load exit with a message
+            print(f"sandloom test: {step.name}: {exc}", file=sys.stderr)
+            return 1
     env.update(step.run_env)
     return _tool_process.run_tool(step.argv, cwd=step.cwd or root, env=env).returncode
 
 
-#: Default for every pytest-xdist step (an exported value wins).
-_XDIST_ENV = {"SANDLOOM_TEST_REDIS_DB_STRIDE": "auto"}
+def _parallel_env() -> dict[str, str]:
+    """Defaults for every pytest-xdist step (an exported value wins): what each
+    harness family needs of a parallel run (its ``parallel_env`` hook), so that
+    parallel steps never collide with other runs' backend resources."""
+    env: dict[str, str] = {}
+    for family in harness_families():
+        env.update(family.parallel_env())
+    return env
+
+
 #: Outside ``--ci`` the tests record the effects each route ran (G-ROUTE-05),
 #: which ``sandloom routes snapshot --write`` attaches as observed_effects.
 _OBSERVE_ENV = {"SANDLOOM_TEST_OBSERVE_EFFECTS": "1"}
@@ -201,14 +221,14 @@ def _xdist_step(
     xdist_args: list[str],
     tail: tuple[str, ...] = (),
 ) -> Step:
-    """A pytest-xdist step: ``argv + xdist_args + tail``, with the stride
-    default (see module doc).
+    """A pytest-xdist step: ``argv + xdist_args + tail``, with the families'
+    parallel-run defaults (see module doc).
 
     Without xdist the step runs serially: ``xdist_args`` (``-n`` /
     ``--dist``) are left out, so pytest does not refuse them (exit 4)."""
     if not xdist:
         return Step(name, [*argv, *tail])
-    return Step(name, [*argv, *xdist_args, *tail], env=dict(_XDIST_ENV))
+    return Step(name, [*argv, *xdist_args, *tail], env=_parallel_env())
 
 
 def _module_tests(root: Path, module: str) -> Path | None:
@@ -348,13 +368,6 @@ def plan(
     if xdist is None:
         xdist = xdist_available()
     steps: list[Step] = []
-    if gates and not ci:
-        # Developer mode: a project's ``fix = true`` lets ``ruff check``
-        # rewrite source (an import sorted onto several lines moves every
-        # route below it). It runs first, so the generated-files check and the
-        # tests see the fixed tree: a green ``sandloom test`` then implies a
-        # green ``sandloom test --ci`` on the same tree.
-        steps.append(_ruff_check(root, python, ci=False))
     if gates and (root / "architecture_rules.yml").is_file():
         argv = ["--root", str(root), "--check"]  # sandloom test never writes
         steps.append(Step("generated files", call=_in_process(_generated, argv)))
@@ -388,15 +401,15 @@ def plan(
     steps.append(step)
     if not gates:
         return steps
-    return steps + _gate_steps(
-        root, python, workers=workers, full=full, xdist=xdist, ci=ci
-    )
+    return steps + _gate_steps(root, python, workers=workers, full=full, xdist=xdist)
 
 
-def _ruff_check(root: Path, python: str, *, ci: bool) -> Step:
-    no_fix = ["--no-fix"] if ci else []
+def _ruff_check(root: Path, python: str) -> Step:
+    """Always ``--no-fix``: ``sandloom test`` writes nothing, whatever ``fix``
+    the project's ruff configuration sets (every ``sandloom new`` app sets it)."""
     return Step(
-        "ruff check", [python, "-m", "ruff", "check", *no_fix, *_lint_targets(root)]
+        "ruff check",
+        [python, "-m", "ruff", "check", "--no-fix", *_lint_targets(root)],
     )
 
 
@@ -407,14 +420,10 @@ def _gate_steps(
     workers: str,
     full: bool,
     xdist: bool,
-    ci: bool = False,
 ) -> list[Step]:
-    """The static gates of :func:`plan`, in order. ``ci``: nothing is
-    written, so ``ruff check`` reports what a project's ``fix = true`` would
-    otherwise fix silently (``--no-fix``); in developer mode :func:`plan`
-    runs ``ruff check`` first instead."""
-    steps: list[Step] = [_ruff_check(root, python, ci=True)] if ci else []
-    steps += [
+    """The static gates of :func:`plan`, in order."""
+    steps: list[Step] = [
+        _ruff_check(root, python),
         Step(
             "ruff format",
             [python, "-m", "ruff", "format", "--check", *_lint_targets(root)],
@@ -546,8 +555,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ci",
         action="store_true",
-        help="CI: ruff check reports instead of fixing (generated files are "
-        "always only checked; `sandloom generate` writes them)",
+        help="CI: the same gates without the route-effect recording (ruff check "
+        "and the generated files are always only checked; `ruff check --fix` "
+        "and `sandloom generate` write)",
     )
     order = parser.add_mutually_exclusive_group()
     order.add_argument(

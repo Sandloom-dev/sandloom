@@ -9,6 +9,8 @@ import pytest
 
 from sandloom.core.archcheck.runner import Violation
 from sandloom.core.cli import check, run_tests
+from sandloom.core.testing import families
+from sandloom.core.tests.test_testing_families import FakeFamily
 
 
 def _names(steps: list[run_tests.Step]) -> list[str]:
@@ -24,58 +26,42 @@ def test_full_runs_the_slow_tests_and_no_gates_skips_them() -> None:
 
 def test_ci_never_writes_so_ruff_check_never_fixes() -> None:
     """A project's ``fix = true`` (every ``sandloom new`` app) would let ``ruff
-    check`` fix a violation and pass; ``--ci`` writes nothing, so it fails."""
+    check`` fix a violation and pass; ``sandloom test`` writes nothing, with or
+    without ``--ci``, so the violation fails."""
     root = Path(__file__).resolve().parents[4]
     for ci in (False, True):
         steps = run_tests.plan(root, None, full=False, gates=True, workers="2", ci=ci)
         ruff = next(s for s in steps if s.name == "ruff check")
-        assert ("--no-fix" in ruff.argv) is ci
+        assert "--no-fix" in ruff.argv, ci
 
 
-def test_ci_keeps_ruff_check_among_the_gates() -> None:
-    """``--ci`` fixes nothing, so its order is unchanged: the generated files
-    first, ``ruff check --no-fix`` with the other gates."""
+def test_ruff_check_runs_with_the_gates_after_the_tests_in_both_modes() -> None:
+    """Nothing fixes, so nothing needs to run first: the generated files, then
+    the tests, then ``ruff check --no-fix`` with the other gates."""
     root = Path(__file__).resolve().parents[4]
-    names = _names(
-        run_tests.plan(root, None, full=False, gates=True, workers="2", ci=True)
-    )
-    assert names[:3] == ["generated files", "schema & deploy", "suite (not slow)"]
-    assert names[3:5] == ["ruff check", "ruff format"]
+    for ci in (False, True):
+        names = _names(
+            run_tests.plan(root, None, full=False, gates=True, workers="2", ci=ci)
+        )
+        assert names[:3] == ["generated files", "schema & deploy", "suite (not slow)"]
+        assert names[3:5] == ["ruff check", "ruff format"]
 
 
-def test_a_green_run_never_leaves_a_generated_file_stale_after_a_ruff_fix(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_project_with_fix_true_fails_on_a_violation_and_stays_unchanged(
+    tmp_path: Path,
 ) -> None:
-    """An app with ``fix = true`` and an import ``ruff check`` sorts onto
-    several lines (it moves every route below it, so the line-bearing index
-    ``sandloom generate`` wrote is stale): developer mode must not report OK
-    while the generated files no longer match the source. ``ruff check``
-    runs first, so the generated-files check sees the fixed source."""
-    (tmp_path / "architecture_rules.yml").write_text("")
+    """The real ruff, on an app with ``fix = true`` and an unsorted import: the
+    step fails and the source is as it was (``sandloom test`` writes nothing)."""
     (tmp_path / "pyproject.toml").write_text(
         '[tool.ruff]\nfix = true\nline-length = 60\n[tool.ruff.lint]\nselect = ["I"]\n'
     )
     api = tmp_path / "api.py"
-    api.write_text(
-        "from os.path import basename, dirname, join, normpath, splitext\n\n\n"
-        "def route() -> object:\n    return (basename, dirname, join, normpath, splitext)\n"
-    )
-    generated_from = api.read_text()  # what `sandloom generate` saw
-
-    def generated_check(argv: list[str]) -> int:  # stale once the source moved
-        return 0 if api.read_text() == generated_from else 1
-
-    monkeypatch.setattr(run_tests, "_generated", generated_check)
-    steps = run_tests.plan(
-        tmp_path, None, full=False, gates=True, workers="2", xdist=False
-    )
-    ran = [s for s in steps if s.name in {"ruff check", "generated files"}]
-    codes = [
-        step.call() if step.call is not None else run_tests._run_command(step, tmp_path)
-        for step in ran
-    ]
-    assert api.read_text() != generated_from, "ruff fixed the import"
-    assert any(codes), "a green run with a stale generated file"
+    api.write_text("import sys\nimport os\n\nprint(os, sys)\n")
+    before = api.read_text()
+    steps = run_tests.plan(tmp_path, None, full=False, gates=True, workers="2")
+    ruff = next(s for s in steps if s.name == "ruff check")
+    assert run_tests._run_command(ruff, tmp_path) != 0
+    assert api.read_text() == before
 
 
 def test_sandloom_test_never_writes_a_generated_file(
@@ -113,6 +99,27 @@ def test_every_step_runs_and_the_summary_names_the_failures(
     assert text.rstrip().endswith("sandloom test: FAILED (route snapshots)")
 
 
+def test_the_parallel_steps_get_the_environment_every_family_asks_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The kernel names no backend variable: an xdist step carries what each
+    harness family's ``parallel_env`` says, and a serial one carries none of it."""
+    monkeypatch.setattr(families, "_loaded", (FakeFamily(),))
+    parallel = run_tests.plan(
+        tmp_path, None, full=False, gates=False, workers="2", xdist=True
+    )
+    assert parallel[-1].env["FAKE_PARALLEL"] == "1"
+    serial = run_tests.plan(
+        tmp_path, None, full=False, gates=False, workers="2", xdist=False
+    )
+    assert "FAKE_PARALLEL" not in serial[-1].env
+    monkeypatch.setattr(families, "_loaded", ())
+    bare = run_tests.plan(
+        tmp_path, None, full=False, gates=False, workers="2", xdist=True
+    )
+    assert "FAKE_PARALLEL" not in bare[-1].env
+
+
 def test_an_exported_stride_wins_over_the_step_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -131,6 +138,64 @@ def test_an_exported_stride_wins_over_the_step_default(
     )
     assert run_tests.run([step], tmp_path)[0].code == 0
     assert out.read_text() == "32"
+
+
+def test_a_command_step_reads_the_composition_root_the_project_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The child of a ``resolve_env`` step (the migrate drift one) carries the
+    root `_composition_env` resolved (the process environment does not hold it)."""
+    monkeypatch.delenv(run_tests.COMPOSITION_ROOT_ENV, raising=False)
+    monkeypatch.setattr(
+        run_tests, "composition_root_name", lambda project_root: "acme.asgi"
+    )
+    out = tmp_path / "out"
+    step = run_tests.Step(
+        "probe",
+        [
+            sys.executable,
+            "-c",
+            f"import os; open({str(out)!r}, 'w').write(os.environ['SANDLOOM_COMPOSITION_ROOT'])",
+        ],
+        resolve_env=lambda: run_tests._composition_env(tmp_path),
+    )
+    assert run_tests._run_command(step, tmp_path) == 0
+    assert out.read_text() == "acme.asgi"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        run_tests.CompositionRootError("composition-root is not a dotted path"),
+        SystemExit("settings refuse to load"),
+    ],
+)
+def test_a_step_whose_environment_cannot_be_resolved_fails_with_its_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: BaseException
+) -> None:
+    """A malformed composition root or settings that exit is that one step's
+    failure (message on stderr, exit 1), not a traceback that ends the run."""
+
+    def refuse() -> dict[str, str]:
+        raise failure
+
+    step = run_tests.Step("probe", [sys.executable, "-c", "pass"], resolve_env=refuse)
+    assert run_tests._run_command(step, tmp_path) == 1
+    err = capsys.readouterr().err
+    assert "sandloom test: probe:" in err and str(failure) in err
+
+
+def test_an_unexpected_error_resolving_a_step_environment_still_raises(
+    tmp_path: Path,
+) -> None:
+    """Only the two named refusals are a step failure: a bug stays loud."""
+
+    def broken() -> dict[str, str]:
+        raise ZeroDivisionError
+
+    step = run_tests.Step("probe", [sys.executable, "-c", "pass"], resolve_env=broken)
+    with pytest.raises(ZeroDivisionError):
+        run_tests._run_command(step, tmp_path)
 
 
 def test_the_test_env_is_dotenv_test_with_sandloom_test_overrides_on_top(

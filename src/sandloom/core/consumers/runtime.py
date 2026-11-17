@@ -10,7 +10,6 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlsplit
 
 from sandloom.core.consumers.callbacks import (
     SessionOpener,
@@ -22,6 +21,7 @@ from sandloom.core.eventing.bus_base import BaseEventBus, durable_transport
 from sandloom.core.eventing.subscriptions import SubscriptionState
 from sandloom.core.eventing.transport_base import service_name as _configured_service
 from sandloom.core.observability.metrics_utils import safe_inc
+from sandloom.core.url_split import split_url
 
 if TYPE_CHECKING:  # pragma: no cover
     from sandloom.core.facade import CoreFacade
@@ -69,7 +69,7 @@ def normalize_database_url(url: str) -> str:
     ``postgresql://other@db/app`` both normalise to ``postgresql://db:5432/app``
     so replicas configured with different drivers / credentials still match.
     """
-    parts = urlsplit(url)
+    parts = split_url(url)
     scheme = parts.scheme.split("+", 1)[0].lower()
     if scheme == "postgres":
         scheme = "postgresql"

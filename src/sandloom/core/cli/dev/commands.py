@@ -23,7 +23,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.parse
 from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +54,7 @@ from sandloom.core.cli.dev.state import (
 )
 from sandloom.core.cli.url_text import drop_urls
 from sandloom.core.testing.machine import sandloom_home
+from sandloom.core.url_split import split_url
 
 #: A checkout that ran ``dev up`` this recently counts as using the servers.
 ACTIVE_SECONDS = 24 * 3600
@@ -1706,7 +1706,7 @@ BANNER_TIMEOUT = 300.0
 def _answers(url: str, timeout: float = 2.0) -> int | None:
     """The HTTP status of ``GET url``, an ``http://`` URL ``dev run`` built
     (``None``: no answer). No redirect is followed: one counts as served."""
-    parts = urllib.parse.urlsplit(url)
+    parts = split_url(url)
     connection = http.client.HTTPConnection(
         parts.hostname or "127.0.0.1", parts.port or 80, timeout=timeout
     )

@@ -44,7 +44,7 @@ from collections.abc import Callable, Mapping
 from functools import cache
 from typing import Any, ClassVar, Literal, NoReturn
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sandloom.driverkit import (
     HealthResult,
@@ -62,7 +62,7 @@ from sandloom.driverkit.lease_limits import (
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom.driverkit.testing_isolation import isolated_url_options
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._eviction_guard import (
     POLICY_SETTING,
@@ -73,7 +73,7 @@ from sandloom_redis._eviction_guard import (
     refusal_of,
     refusal_reason,
 )
-from sandloom_redis._url import require_url
+from sandloom_redis._url import checked_url, require_url
 
 
 @cache
@@ -122,6 +122,12 @@ class RedisLeaseOptions(BaseModel):
     key_prefix: str = Field(default="sandloom:lease:", min_length=1, max_length=64)
     socket_timeout_seconds: float = Field(default=1.0, gt=0)
     socket_connect_timeout_seconds: float = Field(default=1.0, gt=0)
+
+    @field_validator("url")
+    @classmethod
+    def _url_parses(cls, value: str | None) -> str | None:
+        return checked_url(value)
+
     max_connections: int = Field(default=16, ge=1)
     #: Seconds a call waits for a free connection of the pool.
     pool_timeout_seconds: float = Field(default=1.0, gt=0)
@@ -146,7 +152,7 @@ class RedisLeaseProvider(LeaseProvider):
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
-        return isolated_redis_options(options, worker_id)
+        return isolated_url_options(options, worker_id)
 
     def __init__(
         self,

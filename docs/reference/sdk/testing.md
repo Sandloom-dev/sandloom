@@ -997,7 +997,7 @@ provider are put back — so a lazily built, process-wide provider (e.g. the
 `default` engine) survives the test untouched:
 
 ```python
-async with override_instance(core, "cache", driver="redis",
+async with override_instance(core, "cache", driver="<driver>",
                              url=resolved_cache_url()):
     ...
 ```
@@ -1128,7 +1128,7 @@ def reload_test_env(path: str | os.PathLike[str]) -> None
 
 Use instead of a bare `load_dotenv(..., override=True)` in tests: the
 reload would otherwise put a parallel worker back on the shared base
-database / Redis.
+database / backend.
 
 ### `ReservedPort`
 

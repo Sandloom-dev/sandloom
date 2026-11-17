@@ -40,7 +40,8 @@ TESTING_GROUP = "sandloom.testing"
 #: The setting declaring named infrastructure instances (JSON).
 INFRA_VAR = "INFRA"
 #: The options of an ``INFRA`` instance that hold a service URL: ``url`` (the
-#: Redis drivers) and the Celery task queue's ``broker`` and ``backend``.
+#: cache, lease, atomic store and event bus drivers) and the task queue's
+#: ``broker`` and ``backend``.
 INSTANCE_URL_OPTIONS = ("url", "broker", "backend")
 
 
@@ -126,6 +127,24 @@ class HarnessFamily(Protocol):
         """Empty the test database behind ``provider`` (a cache provider the app
         resolves) when it is this family's and this run owns it; ``False`` when
         it is not this family's."""
+        ...
+
+    def owns_url(self, url: str) -> bool:
+        """``url`` is one this family isolates (a URL of its backend): the
+        harness's ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL``
+        merge replaces only URLs a family owns."""
+        ...
+
+    def same_database(self, stated: str, base: str) -> bool:
+        """``stated`` and ``base``, both URLs this family owns, name the same
+        server and database (a URL that leaves the database out names the
+        backend's default one)."""
+        ...
+
+    def parallel_env(self) -> dict[str, str]:
+        """The environment an xdist (parallel) run of ``sandloom test`` sets for
+        this family unless the caller already set the names; ``{}`` for a family
+        that needs none."""
         ...
 
 

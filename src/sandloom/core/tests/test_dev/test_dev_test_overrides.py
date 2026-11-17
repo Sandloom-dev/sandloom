@@ -151,7 +151,7 @@ def test_dev_up_writes_the_overrides_the_harness_can_apply(
 
 
 def test_the_names_are_the_harness_own_map() -> None:
-    assert set(workers.INFRA_URL_CAPABILITIES) == set(workers.REDIS_VARS)
+    assert set(workers.INFRA_URL_CAPABILITIES) == set(workers.URL_VARS)
 
 
 @pytest.mark.parametrize(

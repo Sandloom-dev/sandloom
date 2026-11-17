@@ -58,7 +58,7 @@ def resolved_cache_url(environ: Mapping[str, str] | None = None) -> str:
         return url
     raise RuntimeError(
         "no test cache url: set INFRA's cache.default.url in .env.test "
-        '(INFRA={"cache": {"default": {"driver": "redis", "url": "redis://…"}}}) '
+        '(INFRA={"cache": {"default": {"driver": "<driver>", "url": "<url>"}}}) '
         "or SANDLOOM_TEST_CACHE_URL"
     )
 
@@ -79,7 +79,7 @@ async def override_instance(
     provider are put back — so a lazily built, process-wide provider (e.g. the
     ``default`` engine) survives the test untouched::
 
-        async with override_instance(core, "cache", driver="redis",
+        async with override_instance(core, "cache", driver="<driver>",
                                      url=resolved_cache_url()):
             ...
     """

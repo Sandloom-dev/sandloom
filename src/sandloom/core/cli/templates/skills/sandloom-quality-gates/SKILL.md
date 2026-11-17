@@ -22,10 +22,10 @@ Run from the app root. Every step must pass before work is done.
    uv run sandloom test            # once, at the end: the whole app
    ```
 
-   - It runs: `ruff check` first (what it fixes is in the tree the next
-     steps see), the generated files (only checked: a stale one fails with
+   - It runs: the generated files (only checked: a stale one fails with
      "run `sandloom generate`"),
-     `schema & deploy`, the tests in parallel, `ruff format --check`,
+     `schema & deploy`, the tests in parallel, `ruff check --no-fix` (it
+     never fixes: run `ruff check --fix` yourself), `ruff format --check`,
      `mypy`, `sandloom check`, the contract and route snapshots and the
      migration drift check. `--full` adds the slow tests; `--plan`
      prints the steps.

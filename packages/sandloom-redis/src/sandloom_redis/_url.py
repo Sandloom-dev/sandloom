@@ -11,6 +11,19 @@ from __future__ import annotations
 
 import json
 
+from sandloom.driverkit.url_split import split_url
+
+
+def checked_url(value: str | None) -> str | None:
+    """The option ``url`` as given when it can be parsed, else refuse it with one
+    fixed message (``ValueError``, no chained error): the stdlib message of a url
+    with a character that NFKC-normalises to ``:``, ``/``, ``?``, ``#`` or ``@``
+    quotes the netloc, password included. The options models call it, so such a
+    url never reaches ``urlsplit`` or ``redis.from_url`` later."""
+    if value:
+        split_url(value)
+    return value
+
 
 class MissingUrlError(ValueError):
     """A ``redis`` instance has no ``url``: a configuration mistake that aborts
