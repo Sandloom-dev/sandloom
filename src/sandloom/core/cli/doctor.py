@@ -76,8 +76,9 @@ import sandloom.core.auth.claims_view as _claims_view
 import sandloom.core.infra.fenced_lease as _beat_lease
 from sandloom.core.app_factory import configuration_problems
 from sandloom.core.claims import ClaimAuthorities
-from sandloom.core.cli.config import mask_url_credentials, redact_value
+from sandloom.core.cli.config import redact_value
 from sandloom.core.cli.migrate import _hosting_databases
+from sandloom.core.cli.url_text import mask_url_credentials
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers

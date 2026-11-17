@@ -8,7 +8,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from sandloom.core.config.removed_drivers import removed_driver_problem
+from sandloom.core.config.removed_drivers import (
+    REMOVED_DRIVERS,
+    removed_driver_problem,
+)
 
 #: Default age bound of an event stream, in seconds (7 days): the one value of
 #: the ``streams`` driver's ``retention_seconds`` option and the transport's own
@@ -49,9 +52,15 @@ class EventingConfig(BaseModel):
                 "selection, or name a driver (memory, broadcast, streams)"
             )
         if isinstance(value, str):
-            removed = removed_driver_problem("eventbus", "default", value.strip())
-            if removed is not None:
-                raise ValueError(f"EVENT_BUS_BACKEND: {removed}")
+            name = value.strip()
+            if removed_driver_problem("eventbus", "default", name) is not None:
+                new, release = REMOVED_DRIVERS[("eventbus", name)]
+                raise ValueError(
+                    f"EVENT_BUS_BACKEND={name}: the {name!r} event bus driver was "
+                    f"removed in {release} and is now named {new!r}; set "
+                    f"EVENT_BUS_BACKEND={new}, or in INFRA write "
+                    f'{{"eventbus": {{"default": {{"driver": "{new}"}}}}}}'
+                )
         return value
 
     # Logical service name of this process (e.g. "billing-api"). It names the
