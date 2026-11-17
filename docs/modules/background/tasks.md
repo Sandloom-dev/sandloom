@@ -209,8 +209,8 @@ The refusal is the same error. It names the key, never the value:
   `broker_password`;
 - `redis_host`, `redis_port`, `redis_db`, `redis_username`, `redis_password`,
   `redis_backend_use_ssl` and `redis_backend_credential_provider`, for the result backend;
-- the settings that name a result backend's host, credentials or bucket where the url
-  omits them: `database_url`, `mongodb_backend_settings`, `couchbase_backend_settings`,
+- the settings that name a host, credentials or bucket of a result backend:
+  `database_url`, `mongodb_backend_settings`, `couchbase_backend_settings`,
   `arangodb_backend_settings`, `cassandra_*`, `s3_*`, `gcs_bucket`, `gcs_project`,
   `cache_backend` and `cache_backend_options`.
 
@@ -225,15 +225,15 @@ the certificate check. `True` is refused too. Kombu then skips the TLS default o
 comes from the scheme and from the query of the `INFRA` url (`?ssl_cert_reqs=required`).
 
 A `rediss://` url in `broker` or `backend` must state `ssl_cert_reqs` in its query. Kombu
-connects a `rediss://` url without it with no certificate check and only logs a warning,
-and Celery's result backend refuses such a url, so the instance is refused at startup
-with both. `?ssl_cert_reqs=required` verifies the server's certificate, and `none` is the
-explicit way to skip it. A url of several `;`-separated hosts uses one scheme.
+connects a `rediss://` url without it with no certificate check and only logs a warning.
+Celery's result backend refuses such a url. The instance is refused at startup for both.
+`?ssl_cert_reqs=required` verifies the server's certificate, and `none` is the explicit
+way to skip it. A url of several `;`-separated hosts uses one scheme.
 
 A `sentinel://` url needs the name of its Redis master. Kombu and Celery read it only from
-the transport options, so it is an `INFRA` option: `master_name` for the `broker` and
-`backend_master_name` for the `backend`. A url without it is refused, and so is the option
-on a url that is not `sentinel://`. A config module may state the same master in its
+the transport options, so it is an `INFRA` option. The `broker` takes `master_name` and
+the `backend` takes `backend_master_name`. A url without its master is refused. So is a
+master on a url that is not `sentinel://`. A config module may state the same master in its
 transport options, and any other master is refused. `sentinel_kwargs` is not supported: it
 holds the host, the credentials and the TLS of the sentinel nodes.
 
