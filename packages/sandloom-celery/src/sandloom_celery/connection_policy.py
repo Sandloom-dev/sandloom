@@ -51,15 +51,23 @@ _AWS_REGION = re.compile(_REGION)
 _ACCOUNT_ID = re.compile(r"[0-9]{12}")
 #: An AWS SQS host, named for its region (botocore's ``endpoints.json`` and the
 #: PrivateLink guide): ``sqs.<region>.amazonaws.com`` (``.amazonaws.com.cn`` in
-#: China), the FIPS ``sqs-fips.<region>.amazonaws.com`` and the interface endpoint of
-#: a VPC, ``vpce-<id>-<suffix>.sqs.<region>.vpce.amazonaws.com`` (the zonal name adds
-#: ``-<zone>`` to the label). Nothing else: no port, userinfo or other domain.
+#: China), the FIPS ``sqs-fips.<region>.amazonaws.com`` (the China regions have no
+#: FIPS endpoint) and the interface endpoint of a VPC,
+#: ``vpce-<id>-<suffix>.sqs.<region>.vpce.amazonaws.com`` (the zonal name adds
+#: ``-<zone>`` to the label). Nothing else: no port, userinfo, trailing dot or other
+#: domain. Exactly one of the three region groups matches.
 _SQS_HOST = (
-    rf"(?:sqs(?:-fips)?\.(?P<region>{_REGION})\.amazonaws\.com(?:\.cn)?"
+    rf"(?:sqs\.(?P<region>{_REGION})\.amazonaws\.com(?:\.cn)?"
+    rf"|sqs-fips\.(?P<fips_region>{_REGION})\.amazonaws\.com"
     rf"|vpce-[a-z0-9-]{{1,60}}\.sqs\.(?P<vpce_region>{_REGION})"
     r"\.vpce\.amazonaws\.com(?:\.cn)?)"
 )
 _SQS_HOST_RE = re.compile(_SQS_HOST)
+#: Domains of AWS hosts: an SQS host under one of them that :data:`_SQS_HOST` does not
+#: spell (a trailing dot, the legacy ``<region>.queue.amazonaws.com``, the dual-stack
+#: ``sqs.<region>.api.aws``, a FIPS name in China) names no region, so the queue-url
+#: pin would be off: an ``INFRA`` broker url with one is refused.
+_AWS_DOMAINS = (".amazonaws.com", ".amazonaws.com.cn", ".api.aws")
 #: The prefix of SQS queue names (queue names allow letters, digits, ``-``, ``_``).
 _QUEUE_NAME_PREFIX = re.compile(r"[A-Za-z0-9_-]{0,64}")
 
@@ -129,16 +137,18 @@ _PREDEFINED_QUEUE_KEYS = frozenset({"url", "backoff_policy", "backoff_tasks"})
 #: The url of an SQS queue (``https://<SQS host>/<account>/<name>``, the host as
 #: :data:`_SQS_HOST` spells it): TLS, an AWS host, nothing else.
 _SQS_QUEUE_URL = re.compile(
-    rf"https://{_SQS_HOST}/(?P<account>[0-9]{{12}})/[A-Za-z0-9_-]{{1,80}}(?:\.fifo)?"
+    rf"https://(?P<host>{_SQS_HOST})/(?P<account>[0-9]{{12}})"
+    r"/[A-Za-z0-9_-]{1,80}(?:\.fifo)?"
 )
 
 
 def _host_region(host: str | None) -> str | None:
-    """The region an AWS SQS host names, ``None`` for any other host."""
+    """The region an AWS SQS host names, ``None`` for any other host (the one place
+    that reads a region out of a host)."""
     match = _SQS_HOST_RE.fullmatch(host) if host else None
     if match is None:
         return None
-    return match["region"] or match["vpce_region"]
+    return match["region"] or match["fips_region"] or match["vpce_region"]
 
 
 @dataclass(frozen=True)
@@ -257,6 +267,23 @@ def _chunks(url: str | None) -> list[str]:
     return url.split(";") if url and url.strip() else []
 
 
+def _sqs_host(chunk: str) -> str | None:
+    """The host of one chunk of an ``sqs://`` broker url, ``None`` for none.
+
+    Refused (``ValueError``, never the url): a host with a percent escape or a
+    non-ASCII character. Kombu hands the host to botocore decoded (``%2E`` is a dot,
+    U+3002 an ideographic full stop that IDNA reads as one), so such a host names a
+    real AWS endpoint while the region pin, reading the raw text, would see none.
+    """
+    host = urlsplit(chunk).hostname
+    if host and ("%" in host or not host.isascii()):
+        raise ValueError(
+            "the broker url has an SQS host with a percent escape or a non-ASCII "
+            "character: write the host in plain ASCII"
+        )
+    return host
+
+
 def _has_host(url: str | None) -> bool:
     return any(urlsplit(chunk).hostname for chunk in _chunks(url))
 
@@ -279,13 +306,15 @@ class ConnectionOptions:
 
     def queue_pin(self) -> QueuePin:
         """What the SQS queue urls and ``region`` of a conf must match: the regions
-        the AWS hosts of an ``sqs://`` ``broker`` url name, and the account."""
+        the AWS hosts of an ``sqs://`` ``broker`` url name, and the account. A host
+        that :func:`validate_connection` refuses for its spelling raises here too
+        (``ValueError``): its region is not read, so no pin could be built."""
         if scheme_of(self.broker) not in SQS_SCHEMES:
             return NO_QUEUE_PIN
         regions = {
             region
             for chunk in _chunks(self.broker)
-            if (region := _host_region(urlsplit(chunk).hostname))
+            if (region := _host_region(_sqs_host(chunk)))
         }
         return QueuePin(frozenset(regions), self.sqs_account_id)
 
@@ -323,9 +352,12 @@ def validate_connection(connection: ConnectionOptions) -> None:
       and the transport options are allowed per scheme;
     * a ``sentinel://`` url without its master, or a master without a sentinel url;
     * an ``sqs_account_id`` that is not 12 digits, or one with a broker that is not
-      an ``sqs://`` url.
+      an ``sqs://`` url;
+    * an ``sqs://`` broker url whose AWS host names no region the queue-url pin can
+      read (:func:`_check_sqs_hosts`).
     """
     _check_sqs_account(connection)
+    _check_sqs_hosts(connection)
     for option, url, master_option, master in (
         ("broker", connection.broker, "master_name", connection.master_name),
         (
@@ -371,6 +403,39 @@ def _check_sqs_account(connection: ConnectionOptions) -> None:
         raise ValueError("the option sqs_account_id is for an sqs:// broker url")
     if not _ACCOUNT_ID.fullmatch(account):
         raise ValueError("the option sqs_account_id is the 12 digits of an AWS account")
+
+
+def _check_sqs_hosts(connection: ConnectionOptions) -> None:
+    """Refuse an ``sqs://`` broker url with a host under an AWS domain that
+    :data:`_SQS_HOST` does not spell, or with a trailing dot: the region of such a
+    host is not read, so a ``predefined_queues`` url would not be pinned to it. An
+    emulator or a proxy host (no AWS domain) is not refused: it names no region.
+    The AWS hosts of one url name one region: kombu signs for one ``region``, and a
+    pin of two regions would let the conf ``region`` and a queue url each take a
+    different one."""
+    if scheme_of(connection.broker) not in SQS_SCHEMES:
+        return
+    regions: set[str] = set()
+    for chunk in _chunks(connection.broker):
+        host = _sqs_host(chunk)
+        if not host:
+            continue
+        if region := _host_region(host):
+            regions.add(region)
+            if len(regions) > 1:
+                raise ValueError(
+                    "the broker url's SQS hosts name more than one AWS region: "
+                    "use hosts of one region"
+                )
+            continue
+        if host.endswith(".") or ("." + host).endswith(_AWS_DOMAINS):
+            raise ValueError(
+                "the broker url has an SQS host the driver cannot read a region "
+                "from: use sqs.<region>.amazonaws.com, sqs-fips.<region>."
+                "amazonaws.com or a vpce-<id>.sqs.<region>.vpce.amazonaws.com "
+                "interface endpoint (no trailing dot, no <region>.queue."
+                "amazonaws.com, no sqs.<region>.api.aws)"
+            )
 
 
 def _check_tls(option: str, chunk: str) -> None:
@@ -441,29 +506,30 @@ def transport_options_are_safe(
     """
     if not isinstance(options, Mapping):
         return False
-    queues = pin
     conf_region = options.get("region")
     if not pin.regions and isinstance(conf_region, str) and _is_region(conf_region):
-        queues = QueuePin(frozenset({conf_region}), pin.account)
+        # INFRA names no region: the conf's own is the pin (it equals ``region``
+        # below, which then passes by its shape alone).
+        pin = QueuePin(frozenset({conf_region}), pin.account)
     for key, value in options.items():
         if key in stated:
             safe = value == stated[key]
         else:
-            safe = key in allowed and _value_is_safe(key, value, pin, queues)
+            safe = key in allowed and _value_is_safe(key, value, pin)
         if not safe:
             return False
     return True
 
 
-def _value_is_safe(key: str, value: object, pin: QueuePin, queues: QueuePin) -> bool:
+def _value_is_safe(key: str, value: object, pin: QueuePin) -> bool:
     """The shape of the values that name an AWS region, a queue or a queue map:
-    the region against ``pin``, the queue urls against ``queues``."""
+    the region and the queue urls against ``pin``."""
     if key == "region":
         return _is_region(value) and (not pin.regions or value in pin.regions)
     if key == "queue_name_prefix":
         return _is_queue_prefix(value)
     if key == "predefined_queues":
-        return _predefined_queues_are_safe(value, queues)
+        return _predefined_queues_are_safe(value, pin)
     return True
 
 
@@ -481,8 +547,7 @@ def _queue_url_is_pinned(url: object, pin: QueuePin) -> bool:
     match = _SQS_QUEUE_URL.fullmatch(url) if isinstance(url, str) else None
     if match is None:
         return False
-    region = match["region"] or match["vpce_region"]
-    if pin.regions and region not in pin.regions:
+    if pin.regions and _host_region(match["host"]) not in pin.regions:
         return False
     return pin.account is None or match["account"] == pin.account
 

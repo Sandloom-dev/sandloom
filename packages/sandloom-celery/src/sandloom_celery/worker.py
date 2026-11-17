@@ -533,10 +533,9 @@ def _foreign_transport_option(conf: Any, connection: ConnectionOptions) -> str |
 def _importable_app_connection() -> ConnectionOptions:
     """The connection of the importable app: the options of the ``default``
     taskqueue instance (``broker``, ``backend``, the sentinel masters and the SQS
-    account), as the
-    application resolves them (``INFRA`` through ``Settings``; no environment
-    variable of this driver). The backend is ``None`` unless the instance states
-    one.
+    account), as the application resolves them (``INFRA`` through ``Settings``; no
+    environment variable of this driver). The backend is ``None`` unless the
+    instance states one.
 
     Celery's own CLI would replace them: ``celery -b`` (envvar ``BROKER_URL``) and
     ``--result-backend`` (``RESULT_BACKEND``) write ``CELERY_BROKER_URL`` and
@@ -568,14 +567,11 @@ def _importable_app_connection() -> ConnectionOptions:
     backend = instance.options.get("backend")
     if backend is not None and not isinstance(backend, str):
         raise AttributeError("the INFRA option taskqueue.default.backend must be a url")
-    masters = []
-    for master_option in ("master_name", "backend_master_name", "sqs_account_id"):
-        master = instance.options.get(master_option)
-        if master is not None and not isinstance(master, str):
-            raise AttributeError(
-                f"the INFRA option taskqueue.default.{master_option} must be a string"
-            )
-        masters.append(master)
+    # The sentinel masters and the SQS account: optional string options.
+    master_name, backend_master_name, sqs_account_id = (
+        _optional_string_option(instance.options, option)
+        for option in ("master_name", "backend_master_name", "sqs_account_id")
+    )
     broker = broker.strip()
     backend = backend.strip() if backend else None
     # The urls and masters passed ``CeleryTaskQueueOptions`` (``process_instance``
@@ -587,7 +583,20 @@ def _importable_app_connection() -> ConnectionOptions:
     _refuse_foreign_env(
         _BACKEND_ENV, backend, "the INFRA option taskqueue.default.backend"
     )
-    return ConnectionOptions(broker, backend, masters[0], masters[1], masters[2])
+    return ConnectionOptions(
+        broker, backend, master_name, backend_master_name, sqs_account_id
+    )
+
+
+def _optional_string_option(options: Mapping[str, object], name: str) -> str | None:
+    """The INFRA option ``name`` of the default taskqueue instance: a string, or
+    ``None`` when unset."""
+    value = options.get(name)
+    if value is not None and not isinstance(value, str):
+        raise AttributeError(
+            f"the INFRA option taskqueue.default.{name} must be a string"
+        )
+    return value
 
 
 def _refuse_foreign_env(key: str, stated: str | None, option: str) -> None:
