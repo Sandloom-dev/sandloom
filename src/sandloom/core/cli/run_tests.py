@@ -5,7 +5,7 @@
     sandloom test --full           the parallel FULL suite (slow tests included)
     sandloom test --no-gates       tests only
     sandloom test --plan           print the steps, run nothing
-    sandloom test --ci             CI: no fixes either (ruff check --no-fix)
+    sandloom test --ci             CI: the same gates, without the route-effect recording
     sandloom test --seed N         replay a test order (default: a fresh seed, printed)
     sandloom test --no-shuffle     run the tests in file order
 
@@ -16,10 +16,6 @@ before the steps and again after a failure.
 
 Steps, in order (all run; the summary lists each, exit 1 if any failed):
 
-0. ``ruff check`` (with the gates, developer mode only): first, because a
-   project's ``fix = true`` lets it rewrite source; the generated files and
-   the tests then see the fixed tree, so a green run implies a green
-   ``--ci`` run on the same tree;
 1. ``generated files`` (with the gates): the L1 modules' generated files --
    ``module.snapshot.json``, the route and contract snapshots, the exported
    producer event schemas, the contract stubs and the DTO copies in the
@@ -37,7 +33,9 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
    (``HarnessFamily.parallel_env``; ``sandloom-redis``:
    ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``) (``--full``: without ``-m "not slow"``;
    serially, with a notice, when pytest-xdist is not installed);
-4. static gates: ``ruff check --no-fix`` (``--ci`` only), ``ruff format
+4. static gates: ``ruff check --no-fix`` (a project's ``fix = true`` never
+   rewrites source here: ``sandloom test`` writes nothing, so a violation
+   fails and ``ruff check --fix`` is yours to run), ``ruff format
    --check``, ``mypy``,
    ``sandloom check`` (architecture rules, SANDLOOM-Cnnn), the framework tree's
    architecture tests (which reuse the rule run ``sandloom check`` recorded,
@@ -369,13 +367,6 @@ def plan(
     if xdist is None:
         xdist = xdist_available()
     steps: list[Step] = []
-    if gates and not ci:
-        # Developer mode: a project's ``fix = true`` lets ``ruff check``
-        # rewrite source (an import sorted onto several lines moves every
-        # route below it). It runs first, so the generated-files check and the
-        # tests see the fixed tree: a green ``sandloom test`` then implies a
-        # green ``sandloom test --ci`` on the same tree.
-        steps.append(_ruff_check(root, python, ci=False))
     if gates and (root / "architecture_rules.yml").is_file():
         argv = ["--root", str(root), "--check"]  # sandloom test never writes
         steps.append(Step("generated files", call=_in_process(_generated, argv)))
@@ -409,15 +400,15 @@ def plan(
     steps.append(step)
     if not gates:
         return steps
-    return steps + _gate_steps(
-        root, python, workers=workers, full=full, xdist=xdist, ci=ci
-    )
+    return steps + _gate_steps(root, python, workers=workers, full=full, xdist=xdist)
 
 
-def _ruff_check(root: Path, python: str, *, ci: bool) -> Step:
-    no_fix = ["--no-fix"] if ci else []
+def _ruff_check(root: Path, python: str) -> Step:
+    """Always ``--no-fix``: ``sandloom test`` writes nothing, whatever ``fix``
+    the project's ruff configuration sets (every ``sandloom new`` app sets it)."""
     return Step(
-        "ruff check", [python, "-m", "ruff", "check", *no_fix, *_lint_targets(root)]
+        "ruff check",
+        [python, "-m", "ruff", "check", "--no-fix", *_lint_targets(root)],
     )
 
 
@@ -428,14 +419,10 @@ def _gate_steps(
     workers: str,
     full: bool,
     xdist: bool,
-    ci: bool = False,
 ) -> list[Step]:
-    """The static gates of :func:`plan`, in order. ``ci``: nothing is
-    written, so ``ruff check`` reports what a project's ``fix = true`` would
-    otherwise fix silently (``--no-fix``); in developer mode :func:`plan`
-    runs ``ruff check`` first instead."""
-    steps: list[Step] = [_ruff_check(root, python, ci=True)] if ci else []
-    steps += [
+    """The static gates of :func:`plan`, in order."""
+    steps: list[Step] = [
+        _ruff_check(root, python),
         Step(
             "ruff format",
             [python, "-m", "ruff", "format", "--check", *_lint_targets(root)],
@@ -567,8 +554,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ci",
         action="store_true",
-        help="CI: ruff check reports instead of fixing (generated files are "
-        "always only checked; `sandloom generate` writes them)",
+        help="CI: the same gates without the route-effect recording (ruff check "
+        "and the generated files are always only checked; `ruff check --fix` "
+        "and `sandloom generate` write)",
     )
     order = parser.add_mutually_exclusive_group()
     order.add_argument(

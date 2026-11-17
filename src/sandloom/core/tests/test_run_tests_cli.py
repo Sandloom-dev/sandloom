@@ -26,58 +26,42 @@ def test_full_runs_the_slow_tests_and_no_gates_skips_them() -> None:
 
 def test_ci_never_writes_so_ruff_check_never_fixes() -> None:
     """A project's ``fix = true`` (every ``sandloom new`` app) would let ``ruff
-    check`` fix a violation and pass; ``--ci`` writes nothing, so it fails."""
+    check`` fix a violation and pass; ``sandloom test`` writes nothing, with or
+    without ``--ci``, so the violation fails."""
     root = Path(__file__).resolve().parents[4]
     for ci in (False, True):
         steps = run_tests.plan(root, None, full=False, gates=True, workers="2", ci=ci)
         ruff = next(s for s in steps if s.name == "ruff check")
-        assert ("--no-fix" in ruff.argv) is ci
+        assert "--no-fix" in ruff.argv, ci
 
 
-def test_ci_keeps_ruff_check_among_the_gates() -> None:
-    """``--ci`` fixes nothing, so its order is unchanged: the generated files
-    first, ``ruff check --no-fix`` with the other gates."""
+def test_ruff_check_runs_with_the_gates_after_the_tests_in_both_modes() -> None:
+    """Nothing fixes, so nothing needs to run first: the generated files, then
+    the tests, then ``ruff check --no-fix`` with the other gates."""
     root = Path(__file__).resolve().parents[4]
-    names = _names(
-        run_tests.plan(root, None, full=False, gates=True, workers="2", ci=True)
-    )
-    assert names[:3] == ["generated files", "schema & deploy", "suite (not slow)"]
-    assert names[3:5] == ["ruff check", "ruff format"]
+    for ci in (False, True):
+        names = _names(
+            run_tests.plan(root, None, full=False, gates=True, workers="2", ci=ci)
+        )
+        assert names[:3] == ["generated files", "schema & deploy", "suite (not slow)"]
+        assert names[3:5] == ["ruff check", "ruff format"]
 
 
-def test_a_green_run_never_leaves_a_generated_file_stale_after_a_ruff_fix(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_project_with_fix_true_fails_on_a_violation_and_stays_unchanged(
+    tmp_path: Path,
 ) -> None:
-    """An app with ``fix = true`` and an import ``ruff check`` sorts onto
-    several lines (it moves every route below it, so the line-bearing index
-    ``sandloom generate`` wrote is stale): developer mode must not report OK
-    while the generated files no longer match the source. ``ruff check``
-    runs first, so the generated-files check sees the fixed source."""
-    (tmp_path / "architecture_rules.yml").write_text("")
+    """The real ruff, on an app with ``fix = true`` and an unsorted import: the
+    step fails and the source is as it was (``sandloom test`` writes nothing)."""
     (tmp_path / "pyproject.toml").write_text(
         '[tool.ruff]\nfix = true\nline-length = 60\n[tool.ruff.lint]\nselect = ["I"]\n'
     )
     api = tmp_path / "api.py"
-    api.write_text(
-        "from os.path import basename, dirname, join, normpath, splitext\n\n\n"
-        "def route() -> object:\n    return (basename, dirname, join, normpath, splitext)\n"
-    )
-    generated_from = api.read_text()  # what `sandloom generate` saw
-
-    def generated_check(argv: list[str]) -> int:  # stale once the source moved
-        return 0 if api.read_text() == generated_from else 1
-
-    monkeypatch.setattr(run_tests, "_generated", generated_check)
-    steps = run_tests.plan(
-        tmp_path, None, full=False, gates=True, workers="2", xdist=False
-    )
-    ran = [s for s in steps if s.name in {"ruff check", "generated files"}]
-    codes = [
-        step.call() if step.call is not None else run_tests._run_command(step, tmp_path)
-        for step in ran
-    ]
-    assert api.read_text() != generated_from, "ruff fixed the import"
-    assert any(codes), "a green run with a stale generated file"
+    api.write_text("import sys\nimport os\n\nprint(os, sys)\n")
+    before = api.read_text()
+    steps = run_tests.plan(tmp_path, None, full=False, gates=True, workers="2")
+    ruff = next(s for s in steps if s.name == "ruff check")
+    assert run_tests._run_command(ruff, tmp_path) != 0
+    assert api.read_text() == before
 
 
 def test_sandloom_test_never_writes_a_generated_file(

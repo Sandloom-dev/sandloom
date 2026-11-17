@@ -7,6 +7,12 @@
 - **The test harness names no backend** (redis-out-harness). The worker rewrite, the claim of a slot's resources, the same-database check of an override and the xdist environment of `sandloom test` read the installed harness families, not a Redis url form. A `SANDLOOM_TEST_CACHE_URL` or `SANDLOOM_TEST_BROKER_URL` that no installed family owns is refused with `UnmatchedOverrideError`, as before for a URL that matches no INFRA instance. The message now reads "INFRA declares no URL of an installed backend". Upgrade steps: none for an app on the standard stack.
 - **The `sandloom_cache` and `real_uow_client` fixtures take the cache driver from the app or from `INFRA`** (`cache.default.driver`), not from the name `redis`. A project that configures no cache driver fails with a `RuntimeError` that says so.
 
+- **`sandloom test` runs `ruff check --no-fix` in every mode** (redis-out-harness). Developer mode used to run `ruff check` first and let a project's `fix = true` rewrite source, which `sandloom test` otherwise never does (it only checks the generated files). It now reports a violation and fails; run `uv run ruff check --fix` yourself. The step moves from first to the static gates (after the tests), as `--ci` already had it, and `--ci` now differs from the default only in not recording route effects. Every `sandloom new` app sets `fix = true`, so a violation the gate used to fix silently now fails the run once. The quality-gates skill, `docs/reference/cli.md` and `docs/ai/checks.md` say so.
+
+### Fixed
+
+- **`sandloom test` fails one step, with its message, when the composition root is malformed or the settings refuse to load** (redis-out-harness). The migration drift step resolves `SANDLOOM_COMPOSITION_ROOT` just before it starts; a `CompositionRootError` or a `SystemExit` from the settings used to end the whole run with a traceback or a bare exit. It is now that step's failure (`sandloom test: <step>: <message>` on stderr, exit 1) and the other steps still run. No upgrade step.
+
 ### Breaking changes
 
 - **`sandloom.driverkit.testing_isolation.isolated_redis_options`, `WorkerLayout`, `DEFAULT_STRIDE`, `set_worker_layout` and `worker_layout` are removed** (redis-out-harness). A driver package calls `isolated_url_options(options, worker_id, keys)` instead, and a harness family installs its layout with `set_url_mover`; the layout of a Redis index per worker now lives in `sandloom_redis.testing.isolation`. No alias (ADR-0010).
