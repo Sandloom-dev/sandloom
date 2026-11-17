@@ -65,10 +65,14 @@ npm run package
 
 Run it on Node 22.21.1, the version in `admin/.nvmrc` (`nvm use` reads it). The precompressed
 `.gz` and `.br` files are bytes of the zlib and brotli inside Node. `npm run package` refuses
-any other Node, and CI runs it again and fails when the committed copy changes. To bump
-the pin, change `.nvmrc` and `engines.node` together, package, and commit the result; the
-dev image `admin/Dockerfile` is exempt, its output is not committed. Commit the result. A test compares its recorded hash with the source, so a stale copy
+any other Node. CI runs it again and fails when the committed copy changes.
+
+Commit the result. A test compares its recorded hash with the source, so a stale copy
 fails `sandloom test`. Python contributors and the release build need no Node.
+
+To bump the Node pin, change `admin/.nvmrc` and `engines.node` in `admin/package.json`
+together. Then run `npm run package` and commit the console if its bytes changed. The dev
+image `admin/Dockerfile` is exempt: its `dist/` is not committed.
 
 To see it end to end, from real wheels through a browser sign-in:
 
