@@ -527,15 +527,19 @@ The framework does not run backups — wire them in your platform — but it tel
 you what to back up and proves a backup restores:
 
 ```bash
-sandloom backup plan [--json]          # per database instance + per Redis endpoint
+sandloom backup plan [--json]          # per database instance + per backing server
 sandloom backup verify default-20261022T0300Z.dump --database default \
     --server-url postgresql+asyncpg://owner:…@scratch-pg:5432/postgres
 ```
 
 - **`sandloom backup plan`** lists every configured database instance (with the
-  migration chains it hosts), every Redis endpoint with its roles (cache,
-  **security store**, event-bus streams, task broker), the object store and the
-  secrets, each with backup and restore steps. Passwords are masked.
+  migration chains it hosts), every backing server with its roles (cache,
+  **security store**, event-bus streams, task broker; each driver says which
+  servers hold its data and what they need, so the Redis steps below come from
+  the Redis drivers), the object store and the secrets, each with backup and
+  restore steps. Passwords are masked. A driver that fails to load, or is not
+  installed where you run the plan, cannot say: the plan then carries a critical
+  `backing servers` warning naming it, instead of listing urls it cannot vouch for.
 - **PostgreSQL:** `pg_dump --format=custom --no-owner --no-privileges` per
   instance, run as the **owner / migration role** — under `tenant_rls` the app
   role sees one tenant at a time. Production: WAL archiving / managed PITR plus

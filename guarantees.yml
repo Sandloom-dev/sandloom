@@ -1032,7 +1032,7 @@ guarantees:
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_broker_outage_burns_no_attempts_and_stops_batch
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_open_circuit_skips_relay_ticks
   - src/sandloom/core/tests/test_relay_batch_publish.py::test_relay_batch_outage_counts_no_attempt_and_trips_circuit
-  - src/sandloom/core/tests/test_batch_publish.py::test_redis_availability_replies_do_not_burn_relay_attempts
+  - src/sandloom/core/tests/test_batch_publish.py::test_a_mapped_outage_does_not_burn_relay_attempts
   - packages/sandloom-redis/tests/test_redis_relay_availability.py::test_redis_availability_replies_do_not_burn_relay_attempts
   - src/sandloom/core/tests/test_relay_broker_unavailable.py::test_a_permission_denied_publish_consumes_no_attempt
 - id: G-OUTBOX-12

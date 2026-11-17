@@ -42,6 +42,60 @@ CapabilityStability = Literal["stable", "experimental"]
 _STABILITIES: frozenset[str] = frozenset({"stable", "experimental"})
 
 
+#: How much a deployment loses with the data a backup plan item holds
+#: (:class:`BackupHint`): ``critical`` (security state), ``required`` (data the
+#: system would have to rebuild or replay), ``optional`` (loss is tolerated).
+BackupCriticality = Literal["critical", "required", "optional"]
+BACKUP_CRITICALITIES: tuple[str, ...] = ("critical", "required", "optional")
+
+
+@dataclass(frozen=True, slots=True)
+class BackupHint:
+    """What one instance adds to ``sandloom backup plan`` (``InfraProvider.backup_hint``).
+
+    The kernel keeps one plan item per ``(kind, url)``: the instances whose hints
+    name the same server share it. It lists the instances as the item's roles,
+    takes the most severe ``criticality`` and prints each step of ``backup`` and
+    ``restore`` once, in the order the hints give them. The kernel masks the url
+    before it prints it.
+
+    * ``url`` — the server this instance keeps its data on, as the instance
+      states it. ``None``: the instance runs on the server of ``cache.default``
+      (a bus with no url of its own).
+    * ``kind`` — the item's kind, one word (``"redis"``); it is the plan's key
+      beside the url.
+    * ``detail`` — what follows ``<capability>:<instance>`` in the role line
+      (``"broker"``, ``"(streams)"``); may be empty.
+    * ``criticality`` — see :data:`BackupCriticality`.
+    * ``backup`` / ``restore`` — operator steps, one sentence each. A step two
+      instances of one item both state is printed once, at the position of the
+      last of them.
+    * ``tolerable_loss`` — the restore note of an instance whose data may be
+      lost (a cache). It is printed only when every instance of the item has
+      one: a server that also holds something that must survive has no
+      tolerable loss.
+    """
+
+    url: str | None
+    kind: str
+    detail: str = ""
+    criticality: BackupCriticality = "optional"
+    backup: tuple[str, ...] = ()
+    restore: tuple[str, ...] = ()
+    tolerable_loss: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.kind or " " in self.kind:
+            raise ValueError(f"BackupHint kind must be one word, got {self.kind!r}")
+        if self.criticality not in BACKUP_CRITICALITIES:
+            raise ValueError(
+                f"BackupHint criticality must be one of {BACKUP_CRITICALITIES}, "
+                f"got {self.criticality!r}"
+            )
+        if self.url is not None and not self.url:
+            raise ValueError("BackupHint url is a non-empty string, or None")
+
+
 def version_major(version: str) -> int | None:
     """The MAJOR of a capability version string, or ``None``.
 
@@ -254,6 +308,23 @@ class InfraProvider(abc.ABC):
         runs share no state (another database index of the configured URL, a
         key prefix). Default: the options unchanged (right for ``memory``)."""
         return options
+
+    @classmethod
+    def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:
+        """What an instance with ``options`` adds to ``sandloom backup plan``,
+        without building it: the server that holds its data and the steps to
+        back it up and restore it. Default ``None``: the instance keeps no data
+        outside the databases the plan already lists (``memory``, ``local``)."""
+        return None
+
+    @classmethod
+    async def aclose_shared(cls) -> None:
+        """Close what this driver keeps for the whole process, such as a client
+        one default instance builds for every instance of the package. The
+        application calls it once at shutdown, after the instances closed, for
+        each loaded driver class (several classes of one package may close the
+        same thing: it must be idempotent). Default: nothing to close."""
+        return None
 
     def features(self) -> frozenset[str]:
         """The features THIS instance supports: ``features_for(options)``

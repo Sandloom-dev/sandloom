@@ -2250,8 +2250,10 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "add",
         "aopen",
+        "backup_hint",
         "capability",
         "compare_and_delete",
         "compare_and_set",
@@ -2559,9 +2561,11 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "add",
         "add_or_get",
         "aopen",
+        "backup_hint",
         "capability",
         "compare_and_delete",
         "compare_and_set",
@@ -2588,6 +2592,19 @@
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
+    "BackupHint": {
+      "kind": "class",
+      "members": [
+        "backup",
+        "criticality",
+        "detail",
+        "kind",
+        "restore",
+        "tolerable_loss",
+        "url"
+      ],
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str | None, kind:POSITIONAL_OR_KEYWORD|str, detail:POSITIONAL_OR_KEYWORD|str='', criticality:POSITIONAL_OR_KEYWORD|BackupCriticality='optional', backup:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), restore:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), tolerable_loss:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
     "BroadcastMessage": {
       "kind": "class",
       "members": [
@@ -2600,7 +2617,9 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "aopen",
+        "backup_hint",
         "capability",
         "development_only",
         "features",
@@ -2627,8 +2646,10 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "add",
         "aopen",
+        "backup_hint",
         "capability",
         "compare_and_delete",
         "compare_and_set",
@@ -2887,7 +2908,9 @@
         "ack",
         "ack_many",
         "aclose",
+        "aclose_shared",
         "aopen",
+        "backup_hint",
         "capability",
         "claim_group_owner",
         "consume",
@@ -2998,7 +3021,9 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "aopen",
+        "backup_hint",
         "capability",
         "development_only",
         "features",
@@ -3063,8 +3088,10 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "acquire",
         "aopen",
+        "backup_hint",
         "capability",
         "development_only",
         "features",
@@ -3129,7 +3156,9 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "aopen",
+        "backup_hint",
         "capability",
         "development_only",
         "features",
@@ -3158,7 +3187,9 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "aopen",
+        "backup_hint",
         "capability",
         "delete",
         "development_only",
@@ -3304,7 +3335,9 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "aopen",
+        "backup_hint",
         "capability",
         "development_only",
         "features",
@@ -7001,8 +7034,10 @@
       "kind": "class",
       "members": [
         "aclose",
+        "aclose_shared",
         "add",
         "aopen",
+        "backup_hint",
         "capability",
         "compare_and_delete",
         "compare_and_set",

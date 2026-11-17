@@ -71,14 +71,37 @@ class ProductionProfileError(RuntimeError):
     """The deployment does not meet its declared production profile."""
 
 
-def _server(url: object) -> str | None:
+def _server(url: object) -> tuple[str, str, int | None] | None:
+    """``(scheme, host, port)`` of a server url, ``None`` for anything else. A
+    port the url leaves out stays ``None``: the kernel knows no driver's default."""
     if not isinstance(url, str) or not url:
         return None
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
     if not host:
         return None
-    return f"{host}:{parts.port or 6379}"
+    try:
+        return parts.scheme.lower(), host, parts.port
+    except ValueError:  # a port outside 0-65535 names no server
+        return None
+
+
+def _same_server(left: object, right: object) -> bool:
+    """Whether two instance urls may name one server: the same host, a scheme
+    that is the same or its TLS form (``redis`` / ``rediss``), and the same
+    port, where a port left out matches any port: it is the driver's default,
+    which the kernel does not know, so it is never taken for another server
+    (the refusal errs towards refusing)."""
+    one, other = _server(left), _server(right)
+    if one is None or other is None:
+        return False
+    (scheme_a, host_a, port_a), (scheme_b, host_b, port_b) = one, other
+    same_scheme = scheme_a in (scheme_b, f"{scheme_b}s") or scheme_b == f"{scheme_a}s"
+    return (
+        host_a == host_b
+        and same_scheme
+        and (port_a is None or port_b is None or port_a == port_b)
+    )
 
 
 def _database_instances(infra: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -180,20 +203,17 @@ def _atomic_instance_problems(
     cfg: Any, infra: Mapping[str, Any], role: str, options: Mapping[str, Any]
 ) -> list[str]:
     """``atomic_store/<role>`` runs on a driver that can hold security state, and
-    a Redis one on a server other than the module cache's."""
+    one that states a url on a server other than the module cache's (any driver:
+    the check compares the urls, it names none)."""
     driver = str(options.get("driver"))
     if driver == "memory":
         return [_memory_store_problem(role)]
-    server = _server(options.get("url"))
-    if (
-        driver == "redis"
-        and server is not None
-        and server == _server(_cache_default_url(infra))
-    ):
+    if _same_server(options.get("url"), _cache_default_url(infra)):
         return [
-            f"atomic_store/{role} runs on the same Redis server as the "
-            "default cache; eviction / maxmemory policies are per server, so "
-            "it must be a separate (noeviction, replicated) Redis"
+            f"atomic_store/{role} runs on the same server as the default "
+            "cache; eviction / maxmemory policies are per server, so it must be "
+            "a separate server that never evicts (and is replicated); a url "
+            "that leaves its port out matches any port, so state the port of both"
         ]
     return []
 
@@ -212,13 +232,12 @@ def _atomic_store_problems(
     idem = _atomic_instance(infra, "idempotency")
     if idem is not None:
         problems += _atomic_instance_problems(cfg, infra, "idempotency", idem)
-        idem_server = _server(idem.get("url"))
-        if idem_server is not None and idem_server == _server(security.get("url")):
+        if _same_server(idem.get("url"), security.get("url")):
             warnings.append(
-                "atomic_store/idempotency runs on the same Redis server as "
+                "atomic_store/idempotency runs on the same server as "
                 "atomic_store/security: idempotency writes still queue the "
-                "revocation-mark reads on one Redis thread; give it its own "
-                "Redis or drop it"
+                "revocation-mark reads on one server thread; give it its own "
+                "server or drop it"
             )
     return problems
 
@@ -369,7 +388,7 @@ async def enforce_runtime(core: Any) -> None:
             "PRODUCTION_PROFILE=multi_tenant_strict: Row-Level Security does not "
             "cover every tenant table: " + "; ".join(problems)
         )
-    # Distinct host strings do not establish distinct Redis servers: DNS
+    # Distinct host strings do not establish distinct servers: DNS
     # aliases and proxies can resolve both URLs to the same process, so each
     # instance names its own failure and eviction domain (isolation_identity).
     await _attest_separate_from_default(core, "security")

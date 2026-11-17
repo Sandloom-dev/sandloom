@@ -1729,6 +1729,26 @@ class InfraRegistry:
         self._retired_providers.extend(providers)
         await self._close_retired()
 
+    async def aclose_shared(self) -> None:
+        """Close what each loaded driver keeps for the whole process
+        (``InfraProvider.aclose_shared``), best-effort and never raising. Only
+        a class already loaded is asked: nothing is imported here, and a driver
+        nobody selected has nothing to close."""
+        loaded = {
+            registration.provider_class
+            for registration in self._drivers.values()
+            if registration.provider_class is not None
+        }
+        for provider_class in sorted(loaded, key=lambda cls: cls.__qualname__):
+            try:
+                await provider_class.aclose_shared()
+            except Exception:
+                logger.warning(
+                    "[infra] error closing what %s shares",
+                    provider_class.__qualname__,
+                    exc_info=True,
+                )
+
     async def _close_retired(self) -> None:
         retired, self._retired_providers = self._retired_providers, []
         for provider in reversed(retired):

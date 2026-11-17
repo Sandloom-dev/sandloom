@@ -1,14 +1,19 @@
-"""Whether an exception means PostgreSQL or Redis cannot be reached, and the
-one line that says so (SANDLOOM-R014).
+"""Whether an exception means PostgreSQL or a capability's backing server cannot
+be reached, and the one line that says so (SANDLOOM-R014).
 
 Only the outermost exception decides: a driver's or SQLAlchemy's error, the
-kernel's ``DatabaseUnavailable`` / ``BrokerUnavailableError``, or an
-``OSError`` / ``TimeoutError``; the reason is read from it and the exceptions
-it was raised ``from`` (``__cause__``) or wraps (SQLAlchemy's ``.orig``), never
-from ``__context__``. :func:`unreachable` looks inside any exception's
-``__cause__`` chain instead (a startup task's ``ContractCallError`` raised
-from a ``DatabaseUnavailable``). The ``sandloom`` CLI
-(:mod:`sandloom.core.cli.dev.errors`) and the startup lifecycle use it.
+kernel's ``DatabaseUnavailable`` / ``BrokerUnavailableError``, a capability
+driver's mapped ``InfraError``, or an ``OSError`` / ``TimeoutError``; the reason
+is read from it and the exceptions it was raised ``from`` (``__cause__``) or
+wraps (SQLAlchemy's ``.orig``), never from ``__context__``. :func:`unreachable`
+looks inside any exception's ``__cause__`` chain instead (a startup task's
+``ContractCallError`` raised from a ``DatabaseUnavailable``). The ``sandloom``
+CLI (:mod:`sandloom.core.cli.dev.errors`) and the startup lifecycle use it.
+
+The kernel names no backing server product but PostgreSQL: a driver maps its
+client's errors onto ``InfraError`` (spec 2.1), and the line names the
+capability that failed (``the cache backend``), read from the error. A raw
+client error that no driver mapped is not recognised here.
 """
 
 from __future__ import annotations
@@ -30,12 +35,15 @@ _PG_ERRORS = {
     "CannotConnectNowError": "the server is starting up",
 }
 #: Packages whose exceptions may stand outermost for a connection failure.
-_DRIVERS = ("sqlalchemy", "asyncpg", "psycopg2", "psycopg", "redis", "kombu")
+_DRIVERS = ("sqlalchemy", "asyncpg", "psycopg2", "psycopg")
+#: Identity of the base of a capability driver's errors, matched on the MRO:
+#: ``observability`` sits below ``infra``, so the class is not imported.
+_INFRA_ERROR = ("sandloom.core.infra.errors", "InfraError")
 #: The kernel's own "backend unavailable" wrappers (raised ``from`` the
 #: driver's error), which may stand outermost too.
 _WRAPPERS = {
     ("sandloom.core.exceptions", "DatabaseUnavailable"),
-    ("sandloom.core.infra.contracts", "BrokerUnavailableError"),
+    ("sandloom.core.infra.ports.database", "BrokerUnavailableError"),
     # A capability driver's mapped backend failure (spec 2.1): raised ``from``
     # the client's error, which the chain walk reads the reason from.
     ("sandloom.core.infra.errors", "Unavailable"),
@@ -87,25 +95,41 @@ def _module_of(exc: BaseException) -> str:
     return type(exc).__module__ or ""
 
 
+def _backend_label(item: BaseException) -> str | None:
+    """What the backend is called in the line: the capability a driver's mapped
+    error names (``the cache backend``; with its instance when it is not the
+    ``default`` one), ``the event bus`` for the relay's own wrapper, else
+    ``None``."""
+    mro = type(item).__mro__
+    if any((cls.__module__, cls.__name__) == _INFRA_ERROR for cls in mro):
+        capability = getattr(item, "capability", None)
+        if isinstance(capability, str) and capability:
+            label = f"the {capability.replace('_', ' ')} backend"
+            instance = getattr(item, "instance", None)
+            if isinstance(instance, str) and instance not in ("", "default"):
+                label += f" '{instance}'"
+            return label
+    if any(cls.__name__ == "BrokerUnavailableError" for cls in mro):
+        return "the event bus"
+    return None
+
+
 def _service(exc: BaseException, chain: list[BaseException]) -> str | None:
     for item in chain:
         names = {cls.__name__ for cls in type(item).__mro__}
         if "DatabaseUnavailable" in names:
             return "PostgreSQL"
-        if "BrokerUnavailableError" in names:
-            return "Redis"
-        module = _module_of(item)
-        if module.startswith(("redis", "kombu")):
-            return "Redis"
-        if module.startswith(("asyncpg", "psycopg2", "psycopg")):
+        if _module_of(item).startswith(("asyncpg", "psycopg2", "psycopg")):
             return "PostgreSQL"
+    for item in chain:
+        label = _backend_label(item)
+        if label is not None:
+            return label
     files = " ".join(
         frame.filename
         for item in chain
         for frame in traceback.extract_tb(item.__traceback__)
     )
-    if "/redis/" in files or "/kombu/" in files:
-        return "Redis"
     if any(name in files for name in ("/asyncpg/", "/psycopg2/", "/psycopg/")):
         return "PostgreSQL"
     return None
@@ -142,7 +166,7 @@ def _text_reason(item: BaseException, name: str) -> str | None:
         return "connection refused"
     if name == "OperationalError" and "could not connect" in text:
         return "connection refused"
-    if name == "ConnectionError" and _module_of(item).startswith("redis"):
+    if name == "ConnectionError":  # a client library's own class of that name
         return "connection refused" if "refused" in text.lower() else "connection error"
     return None
 
@@ -167,7 +191,7 @@ def _database(chain: list[BaseException]) -> str | None:
 
 def connection_failure(exc: BaseException) -> str | None:
     """The one-line message for ``exc``, or ``None`` when it is not a
-    failure to reach PostgreSQL / Redis (see the module doc)."""
+    failure to reach PostgreSQL or a capability's backend (see the module doc)."""
     if not _driver_error(exc):
         return None
     chain = list(_chain(exc))

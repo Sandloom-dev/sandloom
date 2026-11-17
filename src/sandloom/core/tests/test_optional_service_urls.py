@@ -17,7 +17,6 @@ from pydantic import ValidationError
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.infra import fenced_lease
-from sandloom.core.migrations import backup
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _BASE = {
@@ -84,33 +83,7 @@ def test_no_setting_names_the_beat_broker(monkeypatch: pytest.MonkeyPatch) -> No
     assert fenced_lease.broker_url_of(_core_with_broker({}), "default") == ""
 
 
-def test_the_backup_plan_skips_an_eventbus_with_no_url_anywhere() -> None:
-    config = {
-        "eventbus": {
-            "default": SimpleNamespace(driver="streams", options={}),
-            "named": SimpleNamespace(
-                driver="streams", options={"url": "redis://own:6379/3"}
-            ),
-        },
-    }
-    roles = backup._redis_roles(config, SimpleNamespace())
-    assert roles == {"redis://own:6379/3": ["eventbus:named (streams)"]}
-
-
-def test_the_backup_plan_follows_a_url_less_eventbus_to_the_default_cache_url() -> None:
-    """A streams bus with no url runs on the default cache client: its stream data
-    (required) is in the Redis ``cache.default`` points at (INFRA), not lost from
-    the plan."""
-    config = {
-        "cache": {
-            "default": SimpleNamespace(
-                driver="redis", options={"url": "redis://infra:6379/0"}
-            )
-        },
-        "eventbus": {"default": SimpleNamespace(driver="streams", options={})},
-    }
-    expected = {"redis://infra:6379/0": ["cache:default", "eventbus:default (streams)"]}
-    assert backup._redis_roles(config, SimpleNamespace()) == expected
-    # no flat ``cache_url`` outranks or fills it
-    flat = SimpleNamespace(cache_url="redis://flat:6379/0")
-    assert backup._redis_roles(config, flat) == expected
+# The backup plan's reading of a url-less bus (it follows the default cache's url,
+# or is skipped when no url exists anywhere) is tested where the hint lives:
+# ``test_backup_cli.py`` with stand-in drivers, and the Redis package's
+# ``test_redis_backup_plan.py`` with the real Streams bus.

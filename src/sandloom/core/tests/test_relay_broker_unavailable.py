@@ -135,17 +135,26 @@ def test_partial_publish_is_judged_by_its_cause_not_its_retryable() -> None:
 
 
 # -- raw errors (publishers that do not map yet) ---------------------------------
-def test_raw_class_name_match_still_recognised() -> None:
-    class ConnectionError(Exception):  # mimics redis-py's name
+def test_builtin_transport_errors_are_recognised() -> None:
+    assert relay.is_broker_unavailable(BrokerUnavailableError("celery down"))
+    assert relay.is_broker_unavailable(OSError("reset"))
+    assert relay.is_broker_unavailable(ConnectionRefusedError("refused"))
+    assert relay.is_broker_unavailable(TimeoutError("slow"))
+
+
+def test_a_class_name_of_a_client_library_is_not_an_outage() -> None:
+    """The kernel matches no client library by class name: a driver maps its
+    client's errors onto ``InfraError`` (the Redis drivers: ``sandloom_redis``'s
+    mapping, tested in that package). An error that only looks like one is not."""
+
+    class ConnectionError(Exception):  # the name redis-py gives its own class
         pass
 
     class BusyLoadingError(ConnectionError):
         pass
 
-    assert relay.is_broker_unavailable(ConnectionError("refused"))
-    assert relay.is_broker_unavailable(BusyLoadingError("loading"))
-    assert relay.is_broker_unavailable(BrokerUnavailableError("celery down"))
-    assert relay.is_broker_unavailable(OSError("reset"))
+    assert not relay.is_broker_unavailable(ConnectionError("refused"))
+    assert not relay.is_broker_unavailable(BusyLoadingError("loading"))
 
 
 def test_a_raw_non_outage_error_is_not_an_outage() -> None:
@@ -235,7 +244,7 @@ def test_the_outage_reason_is_a_class_name() -> None:
 
 
 class ResponseError(Exception):
-    """A stand-in with the redis-py class name: the relay matches by name."""
+    """A stand-in with the redis-py class name: the relay no longer matches it."""
 
 
 HINT = "driver says: look here"
@@ -258,16 +267,21 @@ def test_the_hint_of_a_raw_cause_below_the_driver_error_is_found() -> None:
 
 
 @pytest.mark.parametrize(
+    "reply", ["LOADING dataset", "MOVED 1 10.0.0.1:6379", "MISCONF can't save"]
+)
+def test_a_reply_word_in_a_raw_error_is_no_outage(reply: str) -> None:
+    # The kernel reads no reply word: only a driver's mapping makes it an outage.
+    assert not relay.is_broker_unavailable(ResponseError(reply))
+    assert relay.outage_reason(ResponseError(reply)) is None
+
+
+@pytest.mark.parametrize(
     "error",
     [
-        ResponseError("LOADING dataset"),
-        # The kernel does not read a reply word any more: a raw redirect is an
-        # outage (the reply prefixes) with no label; only a driver hints.
-        ResponseError("MOVED 1 10.0.0.1:6379"),
         OSError("MOVED 1 10.0.0.1:6379"),
         Unavailable("MOVED 1 10.0.0.1:6379", capability=CAP),
     ],
-    ids=["LOADING", "raw-MOVED", "OSError", "Unavailable-message"],
+    ids=["OSError", "Unavailable-message"],
 )
 def test_an_outage_without_a_hint_is_labelled_by_its_class_name(
     error: BaseException,

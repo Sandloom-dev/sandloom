@@ -129,6 +129,24 @@ name of that option: `"url"`, or `"broker"` for a task queue. It must be a field
 your driver, so the kernel keeps no list of driver names. A driver that reaches no server by
 url leaves it `None`.
 
+A driver that keeps data on a server says so to `sandloom backup plan` with a classmethod,
+`backup_hint(options)`. It returns a `BackupHint` (from `sandloom.driverkit`) or `None`, the
+default: the driver has nothing to back up (a memory driver, or an instance with no url).
+The hint carries the server's `url` as the instance states it (`None`: the instance runs on
+the server of `cache.default`), a one-word `kind`, a `detail` that follows
+`<capability>:<instance>` in the role line, a `criticality` (`critical`, `required` or
+`optional`), the operator's `backup` and `restore` steps, and a `tolerable_loss` note for
+data that may be lost. The plan keeps one item per `(kind, url)`: instances whose hints
+name one server share it, each step prints once, and the `tolerable_loss` line prints only
+when every instance on the server has one. The kernel masks the url before it prints it.
+Put the product's own advice (the persistence a server needs, what a restore costs) in the
+hint, not in the kernel.
+
+A driver that keeps something for the whole process, such as a client every instance of it
+shares, closes it in the classmethod `aclose_shared()`. The registry calls it once at
+shutdown for every driver class an instance loaded, after the instances have closed. It
+must be safe to call when nothing was built. The default does nothing.
+
 A driver records metrics through `sandloom.driverkit.observe`:
 `counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the
 kernel's registry. A driver imports no metrics registry and no settings of the kernel.
