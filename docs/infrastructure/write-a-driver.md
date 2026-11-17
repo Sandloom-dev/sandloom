@@ -64,11 +64,10 @@ a file.
   decides nothing by it. Set it as an attribute (`error.hint = "..."`), not with the
   `hint=` keyword: the driver then works on kernels whose `InfraError` lacks it.
   The kernel names no client library's error. An error the relay does not recognise
-  (not an `InfraError`, not a builtin transport error) spends a delivery attempt, as
-  the event's fault. The relay logs a warning once per error class every five minutes,
-  with the class name and never the message. A driver that maps nothing makes every
-  outage burn attempts and, after `OUTBOX_RELAY_MAX_ATTEMPTS`, dead-letter the rows.
-  Read that line as a missing mapping.
+  spends a delivery attempt, as the event's fault. The relay then logs a warning with
+  the class name, never the message, once per class every five minutes. Read that line
+  as a missing mapping. An unmapped outage burns attempts and dead-letters the rows
+  after `OUTBOX_RELAY_MAX_ATTEMPTS`.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
@@ -157,7 +156,7 @@ advice, such as the persistence a server needs and what a restore costs, in the 
 not in the kernel.
 
 A driver that holds the `security` or `idempotency` atomic store and returns `None` is
-named in a critical `backing servers` warning of the plan: those stores must survive a
+named in a critical `backing servers` warning of the plan. Those stores must survive a
 restore, so the plan says it cannot vouch for them.
 
 A driver that keeps something for the whole process, such as a client every instance of it
