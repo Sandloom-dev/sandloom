@@ -31,6 +31,7 @@ features `delay`, `periodic` and `redelivery`.
 | `backend` | the result backend URL; optional, none by default and filled from nothing: Sandloom discards task results, so most deployments leave it out |
 | `master_name` | the Redis master of a `sentinel://` `broker`; required by such a url and refused with any other scheme; 1 to 64 letters, digits, `.`, `_`, `:` or `-` |
 | `backend_master_name` | the same, for a `sentinel://` `backend` |
+| `sqs_account_id` | the 12-digit AWS account of the queues of an `sqs://` `broker`: a `predefined_queues` url of a config module must belong to it; optional, refused with any other scheme |
 | `dedupe_ttl_seconds` | how long an idempotency key is remembered |
 | `health_timeout_seconds` | the bound of the broker probe behind `/ready`; default 5, at most 300, falls back to `HEALTH_CHECK_TIMEOUT_SECONDS` and is never above it |
 | `worker_pool` | how the worker runs the messages: `prefork` (default), `solo` or `threads`; on macOS set `solo` or `threads` ([the note](../modules/background/tasks.md#the-worker-and-beat)) |

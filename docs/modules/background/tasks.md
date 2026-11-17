@@ -268,9 +268,12 @@ scheme stays supported. The allowed keys:
 - `amqp://`, `amqps://` and `pyamqp://`: `confirm_publish`, `read_timeout`,
   `write_timeout`, `socket_settings`, `channel_max` and `frame_max`;
 - `sqs://`: `wait_time_seconds`, `region` (an AWS region name), `queue_name_prefix` and <!-- prose-ok: P6 a list of option names -->
-  `predefined_queues`. Each queue carries only its `url`, an HTTPS
-  `sqs.<region>.amazonaws.com` queue url, and `backoff_policy` and `backoff_tasks`.
-  The credentials and the region of a queue come from the `INFRA` url and `region`;
+  `predefined_queues`. Each queue carries only its `url`, `backoff_policy` and
+  `backoff_tasks`. The credentials and the region of a queue come from the `INFRA` url
+  and `region`. The queue `url` is `https://<host>/<account>/<name>` with an AWS host:
+  `sqs.<region>.amazonaws.com` (`.amazonaws.com.cn` in China), the FIPS
+  `sqs-fips.<region>.amazonaws.com` or a VPC endpoint
+  `vpce-<id>.sqs.<region>.vpce.amazonaws.com`;
 - `result_backend_transport_options` of any backend: `retry_policy`,
   `result_chord_ordered` and `global_keyprefix`.
 
@@ -278,6 +281,16 @@ An `sqs://` url with a host uses plain HTTP in kombu unless the transport option
 `is_secure` is true. `INFRA` states it for such a url, so the connection is HTTPS. The
 conf may repeat `is_secure = True` and never turn it off. This driver cannot reach a
 local emulator on plain HTTP. Without a host in the url, kombu already uses HTTPS.
+
+A `predefined_queues` url is pinned to the region of the `INFRA` broker url. When that
+url has an AWS host, the queue urls and the `region` option of the conf must name the
+region of that host. When it has none, the `region` option of the conf is the pin. With
+neither, kombu takes the region from the environment. The check does not read it, so a
+queue of any region passes.
+
+The `INFRA` option `sqs_account_id` pins the account. It has 12 digits and any other
+scheme refuses it. A queue url of another account is then refused. Left out, any account
+passes, and the queue policy of that account is the only guard.
 
 `design/infra-drivers/celery-conf-audit.md` lists every key with its decision and the line
 of the library that reads it.

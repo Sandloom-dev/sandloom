@@ -1,7 +1,7 @@
 ### Breaking changes
 
 - **A `rediss://` url must state how it verifies the server** (idk-celery-conf-audit). Kombu connected such a broker with no certificate check and only logged a warning, while Celery's result backend already refused the same url. The `celery` taskqueue options now refuse a `rediss://` `broker` or `backend` without `ssl_cert_reqs`, and one that verifies the certificate without `ssl_check_hostname=true` (redis-py before 6 accepts any name of a trusted CA otherwise), naming the option. Upgrade: add `?ssl_cert_reqs=required&ssl_check_hostname=true` to the url, or `?ssl_cert_reqs=none` to state that the check is skipped.
-- **An `sqs://` url with a host now uses HTTPS** (idk-celery-conf-audit). Kombu built `http://<host>` for it unless `is_secure` was set. The driver states `is_secure` in the transport options, and a config module may repeat it but not turn it off, so a plain-HTTP emulator is no longer reachable. A `predefined_queues` entry of a config module may carry only its queue `url` (an AWS https queue url) and the backoff keys: its own credentials, region and endpoint are refused.
+- **An `sqs://` url with a host now uses HTTPS** (idk-celery-conf-audit). Kombu built `http://<host>` for it unless `is_secure` was set. The driver states `is_secure` in the transport options, and a config module may repeat it but not turn it off, so a plain-HTTP emulator is no longer reachable. A `predefined_queues` entry of a config module may carry only its queue `url` (an AWS https queue url, on the public, FIPS or VPC endpoint host) and the backoff keys: its own credentials, region and endpoint are refused. The queue `url` and the `region` option must name the region of the `INFRA` url's AWS host (else the conf `region`), and the queue `url` the account of the `sqs_account_id` option when it is set.
 - **A padded or empty `;` chunk of a broker or backend url is refused** (idk-celery-conf-audit). Kombu split a failover url on `;` without stripping, so a chunk such as ` redis://other:6379` slipped past the scheme check.
 - **More result-backend keys are refused in a config module** (idk-celery-conf-audit). `dynamodb_endpoint_url`, `firestore_project`, `s3_base_path`, `gcs_base_path` and `azureblockblob_base_path` are refused. The Azure container and the Cosmos DB database and collection names are accepted only at their Celery defaults. State the endpoint in the `backend` url.
 
@@ -13,6 +13,7 @@
 ### Added
 
 - **`master_name` and `backend_master_name` options for a `sentinel://` url** (idk-celery-conf-audit). Kombu and Celery read the master only from the transport options, which the conf check refuses for a connection key, so a `sentinel://` broker could not connect. The master is now an `INFRA.taskqueue.<name>` option and a `sentinel://` url without it is refused. A config module may repeat the same master.
+- **`sqs_account_id` option for an `sqs://` broker** (idk-celery-conf-audit). The 12-digit AWS account of the broker's queues: a `predefined_queues` url of a config module in another account is refused, so a config module copied from another environment cannot publish there. Optional, and refused with any other scheme.
 
 ### Changed
 

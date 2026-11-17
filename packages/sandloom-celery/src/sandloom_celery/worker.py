@@ -84,6 +84,7 @@ from sandloom_celery.connection_policy import (
     FOREIGN_BACKEND_KEYS,
     FOREIGN_BACKEND_NAMES,
     FOREIGN_CONNECTION_KEYS,
+    NO_QUEUE_PIN,
     SAFE_DATABASE_ENGINE_OPTIONS,
     SAFE_FAILOVER_STRATEGIES,
     ConnectionOptions,
@@ -507,21 +508,23 @@ def _foreign_transport_option(conf: Any, connection: ConnectionOptions) -> str |
     """The first of :data:`_TRANSPORT_OPTIONS_KEYS` that is set to something but a
     mapping of the keys the scheme of its url allows (the sentinel master only as
     ``connection`` states it); ``None`` when none."""
-    for option, allowed, stated in (
+    for option, allowed, stated, pin in (
         (
             BROKER_TRANSPORT_OPTIONS,
             broker_transport_keys(connection.broker),
             connection.broker_stated_options(),
+            connection.queue_pin(),
         ),
         (
             BACKEND_TRANSPORT_OPTIONS,
             backend_transport_keys(connection.backend),
             connection.backend_stated_options(),
+            NO_QUEUE_PIN,
         ),
     ):
         options = conf.get(option)
         if options is not None and not transport_options_are_safe(
-            options, allowed, stated
+            options, allowed, stated, pin
         ):
             return option
     return None
@@ -529,7 +532,8 @@ def _foreign_transport_option(conf: Any, connection: ConnectionOptions) -> str |
 
 def _importable_app_connection() -> ConnectionOptions:
     """The connection of the importable app: the options of the ``default``
-    taskqueue instance (``broker``, ``backend``, and the sentinel masters), as the
+    taskqueue instance (``broker``, ``backend``, the sentinel masters and the SQS
+    account), as the
     application resolves them (``INFRA`` through ``Settings``; no environment
     variable of this driver). The backend is ``None`` unless the instance states
     one.
@@ -565,7 +569,7 @@ def _importable_app_connection() -> ConnectionOptions:
     if backend is not None and not isinstance(backend, str):
         raise AttributeError("the INFRA option taskqueue.default.backend must be a url")
     masters = []
-    for master_option in ("master_name", "backend_master_name"):
+    for master_option in ("master_name", "backend_master_name", "sqs_account_id"):
         master = instance.options.get(master_option)
         if master is not None and not isinstance(master, str):
             raise AttributeError(
@@ -583,7 +587,7 @@ def _importable_app_connection() -> ConnectionOptions:
     _refuse_foreign_env(
         _BACKEND_ENV, backend, "the INFRA option taskqueue.default.backend"
     )
-    return ConnectionOptions(broker, backend, masters[0], masters[1])
+    return ConnectionOptions(broker, backend, masters[0], masters[1], masters[2])
 
 
 def _refuse_foreign_env(key: str, stated: str | None, option: str) -> None:

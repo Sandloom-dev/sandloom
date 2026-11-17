@@ -45,7 +45,21 @@ _TRUE = frozenset({"true", "1", "yes", "on"})
 _MASTER_NAME = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 #: An AWS region (``us-east-1``, ``us-gov-west-1``, ``cn-north-1``): kombu's SQS
 #: transport builds the endpoint host from it.
-_AWS_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-[0-9]{1,2}")
+_REGION = r"[a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}"
+_AWS_REGION = re.compile(_REGION)
+#: The 12 digits of an AWS account id.
+_ACCOUNT_ID = re.compile(r"[0-9]{12}")
+#: An AWS SQS host, named for its region (botocore's ``endpoints.json`` and the
+#: PrivateLink guide): ``sqs.<region>.amazonaws.com`` (``.amazonaws.com.cn`` in
+#: China), the FIPS ``sqs-fips.<region>.amazonaws.com`` and the interface endpoint of
+#: a VPC, ``vpce-<id>-<suffix>.sqs.<region>.vpce.amazonaws.com`` (the zonal name adds
+#: ``-<zone>`` to the label). Nothing else: no port, userinfo or other domain.
+_SQS_HOST = (
+    rf"(?:sqs(?:-fips)?\.(?P<region>{_REGION})\.amazonaws\.com(?:\.cn)?"
+    rf"|vpce-[a-z0-9-]{{1,60}}\.sqs\.(?P<vpce_region>{_REGION})"
+    r"\.vpce\.amazonaws\.com(?:\.cn)?)"
+)
+_SQS_HOST_RE = re.compile(_SQS_HOST)
 #: The prefix of SQS queue names (queue names allow letters, digits, ``-``, ``_``).
 _QUEUE_NAME_PREFIX = re.compile(r"[A-Za-z0-9_-]{0,64}")
 
@@ -112,12 +126,33 @@ _SQS = _GENERIC | {
 #: ``region`` of a queue replace the credentials of the INFRA url and the region of
 #: the transport (``SQS.py:769-781``), so tasks would go to another AWS account.
 _PREDEFINED_QUEUE_KEYS = frozenset({"url", "backoff_policy", "backoff_tasks"})
-#: The url of an SQS queue (``https://sqs.<region>.amazonaws.com/<account>/<name>``,
-#: ``.amazonaws.com.cn`` in China): TLS, an AWS host, nothing else.
+#: The url of an SQS queue (``https://<SQS host>/<account>/<name>``, the host as
+#: :data:`_SQS_HOST` spells it): TLS, an AWS host, nothing else.
 _SQS_QUEUE_URL = re.compile(
-    r"https://sqs\.[a-z0-9-]+\.amazonaws\.com(\.cn)?"
-    r"/[0-9]{12}/[A-Za-z0-9_-]{1,80}(\.fifo)?"
+    rf"https://{_SQS_HOST}/(?P<account>[0-9]{{12}})/[A-Za-z0-9_-]{{1,80}}(?:\.fifo)?"
 )
+
+
+def _host_region(host: str | None) -> str | None:
+    """The region an AWS SQS host names, ``None`` for any other host."""
+    match = _SQS_HOST_RE.fullmatch(host) if host else None
+    if match is None:
+        return None
+    return match["region"] or match["vpce_region"]
+
+
+@dataclass(frozen=True)
+class QueuePin:
+    """What a ``predefined_queues`` url and the SQS ``region`` must match: the
+    regions the ``INFRA`` broker url's AWS hosts name (none when the url has no AWS
+    host: the conf's own ``region`` is the pin then) and the account ``INFRA``
+    states (``None``: not pinned)."""
+
+    regions: frozenset[str] = frozenset()
+    account: str | None = None
+
+
+NO_QUEUE_PIN = QueuePin()
 #: Read from ``result_backend_transport_options`` by Celery's redis backend
 #: (``retry_policy``, ``result_chord_ordered``) and by any backend
 #: (``global_keyprefix``, ``celery.backends.base``).
@@ -238,6 +273,21 @@ class ConnectionOptions:
     master_name: str | None = None
     #: The same, for a ``sentinel://`` ``backend``.
     backend_master_name: str | None = None
+    #: The AWS account of the queues of an ``sqs://`` ``broker`` (12 digits): a
+    #: ``predefined_queues`` url of a conf must belong to it. ``None``: not pinned.
+    sqs_account_id: str | None = None
+
+    def queue_pin(self) -> QueuePin:
+        """What the SQS queue urls and ``region`` of a conf must match: the regions
+        the AWS hosts of an ``sqs://`` ``broker`` url name, and the account."""
+        if scheme_of(self.broker) not in SQS_SCHEMES:
+            return NO_QUEUE_PIN
+        regions = {
+            region
+            for chunk in _chunks(self.broker)
+            if (region := _host_region(urlsplit(chunk).hostname))
+        }
+        return QueuePin(frozenset(regions), self.sqs_account_id)
 
     def broker_stated_options(self) -> Mapping[str, object]:
         """The ``broker_transport_options`` that ``INFRA`` states: the sentinel
@@ -271,8 +321,11 @@ def validate_connection(connection: ConnectionOptions) -> None:
       chunk (kombu splits on ``;`` without stripping and a padded chunk fails
       with the password in the error): kombu switches the transport with the url,
       and the transport options are allowed per scheme;
-    * a ``sentinel://`` url without its master, or a master without a sentinel url.
+    * a ``sentinel://`` url without its master, or a master without a sentinel url;
+    * an ``sqs_account_id`` that is not 12 digits, or one with a broker that is not
+      an ``sqs://`` url.
     """
+    _check_sqs_account(connection)
     for option, url, master_option, master in (
         ("broker", connection.broker, "master_name", connection.master_name),
         (
@@ -308,6 +361,16 @@ def validate_connection(connection: ConnectionOptions) -> None:
                 f"the option {master_option} is 1 to 64 letters, digits, "
                 "'.', '_', ':' or '-'"
             )
+
+
+def _check_sqs_account(connection: ConnectionOptions) -> None:
+    account = connection.sqs_account_id
+    if account is None:
+        return
+    if scheme_of(connection.broker) not in SQS_SCHEMES:
+        raise ValueError("the option sqs_account_id is for an sqs:// broker url")
+    if not _ACCOUNT_ID.fullmatch(account):
+        raise ValueError("the option sqs_account_id is the 12 digits of an AWS account")
 
 
 def _check_tls(option: str, chunk: str) -> None:
@@ -361,7 +424,10 @@ def backend_transport_keys(url: str | None) -> frozenset[str]:
 
 
 def transport_options_are_safe(
-    options: object, allowed: frozenset[str], stated: Mapping[str, object]
+    options: object,
+    allowed: frozenset[str],
+    stated: Mapping[str, object],
+    pin: QueuePin = NO_QUEUE_PIN,
 ) -> bool:
     """Whether a ``*_transport_options`` value is a mapping of ``allowed`` keys.
 
@@ -369,28 +435,35 @@ def transport_options_are_safe(
     ones whose value ``INFRA`` states: each is accepted only with that value, so a
     conf cannot name another master or turn TLS off. ``region``,
     ``queue_name_prefix`` and ``predefined_queues`` (SQS) are checked for their
-    shape.
+    shape and against ``pin`` (:meth:`ConnectionOptions.queue_pin`): the region of
+    the ``INFRA`` url's AWS host (else the conf's own ``region``) and the account
+    ``INFRA`` states.
     """
     if not isinstance(options, Mapping):
         return False
+    queues = pin
+    conf_region = options.get("region")
+    if not pin.regions and isinstance(conf_region, str) and _is_region(conf_region):
+        queues = QueuePin(frozenset({conf_region}), pin.account)
     for key, value in options.items():
         if key in stated:
             safe = value == stated[key]
         else:
-            safe = key in allowed and _value_is_safe(key, value)
+            safe = key in allowed and _value_is_safe(key, value, pin, queues)
         if not safe:
             return False
     return True
 
 
-def _value_is_safe(key: str, value: object) -> bool:
-    """The shape of the values that name an AWS region, a queue or a queue map."""
+def _value_is_safe(key: str, value: object, pin: QueuePin, queues: QueuePin) -> bool:
+    """The shape of the values that name an AWS region, a queue or a queue map:
+    the region against ``pin``, the queue urls against ``queues``."""
     if key == "region":
-        return _is_region(value)
+        return _is_region(value) and (not pin.regions or value in pin.regions)
     if key == "queue_name_prefix":
         return _is_queue_prefix(value)
     if key == "predefined_queues":
-        return _predefined_queues_are_safe(value)
+        return _predefined_queues_are_safe(value, queues)
     return True
 
 
@@ -402,14 +475,25 @@ def _is_queue_prefix(value: object) -> bool:
     return isinstance(value, str) and _QUEUE_NAME_PREFIX.fullmatch(value) is not None
 
 
-def _predefined_queues_are_safe(value: object) -> bool:
+def _queue_url_is_pinned(url: object, pin: QueuePin) -> bool:
+    """Whether ``url`` is an SQS queue url in a region of ``pin`` (any when it has
+    none) and in its account (any when it names none)."""
+    match = _SQS_QUEUE_URL.fullmatch(url) if isinstance(url, str) else None
+    if match is None:
+        return False
+    region = match["region"] or match["vpce_region"]
+    if pin.regions and region not in pin.regions:
+        return False
+    return pin.account is None or match["account"] == pin.account
+
+
+def _predefined_queues_are_safe(value: object, pin: QueuePin) -> bool:
     if not isinstance(value, Mapping):
         return False
     for queue in value.values():
         if not isinstance(queue, Mapping) or not set(queue) <= _PREDEFINED_QUEUE_KEYS:
             return False
-        url = queue.get("url")
-        if not isinstance(url, str) or _SQS_QUEUE_URL.fullmatch(url) is None:
+        if not _queue_url_is_pinned(queue.get("url"), pin):
             return False
         policy = queue.get("backoff_policy")
         if policy is not None and not isinstance(policy, Mapping):
