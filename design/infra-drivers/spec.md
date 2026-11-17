@@ -1522,6 +1522,34 @@ For the orchestrator's review; each departs from or details `design.md`.
       in `INFRA`, the Celery broker is `taskqueue.default.broker`, and a url-less instance is
       refused when it opens (`MissingUrlError`). The harness override
       (`SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL`) merges into `INFRA` only.
+49. **The kernel runtime names no backing server; the driver reports what the kernel cannot know**
+    (`redis-out-runtime`). The backup plan, the production profile, the relay, the unreachable
+    line and the shutdown of the shared pools no longer test for `redis`, `kombu` or `redis://`.
+    Deviations from the earlier text, each decided here:
+    - **`BackupHint`** (`sandloom.driverkit`) has six fields: `url`, `kind`, `criticality`,
+      `backup`, `restore` and `tolerable_loss`. It carries no presentation text and no `detail`:
+      the kernel writes each role line itself (`<capability>:<instance>`), so the wording of the
+      plan is one place. `InfraProvider.backup_hint(options)` is a classmethod like
+      `test_isolation`: it builds nothing, so a tool process reads it from the class. It answers
+      `None` when the instance holds nothing to back up. The plan keeps one item per
+      `(kind, url)`: instances on one server share it, and the tolerable-loss note stays only
+      when every role on it has one. `InfraProvider.aclose_shared()` is a classmethod with a
+      no-op default, and `InfraRegistry.aclose_shared()` logs a failure and never raises.
+      `FilledInfraConfig` carries the `registry`, so the plan reads the hint of a loaded class.
+    - **A store that stays silent is a warning, not a gap.** A `security` or `idempotency`
+      `atomic_store` whose driver answers no hint is listed in the critical `backing servers`
+      warning with an unfilled or missing driver: the plan cannot say how to restore it.
+    - **The same server.** `production_profile._same_server` compares the host, then the port
+      when both urls state one: equal ports are one server whatever the scheme (`redis` and
+      `rediss`). A missing port is a wildcard and then the scheme, or its `s` variant, must
+      match. A url option is read through the driver's `url_option`, not the name `url`.
+    - **The relay classifies by the mapped error.** An `InfraError` in the cause chain decides
+      (`PermissionDenied` counts as an outage), `PartialPublish` is judged by its cause, and
+      `TypeError` and `ValueError` stay poison. An unmapped raw client error counts as a delivery
+      attempt and is logged once per class every 300 s, naming the class and pointing to the
+      driver guide: the gap is the driver's to close, not hidden.
+    - **The unreachable line names the capability** (`the cache backend`, `the event bus`,
+      `the task queue`), read from the mapped error's `capability`.
 
 ## 14. Open for the owner
 

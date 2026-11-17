@@ -62,7 +62,11 @@ if TYPE_CHECKING:
         Unsupported,
     )
     from sandloom.core.infra.fenced_lease import FencedLease
-    from sandloom.core.infra.ports._base import InfraProvider, health_failure_details
+    from sandloom.core.infra.ports._base import (
+        BackupHint,
+        InfraProvider,
+        health_failure_details,
+    )
     from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
     from sandloom.core.infra.ports.broadcast import (
         BroadcastMessage,
@@ -149,7 +153,11 @@ _HOMES: dict[str, tuple[str, ...]] = {
         "Unsupported",
     ),
     "sandloom.core.infra.fenced_lease": ("FencedLease",),
-    "sandloom.core.infra.ports._base": ("InfraProvider", "health_failure_details"),
+    "sandloom.core.infra.ports._base": (
+        "BackupHint",
+        "InfraProvider",
+        "health_failure_details",
+    ),
     "sandloom.core.infra.ports.atomic_store": ("AtomicStoreProvider",),
     "sandloom.core.infra.ports.broadcast": (
         "BroadcastMessage",
@@ -271,6 +279,7 @@ __all__ = [
     "SqlDialect",
     "TENANT_SETTING",
     "WRITE_LOCK_HELD",
+    "BackupHint",
     "CapabilitySpec",
     "DEFAULT_INSTANCE",
     "HealthResult",

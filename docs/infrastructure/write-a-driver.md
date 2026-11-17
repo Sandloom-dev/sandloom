@@ -63,6 +63,11 @@ a file.
   error, never text from the backend. The relay prints it on its outage line and
   decides nothing by it. Set it as an attribute (`error.hint = "..."`), not with the
   `hint=` keyword: the driver then works on kernels whose `InfraError` lacks it.
+  The kernel names no client library's error. An error the relay does not recognise
+  spends a delivery attempt, as the event's fault. The relay then logs a warning with
+  the class name, never the message, once per class every five minutes. Read that line
+  as a missing mapping. An unmapped outage burns attempts and dead-letters the rows
+  after `OUTBOX_RELAY_MAX_ATTEMPTS`.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
@@ -128,6 +133,36 @@ name of that option: `"url"`, or `"broker"` for a task queue. It must be a field
 `sandloom dev up` reads it. It writes a url into the checkout's `INFRA` for each instance on
 your driver, so the kernel keeps no list of driver names. A driver that reaches no server by
 url leaves it `None`.
+
+A driver that keeps data on a server says so to `sandloom backup plan` with a classmethod,
+`backup_hint(options)`. It returns a `BackupHint` (from `sandloom.driverkit`) or `None`.
+`None` is the default: the driver has nothing to back up, as a memory driver or an
+instance with no url.
+
+The hint holds these fields:
+
+- `url`: the server's url as the instance states it. `None` means the instance runs on
+  the server of `cache.default`.
+- `kind`: one word.
+- `criticality`: `critical`, `required` or `optional`.
+- `backup` and `restore`: the operator's steps.
+- `tolerable_loss`: a note for data that may be lost.
+
+The plan keeps one item per `(kind, url)`. Instances whose hints name one server share
+it, and each step prints once. The kernel writes each role line itself, as
+`<capability>:<instance>`. A `tolerable_loss` line prints only when every instance on
+the server has one. The kernel masks the url before it prints it. Put the product's own
+advice, such as the persistence a server needs and what a restore costs, in the hint and
+not in the kernel.
+
+A driver that holds the `security` or `idempotency` atomic store and returns `None` is
+named in a critical `backing servers` warning of the plan. Those stores must survive a
+restore, so the plan says it cannot vouch for them.
+
+A driver that keeps something for the whole process, such as a client every instance of it
+shares, closes it in the classmethod `aclose_shared()`. The registry calls it once at
+shutdown for every driver class an instance loaded, after the instances have closed. It
+must be safe to call when nothing was built. The default does nothing.
 
 A driver records metrics through `sandloom.driverkit.observe`:
 `counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the

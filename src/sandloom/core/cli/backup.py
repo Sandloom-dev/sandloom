@@ -1,7 +1,7 @@
 """``sandloom backup`` — backup plan, restore verification, security-state repair.
 
     sandloom backup plan [--json]
-        what to back up per database instance / Redis endpoint, and how
+        what to back up per database instance / backing server, and how
     sandloom backup verify <dump> [--database NAME] [--server-url URL]
                       [--pg-restore CMD] [--psql CMD] [--restore-url URL]
                       [--keep] [--json]
@@ -289,7 +289,7 @@ def _cmd_fence_leases(args: argparse.Namespace) -> int:
         print(
             "error: fence-leases needs a migration-chain database; database "
             f"instance(s) {', '.join(foreign)} take their schema from the models "
-            "(a Redis lease: see the restore note in "
+            "(a lease held outside the database: see the restore note in "
             "docs/operate/operator-reference.md)",
             file=sys.stderr,
         )

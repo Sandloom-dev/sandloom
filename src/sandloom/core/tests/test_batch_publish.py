@@ -22,6 +22,7 @@ from sandloom.core.eventing.envelope import EventEnvelope, OutboundEvent
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
+from sandloom.core.infra.errors import InvalidArgument, Unavailable
 from sandloom.core.infra.ports.eventbus import PartialPublish
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.tasks import relay
@@ -250,47 +251,27 @@ async def test_preflighted_events_skip_the_repeated_size_check(
 
 
 # == broker availability classification =========================================
-class ResponseError(Exception):
-    """A Redis client's error reply, as the relay recognises it (by the class
-    name ``ResponseError`` and the reply's prefix)."""
+#
+# The relay trusts the ``InfraError`` a driver mapped and names no client's
+# error: what each Redis reply maps to (an outage that burns no attempt, a
+# poison reply that does) is tested in the sandloom-redis package
+# (``test_redis_relay_availability.py``), on the real client's parser.
+class _ClientReply(Exception):
+    """A stand-in for a client library's error reply (a raw, unmapped error)."""
 
 
-@pytest.mark.parametrize(
-    "reply",
-    [
-        "LOADING Redis is loading the dataset in memory",
-        "READONLY You can't write against a read only replica.",
-        "MASTERDOWN Link with MASTER is down and replica-serve-stale-data is no",
-        "TRYAGAIN Multiple keys request during rehashing of slot",
-        "CLUSTERDOWN The cluster is down",
-        "MISCONF Redis is configured to save RDB snapshots, but it's currently "
-        "unable to persist to disk.",
-        "NOREPLICAS Not enough good replicas to write.",
-        "MOVED 3999 127.0.0.1:6381",
-        "ASK 3999 127.0.0.1:6381",
-        "UNBLOCKED force unblock from blocking operation, instance state changed "
-        "(master -> replica?)",
-    ],
-)
-def test_redis_availability_replies_do_not_burn_relay_attempts(reply: str) -> None:
-    # GLM review: "Redis LOADING is not treated as unavailable". LOADING is
-    # parsed as BusyLoadingError (a ConnectionError) and was already covered;
-    # a failover's READONLY / MASTERDOWN and cluster TRYAGAIN / CLUSTERDOWN
-    # replies (plain ResponseErrors) were not, so a failover burned every
-    # event's OUTBOX_RELAY_MAX_ATTEMPTS and could dead-letter valid events.
-    # The relay matches a client's reply error by class name and reply prefix
-    # (it imports no client): a stand-in ``ResponseError`` is enough. What the
-    # real client's parser makes of each reply is tested in the sandloom-redis
-    # package (``test_redis_relay_availability.py``).
-    err = ResponseError(reply)
-    assert relay.is_broker_unavailable(err)
+def test_a_mapped_outage_does_not_burn_relay_attempts() -> None:
+    mapped = Unavailable("publish: ResponseError", capability="eventbus")
+    mapped.__cause__ = _ClientReply("LOADING the dataset is loading")
+    assert relay.is_broker_unavailable(mapped)
     wrapped = RuntimeError("publish failed")
-    wrapped.__cause__ = err
+    wrapped.__cause__ = mapped
     assert relay.is_broker_unavailable(wrapped)
 
 
 def test_a_poison_reply_still_burns_attempts() -> None:
-    assert not relay.is_broker_unavailable(
-        ResponseError("ERR value is not an integer or out of range")
-    )
+    mapped = InvalidArgument("publish: ResponseError", capability="eventbus")
+    mapped.__cause__ = _ClientReply("ERR value is not an integer or out of range")
+    assert not relay.is_broker_unavailable(mapped)
+    assert not relay.is_broker_unavailable(_ClientReply("LOADING-looking reply"))
     assert not relay.is_broker_unavailable(ValueError("LOADING-looking payload"))
