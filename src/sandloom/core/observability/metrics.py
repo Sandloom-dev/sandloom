@@ -112,11 +112,11 @@ subscriptions_total = cast(
         ["channel"],
     ),
 )
-redis_reconnect_attempts_total = cast(
+broadcast_reconnect_attempts_total = cast(
     Any,
     Counter(
-        "sandloom_redis_reconnect_attempts_total",
-        "Redis reconnect attempts for event bus",
+        "sandloom_broadcast_reconnect_attempts_total",
+        "Reconnect attempts of the broadcast event bus",
     ),
 )
 

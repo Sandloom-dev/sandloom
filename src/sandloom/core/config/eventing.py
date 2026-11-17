@@ -226,12 +226,13 @@ class EventingConfig(BaseModel):
     )
 
     # Event bus concurrency limit
-    EVENT_BUS_REDIS_SEMAPHORE_LIMIT: int = Field(
+    EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT: int = Field(
         default=100,
-        alias="EVENT_BUS_REDIS_SEMAPHORE_LIMIT",
+        ge=1,
+        alias="EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT",
         description=(
             "Max concurrent callbacks for BroadcastEventBus to prevent overload. "
-            "Adjust based on CPU/network capacity."
+            "Adjust based on CPU/network capacity. At least 1."
         ),
     )
 

@@ -267,8 +267,16 @@ class Settings(
                 snapshot = _module_settings.SourceSnapshot(
                     environ={}, env_file=None, secrets_dir=secrets_dir
                 )
+        # Settings names are case-insensitive: ``event_bus_redis_semaphore_limit``
+        # in the process environment names the removed setting as much as the
+        # upper-case spelling does (the exact spelling wins when both are set).
+        folded = {str(k).upper(): v for k, v in os.environ.items()}
         for removed in REMOVED:
-            raw = supplied.get(removed.name, os.environ.get(removed.name))
+            raw = supplied.get(
+                removed.name, os.environ.get(removed.name, folded.get(removed.name))
+            )
+            if raw is None and snapshot is not None:
+                raw = snapshot.env.get(removed.name.lower())
             if raw is None and snapshot is not None:
                 raw = snapshot.dotenv.get(removed.name.lower())
                 if raw is None:

@@ -60,7 +60,7 @@ Subcommands:
                          prune / logs (see sandloom.core.cli.dev)
     sandloom version          print the installed framework version
 
-A command that cannot reach PostgreSQL or Redis prints one line naming
+A command that cannot reach a backing service prints one line naming
 `sandloom dev up` (SANDLOOM-R014); `--debug` or SANDLOOM_DEBUG=1 shows the
 traceback instead, and the framework's DEBUG startup lines (LOG_LEVEL=DEBUG
 unless LOG_LEVEL is exported).
