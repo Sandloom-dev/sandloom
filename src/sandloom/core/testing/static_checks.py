@@ -476,8 +476,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=".", help="the project root")
     args = parser.parse_args(argv)
     warnings: list[str] = []
-    core = load_composition_core()
-    problems = all_problems(Path(args.root).resolve(), core, warnings=warnings)
+    project_root = Path(args.root).resolve()
+    core = load_composition_core(project_root=project_root)
+    problems = all_problems(project_root, core, warnings=warnings)
     # A warning, not a failure: a globally unique id (a UUID aggregate id
     # of another module) is a safe key, which no static check can tell.
     for warning in [*tenant_key_problems(), *warnings]:

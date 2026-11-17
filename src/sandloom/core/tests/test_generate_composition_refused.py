@@ -45,7 +45,7 @@ def test_an_instance_with_no_driver_says_how_to_select_one(
 def test_generate_refuses_with_a_message_when_the_composition_cannot_be_built(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def refuse() -> object:
+    def refuse(*, project_root: Path) -> object:
         raise InfraConfigError("INFRA['cache']['default'] needs a 'driver': say which")
 
     monkeypatch.setattr(generated, "load_composition_app", refuse)
@@ -57,15 +57,17 @@ def test_generate_refuses_with_a_message_when_the_composition_cannot_be_built(
 
 
 @pytest.mark.subprocess_probe
-def test_generate_without_a_composition_root_refuses_a_driverless_instance_for_real(
+def test_generate_on_the_lean_composition_refuses_a_driverless_instance_for_real(
     tmp_path: Path,
 ) -> None:
-    """No mock: the default composition (``sandloom.main``) in a child process,
-    an INFRA that names a url for the cache and no driver. The command exits 2
-    with the message instead of a traceback."""
+    """No mock: the lean composition (``sandloom.main``, named explicitly: the
+    checkout's project default is the standard one) in a child process, an INFRA
+    that names a url for the cache and no driver. The command exits 2 with the
+    message instead of a traceback."""
     root = Path(__file__).resolve().parents[4]
     env = {
         "PATH": os.environ.get("PATH", ""),
+        "SANDLOOM_COMPOSITION_ROOT": "sandloom.main",
         "ENVIRONMENT": "dev",
         "SANDLOOM_SERVICE_NAME": "generate-refusal",
         "DATABASE_URL": f"sqlite+aiosqlite:///{tmp_path / 'app.db'}",

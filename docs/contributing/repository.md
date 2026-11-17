@@ -36,7 +36,7 @@ src/sandloom/
                #   entry point (the kernel names no module); enforce_configuration:
                #   the boot-time config checks every entry point runs (app,
                #   worker, `sandloom migrate`, the sandloom CLI)
-  core/composition.py  #   SANDLOOM_COMPOSITION_ROOT resolution for worker/migrate/CLIs
+  core/composition.py  #   SANDLOOM_COMPOSITION_ROOT resolution for worker/migrate/CLIs (+ the pyproject default)
   core/config/         #   configuration layer (imports nothing above it):
                        #   settings (Settings, one section per domain), tiers,
                        #   accepted_risks

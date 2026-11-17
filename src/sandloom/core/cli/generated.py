@@ -1235,7 +1235,7 @@ def main(argv: list[str] | None = None) -> int:
         apply(pre, write=True, shared_dir=rules.shared_dir, root=rules.root)
         before = _inspection_generation.capture(rules)
     try:
-        app = load_composition_app()
+        app = load_composition_app(project_root=rules.root)
     except InfraConfigError as exc:
         # The composition cannot be built from this INFRA (an instance that
         # names a url and no driver, the composition selecting none): a

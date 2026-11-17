@@ -11,13 +11,23 @@ exposes ``core`` (a ``CoreFacade``) or ``app.state.core``.
 ``SANDLOOM_COMPOSITION_ROOT`` is read from the process environment first (it
 selects which application to boot) and then from ``Settings`` (``.env`` /
 ``SECRETS_DIR``), so a generated app's ``.env`` configures local CLIs too.
+
+An authoring command of a checkout (``sandloom generate``, ``sandloom migrate``,
+the contract and route snapshots, the static steps of ``sandloom test``) also reads
+a project default: ``composition-root`` under ``[tool.sandloom]`` in the working
+directory's ``pyproject.toml``, behind both of the above and ahead of
+``sandloom.main``. Only a caller that passes its ``project_root`` reads it: the
+runtime entrypoints (API, worker, the operator CLIs) and the pytest suites keep
+the three-step order, so no test boots another composition for it.
 """
 
 from __future__ import annotations
 
 import importlib
 import os
+import tomllib
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from sandloom.core.config.settings import settings
@@ -32,20 +42,56 @@ class CompositionRootError(RuntimeError):
     """The configured composition root does not expose a framework core."""
 
 
-def composition_root_name(root_name: str | None = None) -> str:
+def project_composition_root(project_root: Path) -> str | None:
+    """The project's own default root: ``[tool.sandloom] composition-root`` of
+    ``<project_root>/pyproject.toml`` (``None``: no file, no table, no key).
+
+    A malformed value refuses: a default that silently falls through to the
+    lean ``sandloom.main`` would build another application than the one named.
+    """
+    try:
+        data = tomllib.loads((project_root / "pyproject.toml").read_text("utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise CompositionRootError(
+            f"{project_root / 'pyproject.toml'} cannot be read for "
+            f"[tool.sandloom] composition-root: {exc}"
+        ) from exc
+    tool = data.get("tool", {})
+    table = tool.get("sandloom", {}) if isinstance(tool, dict) else {}
+    value = table.get("composition-root") if isinstance(table, dict) else None
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise CompositionRootError(
+            f"[tool.sandloom] composition-root in {project_root / 'pyproject.toml'} "
+            f"must be a module path string, not {value!r}"
+        )
+    return value.strip()
+
+
+def composition_root_name(
+    root_name: str | None = None, *, project_root: Path | None = None
+) -> str:
     """The composition root to boot.
 
     Explicit argument > the ``SANDLOOM_COMPOSITION_ROOT`` process env > the same
     setting from ``.env`` / ``SECRETS_DIR`` (``Settings.sandloom_composition_root``,
-    so a generated app's ``.env`` is enough for local CLIs) > ``sandloom.main``.
+    so a generated app's ``.env`` is enough for local CLIs) > the project default
+    (``[tool.sandloom] composition-root``, read only when ``project_root`` is
+    given: the authoring commands of a checkout) > ``sandloom.main``.
     """
     if root_name:
         return root_name
     from_env = os.getenv(COMPOSITION_ROOT_ENV)
     if from_env:
         return from_env
-
-    return settings.sandloom_composition_root or DEFAULT_COMPOSITION_ROOT
+    if settings.sandloom_composition_root:
+        return settings.sandloom_composition_root
+    if project_root is not None:
+        return project_composition_root(project_root) or DEFAULT_COMPOSITION_ROOT
+    return DEFAULT_COMPOSITION_ROOT
 
 
 def root_default_infra(root_name: str | None = None) -> Mapping[str, Any] | None:
@@ -71,9 +117,11 @@ def _is_core(obj: object) -> bool:
     return hasattr(obj, "loaded_modules") and hasattr(obj, "get_service")
 
 
-def load_composition_core(root_name: str | None = None) -> Any:
+def load_composition_core(
+    root_name: str | None = None, *, project_root: Path | None = None
+) -> Any:
     """Import the composition root and return its ``CoreFacade``."""
-    name = composition_root_name(root_name)
+    name = composition_root_name(root_name, project_root=project_root)
     root = importlib.import_module(name)
     core = getattr(root, "core", None)
     if not _is_core(core):
@@ -87,13 +135,15 @@ def load_composition_core(root_name: str | None = None) -> Any:
     return core
 
 
-def load_composition_app(root_name: str | None = None) -> Any:
+def load_composition_app(
+    root_name: str | None = None, *, project_root: Path | None = None
+) -> Any:
     """Import the composition root and return its ASGI ``app``.
 
     For CLIs that must enter the application's lifespan (e.g. a projection
     rebuild). The app must carry the framework core on ``app.state.core``.
     """
-    name = composition_root_name(root_name)
+    name = composition_root_name(root_name, project_root=project_root)
     root = importlib.import_module(name)
     app = getattr(root, "app", None)
     if app is None or not _is_core(getattr(getattr(app, "state", None), "core", None)):
@@ -111,4 +161,5 @@ __all__ = [
     "composition_root_name",
     "load_composition_app",
     "load_composition_core",
+    "project_composition_root",
 ]
