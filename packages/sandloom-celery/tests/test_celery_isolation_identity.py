@@ -13,7 +13,9 @@ _SECRET = "S3CRETpw"
 def _provider(broker: str | None) -> CeleryTaskQueueProvider:
     app = Celery("identity", broker="memory://", set_as_current=False)
     options = {} if broker is None else {"broker": broker}
-    return CeleryTaskQueueProvider(name="probe", driver="celery", options=options, app=app)
+    return CeleryTaskQueueProvider(
+        name="probe", driver="celery", options=options, app=app
+    )
 
 
 async def test_the_identity_is_the_broker_without_its_credentials() -> None:
@@ -25,7 +27,9 @@ async def test_no_broker_option_has_no_identity() -> None:
     assert await _provider(None).isolation_identity() is None
 
 
-@pytest.mark.parametrize("char", [chr(c) for c in (0xFF1A, 0xFF0F, 0xFF20, 0xFF03, 0xFF1F)])
+@pytest.mark.parametrize(
+    "char", [chr(c) for c in (0xFF1A, 0xFF0F, 0xFF20, 0xFF03, 0xFF1F)]
+)
 async def test_an_unreadable_broker_url_never_echoes_its_password(char: str) -> None:
     # Built with a readable url: the options model's own check of an unreadable
     # one is the connection policy's (a separate change); this is the identity.

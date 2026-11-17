@@ -1,30 +1,26 @@
 """The URL movers harness families install (``sandloom.driverkit.testing_isolation``,
 one per family name) are the only thing that decides what a worker's URL becomes:
-the kernel's hook helper applies every one to the options a driver names, for a worker id ``gw<N>``, and to
-nothing else. The Redis layout (stride, the spares of replacement workers) is the
+the kernel's hook helper applies every one to the options a driver names, for a
+worker id ``gw<N>``, and to nothing else. The Redis layout (stride, the spares of replacement workers) is the
 ``sandloom-redis`` family's and is tested in
 ``packages/sandloom-redis/tests/test_harness_isolation.py``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 
 import pytest
 
+from sandloom.core.infra import worker_isolation
 from sandloom.driverkit.testing_isolation import isolated_url_options, set_url_mover
 
 
-_FAMILIES = ("alpha", "beta", "other")
-
-
 @pytest.fixture(autouse=True)
-def _no_mover() -> Iterator[None]:
-    for family in _FAMILIES:
-        set_url_mover(family, None)
-    yield
-    for family in _FAMILIES:
-        set_url_mover(family, None)
+def _no_mover(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No mover at the start, whatever another test of this process installed
+    (the Redis family's, for one); the real table is back afterwards."""
+    monkeypatch.setattr(worker_isolation, "_movers", {})
 
 
 def _suffix(url: str, number: int) -> str:
@@ -56,10 +52,14 @@ def test_installing_a_mover_for_a_family_replaces_only_that_familys_mover() -> N
     set_url_mover("alpha", _owning("alpha"))
     set_url_mover("beta", _owning("beta"))
     set_url_mover("alpha", lambda url, number: url.replace("alpha://", "moved://"))
-    moved = isolated_url_options({"a": "alpha://h", "b": "beta://h"}, "gw1", keys=("a", "b"))
+    moved = isolated_url_options(
+        {"a": "alpha://h", "b": "beta://h"}, "gw1", keys=("a", "b")
+    )
     assert moved == {"a": "moved://h", "b": "beta://h#beta1"}
     set_url_mover("alpha", None)
-    kept = isolated_url_options({"a": "alpha://h", "b": "beta://h"}, "gw1", keys=("a", "b"))
+    kept = isolated_url_options(
+        {"a": "alpha://h", "b": "beta://h"}, "gw1", keys=("a", "b")
+    )
     assert kept == {"a": "alpha://h", "b": "beta://h#beta1"}
 
 
