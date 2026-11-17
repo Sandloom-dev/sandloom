@@ -25,8 +25,11 @@ with Fastify's `fast-uri` 4.2.3. Actual Ajv reference resolution and the advisor
 inputs are tested. Removing `patch-package` also removes its vulnerable
 `micromatch` / `braces` / picomatch 2 dependency chain.
 
-The complete npm audit gate stays enabled, including development dependencies.
-There is no Snyk ignore policy. Snyk's package-version analysis still reports
+The npm audit gate (`npm run audit`, CI `admin.yml`) checks the runtime
+dependencies only (`--omit=dev`): the shipped console holds none of the build,
+test and lint tools, and an advisory that lists every released version (as
+picomatch's GHSA-fc5q-39xc-vjpf does) would otherwise fail every pull request
+with no fix to take. There is no Snyk ignore policy. Snyk's package-version analysis still reports
 picomatch because its advisory lists every released version; it does not
 inspect the local parser patch. Retain that visible finding and the regression
 evidence until an upstream fixed release replaces the patch.
