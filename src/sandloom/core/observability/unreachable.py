@@ -95,6 +95,11 @@ def _module_of(exc: BaseException) -> str:
     return type(exc).__module__ or ""
 
 
+#: How a capability is named in the line where its id is not the words an
+#: operator uses (every other one reads ``the <capability> backend``).
+_CAPABILITY_LABELS = {"eventbus": "the event bus", "taskqueue": "the task queue"}
+
+
 def _backend_label(item: BaseException) -> str | None:
     """What the backend is called in the line: the capability a driver's mapped
     error names (``the cache backend``; with its instance when it is not the
@@ -104,7 +109,9 @@ def _backend_label(item: BaseException) -> str | None:
     if any((cls.__module__, cls.__name__) == _INFRA_ERROR for cls in mro):
         capability = getattr(item, "capability", None)
         if isinstance(capability, str) and capability:
-            label = f"the {capability.replace('_', ' ')} backend"
+            label = _CAPABILITY_LABELS.get(
+                capability, f"the {capability.replace('_', ' ')} backend"
+            )
             instance = getattr(item, "instance", None)
             if isinstance(instance, str) and instance not in ("", "default"):
                 label += f" '{instance}'"

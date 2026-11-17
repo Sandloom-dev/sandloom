@@ -59,15 +59,14 @@ class BackupHint:
     name the same server share it. It lists the instances as the item's roles,
     takes the most severe ``criticality`` and prints each step of ``backup`` and
     ``restore`` once, in the order the hints give them. The kernel masks the url
-    before it prints it.
+    before it prints it and writes each role line itself
+    (``<capability>:<instance>``): a hint holds what only the driver knows.
 
     * ``url`` — the server this instance keeps its data on, as the instance
       states it. ``None``: the instance runs on the server of ``cache.default``
       (a bus with no url of its own).
     * ``kind`` — the item's kind, one word (``"redis"``); it is the plan's key
       beside the url.
-    * ``detail`` — what follows ``<capability>:<instance>`` in the role line
-      (``"broker"``, ``"(streams)"``); may be empty.
     * ``criticality`` — see :data:`BackupCriticality`.
     * ``backup`` / ``restore`` — operator steps, one sentence each. A step two
       instances of one item both state is printed once, at the position of the
@@ -80,7 +79,6 @@ class BackupHint:
 
     url: str | None
     kind: str
-    detail: str = ""
     criticality: BackupCriticality = "optional"
     backup: tuple[str, ...] = ()
     restore: tuple[str, ...] = ()

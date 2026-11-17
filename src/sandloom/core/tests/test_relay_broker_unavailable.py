@@ -314,6 +314,78 @@ def test_a_hint_of_the_bound_length_is_kept_whole() -> None:
     )
 
 
+class _ClientError(Exception):
+    """A client library's error no driver mapped onto ``InfraError``."""
+
+
+@pytest.fixture
+def _fresh_unmapped_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(relay, "_unmapped_warned", {})
+
+
+def _unmapped_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if "does not recognise" in r.msg]
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+def test_an_unrecognised_error_that_spends_an_attempt_is_named_once(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [1000.0]
+    monkeypatch.setattr(relay.time, "monotonic", lambda: clock[0])
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        relay._warn_unmapped(_ClientError("secret://user:pw@host"))
+        relay._warn_unmapped(_ClientError("again"))  # inside the window: silent
+        clock[0] += relay._UNMAPPED_WARN_SECONDS + 1
+        relay._warn_unmapped(_ClientError("later"))  # a new window: named again
+    lines = _unmapped_lines(caplog)
+    assert len(lines) == 2
+    # The class (module and name), never the message.
+    assert all("_ClientError" in line and "secret" not in line for line in lines)
+    assert all("Unavailable" in line for line in lines)  # what a driver should do
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+@pytest.mark.parametrize(
+    "exc",
+    [
+        Unavailable("down", capability=CAP),
+        InvalidArgument("bad", capability=CAP),  # a mapped verdict, not a gap
+        ValueError("poison"),
+        TypeError("poison"),
+    ],
+    ids=["outage", "mapped-poison", "ValueError", "TypeError"],
+)
+def test_a_recognised_error_logs_no_unmapped_warning(
+    exc: BaseException, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        relay._warn_unmapped(exc)
+    assert _unmapped_lines(caplog) == []
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+def test_a_partial_publish_is_judged_by_its_cause(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mapped = PartialPublish("batch failed", published=["a"])
+    mapped.__cause__ = Unavailable("down", capability=CAP)
+    raw = PartialPublish("batch failed", published=["a"])
+    raw.__cause__ = _ClientError("x")
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        relay._warn_unmapped(mapped)
+        assert _unmapped_lines(caplog) == []
+        relay._warn_unmapped(raw)
+    assert len(_unmapped_lines(caplog)) == 1
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+def test_the_unmapped_log_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    for i in range(relay._UNMAPPED_WARN_CLASSES * 2):
+        relay._warn_unmapped(type(f"Err{i}", (Exception,), {})("x"))
+    assert len(relay._unmapped_warned) <= relay._UNMAPPED_WARN_CLASSES
+
+
 def test_a_hint_never_makes_an_error_an_outage() -> None:
     # The hint labels a line only; the verdict is the class and ``retryable``.
     refused = InvalidArgument("bad", capability=CAP, hint=HINT)

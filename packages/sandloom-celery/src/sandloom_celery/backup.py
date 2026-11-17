@@ -39,7 +39,6 @@ def broker_hint(options: Mapping[str, Any]) -> BackupHint | None:
     return BackupHint(
         url=broker,
         kind="redis",
-        detail="broker",
         backup=(_PERSISTENCE,),
         restore=(_QUEUE_RESTORE,),
     )

@@ -67,7 +67,7 @@ def test_a_timeout_and_a_refused_login_are_labelled_too() -> None:
     )
     line = connection_failure(slow)
     assert line is not None
-    assert "cannot reach the eventbus backend" in line
+    assert "cannot reach the event bus at" in line
     refused = _chained(
         PermissionDenied("x", capability="cache"),
         _client_error("AuthenticationError", "somelib", "invalid password"),
@@ -97,7 +97,7 @@ def test_the_capability_of_a_mapped_cause_labels_the_broker_wrapper_chain() -> N
     wrapper = _chained(RuntimeError("startup task failed"), inner)
     line = unreachable(wrapper)
     assert line is not None
-    assert line.startswith("cannot reach the taskqueue backend at 127.0.0.1:6379")
+    assert line.startswith("cannot reach the task queue at 127.0.0.1:6379")
 
 
 def test_a_database_failure_still_reads_postgresql() -> None:

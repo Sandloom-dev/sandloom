@@ -23,7 +23,6 @@ def test_a_redis_broker_is_a_server_the_plan_lists(scheme: str) -> None:
     assert isinstance(hint, BackupHint)
     assert hint.url == url
     assert hint.kind == "redis"
-    assert hint.detail == "broker"
     assert hint.backup == (_PERSISTENCE,)
     assert "uncertain task enqueues" in hint.restore[0]
     assert hint.tolerable_loss is None  # queued tasks are not a cache

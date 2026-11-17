@@ -7,6 +7,7 @@ rows over a lowered budget are surfaced as dead; dead rows can be requeued.
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -147,6 +148,26 @@ async def test_broker_outage_burns_no_attempts_and_stops_batch(
     assert all(r.dead_at is None for r in rows)  # nothing dead-lettered
     assert all(r.delivery_attempts == 0 for r in rows)  # no budget burnt
     assert relay.broker_circuit().is_open()
+
+
+@pytest.mark.asyncio
+async def test_an_unmapped_publish_error_spends_an_attempt_and_is_named(
+    factory: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The safe default: an error no driver mapped is the event's fault. The
+    relay says so once, naming the class and not the message."""
+    monkeypatch.setattr(_settings, "outbox_relay_max_attempts", 10)
+    monkeypatch.setattr(relay, "_unmapped_warned", {})
+    await _seed(factory)
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        await relay._relay_once_for_store(
+            factory, sql_alchemy_outbox_store(), _FailBus()
+        )
+    [row] = await _rows(factory)
+    assert row.delivery_attempts == 1  # spent
+    lines = [r.getMessage() for r in caplog.records if "does not recognise" in r.msg]
+    assert len(lines) == 1
+    assert "RuntimeError" in lines[0] and "consumer contract" not in lines[0]
 
 
 @pytest.mark.asyncio

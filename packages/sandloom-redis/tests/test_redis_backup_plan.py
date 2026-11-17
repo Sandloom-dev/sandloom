@@ -88,14 +88,14 @@ def test_the_standard_stack_plan_says_what_it_said_before(
         "cache:default",
         "atomic_store:security [SECURITY: revocation marks, user blocks, "
         "RPC nonces, idempotency]",
-        "eventbus:bus (streams)",
+        "eventbus:bus",
     ]
     assert shared.name == "cache:default, atomic_store:security, eventbus:bus"
     assert shared.criticality == "critical"
     assert shared.backup == [NOEVICTION, AOF]
     assert shared.restore == [RECONCILE, REVOKE, STREAMS_LOSS, OFFSETS]
     broker = servers["redis://brokerhost:6379/4"]
-    assert broker.roles == ["taskqueue:default broker"]
+    assert broker.roles == ["taskqueue:default"]
     assert broker.criticality == "optional"
     assert broker.backup == [AOF]
     assert broker.restore == [CELERY_LOSS]

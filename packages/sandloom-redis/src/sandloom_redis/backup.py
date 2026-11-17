@@ -89,7 +89,6 @@ def streams_hint(options: Mapping[str, Any]) -> BackupHint:
     return BackupHint(
         url=_url(options),
         kind=KIND,
-        detail="(streams)",
         criticality="required",
         backup=(AOF_STEP,),
         restore=_STREAMS_RESTORE,

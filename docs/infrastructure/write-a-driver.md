@@ -63,6 +63,12 @@ a file.
   error, never text from the backend. The relay prints it on its outage line and
   decides nothing by it. Set it as an attribute (`error.hint = "..."`), not with the
   `hint=` keyword: the driver then works on kernels whose `InfraError` lacks it.
+  The kernel names no client library's error. An error the relay does not recognise
+  (not an `InfraError`, not a builtin transport error) spends a delivery attempt, as
+  the event's fault. The relay logs a warning once per error class every five minutes,
+  with the class name and never the message. A driver that maps nothing makes every
+  outage burn attempts and, after `OUTBOX_RELAY_MAX_ATTEMPTS`, dead-letter the rows.
+  Read that line as a missing mapping.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
@@ -139,16 +145,20 @@ The hint holds these fields:
 - `url`: the server's url as the instance states it. `None` means the instance runs on
   the server of `cache.default`.
 - `kind`: one word.
-- `detail`: text that follows `<capability>:<instance>` in the role line.
 - `criticality`: `critical`, `required` or `optional`.
 - `backup` and `restore`: the operator's steps.
 - `tolerable_loss`: a note for data that may be lost.
 
 The plan keeps one item per `(kind, url)`. Instances whose hints name one server share
-it, and each step prints once. A `tolerable_loss` line prints only when every instance on
+it, and each step prints once. The kernel writes each role line itself, as
+`<capability>:<instance>`. A `tolerable_loss` line prints only when every instance on
 the server has one. The kernel masks the url before it prints it. Put the product's own
 advice, such as the persistence a server needs and what a restore costs, in the hint and
 not in the kernel.
+
+A driver that holds the `security` or `idempotency` atomic store and returns `None` is
+named in a critical `backing servers` warning of the plan: those stores must survive a
+restore, so the plan says it cannot vouch for them.
 
 A driver that keeps something for the whole process, such as a client every instance of it
 shares, closes it in the classmethod `aclose_shared()`. The registry calls it once at

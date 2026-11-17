@@ -2597,13 +2597,12 @@
       "members": [
         "backup",
         "criticality",
-        "detail",
         "kind",
         "restore",
         "tolerable_loss",
         "url"
       ],
-      "signature": "(url:POSITIONAL_OR_KEYWORD|str | None, kind:POSITIONAL_OR_KEYWORD|str, detail:POSITIONAL_OR_KEYWORD|str='', criticality:POSITIONAL_OR_KEYWORD|BackupCriticality='optional', backup:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), restore:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), tolerable_loss:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str | None, kind:POSITIONAL_OR_KEYWORD|str, criticality:POSITIONAL_OR_KEYWORD|BackupCriticality='optional', backup:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), restore:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), tolerable_loss:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
     },
     "BroadcastMessage": {
       "kind": "class",

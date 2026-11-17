@@ -198,7 +198,6 @@ class _ServerDriver(InfraProvider):
     contract_version = 1
     url_option = "url"
     hint_url_option = "url"
-    detail = ""
     steps: ClassVar[tuple[str, ...]] = ("persist it",)
     loss: ClassVar[str | None] = "losing it is tolerable"
     criticality: ClassVar[BackupCriticality] = "optional"
@@ -211,7 +210,6 @@ class _ServerDriver(InfraProvider):
         return BackupHint(
             url=url,
             kind="stubserver",
-            detail=cls.detail,
             criticality=cls.criticality,
             backup=cls.steps,
             restore=("restore it",),
@@ -232,7 +230,6 @@ class _StoreDriver(_ServerDriver):
 class _BrokerDriver(_ServerDriver):
     url_option = "broker"
     hint_url_option = "broker"
-    detail = "broker"
     loss = None
 
 
@@ -241,7 +238,7 @@ class _SharedClientDriver(_ServerDriver):
 
     @classmethod
     def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:
-        return BackupHint(url=None, kind="stubserver", detail="(shared)")
+        return BackupHint(url=None, kind="stubserver")
 
 
 class _SilentDriver(InfraProvider):
@@ -255,6 +252,7 @@ _STUB_DRIVERS: dict[tuple[str, str], type[InfraProvider]] = {
     ("cache", "stubcache"): _CacheDriver,
     ("cache", "silent"): _SilentDriver,
     ("atomic_store", "stubstore"): _StoreDriver,
+    ("atomic_store", "silentstore"): _SilentDriver,
     ("eventbus", "stubshared"): _SharedClientDriver,
     ("taskqueue", "stubbroker"): _BrokerDriver,
 }
@@ -324,7 +322,7 @@ def test_plan_lists_the_targets_the_drivers_say_a_composition_runs_on(
     assert "losing it is tolerable" not in cache.restore
     assert any("reconcile-security" in step for step in cache.restore)
     broker = by_target["stub://brokerhost:6379/4"]
-    assert broker.roles == ["taskqueue:default broker"]
+    assert broker.roles == ["taskqueue:default"]
     assert broker.restore == ["restore it"]
 
 
@@ -351,7 +349,7 @@ def test_plan_lists_a_driver_with_no_url_of_its_own_on_the_default_cache_server(
         },
     )
     (server,) = [i for i in build_backup_plan(settings) if i.kind == "stubserver"]
-    assert server.roles == ["cache:default", "eventbus:extra (shared)"]
+    assert server.roles == ["cache:default", "eventbus:extra"]
 
 
 def test_plan_lists_no_target_for_an_instance_that_states_no_url(
@@ -370,6 +368,41 @@ def test_plan_lists_no_target_for_an_instance_that_states_no_url(
     items = build_backup_plan(settings)
     assert not [i for i in items if i.kind == "stubserver"]
     assert not [i for i in items if i.kind == "warning"]
+
+
+@pytest.mark.parametrize("role", ["security", "idempotency"])
+def test_a_must_survive_store_whose_driver_gives_no_hint_is_named_in_a_warning(
+    monkeypatch: pytest.MonkeyPatch, role: str
+) -> None:
+    """A driver that returns no hint leaves its server out of the plan; for the
+    state that must survive a restore the plan says so, naming the instance."""
+    infra = {
+        "cache": {"default": {"driver": "stubcache", "url": "stub://c:1/0"}},
+        "atomic_store": {role: {"driver": "silentstore", "url": "stub://s:1/0"}},
+    }
+    _use_stub_drivers(monkeypatch, infra)
+    items = build_backup_plan(settings)
+    (warning,) = [i for i in items if i.kind == "warning"]
+    assert warning.criticality == "critical"
+    assert warning.name == "backing servers"
+    assert f"atomic_store:{role} (silentstore)" in " ".join(warning.backup)
+    assert "reports no backup hint" in format_plan(items)
+
+
+def test_an_unremarkable_silent_store_adds_no_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the stores the kernel needs to survive are named: another instance
+    of a silent driver, and the memory and database drivers, are not."""
+    infra = {
+        "atomic_store": {
+            "other": {"driver": "silentstore", "url": "stub://s:1/0"},
+            "security": {"driver": "memory"},
+            "idempotency": {"driver": "database"},
+        },
+    }
+    _use_stub_drivers(monkeypatch, infra)
+    assert not [i for i in build_backup_plan(settings) if i.kind == "warning"]
 
 
 @pytest.mark.parametrize("error", [DriverLoadError, DriverConflictError])

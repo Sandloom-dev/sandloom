@@ -300,12 +300,24 @@ def _role_rank(capability: str) -> tuple[int, str]:
     return (_ROLE_ORDER.index(capability) if known else len(_ROLE_ORDER), capability)
 
 
-def _servers(config: Any, registry: InfraRegistry) -> tuple[list[PlanItem], list[str]]:
-    """``(items, missing)``: one item per server the configured drivers say
-    hold data (their ``backup_hint``), and the ``capability:instance`` of every
-    instance whose driver is not installed here, which cannot say."""
+#: ``atomic_store`` instances the kernel needs to survive a restore. A driver
+#: that returns no hint for one leaves it out of the plan: the plan says so.
+_MUST_SURVIVE = ("security", "idempotency")
+#: Drivers of those instances the plan needs no hint of: the database store is
+#: folded into its database's item, the memory store is lost by design.
+_NEEDS_NO_HINT = frozenset({"database", "memory"})
+
+
+def _servers(
+    config: Any, registry: InfraRegistry
+) -> tuple[list[PlanItem], list[str], list[str]]:
+    """``(items, missing, silent)``: one item per server the configured drivers
+    say hold data (their ``backup_hint``), the ``capability:instance`` of every
+    instance whose driver is not installed here, which cannot say, and that of
+    every security or idempotency store whose driver gave no hint."""
     servers: dict[tuple[str, str], _Server] = {}
     missing: list[str] = []
+    silent: list[str] = []
     for capability in sorted(
         (c for c in config if c not in _LISTED_BY_THE_PLAN), key=_role_rank
     ):
@@ -316,11 +328,17 @@ def _servers(config: Any, registry: InfraRegistry) -> tuple[list[PlanItem], list
                 continue
             hint = driver.backup_hint(inst.options)
             if hint is None:
+                if (
+                    capability == "atomic_store"
+                    and name in _MUST_SURVIVE
+                    and inst.driver not in _NEEDS_NO_HINT
+                ):
+                    silent.append(f"{capability}:{name} ({inst.driver})")
                 continue
             url = hint.url or _default_cache_url(config, registry)
             if url is None:  # no url anywhere: no server to back up
                 continue
-            role = f"{capability}:{name}" + (f" {hint.detail}" if hint.detail else "")
+            role = f"{capability}:{name}"
             if capability == "atomic_store":
                 role += _atomic_store_note(name, config["atomic_store"])
                 if name == "security":
@@ -332,7 +350,7 @@ def _servers(config: Any, registry: InfraRegistry) -> tuple[list[PlanItem], list
             servers.setdefault((hint.kind, url), _Server(hint.kind, url)).add(
                 role, hint
             )
-    return [server.item() for server in servers.values()], missing
+    return [server.item() for server in servers.values()], missing, silent
 
 
 def _secrets_item(models: Sequence[type[BaseModel]]) -> PlanItem:
@@ -387,7 +405,9 @@ def build_backup_plan(
     )
     # Drivers that did not all load cannot say which servers hold data: the
     # warning below says so, and none is listed from a half-loaded registry.
-    servers, missing = _servers(config, registry) if unfilled is None else ([], [])
+    servers, missing, silent = (
+        _servers(config, registry) if unfilled is None else ([], [], [])
+    )
     items.extend(servers)
     for name, inst in sorted((config.get("objectstore") or {}).items()):
         where = inst.options.get("bucket") or inst.options.get("path") or "?"
@@ -416,6 +436,12 @@ def build_backup_plan(
             f"no driver is installed here for {', '.join(missing)}: the servers "
             "behind them are not in this plan; run it where the drivers are "
             "installed"
+        )
+    if silent:
+        unlisted.append(
+            f"the driver of {', '.join(silent)} reports no backup hint: the "
+            "server holding that state is not in this plan, and the state must "
+            "survive a restore; back it up as its driver documents"
         )
     if unlisted:
         items.append(

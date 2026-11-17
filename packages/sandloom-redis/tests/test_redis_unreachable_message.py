@@ -35,8 +35,8 @@ def test_the_line_names_the_capability_of_the_failing_driver() -> None:
     raw = ConnectionError("Error 61 connecting to 127.0.0.1:6379. Connection refused.")
     for capability, label in (
         ("atomic_store", "the atomic store backend"),
-        ("eventbus", "the eventbus backend"),
-        ("taskqueue", "the taskqueue backend"),
+        ("eventbus", "the event bus"),
+        ("taskqueue", "the task queue"),
     ):
         line = connection_failure(_mapped(raw, capability))
         assert line is not None

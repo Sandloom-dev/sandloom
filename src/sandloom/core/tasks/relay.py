@@ -557,6 +557,44 @@ def _outage_class_name(exc: BaseException) -> str | None:
     return None
 
 
+#: At most one "driver did not map" warning per error class in this window.
+_UNMAPPED_WARN_SECONDS = 300.0
+_UNMAPPED_WARN_CLASSES = 32
+_unmapped_warned: dict[str, float] = {}
+
+
+def _warn_unmapped(exc: BaseException) -> None:
+    """Log, once per error class per window, that an error the relay does not
+    recognise spends a delivery attempt (the class name, never the message).
+
+    The relay reads an outage from the ``InfraError`` a driver maps its client's
+    errors to (and the builtin transport errors). An error that is none of
+    those, nor a poison type, is judged the event's fault: a driver that maps
+    nothing would dead-letter healthy rows during an outage, and this line is
+    how it becomes visible before they go dead. A mapped ``InfraError`` that is
+    not an outage is a verdict, not a gap, and logs nothing. A ``PartialPublish``
+    is judged by its cause."""
+    if isinstance(exc, PartialPublish) and exc.__cause__ is not None:
+        exc = exc.__cause__
+    if isinstance(exc, (InfraError, *_POISON_TYPES)):
+        return
+    name = f"{type(exc).__module__}.{type(exc).__qualname__}"
+    now = time.monotonic()
+    last = _unmapped_warned.get(name)
+    if last is not None and now - last < _UNMAPPED_WARN_SECONDS:
+        return
+    if len(_unmapped_warned) >= _UNMAPPED_WARN_CLASSES:
+        _unmapped_warned.pop(next(iter(_unmapped_warned)))
+    _unmapped_warned[name] = now
+    _logger.warning(
+        "Outbox relay: publish failed with %s, which the relay does not "
+        "recognise as an outage: it counts as a delivery attempt. A driver "
+        "maps its transport errors to Unavailable / Timeout "
+        "(docs/infrastructure/write-a-driver.md)",
+        name,
+    )
+
+
 def is_broker_unavailable(exc: BaseException) -> bool:
     """True when ``exc`` (or its cause chain) is a transport availability error.
 
@@ -742,6 +780,7 @@ async def _relay_batch_for_store(  # noqa: C901
             if reason is not None:
                 outage_reasons.append(reason)
                 raise BrokerUnavailableError(f"{type(exc).__name__}: {exc}") from exc
+            _warn_unmapped(exc)
             raise
 
     async def _publish_many(
@@ -762,6 +801,7 @@ async def _relay_batch_for_store(  # noqa: C901
             if reason is not None:
                 outage_reasons.append(reason)
                 raise BrokerUnavailableError(f"{type(exc).__name__}: {exc}") from exc
+            _warn_unmapped(exc)
             raise
         error = result.error
         if error is None:
@@ -773,6 +813,7 @@ async def _relay_batch_for_store(  # noqa: C901
         if reason is not None:
             outage_reasons.append(reason)
             raise BrokerUnavailableError(f"{type(error).__name__}: {error}") from error
+        _warn_unmapped(error)
         raise RelayBatchPublishError(result.published, error) from error
 
     if sweep:

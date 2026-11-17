@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import urlsplit
 
 import sandloom.core.tenant as _tenant
@@ -60,9 +60,7 @@ from sandloom.core import rpc_pair_mac
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.infra import config as infra_config
-
-if TYPE_CHECKING:
-    from sandloom.core.infra.registry import InfraRegistry
+from sandloom.core.infra.registry import InfraRegistry, declared_url_options
 
 logger = logging.getLogger("sandloom.production_profile")
 
@@ -87,21 +85,22 @@ def _server(url: object) -> tuple[str, str, int | None] | None:
 
 
 def _same_server(left: object, right: object) -> bool:
-    """Whether two instance urls may name one server: the same host, a scheme
-    that is the same or its TLS form (``redis`` / ``rediss``), and the same
-    port, where a port left out matches any port: it is the driver's default,
-    which the kernel does not know, so it is never taken for another server
-    (the refusal errs towards refusing)."""
+    """Whether two instance urls may name one server.
+
+    The same host and the same stated port are one server whatever the scheme:
+    two drivers can speak to one process over different schemes. A port left
+    out is the driver's default, which the kernel does not know, so it matches
+    any port, and then the scheme must be the same or its TLS form (``redis`` /
+    ``rediss``). The refusal errs towards refusing."""
     one, other = _server(left), _server(right)
     if one is None or other is None:
         return False
     (scheme_a, host_a, port_a), (scheme_b, host_b, port_b) = one, other
-    same_scheme = scheme_a in (scheme_b, f"{scheme_b}s") or scheme_b == f"{scheme_a}s"
-    return (
-        host_a == host_b
-        and same_scheme
-        and (port_a is None or port_b is None or port_a == port_b)
-    )
+    if host_a != host_b:
+        return False
+    if port_a is not None and port_b is not None:
+        return port_a == port_b
+    return scheme_a in (scheme_b, f"{scheme_b}s") or scheme_b == f"{scheme_a}s"
 
 
 def _database_instances(infra: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -113,11 +112,20 @@ def _database_instances(infra: Mapping[str, Any]) -> dict[str, Mapping[str, Any]
     return instances
 
 
+def _url_of(capability: str, options: Mapping[str, Any]) -> object:
+    """The url of an instance: the option its driver declares as the one that
+    holds it (``InfraProvider.url_option``), ``url`` for a driver that declares
+    none or is not installed."""
+    key = f"{capability}.{options.get('driver')}"
+    option = declared_url_options({capability: {"instance": options}}).get(key, "url")
+    return options.get(option)
+
+
 def _cache_default_url(infra: Mapping[str, Any]) -> object:
     caches = infra.get("cache") or {}
     default_opts = caches.get("default") if isinstance(caches, Mapping) else None
     if isinstance(default_opts, Mapping):
-        return default_opts.get("url")
+        return _url_of("cache", default_opts)
     return None
 
 
@@ -208,7 +216,7 @@ def _atomic_instance_problems(
     driver = str(options.get("driver"))
     if driver == "memory":
         return [_memory_store_problem(role)]
-    if _same_server(options.get("url"), _cache_default_url(infra)):
+    if _same_server(_url_of("atomic_store", options), _cache_default_url(infra)):
         return [
             f"atomic_store/{role} runs on the same server as the default "
             "cache; eviction / maxmemory policies are per server, so it must be "
@@ -232,7 +240,9 @@ def _atomic_store_problems(
     idem = _atomic_instance(infra, "idempotency")
     if idem is not None:
         problems += _atomic_instance_problems(cfg, infra, "idempotency", idem)
-        if _same_server(idem.get("url"), security.get("url")):
+        if _same_server(
+            _url_of("atomic_store", idem), _url_of("atomic_store", security)
+        ):
             warnings.append(
                 "atomic_store/idempotency runs on the same server as "
                 "atomic_store/security: idempotency writes still queue the "

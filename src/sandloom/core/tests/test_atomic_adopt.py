@@ -430,7 +430,13 @@ def test_strict_profile_warns_when_sharing_the_security_redis() -> None:
         ("redis://host:6379/1", "redis://host/4", True),
         ("rediss://host:6379/1", "redis://host:6379/4", True),
         ("valkey://host:6379/1", "valkey://host:6379/4", True),
+        # both ports stated: one host and port is one server, whatever the scheme
+        ("valkey://host:6379/1", "redis://host:6379/4", True),
+        ("redis://host:6379/1", "memcached://host:6379", True),
+        # a port left out: only the same scheme (or its TLS form) may match
+        ("valkey://host/1", "redis://host:6379/4", False),
         ("redis://host:6380/1", "redis://host:6379/4", False),
+        ("valkey://host:6380/1", "redis://host:6379/4", False),
         ("redis://other:6379/1", "redis://host:6379/4", False),
         ("postgresql://host/app", "redis://host:6379/4", False),
         ("redis://host:6379/1", None, False),
@@ -462,6 +468,28 @@ def test_a_database_store_on_the_cache_host_is_not_a_shared_server() -> None:
             "security": {"driver": "database", "url": "postgresql://shared/app"}
         },
     }
+    assert production_profile._atomic_store_problems(object(), infra, []) == []
+
+
+def test_the_url_is_read_from_the_option_the_driver_declares(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A driver whose url option is not ``url`` is still compared, as the backup
+    plan reads it (``InfraProvider.url_option``)."""
+    monkeypatch.setattr(
+        production_profile,
+        "declared_url_options",
+        lambda _selection: {"cache.valkey": "dsn", "atomic_store.valkey": "dsn"},
+    )
+    infra = {
+        "cache": {"default": {"driver": "valkey", "dsn": "valkey://shared:6379/0"}},
+        "atomic_store": {
+            "security": {"driver": "valkey", "dsn": "valkey://shared:6379/1"}
+        },
+    }
+    problems = production_profile._atomic_store_problems(object(), infra, [])
+    assert any("same server as the default cache" in p for p in problems)
+    infra["atomic_store"]["security"]["dsn"] = "valkey://other:6379/1"
     assert production_profile._atomic_store_problems(object(), infra, []) == []
 
 
