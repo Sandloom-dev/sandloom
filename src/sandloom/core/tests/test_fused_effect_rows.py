@@ -362,6 +362,7 @@ async def test_a_uow_leaves_no_cyclic_garbage(
 
     await _run_uow(session_factory, bus, body)  # warm caches
     gc.collect()
+    gc.collect()  # objects a finalizer released in the first pass
     # Count only cycles that involve objects these UoWs created: background
     # work left by earlier tests in the same xdist worker (pool disposal,
     # post-commit dispatch tasks) may produce unrelated cyclic garbage in
@@ -376,9 +377,10 @@ async def test_a_uow_leaves_no_cyclic_garbage(
         for _ in range(5):
             await _run_uow(session_factory, bus, body)
         gc.collect()
-        # An engine of an earlier test (SQLAlchemy's own cycles) may become
-        # unreachable in this window; what the kernel caches on it (a
-        # serial-writer database's nesting policy) goes with it.
+        # `alive_before` covers whatever is older than the window. An engine
+        # (SQLAlchemy's own cycles) dying in it may also take something born
+        # in the window with it, cached on the engine (a serial-writer
+        # database's nesting policy): `on_engines` covers that.
         on_engines = {
             id(value)
             for obj in gc.garbage
