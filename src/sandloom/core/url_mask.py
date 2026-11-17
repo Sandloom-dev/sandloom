@@ -79,8 +79,16 @@ _QUERY_PARAM_HEAD = (
 #: The value is masked up to the next ``&``, ``#`` or space: a ``;`` in it is part
 #: of it, one that starts ``x://`` too (a password may hold it).
 _QUERY_SECRET = re.compile(rf"({_QUERY_PARAM_HEAD})[^&#\s]*", re.IGNORECASE)
+#: The start of a url's userinfo up to the ``@`` that ends it: the ``scheme://``
+#: and the run that holds no ``/``, ``?``, ``#`` or space. A ``&`` or ``;`` that
+#: stands in it is part of the password, not the start of a query parameter
+#: (``redis://u:p&auth=1@h``), so :func:`mask_query_secrets` leaves it to the
+#: credentials step.
+_USERINFO_LEAD = re.compile(rf"{SCHEME}[^/?#@\s]*+(?=@)")
 #: A piece of a url list that ends inside the value of a secret-named parameter.
+#: Searched in :func:`_query_tail` only (see there).
 _OPEN_QUERY_SECRET = re.compile(rf"{_QUERY_PARAM_HEAD}[^&#\s]*\Z", re.IGNORECASE)
+_SEPARATOR = re.compile(r"[&#\s]")
 #: A piece of a url list whose password is still open: no ``@`` after it.
 _OPEN_PASSWORD = re.compile(rf"{SCHEME}{_USER_AND_COLON}(?!\d*(?:[/?#\s,]|\Z))[^@]*\Z")
 _URL_LIST_SEPARATOR = re.compile(rf";(?=\s*{SCHEME})")
@@ -128,8 +136,18 @@ def _is_open(piece: str) -> bool:
     to that ``@`` and failing, the search of the whole piece was quadratic."""
     return bool(
         _OPEN_PASSWORD.search(piece[piece.rfind("@") + 1 :])
-        or _OPEN_QUERY_SECRET.search(piece)
+        or _OPEN_QUERY_SECRET.search(_query_tail(piece))
     )
+
+
+def _query_tail(piece: str) -> str:
+    """The part of ``piece`` after its last ``&``, ``#`` or space (that ``&`` kept).
+
+    A secret query value holds none of them, so a value that reaches the end of the
+    piece starts in this part. Searching the whole piece rescanned it from every
+    ``?key=`` to a ``&`` at its end and failed: 3 s on 10 000 of them."""
+    last = _SEPARATOR.search(piece[::-1])
+    return piece if last is None else piece[len(piece) - 1 - last.start() :]
 
 
 def split_url_list(url: str) -> list[str]:
@@ -161,5 +179,17 @@ def split_url_list(url: str) -> list[str]:
 
 
 def mask_query_secrets(text: str) -> str:
-    """The value of a secret-named query parameter of ``text`` becomes ``***``."""
-    return _QUERY_SECRET.sub(r"\1***", text)
+    """The value of a secret-named query parameter of ``text`` becomes ``***``.
+
+    The userinfo of a url (``scheme://`` up to an ``@``, without a ``/``, ``?``,
+    ``#`` or space) is not searched: a password with a ``&`` or ``;`` in it
+    (``redis://u:p&auth=1@h``) is no query, and printing its start was the leak.
+    :func:`mask_url_userinfo` masks it whole."""
+    parts: list[str] = []
+    position = 0
+    for lead in _USERINFO_LEAD.finditer(text):
+        parts.append(_QUERY_SECRET.sub(r"\1***", text[position : lead.start()]))
+        parts.append(lead[0])
+        position = lead.end()
+    parts.append(_QUERY_SECRET.sub(r"\1***", text[position:]))
+    return "".join(parts)

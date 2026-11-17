@@ -311,6 +311,9 @@ def test_a_password_that_chains_the_capped_number_of_schemes_is_masked_whole() -
         pytest.param(_repeat("?password=;a://"), id="open-query-value-chain"),
         pytest.param(_repeat("x://u:p;"), id="open-password-chain"),
         pytest.param(_repeat("x://u:p")[:-8] + "@;x://a", id="at-after-many-starts"),
+        # one piece: every ``?key=`` scanned on to the ``&`` and failed (3 s)
+        pytest.param("x://h" + "?key=" * 10_000 + "&;x://h", id="open-secret-then-and"),
+        pytest.param("x://h" + "?key=" * 10_000 + " ;x://h", id="open-secret-then-space"),
     ],
 )
 def test_splitting_a_url_list_is_not_quadratic(url: str) -> None:
@@ -368,6 +371,47 @@ def test_a_raw_at_in_a_query_secret_does_not_move_the_end_of_the_userinfo(
     ``?password=p@ss`` and eat the name of the parameter."""
     assert _mask_url(raw) == masked
     assert mask_url_credentials(raw, keep_user=False) == masked
+
+
+@pytest.mark.parametrize(
+    ("raw", "secret"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        ("redis://u:p&auth=1@h", "p&auth"),
+        ("redis://u:ab;key=xyz@h", "ab"),
+        ("redis://u:ab;key=xyz@h", "xyz"),
+        ("redis://u:ab&x=1&token=s3@h/0", "ab"),
+        ("redis://u:ab&x=1&token=s3@h/0", "s3"),
+    ],
+)
+def test_a_query_name_inside_the_userinfo_is_part_of_the_password(
+    raw: str, secret: str
+) -> None:
+    """``&auth=`` or ``;key=`` in a password is no query: masking it first printed
+    the start of the password (``redis://u:p&auth=***``). The userinfo is masked
+    whole, in the three maskers."""
+    for masked in (
+        mask_url_credentials(raw, keep_user=False),
+        _mask_url(raw),
+        mask_url_userinfo(mask_query_secrets(raw), keep_user=False),
+    ):
+        assert masked.startswith("redis://***@h"), masked
+        assert secret not in masked, masked
+    # the keep_user form shows the user and no part of the password
+    assert secret not in mask_url_credentials(raw)
+
+
+def test_a_query_secret_after_the_userinfo_is_still_masked() -> None:
+    """The userinfo is skipped only up to its ``@``: the query behind it is not."""
+    raw = "redis://u:p&auth=1@h/0?password=zz&x=1"
+    assert mask_query_secrets(raw) == "redis://u:p&auth=1@h/0?password=***&x=1"
+    assert mask_url_credentials(raw, keep_user=False) == (
+        "redis://***@h/0?password=***&x=1"
+    )
+    # the first ``@`` of a query value does not start a userinfo
+    assert mask_query_secrets("redis://h/0?password=a&b=c@d") == (
+        "redis://h/0?password=***&b=c@d"
+    )
 
 
 @pytest.mark.parametrize(

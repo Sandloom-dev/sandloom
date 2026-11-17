@@ -177,16 +177,29 @@ def _mask_value(match: re.Match[str]) -> str:
     return f"{match['key']}{match['sep']}***"
 
 
+_NON_SPACE_RUN = re.compile(r"\S+")
+
+
+def _mask_token_userinfo(match: re.Match[str]) -> str:
+    """The userinfo of a url that is one word, masked (any other word as written)."""
+    word = match[0]
+    return mask_url_userinfo(word, keep_user=False) if "://" in word else word
+
+
 def scrub_text(text: str) -> str:
     """Redact secrets embedded in free text (messages, exception strings).
 
     Masks the value of a secret-named query parameter (``?password=``,
-    ``&sig=``, ...), SQL bound-parameter blocks, bearer tokens,
-    ``<secret-ish key>=<value>`` pairs, then DSN credentials
+    ``&sig=``, ...), the credentials of every url that is one word, SQL
+    bound-parameter blocks, bearer tokens, ``<secret-ish key>=<value>`` pairs,
+    then DSN credentials of the whole line
     (``scheme://user:pass@`` -> ``scheme://***@``; the userinfo runs to the last
     ``@`` of the line, so a password with a raw ``@`` is hidden whole, and the
     secrets in front of it are gone already, so the run does not eat their
-    names). See :mod:`sandloom.core.url_mask`. Best-effort and never raises.
+    names). The url words go before the ``key=value`` pairs: a pair's value
+    stops at ``,``, ``;``, ``&`` or a quote, all of which a password may hold, and
+    ``SECRET_URL=postgresql://u:a,b@h`` would print ``,b@h`` after it. See
+    :mod:`sandloom.core.url_mask`. Best-effort and never raises.
     """
     if not text:
         return text
@@ -194,6 +207,8 @@ def scrub_text(text: str) -> str:
         out = text
         if "=" in out:
             out = mask_query_secrets(out)
+        if "://" in out:
+            out = _NON_SPACE_RUN.sub(_mask_token_userinfo, out)
         if any(
             prefix in out
             for prefix in ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_")

@@ -53,6 +53,11 @@ def reference_scrub(text: str) -> str:
     if not text:
         return text
     out = mask_query_secrets(text)
+    out = re.sub(
+        r"\S+",
+        lambda m: mask_url_userinfo(m[0], keep_user=False) if "://" in m[0] else m[0],
+        out,
+    )
     out = _REF_PROVIDER.sub("***", out)
     out = _REF_SQL.sub("[parameters: ***]", out)
     out = _REF_BEARER.sub(r"\1 ***", out)
@@ -294,6 +299,66 @@ def test_a_raw_at_after_a_url_does_not_hide_the_name_of_a_secret(
     are still there when the userinfo runs to the last ``@`` of the line."""
     assert scrub_text(raw) == expected
     assert reference_scrub(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "secret"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        ("SECRET_DATABASE_URL=postgresql://app:Xy7,kQ@db/app", "kQ"),
+        ("DB_CREDENTIALS=postgresql://app:Xy7;kQ@db/app", "kQ"),
+        ("redis_password_url: redis://default:Xy7&kQ@cache:6379/0", "kQ"),
+        ("credentials: postgresql://app:pa)ss@db/app", "ss"),
+        ("token=redis://u:ab&cd@h/0", "cd"),
+        ("password='postgresql://app:pa'ss@db/app'", "pa'ss"),
+        # the same url inside a longer line, and in a non-ASCII one
+        ("connect failed, SECRET_URL=postgresql://a:Xy7,kQ@h/d (retry)", "kQ"),
+        ("é SECRET_URL=postgresql://a:Xy7,kQ@h/d", "kQ"),
+    ],
+)
+def test_a_url_after_a_secret_named_key_prints_no_tail_of_its_password(
+    raw: str, secret: str
+) -> None:
+    """A ``key=value`` value stops at ``,``, ``;``, ``&``, a quote or ``)``, all of
+    which a password may hold, and takes the ``scheme://`` of the url with it: the
+    credentials of a one-word url are masked before the pairs, so none is left."""
+    out = scrub_text(raw)
+    assert secret not in out, out
+    assert "***" in out
+    assert out == reference_scrub(raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("SECRET_DATABASE_URL=postgresql://app:Xy7,kQ@db/app", "SECRET_DATABASE_URL=***"),
+        ("credentials: postgresql://app:pa)ss@db/app", "credentials: ***"),
+        ("redis://u:p&auth=1@h", "redis://***@h"),
+        ("redis://u:ab;key=xyz@h", "redis://***@h"),
+    ],
+)
+def test_the_scrubber_prints_the_masked_form_of_a_password_with_a_delimiter(
+    raw: str, expected: str
+) -> None:
+    assert scrub_text(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("SECRET_URL=" + "x://u:a,b@h " * 4000, id="url-words"),
+        pytest.param("SECRET=" + "x://u:a,b@h," * 4000, id="one-long-word"),
+        pytest.param("x://u:p" + "&key=" * 10_000 + "@h", id="query-names-in-userinfo"),
+        pytest.param("x://u:p" + ";key=" * 10_000 + "@h", id="semicolon-names"),
+        pytest.param(
+            "x://h" + "?key=" * 10_000 + "&;x://h", id="open-query-secret-repeated"
+        ),
+    ],
+)
+def test_the_url_word_pass_and_the_userinfo_lead_are_linear(text: str) -> None:
+    started = time.perf_counter()
+    scrub_text(text)
+    assert time.perf_counter() - started < 1.0
 
 
 #: The names the query step masks (``url_mask._QUERY_PARAM_HEAD``), each in
