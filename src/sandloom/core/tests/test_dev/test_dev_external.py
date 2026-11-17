@@ -107,9 +107,9 @@ def _app(tmp_path: Path, name: str) -> Path:
     (root / "deploy").mkdir(parents=True)
     (root / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n')
     (root / ".env.example").write_text(
-        "ENVIRONMENT=dev\nJWT_SECRET=change_me\n" + envfile.empty_block()
+        "ENVIRONMENT=dev\nJWT_SECRET=change_me\n" + envfile.empty_block("Redis")
     )
-    (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block())
+    (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block("Redis"))
     (root / "deploy" / "docker-compose.dev.yml").write_text("services: {}\n")
     _git(root, "init", "-q", "-b", "main")
     return root
@@ -432,6 +432,132 @@ def test_a_state_from_before_kv_url_says_to_run_up_again(
     assert "--kv-url" in message and "dev up --services external" in message
 
 
+def _state_from_before_kv_url(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> tuple[Path, dict[str, Any], tuple[int, ...]]:
+    """What the CLI of before ``--kv-url`` left: an external ``dev.json`` that
+    names the person's server as ``redis_url`` (here the local port), a row on
+    the indexes that CLI found empty on it, and data of the person's own on
+    another server that answers on the default local port."""
+    monkeypatch.setattr(commands._services, "pg_ready", lambda pg: None)
+    monkeypatch.setattr(commands._services, "ensure_database", lambda pg, n: False)
+    monkeypatch.setattr(commands._services, "has_tables", lambda pg, n: True)
+    monkeypatch.setattr(commands, "_claim_external", lambda *a, **k: None)
+    root = _app(tmp_path, "shop")
+    ctx = _ctx(root, environ)
+    database = "postgresql://me@127.0.0.1:5432/postgres"
+    options = commands.UpOptions(
+        services="external", database_url=database, kv_url="redis://127.0.0.1:6390"
+    )
+    assert commands.up(ctx, options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    state.external = {"database_url": database, "redis_url": "redis://127.0.0.1:6390"}
+    save_state(ctx.state_dir, state)
+    # The person's Homebrew server on the default port holds data in the row's
+    # two indexes, and answers.
+    monkeypatch.setattr(commands._services, "tcp_open", lambda h, p, timeout=2.0: True)
+    indexes = state.checkouts[str(root)].indexes
+    fake_stack.keys = {index: {"theirs": "data"} for index in indexes}
+    return root, dict(state.external), indexes
+
+
+def test_a_plain_up_on_a_state_from_before_kv_url_stops_and_touches_nothing(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The row's indexes were checked empty on the server the old state named.
+    Falling back to whatever answers on the default port would put them on a
+    server nobody checked, and `dev reset` would then flush the person's data."""
+    root, external, indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    ctx = _ctx(root, environ)
+    with pytest.raises(commands.DevError) as refused:
+        commands.up(ctx, commands.UpOptions())
+    message = str(refused.value)
+    assert "\n" not in message
+    assert "--kv-url" in message and "dev up --services external" in message
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert state.external == external  # no kv_url written
+    assert state.checkouts[str(root)].indexes == indexes
+    assert all(fake_stack.keys[index] == {"theirs": "data"} for index in indexes)
+    # `status` and `run` stop with the same line (the upgrade note says so).
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.status(ctx, as_json=True)
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.run(ctx, port="auto", reload=False)
+    # `--database-url` alone does not name the server either.
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.up(
+            ctx, commands.UpOptions(database_url="postgresql://me@127.0.0.1:5432/x")
+        )
+    # Naming it again, as the message says, works.
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6390")
+    assert commands.up(_ctx(root, environ), again) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None and state.external["kv_url"] == "redis://127.0.0.1:6390"
+
+
+def test_reset_and_prune_name_the_keyed_server_before_dropping_a_database(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """A state that names no keyed server stops `dev reset` and `dev prune`
+    before the database is dropped: never a fresh database next to the stale
+    keys, never a row left whose database is gone."""
+    root, _external, _indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    dropped: list[str] = []
+    monkeypatch.setattr(
+        commands._services, "drop_database", lambda pg, name: dropped.append(name)
+    )
+    monkeypatch.setattr(commands._services, "sessions", lambda *a, **k: {})
+    monkeypatch.setattr(commands._services, "mark_database", lambda *a: None)
+    monkeypatch.setattr(commands, "_prune_test_databases", lambda ctx, state: [])
+    ctx = _ctx(root, environ)
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    row = state.checkouts[str(root)]
+    gone = str(tmp_path / "gone")
+    gone_row = CheckoutRow(
+        path=gone,
+        database="shop_gone",
+        cache_index=40,
+        broker_index=41,
+        test_database="sandloom_test_gone",
+    )
+    marks = {
+        row.database: commands.dev_mark(row),
+        "shop_gone": commands.dev_mark(gone_row),
+    }
+    monkeypatch.setattr(
+        commands._services, "database_mark", lambda pg, name: marks[name]
+    )
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.reset(ctx, force=True)
+    assert dropped == []
+    # A removed checkout's row, marked as ours: prune stops before its
+    # database is dropped.
+    state.checkouts[gone] = gone_row
+    save_state(ctx.state_dir, state)
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.prune(ctx)
+    assert dropped == []
+    after = load_state(ctx.state_dir)
+    assert after is not None and gone in after.checkouts
+    assert all(fake_stack.keys[index] == {"theirs": "data"} for index in row.indexes)
+
+
 def test_without_a_package_for_the_stack_the_command_names_what_to_install(
     tmp_path: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -521,7 +647,7 @@ def test_two_apps_in_one_repository_share_containers_not_state(
         root = repo / "apps" / name
         (root / "deploy").mkdir(parents=True)
         (root / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n')
-        (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block())
+        (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block("Redis"))
         apps.append(root)
     shop, desk = (_ctx(root, environ) for root in apps)
     assert shop.identity.repository == desk.identity.repository

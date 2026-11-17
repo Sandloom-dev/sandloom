@@ -83,7 +83,7 @@ def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (root / "deploy").mkdir(parents=True)
     (root / "pyproject.toml").write_text('[project]\nname = "shop"\n')
     (root / ".env.example").write_text(
-        "ENVIRONMENT=dev\nJWT_SECRET=change_me\n" + envfile.empty_block()
+        "ENVIRONMENT=dev\nJWT_SECRET=change_me\n" + envfile.empty_block("Redis")
     )
     (root / ".gitignore").write_text(".env\n.env.test.local\n.sandloom/\n")
     (root / "deploy" / "docker-compose.dev.yml").write_text("services: {}\n")
@@ -1824,7 +1824,7 @@ def test_dev_run_serves_a_database_named_in_env_without_dev_services(
     ctx = _ctx(repo, environ)
     environ.pop("DATABASE_URL", None)
     (repo / ".env").write_text(
-        envfile.empty_block()
+        envfile.empty_block("Redis")
         + "DATABASE_URL=sqlite+aiosqlite:///./data/app.db\n"
         + 'INFRA=\'{"cache":{"default":{"url":"redis://127.0.0.1:6379/0"}}}\'\n'
     )
@@ -1853,7 +1853,7 @@ def test_the_winning_database_url_is_the_last_assignment_in_the_file() -> None:
         "postgresql://block",
         False,
     )
-    commented = "# DATABASE_URL=sqlite+aiosqlite:///x\n" + envfile.empty_block()
+    commented = "# DATABASE_URL=sqlite+aiosqlite:///x\n" + envfile.empty_block("Redis")
     assert envfile.winning_assignment(commented, "DATABASE_URL") == ("", False)
 
 
@@ -1861,9 +1861,15 @@ def test_the_winning_database_url_is_the_last_assignment_in_the_file() -> None:
     ("env_text", "own"),
     [
         # The README's lines after the (empty) block: the checkout's own.
-        (envfile.empty_block() + "DATABASE_URL=sqlite+aiosqlite:///./a.db\n", True),
+        (
+            envfile.empty_block("Redis") + "DATABASE_URL=sqlite+aiosqlite:///./a.db\n",
+            True,
+        ),
         # PostgreSQL outside the block stays `dev up`'s to manage.
-        (envfile.empty_block() + "DATABASE_URL=postgresql+asyncpg://u@h/d\n", False),
+        (
+            envfile.empty_block("Redis") + "DATABASE_URL=postgresql+asyncpg://u@h/d\n",
+            False,
+        ),
         # A SQLite line on top, a filled block after it: the block wins.
         (
             "DATABASE_URL=sqlite+aiosqlite:///./a.db\n" + envfile.render_block(_VALUES),
@@ -1884,7 +1890,8 @@ def test_dev_run_starts_the_services_for_a_postgresql_url_in_env(
     ctx = _ctx(repo, environ)
     environ.pop("DATABASE_URL", None)
     (repo / ".env").write_text(
-        envfile.empty_block() + "DATABASE_URL=postgresql+asyncpg://u@127.0.0.1/x\n"
+        envfile.empty_block("Redis")
+        + "DATABASE_URL=postgresql+asyncpg://u@127.0.0.1/x\n"
     )
 
     def up(c: commands.Context, options: commands.UpOptions) -> int:
@@ -1902,7 +1909,7 @@ def test_dev_up_leaves_a_checkouts_own_sqlite_database_alone(
     repo: Path, environ: dict[str, str]
 ) -> None:
     ctx = _ctx(repo, environ)
-    text = envfile.empty_block() + "DATABASE_URL=sqlite+aiosqlite:///./a.db\n"
+    text = envfile.empty_block("Redis") + "DATABASE_URL=sqlite+aiosqlite:///./a.db\n"
     (repo / ".env").write_text(text)
     with pytest.raises(commands.DevError, match="its own database"):
         commands.up(ctx, commands.UpOptions())

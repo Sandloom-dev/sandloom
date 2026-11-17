@@ -18,7 +18,7 @@ from urllib.parse import quote, unquote, urlsplit
 import pytest
 
 from sandloom.core.cli import stack_service as stack
-from sandloom.core.cli.dev.services import redact
+from sandloom.core.url_split import redact
 
 #: The databases of the stand-in server (a real one's own setting).
 DATABASES = 256

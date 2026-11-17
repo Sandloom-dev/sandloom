@@ -39,8 +39,15 @@ NEW_RUNS: dict[str, list[str]] = {
 RANDOM_FILES = frozenset({".env"})
 
 
+#: The checkout the code runs from: a source checkout's ``pyproject.toml`` of
+#: the new app names the framework by this absolute path, which differs on every
+#: machine (a developer's, CI's runner).
+CHECKOUT = Path(_project.__file__).resolve().parents[4]
+
+
 def _digest(path: Path) -> str:
     data = path.read_bytes().replace(_project.FRAMEWORK_RANGE.encode(), b"<range>")
+    data = data.replace(CHECKOUT.as_posix().encode(), b"<checkout>")
     return hashlib.sha256(data).hexdigest()
 
 

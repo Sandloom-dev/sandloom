@@ -336,7 +336,11 @@ class DocumentationSiteTests(unittest.TestCase):
         if quickstart is None:
             self.fail("README has no readme:quickstart block")
         commands = quickstart.group(1)
-        self.assertRegex(commands, r'uvx --from "sandloom==[^"]+" sandloom new')
+        # `sandloom new` needs the driver package of the standard stack: the
+        # `redis` extra names it.
+        self.assertRegex(
+            commands, r'uvx --from "sandloom\[redis\]==[^"]+" sandloom new'
+        )
         self.assertNotIn("--framework-source path", commands)
         self.assertNotIn("git clone", commands)
         self.assertIn("uv run sandloom test", readme)

@@ -44,7 +44,6 @@ import secrets
 from collections.abc import Mapping
 from pathlib import Path
 
-from sandloom.core.cli import stack_service as _stack
 from sandloom.core.cli.dev.state import atomic_write
 
 BEGIN = "# >>> sandloom dev (managed by `sandloom dev up`; edits inside are replaced)"
@@ -66,12 +65,14 @@ _ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 _JWT = re.compile(r"^(\s*(?:export\s+)?JWT_SECRET\s*=).*$", re.MULTILINE)
 
 
-def empty_block() -> str:
-    """The block ``sandloom new`` writes: filled by the first ``dev up``."""
+def empty_block(label: str) -> str:
+    """The block ``sandloom new`` writes: filled by the first ``dev up``.
+    ``label`` is the keyed server's name (its package supplies it; the caller
+    holds the stack, this module loads none)."""
     return (
         f"{BEGIN}\n"
         "# Empty until `uv run sandloom dev up` fills it with this checkout's\n"
-        f"# DATABASE_URL and INFRA (the {_stack.load().label} url of each instance).\n"
+        f"# DATABASE_URL and INFRA (the {label} url of each instance).\n"
         f"{END}\n"
     )
 
@@ -105,7 +106,10 @@ InfraMap = dict[str, dict[str, dict[str, object]]]
 #: a broadcast keeps no history: ``design/infra-drivers/design.md``): their
 #: instances take the cache index. Every other keyed-server instance holds state
 #: that must survive (revocation marks, the lease, the event streams, the
-#: broker's queues) and takes the persistent index, never the cache's.
+#: broker's queues) and takes the persistent index, never the cache's. The set
+#: names capabilities and stays so: no port declares "may evict" (``never_evicts``
+#: is a feature of ``atomic_store`` alone), so there is nothing to derive it from,
+#: and it holds for every driver of the capability, not for the Redis one.
 _CACHE_CAPABILITIES = frozenset({"cache", "broadcast"})
 
 
@@ -340,8 +344,7 @@ def seed_env(root: Path) -> bool:
     return True
 
 
-def render_test_local(values: dict[str, str]) -> str:
-    label = _stack.load().label
+def render_test_local(values: dict[str, str], label: str) -> str:
     lines = [
         "# Written by `uv run sandloom dev up`: this checkout's test servers.",
         "# Not committed. The test harness reads it after .env.test; an exported",
@@ -352,9 +355,9 @@ def render_test_local(values: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_test_local(root: Path, values: dict[str, str]) -> bool:
+def write_test_local(root: Path, values: dict[str, str], label: str) -> bool:
     path = root / TEST_LOCAL_FILE
-    text = render_test_local(values)
+    text = render_test_local(values, label)
     try:
         if path.read_text(encoding="utf-8") == text:
             return False

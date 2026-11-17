@@ -90,6 +90,16 @@ class DevError(RuntimeError):
     """A refusal or failure: printed as one ``error:`` line, exit 1."""
 
 
+#: An external state from before ``--kv-url`` (``dev.json`` holds ``redis_url``
+#: and no ``kv_url``): ``up``, ``status``, ``run``, ``reset`` and ``prune`` stop
+#: on it and touch nothing, since the server it named is not known any more.
+NO_KV_URL = (
+    "the state of this repository names no key-value server "
+    "(dev.json predates `--kv-url`): run `uv run sandloom dev up "
+    "--services external --kv-url URL` again"
+)
+
+
 def stack_service() -> _stack.StackService:
     """The standard stack's keyed server (its driver package describes it), or
     a :class:`DevError` that says which package to install."""
@@ -197,11 +207,7 @@ class Context:
         if state.is_external:
             url = state.external.get("kv_url")
             if not url:
-                raise DevError(
-                    "the state of this repository names no key-value server "
-                    "(dev.json predates `--kv-url`): run `uv run sandloom dev up "
-                    "--services external --kv-url URL` again"
-                )
+                raise DevError(NO_KV_URL)
             return stack.parse(url)
         return stack.server(
             self.host, state.ports[stack.test_name if test else stack.name]
@@ -521,7 +527,8 @@ def write_checkout_files(ctx: Context, state: State, row: CheckoutRow) -> list[s
         ) from exc
     if wrote:
         notes.append(f"wrote the sandloom dev block of {root / '.env'}")
-    if _envfile.write_test_local(root, test_urls(ctx, state, row, selection)):
+    urls = test_urls(ctx, state, row, selection)
+    if _envfile.write_test_local(root, urls, stack_service().label):
         notes.append(f"wrote {root / '.env.test.local'}")
     if ctx.environ.get("INFRA") and _test_env_infra(row) is None:
         # The test run takes the shell's INFRA only where .env.test declares
@@ -913,6 +920,11 @@ def check_external(database_url: str, kv_url: str) -> str | None:
 
 def _external_urls(ctx: Context, state: State, options: UpOptions) -> tuple[str, str]:
     stack = stack_service()
+    if state.is_external and not options.kv_url and not state.external.get("kv_url"):
+        # An earlier build's state: its server is not named any more, and the
+        # indexes of its row were checked empty on that one. Guessing a local
+        # server would put them on a server nobody checked.
+        raise DevError(NO_KV_URL)
     database = options.database_url or state.external.get("database_url")
     keyed = options.kv_url or state.external.get("kv_url")
     if not database or not keyed:
@@ -1850,8 +1862,8 @@ def _own_users(ctx: Context, state: State, row: CheckoutRow) -> list[str]:
     return users
 
 
-def _flush(ctx: Context, state: State, row: CheckoutRow) -> None:
-    stack_service().flush(ctx.keyed(state), row.indexes)
+def _flush(keyed: _stack.KeyedServer, row: CheckoutRow) -> None:
+    stack_service().flush(keyed, row.indexes)
 
 
 def _require_state(ctx: Context) -> State:
@@ -1873,6 +1885,11 @@ def reset(ctx: Context, *, force: bool) -> int:
             raise DevError(
                 "this checkout has no database yet: run `uv run sandloom dev up`"
             )
+        # The server to flush is named before the database is dropped: a state
+        # that names none stops here, not after a half reset.
+        # The server to flush is named before the database is dropped: a state
+        # that names none stops here, not after a half reset.
+        keyed = ctx.keyed(state)
         users = _own_users(ctx, state, row)
         if users and not force:
             raise DevError(
@@ -1891,7 +1908,7 @@ def reset(ctx: Context, *, force: bool) -> int:
         _services.ensure_database(pg, row.database)
         if state.is_external:
             _services.mark_database(pg, row.database, dev_mark(row))
-        _flush(ctx, state, row)
+        _flush(keyed, row)
     ctx.say(
         f"reset {row.database} and {stack_service().label} indexes {row.cache_index}, "
         f"{row.broker_index}; next: uv run sandloom migrate upgrade-all --apply"
@@ -2043,8 +2060,9 @@ def _prune_checkouts(ctx: Context, state: State) -> list[str]:
                 )
                 del state.checkouts[path]
                 continue
+            keyed = ctx.keyed(state)  # named before anything is dropped
             _services.drop_database(ctx.postgres(state), row.database)
-            _flush(ctx, state, row)
+            _flush(keyed, row)
         except ctx.errors() as exc:  # the services are down
             ctx.warn(f"kept {row.database} of {path}: the services are down ({exc})")
             continue

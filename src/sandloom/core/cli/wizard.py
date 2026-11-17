@@ -1632,6 +1632,10 @@ def main(
             "--setup starts the dev services, and CI provides its own services "
             "(`sandloom dev up` refuses there): leave --setup out"
         )
+    try:
+        _dev_commands.stack_service()  # the questions and the files both need it
+    except _dev_commands.DevError as exc:
+        return run.fail(str(exc))
     given = _given(run)
     if isinstance(given, int):
         return given

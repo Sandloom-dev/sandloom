@@ -12,7 +12,6 @@ and ``sandloom.sdk``).
 
 from __future__ import annotations
 
-from sandloom.core.cli.dev.services import redact
 from sandloom.core.cli.stack_service import (
     GROUP,
     STANDARD_DRIVER,
@@ -27,5 +26,4 @@ __all__ = [
     "KeyedServer",
     "StackService",
     "StackServiceError",
-    "redact",
 ]

@@ -9,7 +9,7 @@ description: Create a new Sandloom business module (sandloom add module, migrate
    - In the framework tree, that is `.claude/rules/module-author.md`.
    - In an `sandloom new` app, it is the project's `AGENTS.md`.
    - No app yet? Create one with `--yes`:
-     `uvx --from "sandloom==<version>" sandloom new <app> --yes`. Without
+     `uvx --from "sandloom[redis]==<version>" sandloom new <app> --yes`. Without
      it, `sandloom new` at a terminal asks questions and waits for answers.
    - Its "Rules no check enforces yet" list matters most: a row owned through
      another tenant row is `TenantScoped`, effects outside a durable consumer

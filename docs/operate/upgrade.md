@@ -232,7 +232,8 @@ object that `sandloom-redis` registers in the `sandloom.stack` entry-point group
 imports no Redis client any more, not even a guarded one. An app on the standard stack changes
 nothing but the names below, and every file `sandloom new` writes is byte for byte what it was.
 `sandloom dev` and `sandloom new` need `sandloom-redis` installed (`pip install sandloom[redis]`)
-and say so in one line when it is not. A bare `uvx --from "sandloom==<version>" sandloom new …`
+and say so in one line when it is not. An older `sandloom-redis` that registers no stack
+makes them say to upgrade it. A bare `uvx --from "sandloom==<version>" sandloom new …`
 therefore stops with that line: run it as `uvx --from "sandloom[redis]==<version>" sandloom new …`
 (the quickstarts and the repeat command that the wizard prints say so).
 
@@ -246,7 +247,7 @@ is no alias: the old names are gone. This is for development machines only.
 | Before | After |
 | --- | --- |
 | `sandloom dev up --redis-url URL`, `sandloom new --redis-url URL` | `--kv-url URL`, same meaning and default (the local server on `127.0.0.1`). The `--services external` choice keeps the URL in the state. |
-| `external.redis_url` in `<git common dir>/sandloom/dev.json` | `external.kv_url`. A `dev.json` from before names no server: `dev up`, `dev status` and `dev run` stop with one line that says to run `uv run sandloom dev up --services external --kv-url URL` again. |
+| `external.redis_url` in `<git common dir>/sandloom/dev.json` | `external.kv_url`. A `dev.json` from before names no server: `dev up`, `dev status`, `dev run`, `dev reset` and `dev prune` stop with one line that says to run `uv run sandloom dev up --services external --kv-url URL` again. They touch no database and no key first, and `dev up` never picks a server that happens to answer on the default port. |
 | The key `redis_indexes` of `sandloom dev status --json` | `kv_indexes` |
 | `sandloom.core.cli.dev.services.RedisServer`, `redis_ready`, `redis_clients`, `empty_indexes`, `flush_indexes` | `sandloom_redis.stack.RedisServer` and the members of its `STACK_SERVICE` (`problem`, `clients`, `empty_indexes`, `flush`). The module is the CLI's own, not public API; change a script that imported them. |
 | `wizard.Plan.redis_url`, `Given.redis_url`, `Answers.redis_url` | `kv_url` (the wizard's own dataclasses) |

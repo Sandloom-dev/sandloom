@@ -1455,7 +1455,7 @@ def generate_project(
             f'    "{pin}",' for pin in (*DEV_TOOL_PINS, CHECK_EXTRA_REQ, f"{app}[fast]")
         ),
         "port_hint": port_hint,
-        "dev_block": _envfile.empty_block(),
+        "dev_block": _envfile.empty_block(stack.label),
         # CI's test Redis (Postgres :5433, Redis :6380): the cache on /15, the
         # persistent instances on /14. The in-process bus is selected there.
         "infra_test": _infra_json(

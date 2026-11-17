@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from sandloom.core.cli import project, ui, wizard
+from sandloom.core.cli import project, stack_service, ui, wizard
 
 PY = sys.executable
 
@@ -761,6 +761,49 @@ def test_an_existing_directory_names_dir(tmp_path: Path) -> None:
         err=err,
     )
     assert code == 1 and "--dir" in err.getvalue()
+
+
+def _no_stack_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(driver: str) -> Any:
+        raise stack_service.StackServiceError(
+            f"no package for {driver}: install `sandloom[redis]`"
+        )
+
+    monkeypatch.setattr(stack_service, "_discover", missing)
+
+
+@pytest.mark.parametrize(
+    ("argv", "tty"),
+    [
+        (["shop", "--yes"], False),
+        (["shop", "--yes", "--services", "external"], False),
+        (["shop", "--yes", "--services", "docker"], False),
+        # No flag and a terminal: the wizard would ask its questions first.
+        ([], True),
+    ],
+    ids=["yes", "yes-external", "yes-docker", "terminal"],
+)
+def test_without_the_stack_package_new_stops_with_one_line_before_asking(
+    argv: list[str], tty: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare ``sandloom`` has no package for the stack's server (the
+    ``redis`` extra brings it): every path says so in one line, before a
+    question and before a file, never a traceback."""
+    _no_stack_package(monkeypatch)
+    out, err = _Stream(tty=tty), _Stream(tty=False)
+    code = wizard.main(
+        [*argv, "--dir", str(tmp_path)],
+        environ={},
+        stdin=_Stream(tty=tty),
+        out=out,
+        err=err,
+    )
+    assert code == 1
+    assert "install `sandloom[redis]`" in err.getvalue()
+    assert "Traceback" not in err.getvalue() + out.getvalue()
+    assert len(err.getvalue().strip().splitlines()) == 1
+    assert out.getvalue() == ""
+    assert list(tmp_path.iterdir()) == []
 
 
 # ------------------------------------------------------- pseudo-terminal

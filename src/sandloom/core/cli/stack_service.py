@@ -27,6 +27,9 @@ GROUP = "sandloom.stack"
 #: ``DEFAULT_INFRA`` of a generated app selects), the name its package registers
 #: its :class:`StackService` under.
 STANDARD_DRIVER = "redis"
+#: The distribution that registers it (the ``redis`` extra of ``sandloom``
+#: requires it): what an error tells the person to install or upgrade.
+STANDARD_PACKAGE = "sandloom-redis"
 
 
 class StackServiceError(ValueError):
@@ -136,17 +139,47 @@ class StackService(Protocol):
     microservices_volumes: str
 
 
+def _dist(entry: metadata.EntryPoint) -> str:
+    return entry.dist.name if entry.dist is not None else entry.value
+
+
 @cache
 def _discover(driver: str) -> StackService:
-    for entry in metadata.entry_points().select(group=GROUP):
-        if entry.name == driver:
-            found: StackService = entry.load()
-            return found
-    raise StackServiceError(
-        f"no installed package describes the backing server of the standard "
-        f"stack ({driver!r}, entry-point group {GROUP!r}): install "
-        "`sandloom[redis]`"
-    )
+    entries = [
+        entry
+        for entry in metadata.entry_points().select(group=GROUP)
+        if entry.name == driver
+    ]
+    if len(entries) > 1:
+        raise StackServiceError(
+            f"two packages describe the backing server of the standard stack "
+            f"({driver!r}, entry-point group {GROUP!r}): "
+            f"{', '.join(sorted(_dist(entry) for entry in entries))}; "
+            "uninstall one of them"
+        )
+    if not entries:
+        try:
+            metadata.distribution(STANDARD_PACKAGE)
+        except metadata.PackageNotFoundError:
+            how = "install `sandloom[redis]`"
+        else:
+            how = (
+                f"{STANDARD_PACKAGE} is installed but is too old to register "
+                "one: upgrade it (`sandloom[redis]`)"
+            )
+        raise StackServiceError(
+            f"no installed package describes the backing server of the standard "
+            f"stack ({driver!r}, entry-point group {GROUP!r}): {how}"
+        )
+    (entry,) = entries
+    try:
+        found: StackService = entry.load()
+    except (ImportError, AttributeError) as exc:  # a broken or half-upgraded install
+        raise StackServiceError(
+            f"{_dist(entry)} registers the backing server of the standard stack "
+            f"but cannot load it ({exc}): reinstall or upgrade it"
+        ) from exc
+    return found
 
 
 def load(driver: str = STANDARD_DRIVER) -> StackService:

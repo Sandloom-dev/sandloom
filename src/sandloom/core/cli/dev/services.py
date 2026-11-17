@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
-from sandloom.core.url_split import split_url
+from sandloom.core.url_split import redact, split_url
 
 #: (user, password) of the generated compose file's local services.
 DEV_CREDENTIALS = ("sandloom", "sandloom")
@@ -87,19 +87,6 @@ class Postgres:
         )
         conn.autocommit = True
         return conn
-
-
-def redact(url: str) -> str:
-    """``url`` with its password replaced by ``<password>`` (for messages). A url
-    that cannot be parsed is not echoed at all: it may hold the password."""
-    try:
-        parts = split_url(url)
-    except ValueError:
-        return "<unparseable url>"
-    if not parts.password:
-        return url
-    netloc = parts.netloc.replace(f":{parts.password}@", ":<password>@", 1)
-    return parts._replace(netloc=netloc).geturl()
 
 
 def tcp_open(host: str, port: int, timeout: float = 2.0) -> bool:

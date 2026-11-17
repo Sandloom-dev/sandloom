@@ -25,8 +25,8 @@ from urllib.parse import quote, unquote
 
 import redis
 
-from sandloom.driverkit.stack_service import KeyedServer, redact
-from sandloom.driverkit.url_split import split_url
+from sandloom.driverkit.stack_service import KeyedServer
+from sandloom.driverkit.url_split import redact, split_url
 
 __all__ = ["STACK_SERVICE", "RedisServer", "RedisStackService"]
 
