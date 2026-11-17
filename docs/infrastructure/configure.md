@@ -13,7 +13,7 @@ Streams and Celery. An app made by `sandloom new` lists its picks in `DEFAULT_IN
 
 The flat settings give the database, object store and notifier their options: `DATABASE_URL`, <!-- prose-ok: P6 a list of settings -->
 `STORAGE_*` and `NOTIFIER_BACKEND`. `EVENT_BUS_BACKEND` names the bus
-(`memory`, `redis` or `streams`); unset, it leaves the bus to the composition.
+(`memory`, `broadcast` or `streams`); unset, it leaves the bus to the composition.
 
 Every Redis instance and the Celery broker takes its own explicit url in `INFRA`: <!-- prose-ok: P6 a list of instances -->
 `cache.default.url`, `eventbus.default.url` (streams), `lease.beat.url`,

@@ -140,7 +140,7 @@ def _stream_retention_s(core: Any, *, force: bool = False) -> float:
     A configuration read, never this process's live bus: a CLI process with a
     volatile bus of its own would read "no replay window" for a deployment whose
     streams keep seven days. A retention that cannot be determined (a volatile
-    ``memory`` / ``redis`` bus, a driver without ``retention_seconds``) refuses
+    ``memory`` / ``broadcast`` bus, a driver without ``retention_seconds``) refuses
     the purge unless ``force``, which keeps only the relay horizon and the dead
     letters as bounds (the stream term is one second: positive, so it does not
     read as unbounded).

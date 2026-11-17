@@ -8,7 +8,7 @@ One capability, two driver shapes, both an :class:`InfraProvider` with
   the kernel builds its durable bus over. Schema validation, payload limits and
   the bus logic above the transport stay kernel code. This is the only shape a
   driver package implements.
-* **Volatile-bus shape** (``memory``, ``redis``): a kernel-internal
+* **Volatile-bus shape** (``memory``, ``broadcast``): a kernel-internal
   ``VolatileBusProvider`` (:mod:`sandloom.core.eventing.volatile_provider`)
   that implements no transport; it is not exported to drivers.
 
