@@ -227,6 +227,10 @@ class _StoreDriver(_ServerDriver):
     criticality = "required"
 
 
+class _OtherLossDriver(_ServerDriver):
+    loss = "losing the other one is tolerable too"
+
+
 class _BrokerDriver(_ServerDriver):
     url_option = "broker"
     hint_url_option = "broker"
@@ -253,6 +257,8 @@ _STUB_DRIVERS: dict[tuple[str, str], type[InfraProvider]] = {
     ("cache", "silent"): _SilentDriver,
     ("atomic_store", "stubstore"): _StoreDriver,
     ("atomic_store", "silentstore"): _SilentDriver,
+    ("atomic_store", "besteffort"): _CacheDriver,
+    ("cache", "otherloss"): _OtherLossDriver,
     ("eventbus", "stubshared"): _SharedClientDriver,
     ("taskqueue", "stubbroker"): _BrokerDriver,
 }
@@ -336,6 +342,47 @@ def test_a_server_of_best_effort_roles_only_says_its_loss_is_tolerable(
     (cache,) = [i for i in build_backup_plan(settings) if i.kind == "stubserver"]
     assert cache.criticality == "optional"
     assert cache.restore == ["restore it", "losing it is tolerable"]
+
+
+def test_a_server_of_best_effort_roles_keeps_each_distinct_loss_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_stub_drivers(
+        monkeypatch,
+        {
+            "cache": {
+                "default": {"driver": "stubcache", "url": "stub://c:1/0"},
+                "other": {"driver": "otherloss", "url": "stub://c:1/0"},
+            },
+        },
+    )
+    (server,) = [i for i in build_backup_plan(settings) if i.kind == "stubserver"]
+    assert server.restore == [
+        "restore it",
+        "losing it is tolerable",
+        "losing the other one is tolerable too",
+    ]
+
+
+def test_a_separate_idempotency_store_is_at_least_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The kernel keeps idempotency through a restore: a driver that calls its
+    server optional is raised to required (a stronger value stays)."""
+    _use_stub_drivers(
+        monkeypatch,
+        {
+            "cache": {"default": {"driver": "stubcache", "url": "stub://c:1/0"}},
+            "atomic_store": {
+                "idempotency": {"driver": "besteffort", "url": "stub://i:2/0"}
+            },
+        },
+    )
+    by_target = {
+        i.target: i for i in build_backup_plan(settings) if i.kind == "stubserver"
+    }
+    assert by_target["stub://i:2/0"].criticality == "required"
+    assert by_target["stub://c:1/0"].criticality == "optional"
 
 
 def test_plan_lists_a_driver_with_no_url_of_its_own_on_the_default_cache_server(

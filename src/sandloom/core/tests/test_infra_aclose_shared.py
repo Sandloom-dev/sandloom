@@ -63,6 +63,14 @@ async def test_the_registry_closes_what_each_loaded_driver_shares_in_a_stable_or
     assert _Shared.closed == ["other", "shared"]  # by class name: _Other, _Shared
 
 
+async def test_a_class_whose_registration_was_replaced_is_still_closed() -> None:
+    registry = InfraRegistry()
+    registry.register_driver("cache", "same", _Shared)
+    registry.register_driver("cache", "same", _Other)  # displaces _Shared
+    await registry.aclose_shared()
+    assert _Shared.closed == ["other", "shared"]
+
+
 async def test_a_driver_that_fails_to_close_does_not_stop_the_others(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
