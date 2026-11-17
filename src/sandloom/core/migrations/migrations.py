@@ -24,7 +24,6 @@ from __future__ import annotations
 import heapq
 import logging
 import os
-import re
 import time
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
@@ -48,6 +47,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import DBAPIError
 
+from sandloom.core.cli.url_text import mask_query_secrets, mask_url_credentials
 from sandloom.core.config.settings import settings
 from sandloom.core.config.settings import settings as _settings
 from sandloom.core.descriptors import ModuleDescriptor
@@ -270,12 +270,23 @@ def ensure_core_infra_tables(database_url: str, dry_run: bool = True) -> None:
 
 
 def _mask_url(url: str) -> str:
-    """Redact credentials in a DSN for logging."""
-    if "@" in url and "://" in url:
-        scheme, rest = url.split("://", 1)
-        if "@" in rest:
-            return f"{scheme}://***@{rest.split('@', 1)[1]}"
-    return url
+    """Redact credentials in a DSN or a ``;``-separated kombu broker list.
+
+    Each ``;`` part is masked on its own: its userinfo ends at the LAST ``@``
+    (a password may hold a raw ``@``), and a ``password=`` / token / key query
+    value goes too. A part that holds a later ``@`` in its path or query is
+    masked too far, never too short.
+    """
+    return ";".join(_mask_url_part(part) for part in url.split(";"))
+
+
+def _mask_url_part(part: str) -> str:
+    scheme, sep, rest = part.partition("://")
+    if not sep:
+        scheme, rest = "", part
+    if "@" in rest:
+        rest = f"***@{rest.rsplit('@', 1)[1]}"
+    return mask_query_secrets(f"{scheme}{sep}{rest}")
 
 
 #: Advisory-lock key serialising every ``sandloom-migrate`` run against one database
@@ -744,8 +755,9 @@ def migration_status(  # noqa: C901
 
 
 def _mask_dsns(text: str) -> str:
-    """Mask ``scheme://user:password@`` credentials anywhere in ``text``."""
-    return re.sub(r"([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+@", r"\1***@", text)
+    """Mask ``scheme://user:password@`` credentials anywhere in ``text``: up to
+    the last ``@`` of the line, and a ``password=`` query value too."""
+    return mask_url_credentials(text)
 
 
 def _has_env_script(path: str) -> bool:

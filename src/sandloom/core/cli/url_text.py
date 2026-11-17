@@ -41,7 +41,13 @@ def mask_url_credentials(text: str) -> str:
         user = userinfo.split(":", 1)[0] if ":" in userinfo else ""
         return f"{match.group(1)}{user + ':' if user else ''}***@"
 
-    return _QUERY_SECRET.sub(r"\1***", _CREDENTIALS.sub(_sub, text))
+    return mask_query_secrets(_CREDENTIALS.sub(_sub, text))
+
+
+def mask_query_secrets(text: str) -> str:
+    """The value of a ``password=`` (or token, key, secret) query parameter of
+    ``text`` becomes ``***``; a ``;`` starts a parameter too (a kombu list)."""
+    return _QUERY_SECRET.sub(r"\1***", text)
 
 
 def drop_urls(text: str) -> str:
