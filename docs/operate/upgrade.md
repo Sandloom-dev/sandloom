@@ -226,8 +226,8 @@ Upgrade `sandloom-redis` and `sandloom-celery` with the kernel.
 ## Upgrading to 0.7.0a15: dev services and the scaffold ask a package
 
 The kernel no longer holds the Redis server of the standard stack. `sandloom dev` asks for its
-checks, its reset and prune and the disposable test server. The scaffold of `sandloom new` and
-`sandloom add deploy` asks for the compose text, the image and the URL forms. Both ask the
+checks, its reset and prune, and the disposable test server. The scaffold of `sandloom new` and
+`sandloom add deploy` asks for the compose text and the URL forms. Both ask the
 object that `sandloom-redis` registers in the `sandloom.stack` entry-point group. The wheel of `sandloom`
 imports no Redis client any more, not even a guarded one. An app on the standard stack changes
 nothing but the names below, and every file `sandloom new` writes is byte for byte what it was.
