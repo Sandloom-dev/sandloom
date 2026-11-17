@@ -1931,7 +1931,7 @@ cursor executions from such a task are detected on a best-effort basis
         "SANDLOOM-R014",
         "services-unreachable",
         "runtime",
-        "a sandloom command cannot reach PostgreSQL or Redis",
+        "a sandloom command cannot reach a backing service (the database or an INFRA instance)",
         "start the dev services: `uv run sandloom dev up` (then `uv run sandloom "
         "dev status` shows the ports and URLs)",
         """

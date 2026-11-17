@@ -561,6 +561,16 @@ def test_a_removed_setting_is_refused_first_and_another_failure_still_raises() -
         _settings(SANDLOOM_ACCEPTED_RISKS="no_such_risk")
 
 
+def test_the_renamed_semaphore_limit_is_a_setting_and_the_old_name_is_refused() -> None:
+    assert _settings().EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT == 100
+    configured = _settings(EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT="7")
+    assert configured.EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT == 7
+    with pytest.raises(ValueError) as caught:
+        _settings(EVENT_BUS_REDIS_SEMAPHORE_LIMIT="7")
+    assert "EVENT_BUS_REDIS_SEMAPHORE_LIMIT was removed" in str(caught.value)
+    assert "EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT" in str(caught.value)
+
+
 def test_doctor_lists_overrides() -> None:
     report = doctor.Report()
     doctor.check_overrides(report, _settings(ENVIRONMENT="prod", DOCS_ENABLED="true"))

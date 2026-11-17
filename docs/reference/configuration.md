@@ -53,7 +53,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `EVENT_CALLBACK_TIME_BUDGET_SECONDS` | `float` | `0.0` | If > 0, each event bus callback execution time is measured and a warning is logged when exceeded (non-fatal). |
 | `EVENT_PAYLOAD_MAX_BYTES` | `int` | `0` | If > 0, serialized payload size is checked before publish; ValueError raised if exceeded. |
 | `EVENT_SHUTDOWN_DRAIN_SECONDS` | `float` | `5.0` | Max seconds to wait for in-flight event callbacks to finish on bus shutdown before cancelling the stragglers. Bounds shutdown so a hung callback cannot hang the process. <= 0 waits unbounded. |
-| `EVENT_BUS_REDIS_SEMAPHORE_LIMIT` | `int` | `100` | Max concurrent callbacks for BroadcastEventBus to prevent overload. Adjust based on CPU/network capacity. |
+| `EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT` | `int` | `100` | Max concurrent callbacks for BroadcastEventBus to prevent overload. Adjust based on CPU/network capacity. |
 | `SCHEMA_REGISTRY_PATH` | `str` | `'./data/schema_registry.json'` | Path to JSON file used to persist in-memory event schema registry. If empty, persistence is disabled. File will be created atomically on updates. |
 
 ## Service Registry & RPC

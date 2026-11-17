@@ -21,6 +21,7 @@ from sandloom.core.drivers.memory_broadcast import (
 from sandloom.core.drivers.memory_broadcast import _Channels as Channels
 from sandloom.core.drivers.memory_broadcast import _check_publish as check_publish
 from sandloom.core.drivers.memory_broadcast import _check_subscribe as check_subscribe
+from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.infra.errors import (
     InfraError,
     InvalidArgument,
@@ -666,6 +667,7 @@ async def test_the_bus_resubscribes_when_its_subscription_is_lost(
 
     handle = await bus.subscribe("core.lost.v1", on_event)
     await _until(lambda: handle.state.value == "running")
+    reconnects = get_event_bus_metrics()["broadcast_reconnect_attempts"]
     with caplog.at_level("WARNING", logger="sandloom.core.eventing.event_bus"):
         for subscription in tuple(provider._hub.subscriptions):
             subscription._overflowed = True
@@ -680,6 +682,23 @@ async def test_the_bus_resubscribes_when_its_subscription_is_lost(
     )
     await bus.publish_event("core.lost.v1", {"after": True})
     await _until(lambda: len(got) == 1, "delivery after the resubscribe")
+    # The lost subscription is counted under the bus's own name (the old key
+    # `redis_reconnect_attempts` is gone, with no alias).
+    assert get_event_bus_metrics()["broadcast_reconnect_attempts"] == reconnects + 1
+    assert "redis_reconnect_attempts" not in get_event_bus_metrics()
+    await bus.close()
+    await provider.aclose()
+
+
+async def test_the_callback_limit_is_the_broadcast_semaphore_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.config.settings import settings
+
+    monkeypatch.setattr(settings, "EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT", 7)
+    provider = _memory(namespace=uuid.uuid4().hex)
+    bus = _bus(provider)
+    assert bus._callback_semaphore._value == 7
     await bus.close()
     await provider.aclose()
 

@@ -74,7 +74,7 @@ class BroadcastEventBus(BaseEventBus):
         # Limit the number of concurrent callbacks to reduce pressure
         # (the value is exposed in settings for configuration)
         self._callback_semaphore = asyncio.Semaphore(
-            settings.EVENT_BUS_REDIS_SEMAPHORE_LIMIT
+            settings.EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT
         )
 
     def _broadcast(self) -> Broadcast:
@@ -237,7 +237,7 @@ class BroadcastEventBus(BaseEventBus):
                     type(exc).__name__,
                     reconnect_delay,
                 )
-                _event_bus_metrics["redis_reconnect_attempts"] += 1
+                _event_bus_metrics["broadcast_reconnect_attempts"] += 1
                 if self._stopped:
                     break  # type: ignore[unreachable]
                 await asyncio.sleep(reconnect_delay)

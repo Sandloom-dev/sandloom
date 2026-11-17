@@ -116,7 +116,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R011`](#sandloom-r011) | `step-up-required` | runtime | a security-sensitive route needs a fresh authentication (401, RFC 9470) | active |
 | [`SANDLOOM-R012`](#sandloom-r012) | `intent-release-unchecked` | runtime | an operation-intent route answered 2xx outside the two release cases, or release_check() lacked the authority | active |
 | [`SANDLOOM-R013`](#sandloom-r013) | `concurrent-session-use` | runtime | db() (or the unit's session) was used from a task that does not own the unit | active |
-| [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
+| [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach a backing service (the database or an INFRA instance) | active |
 | [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units | active |
 | [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
 | [`SANDLOOM-R017`](#sandloom-r017) | `unsealed-claims` | runtime | a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or an issuer session it cannot verify | active |
@@ -1947,7 +1947,7 @@ cursor executions from such a task are detected on a best-effort basis
 
 ### SANDLOOM-R014
 
-**a sandloom command cannot reach PostgreSQL or Redis**
+**a sandloom command cannot reach a backing service (the database or an INFRA instance)**
 
 Slug: `services-unreachable` · kind: runtime · status: active
 

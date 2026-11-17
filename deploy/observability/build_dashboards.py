@@ -775,7 +775,7 @@ def consumers() -> Board:
         "Event-bus reconnects",
         [
             (
-                f"sum(increase(sandloom_redis_reconnect_attempts_total{{{J}}}[$__rate_interval]))",
+                f"sum(increase(sandloom_broadcast_reconnect_attempts_total{{{J}}}[$__rate_interval]))",
                 "reconnect attempts",
             )
         ],
