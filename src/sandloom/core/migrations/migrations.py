@@ -53,7 +53,11 @@ from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations import alembic_support
-from sandloom.core.migrations.url_mask import mask_query_secrets, mask_url_credentials
+from sandloom.core.migrations.url_mask import (
+    mask_query_secrets,
+    mask_url_credentials,
+    split_url_list,
+)
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
 from sandloom.core.sql_alchemy.models import (
@@ -272,12 +276,13 @@ def ensure_core_infra_tables(database_url: str, dry_run: bool = True) -> None:
 def _mask_url(url: str) -> str:
     """Redact credentials in a DSN or a ``;``-separated kombu broker list.
 
-    Each ``;`` part is masked on its own: its userinfo ends at the LAST ``@``
-    (a password may hold a raw ``@``), and a ``password=`` / token / key query
-    value goes too. A part that holds a later ``@`` in its path or query is
-    masked too far, never too short.
+    Each url of a list (a ``;`` that starts another ``scheme://`` separates; a
+    ``;`` in a password does not) is masked on its own: its userinfo ends at the
+    LAST ``@`` (a password may hold a raw ``@`` or ``;``), and the value of a
+    secret-named query parameter goes too. A part that holds a later ``@`` in its
+    path or query is masked too far, never too short.
     """
-    return ";".join(_mask_url_part(part) for part in url.split(";"))
+    return ";".join(_mask_url_part(part) for part in split_url_list(url))
 
 
 def _mask_url_part(part: str) -> str:
@@ -755,9 +760,10 @@ def migration_status(  # noqa: C901
 
 
 def _mask_dsns(text: str) -> str:
-    """Mask ``scheme://user:password@`` credentials anywhere in ``text``: up to
-    the last ``@`` of the line, and a ``password=`` query value too."""
-    return mask_url_credentials(text)
+    """Mask ``scheme://user:password@`` credentials anywhere in ``text``: the whole
+    userinfo (``scheme://***@host``, the user slot can hold a token) up to the last
+    ``@`` of the line, and the value of a secret-named query parameter too."""
+    return mask_url_credentials(text, keep_user=False)
 
 
 def _has_env_script(path: str) -> bool:

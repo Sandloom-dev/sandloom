@@ -75,8 +75,9 @@ def test_boundary_gates_run_even_for_a_docs_only_change(runner, base, full):
 
 
 def test_backend_checks_generated_files_without_a_declared_composition():
-    """``sandloom generate`` reads no composition root (PR #314): the step names
-    none, and a root in its env would pin what the command ignores."""
+    """Since PR #314 the project names the composition root of ``sandloom generate``
+    (``[tool.sandloom] composition-root`` of ``pyproject.toml``): the step names
+    none, and a variable in its env would only repeat the key."""
     job = workflow("ci.yml")["jobs"]["backend-static"]
     step = next(
         s for s in job["steps"] if s.get("run") == "uv run sandloom generate --check"

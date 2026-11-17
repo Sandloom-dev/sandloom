@@ -24,28 +24,48 @@ SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]*://"
 USERINFO = rf"(?:(?!{SCHEME})[^\n])*"
 
 _CREDENTIALS = re.compile(rf"({SCHEME})({USERINFO})@")
+#: A query parameter whose NAME ends in a secret word (``password``,
+#: ``sslpassword``, ``access_token``, ``client_secret``, ``sig``, ``PASS``, ...):
+#: its value is masked up to the next ``&``, ``#``, space or ``;`` that starts
+#: another url (a ``;`` inside a value is part of it). ``?``, ``&`` and ``;`` start
+#: a parameter (a kombu list and some drivers separate them with ``;``). Masking
+#: too much (``monkey=``) is fine, too little is not.
 _QUERY_SECRET = re.compile(
-    r"([?&;](?:password|passwd|pwd|secret|token|key|api_key|apikey|access_key"
-    r"|auth|credentials?)=)[^&#\s]*",
+    r"([?&;][\w.\-]*?(?:password|passwd|pass|pwd|secret|token|key|sig|signature"
+    r"|auth|credentials?)=)(?:(?!;\s*" + SCHEME + r")[^&#\s])*",
     re.IGNORECASE,
 )
+_URL_LIST_SEPARATOR = re.compile(rf";(?=\s*{SCHEME})")
+#: The password of an HTTP token login (``https://<token>:x-oauth-basic@host``):
+#: the user slot holds the secret.
+_TOKEN_LOGIN_PASSWORD = "x-oauth-basic"  # noqa: S105 - a fixed word, no secret
 
 
-def mask_url_credentials(text: str) -> str:
+def mask_url_credentials(text: str, *, keep_user: bool = True) -> str:
     """``scheme://user:pw@host`` -> ``scheme://user:***@host`` anywhere in text.
 
-    A ``password=`` (or token, key, secret) of a query becomes ``***`` too.
+    A secret-named parameter of a query (``password=``, ``access_token=``, ...)
+    becomes ``***`` too. The user stays where it is a role name; it goes with the
+    password (``scheme://***@host``) when the password is empty or
+    ``x-oauth-basic`` (the user slot holds a token or a key then), and always with
+    ``keep_user=False``.
     """
 
     def _sub(match: re.Match[str]) -> str:
-        userinfo = match.group(2)
-        user = userinfo.split(":", 1)[0] if ":" in userinfo else ""
+        user, _, password = match.group(2).partition(":")
+        if not keep_user or not password or password == _TOKEN_LOGIN_PASSWORD:
+            user = ""
         return f"{match.group(1)}{user + ':' if user else ''}***@"
 
     return mask_query_secrets(_CREDENTIALS.sub(_sub, text))
 
 
+def split_url_list(url: str) -> list[str]:
+    """The urls of a ``;``-separated kombu list. Only a ``;`` that starts another
+    ``scheme://`` separates: any other ``;`` is part of a password or a query."""
+    return _URL_LIST_SEPARATOR.split(url)
+
+
 def mask_query_secrets(text: str) -> str:
-    """The value of a ``password=`` (or token, key, secret) query parameter of
-    ``text`` becomes ``***``; a ``;`` starts a parameter too (a kombu list)."""
+    """The value of a secret-named query parameter of ``text`` becomes ``***``."""
     return _QUERY_SECRET.sub(r"\1***", text)
