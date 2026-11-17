@@ -208,29 +208,86 @@ The refusal is the same error. It names the key, never the value:
 - `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_user` and
   `broker_password`;
 - `redis_host`, `redis_port`, `redis_db`, `redis_username`, `redis_password`,
-  `redis_backend_use_ssl` and `redis_backend_credential_provider`, for the result backend.
+  `redis_backend_use_ssl` and `redis_backend_credential_provider`, for the result backend;
+- the result backend settings that name a host or a path: `database_url`, `mongodb_backend_settings`, `couchbase_backend_settings`,
+  `arangodb_backend_settings`, `cassandra_*`, `s3_*`, `gcs_bucket`, `gcs_project`,
+  `gcs_base_path`, `firestore_project`, `dynamodb_endpoint_url`,
+  `azureblockblob_base_path`, `cache_backend` and `cache_backend_options`.
+
+`azureblockblob_container_name`, `cosmosdbsql_database_name` and
+`cosmosdbsql_collection_name` have a default name in Celery. The default passes and any
+other value is refused.
+
+`database_engine_options` may carry only the pool keys `pool_pre_ping`, `pool_recycle`,
+`pool_size`, `max_overflow` and `pool_timeout`. The keys `connect_args` and `creator`
+reach the database connect call, so they are refused.
+
+The only `broker_failover_strategy` values are `round-robin` and `shuffle`. The key
+`broker_login_method` is allowed: it picks the amqp login mechanism and moves no route.
 
 `broker_use_ssl` must be absent, `None` or `False`. A dict there is merged into the
 connection after the url. It can change the host or the password, and it can turn off
 the certificate check. `True` is refused too. Kombu then skips the TLS default of a
 `rediss://` url and connects in plain text, so the password goes out in the clear. TLS
-comes from the scheme and from the query of the `INFRA` url (`?ssl_cert_reqs=required`).
+comes from the scheme and from the query of the `INFRA` url.
+
+A `rediss://` url in `broker` or `backend` must state how it verifies the server. Kombu
+connects a `rediss://` url without `ssl_cert_reqs` with no certificate check and only
+logs a warning. Celery's result backend refuses such a url. The instance is refused at
+startup for both. redis-py does not check the hostname by default. So
+`ssl_cert_reqs=required` alone accepts any certificate of the trusted CA, for any name.
+Write `?ssl_cert_reqs=required&ssl_check_hostname=true` to verify the certificate and
+the name. `?ssl_cert_reqs=none` is the explicit way to skip the check, and needs no
+hostname option. An `amqps://` broker verifies the certificate chain and not the
+hostname, and the driver has no way to turn that check on. A url of several
+`;`-separated hosts uses one scheme and each host states the options. No space or empty
+chunk may stand around a `;`. Kombu does not strip it, and a failover to such a chunk
+fails with the password in the error it logs.
+
+A `sentinel://` url needs the name of its Redis master. Kombu and Celery read it only from
+the transport options, so it is an `INFRA` option. The `broker` takes `master_name` and
+the `backend` takes `backend_master_name`. A url without its master is refused. So is a
+master on a url that is not `sentinel://`. A config module may state the same master in its
+transport options, and any other master is refused. `sentinel_kwargs` is not supported: it
+holds the host, the credentials and the TLS of the sentinel nodes.
 
 `broker_transport_options` and `result_backend_transport_options` accept only keys that
-tune a connection without moving it. Some transports lay these options over the url.
-An `amqp://` broker takes its host, user, password and `ssl` from them, and a
-`sentinel://` broker takes its master. A key outside the list below is refused, and so
-is a value that is not a mapping. Every broker scheme stays supported. The allowed keys:
+tune a connection without moving it, and the keys depend on the scheme of the url. Some
+transports lay these options over the url. An `amqp://` broker takes its host, user,
+password and `ssl` from them, and an SQS broker takes its region and queue map. A key
+outside the list of its scheme is refused, and so is a value that is not a mapping. Every
+scheme stays supported. The allowed keys:
 
-- `visibility_timeout`, `polling_interval`, `global_keyprefix`, `sep`, `priority_steps`
-  and `queue_order_strategy`;
-- `socket_timeout`, `socket_connect_timeout`, `socket_keepalive`,
-  `socket_keepalive_options`, `max_connections`, `health_check_interval` and
-  `client_name`;
-- `retry_policy`, `max_retries`, `interval_start`, `interval_step` and `interval_max`;
-- `confirm_publish`, `fanout_prefix` and `fanout_patterns`.
+- every scheme: `visibility_timeout`, `polling_interval`, `retry_policy`, `max_retries`,
+  `interval_start`, `interval_step` and `interval_max`;
+- `redis://`, `rediss://` and `sentinel://`: `global_keyprefix`, `sep`, `priority_steps`,
+  `queue_order_strategy`, `socket_timeout`, `socket_connect_timeout`, `socket_keepalive`,
+  `socket_keepalive_options`, `max_connections`, `health_check_interval`,
+  `retry_on_timeout`, `client_name`, `fanout_prefix`, `fanout_patterns`, `ack_emulation`
+  and the `unacked_*` keys; `sentinel://` adds `min_other_sentinels`;
+- `amqp://`, `amqps://` and `pyamqp://`: `confirm_publish`, `read_timeout`,
+  `write_timeout`, `socket_settings`, `channel_max` and `frame_max`;
+- `sqs://`: `wait_time_seconds`, `region` (an AWS region name), `queue_name_prefix` and <!-- prose-ok: P6 a list of option names -->
+  `predefined_queues`. Each queue carries only its `url`, an HTTPS
+  `sqs.<region>.amazonaws.com` queue url, and `backoff_policy` and `backoff_tasks`.
+  The credentials and the region of a queue come from the `INFRA` url and `region`;
+- `result_backend_transport_options` of any backend: `retry_policy`,
+  `result_chord_ordered` and `global_keyprefix`.
 
-A config module cannot name the master of a `sentinel://` broker for that reason.
+An `sqs://` url with a host uses plain HTTP in kombu unless the transport option
+`is_secure` is true. `INFRA` states it for such a url, so the connection is HTTPS. The
+conf may repeat `is_secure = True` and never turn it off. This driver cannot reach a
+local emulator on plain HTTP. Without a host in the url, kombu already uses HTTPS.
+
+`design/infra-drivers/celery-conf-audit.md` lists every key with its decision and the line
+of the library that reads it.
+
+Only the `default` instance's app becomes `celery.current_app`, the app an unbound
+`@shared_task` `.delay()` publishes through, and only when it is the process-wide app. A
+named instance (`aux`) never does: its broker would capture the tasks of every unbound
+call in the thread. This covers the process that publishes. A worker that hosts a named
+instance still makes that instance's app current, as Celery does for the one app of a
+worker process.
 
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
 the lease (the `lease` instance `INFRA.lease.beat`; `BEAT_LEASE_TTL_SECONDS`,

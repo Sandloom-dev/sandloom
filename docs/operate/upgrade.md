@@ -189,6 +189,33 @@ The old spelling keeps working in this release. An `eventbus` instance that writ
 the new spelling. The alias goes away in a later release, and startup then refuses an
 instance that still writes `redis`. Other capabilities keep their `redis` driver.
 
+## Upgrading the Celery driver's connection checks
+
+The `celery` taskqueue driver now refuses, at startup, connections it used to accept.
+Check each of these before the first start:
+
+1. **A `rediss://` url without `ssl_cert_reqs`.** Kombu connected such a broker with no
+   certificate check. Add `?ssl_cert_reqs=required&ssl_check_hostname=true` to the
+   `broker` or `backend` url. Without `ssl_check_hostname=true`, any certificate of the
+   trusted CA is accepted, for any name. `?ssl_cert_reqs=none` states that no check is
+   wanted. An `amqps://` broker checks the certificate chain and not the hostname.
+2. **A `sentinel://` url.** Set `master_name` on the instance, and `backend_master_name`
+   for a `sentinel://` backend. Kombu reads the master only from the transport options,
+   which a config module may no longer set to another value.
+3. **An `sqs://` url with a host.** Kombu used plain HTTP for it. The driver now uses
+   HTTPS, so an endpoint that speaks only HTTP, such as a local emulator, is
+   unreachable. A `predefined_queues` entry of a config module may carry only its
+   queue `url` and the backoff keys. Its credentials and region come from the `INFRA`
+   url and the `region` option.
+4. **A `;`-separated url.** A space or an empty chunk around a `;` is refused, and so
+   are urls of different schemes.
+5. **A config module that sets a result backend's endpoint, project or path.** For
+   example `dynamodb_endpoint_url` or `s3_base_path`. State it in
+   the `backend` url. The list is in [Background tasks](../modules/background/tasks.md).
+
+An unbound `@shared_task` `.delay()` in a process that publishes now goes to the
+`default` instance. A named instance no longer takes over `celery.current_app`.
+
 ## Upgrading to 0.7.0a14: the flat Redis settings
 
 Startup refuses `CACHE_URL`, `BROKER_URL` and the six `CACHE_*` bounds with any value, in
@@ -228,7 +255,8 @@ A config module may set `broker_use_ssl` only to `None` or `False`. It may set
 `broker_transport_options` and `result_backend_transport_options` only with the tuning
 keys listed in [Background tasks](../modules/background/tasks.md). A dict or `True` in
 `broker_use_ssl` is refused the same way. So is a transport option such as `host`,
-`password`, `ssl` or `master_name`. Move TLS options into the query of the `INFRA` url.
+`password`, `ssl` or `sentinel_kwargs`. Move TLS options into the query of the `INFRA` url.
+A `master_name` is accepted only when it equals the `INFRA` option of that name.
 
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 

@@ -33,7 +33,7 @@ from typing import Any, Self, TypeVar
 from urllib.parse import urlsplit
 
 import orjson
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sandloom.driverkit import (
     DEFAULT_INSTANCE,
@@ -50,6 +50,7 @@ from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_celery.broker_probe import BrokerUnreachableError, probe_broker
+from sandloom_celery.connection_policy import ConnectionOptions, validate_connection
 from sandloom_celery.worker import (
     CeleryWorkerHost,
     WorkerPool,
@@ -87,6 +88,9 @@ class CeleryTaskQueueOptions(BaseModel):
     no result backend. No flat setting fills what the instance leaves out.
     ``dedupe_ttl_seconds`` is the replay window of the kernel's enqueue dedupe
     for this instance.
+    ``master_name`` / ``backend_master_name`` name the Redis master of a
+    ``sentinel://`` ``broker`` / ``backend`` (kombu and Celery read it only from
+    the transport options, which a conf may not set).
     ``extra="forbid"`` rejects a typo'd key at startup.
     """
 
@@ -95,6 +99,10 @@ class CeleryTaskQueueOptions(BaseModel):
     broker: str | None = None
     #: No default (``None``): no result backend unless the instance states one.
     backend: str | None = None
+    #: Required by a ``sentinel://`` ``broker``, refused with any other scheme.
+    master_name: str | None = None
+    #: The same, for a ``sentinel://`` ``backend``.
+    backend_master_name: str | None = None
     #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
     #: the driver imports no kernel module (test_celery_replay_limits keeps them equal).
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
@@ -107,6 +115,22 @@ class CeleryTaskQueueOptions(BaseModel):
     #: ``solo`` (in the worker process) or ``threads``. On macOS billiard cannot
     #: fork its children: set ``solo`` or ``threads`` there.
     worker_pool: WorkerPool = "prefork"
+
+    @model_validator(mode="after")
+    def _connection_is_connectable(self) -> Self:
+        """Refuse a ``rediss://`` url that does not verify the server (no
+        ``ssl_cert_reqs``, or no ``ssl_check_hostname``), mixed schemes, padded
+        ``;`` chunks, and a sentinel url without its master or a master without one
+        (``connection_policy.validate_connection``)."""
+        validate_connection(
+            ConnectionOptions(
+                self.broker or "",
+                self.backend,
+                self.master_name,
+                self.backend_master_name,
+            )
+        )
+        return self
 
 
 #: Threads that run the blocking broker publish of ``send``.
@@ -410,7 +434,13 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
             f"INFRA='{json.dumps(example)}'"
         )
     # No backend: no result backend (the framework stores no task result).
-    broker, backend = options.broker, options.backend
+    connection = ConnectionOptions(
+        options.broker,
+        options.backend,
+        options.master_name,
+        options.backend_master_name,
+    )
+    is_default = cfg.name == DEFAULT_INSTANCE
 
     # The app is built on first use, but a missing Celery fails here, at build:
     # the registry answers it as an unavailable driver (a lookup, not an import).
@@ -418,22 +448,27 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
         raise ModuleNotFoundError("No module named 'celery'", name="celery")
 
     def build() -> Any:
-        if cfg.name == DEFAULT_INSTANCE and default_app_matches(broker, backend):
-            app = get_default_app(broker, backend)
+        process_wide = is_default and default_app_matches(connection)
+        if process_wide:
+            app = get_default_app(connection)
         else:
-            app = build_named_app(cfg.name, broker, backend)
+            app = build_named_app(cfg.name, connection)
         # Celery prefers a CELERY_* variable or a config module over the url the
         # app was built with, and a publish would follow it: refused, never
         # followed. Checked on the provider's first use (the process-wide app
         # included: an earlier build already holds it) and on each later one.
         check(app)
         # Built not current (a refused app must not stay ``celery.current_app``):
-        # current once the check has passed.
-        app.set_current()
+        # the process-wide ``default`` app is made current once the check has
+        # passed. A named instance's never is: ``celery.current_app`` is what an
+        # unbound ``@shared_task.delay()`` publishes through, and it would then
+        # reach that instance's broker.
+        if process_wide:
+            app.set_current()
         return app
 
     def check(app: Any) -> None:
-        refuse_foreign_app_conf(app, broker, backend, cfg.name)
+        refuse_foreign_app_conf(app, connection, cfg.name)
 
     # The app is built on first use (a publish, a probe, the worker host).
     return cls(
