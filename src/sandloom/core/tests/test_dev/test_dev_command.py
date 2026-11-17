@@ -11,6 +11,7 @@ import io
 import json
 import multiprocessing
 import os
+import re
 import shutil
 import socket
 import stat
@@ -1011,6 +1012,44 @@ def test_a_dropped_capability_leaves_the_override_file(
     )
 
 
+@pytest.mark.parametrize(
+    ("env_test", "shell_infra", "says"),
+    [
+        ("", '{"cache":{"default":{"url":"redis://h:1/0"}}}', True),
+        ("", None, False),
+        ('INFRA=\'{"cache":{"default":{"url":"redis://h:1/0"}}}\'\n', "{}", False),
+    ],
+    ids=["shell-only", "none", "env-test-has-it"],
+)
+def test_dev_up_says_when_a_shell_infra_has_no_override_written(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    env_test: str,
+    shell_infra: str | None,
+    says: bool,
+) -> None:
+    """The harness merges the test overrides into the INFRA of the test process,
+    where the shell's wins over ``.env.test``; ``dev up`` reads ``.env.test``
+    only, so it names the case instead of leaving it silent."""
+    (repo / ".env.test").write_text(env_test)
+    if shell_infra is None:
+        environ.pop("INFRA", None)
+    else:
+        environ["INFRA"] = shell_infra
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda c, text, checkout=None: commands.CompositionSelection(
+            _SELECTION, _URL_OPTIONS
+        ),
+    )
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    notes = commands.write_checkout_files(ctx, state, commands.checkout_row(ctx, state))
+    assert any("INFRA is exported in your shell" in note for note in notes) is says
+
+
 def _app_package(root: Path, body: str) -> None:
     (root / "shopapp").mkdir(exist_ok=True)
     (root / "shopapp" / "__init__.py").write_text(body)
@@ -1054,6 +1093,10 @@ def test_a_composition_that_cannot_be_read_stops_dev_up(
     environ["SANDLOOM_COMPOSITION_ROOT"] = "shopapp.asgi"
     ctx = _ctx(repo, environ)
     _app_package(repo, body)
+    with pytest.raises(commands.DevError, match="DEFAULT_INFRA.*shopapp") as hidden:
+        commands.composition_selection(ctx, "", repo)
+    assert not re.search(message, str(hidden.value))  # the app's text stays out
+    ctx.verbose = True  # --debug shows the last line of the child's stderr
     with pytest.raises(commands.DevError, match=f"DEFAULT_INFRA.*shopapp.*{message}"):
         commands.composition_selection(ctx, "", repo)
 

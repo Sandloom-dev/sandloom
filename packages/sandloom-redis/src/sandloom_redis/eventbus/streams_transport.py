@@ -33,12 +33,17 @@ _METRIC_DLQ_REPLAYED = observe.counter(
 
 #: An entry id the stream mints (``<ms>-<seq>``). A DLQ id or page cursor from a
 #: caller is checked against it before it reaches XRANGE: Redis answers any
-#: other shape with a ResponseError, which would surface as an outage.
+#: other shape with a ResponseError, which would surface as an outage. Each
+#: number is an unsigned 64-bit integer: a 20-digit one past ``2**64 - 1`` has
+#: the shape but Redis refuses it ("Invalid stream ID").
 _STREAM_ENTRY_ID = re.compile(r"[0-9]{1,20}-[0-9]{1,20}")
+_STREAM_ID_PART_MAX = 2**64 - 1
 
 
 def _require_entry_id(value: str, what: str) -> str:
-    if _STREAM_ENTRY_ID.fullmatch(value) is None:
+    if _STREAM_ENTRY_ID.fullmatch(value) is None or any(
+        int(part) > _STREAM_ID_PART_MAX for part in value.split("-")
+    ):
         raise InvalidArgument(
             f"{what} is not a Redis stream entry id (<ms>-<seq>)",
             capability="eventbus",
@@ -210,6 +215,10 @@ class RedisStreamsTransport(_StreamsConsume):
     ) -> list[DeadLetter]:
         if after:
             _require_entry_id(after, "the cursor")
+            if all(int(part) == _STREAM_ID_PART_MAX for part in after.split("-")):
+                # The largest id: nothing follows it, and Redis refuses an
+                # exclusive range start there ("invalid start ID").
+                return []
         client = await self._client()
         entries = await client.xrange(
             self._dlq_key(stream),

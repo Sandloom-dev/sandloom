@@ -449,6 +449,59 @@ async def test_stream_dlq_replay_targets_the_group_and_audits_first(
     assert InvalidArgument.__name__ not in misconfigured.text
 
 
+@pytest.mark.asyncio
+async def test_stream_dlq_routes_answer_422_for_an_id_the_transport_refuses(
+    real_uow_client: AsyncClient,
+    sandloom_app: Any,
+    test_db: AsyncSession,
+    sandloom_cache: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The id and the cursor pass the API's token shape (``abc``) and the real
+    in-process transport refuses them with ``InvalidArgument``: the route maps
+    that to 422 (not a 500), and the replay's audit row rolls back."""
+    channel = "ops.probe.event.v1"
+    monkeypatch.setattr(
+        sandloom_app.state, "consumer_runtime", _Runtime(channel), raising=False
+    )
+    monkeypatch.setattr(
+        sandloom_app.state.core.event_bus, "transport", MemoryTransport(), raising=False
+    )
+    monkeypatch.setattr(
+        sandloom_app.state.core.event_bus,
+        "bus_features",
+        frozenset({"durable", "dlq_ops"}),
+        raising=False,
+    )
+    actor, headers = operator()
+    base = "/api/v1/platform/identity/streams"
+
+    listed = await real_uow_client.get(
+        f"{base}/dlq", params={"channel": channel, "cursor": "abc"}, headers=headers
+    )
+    assert listed.status_code == 422, listed.text
+    replay = await real_uow_client.post(
+        f"{base}/replay",
+        json={
+            "channel": channel,
+            "group": "identity:probe@channel",
+            "ids": ["abc"],
+            "reason": "Handler fixed",
+        },
+        headers={**headers, **key()},
+    )
+    assert replay.status_code == 422, replay.text
+    rows = await test_db.scalar(
+        select(func.count())
+        .select_from(AuditLogEntry)
+        .where(
+            AuditLogEntry.action == "core.streams.dlq_replayed",
+            AuditLogEntry.actor_id == actor,
+        )
+    )
+    assert rows == 0
+
+
 def test_safe_error_redacts_urls_and_secrets() -> None:
     text = "ConnectionError: postgresql+asyncpg://u:p@db/x token=abc " + "x" * 400
     cleaned = safe_error(text)

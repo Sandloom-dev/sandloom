@@ -86,8 +86,9 @@ an initially private draft GitHub Release, uploads the same reviewed archives,
 `SHA256SUMS` and the source manifest, verifies their hashes, then publishes it.
 Release notes come from the selected version's changelog section, captured
 before owner approval. The plan step refuses a section over 125,000 characters,
-the most GitHub accepts in a release body, before any build. Only this job receives `contents: write`; it has no
-PyPI token or OIDC permission and does no checkout, build or installation.
+the most GitHub accepts in a release body, before any build. Only this job
+receives `contents: write`; it has no PyPI token or OIDC permission and does no
+checkout, build or installation.
 
 A coordinated `all` release requires matching package versions and creates
 `v<version>` (for example `v0.7.0a14`). A single-package release creates <!-- sandloom-release -->
@@ -96,6 +97,17 @@ GitHub prereleases. The tag must point to the manifest's exact source commit.
 Reruns can fill missing assets in a draft but never overwrite a tag or a
 conflicting asset. A matching published release is verified without changes.
 A dry run never creates a tag, draft, GitHub Release or PyPI upload.
+
+Two repository rulesets guard the tags:
+
+- The ruleset `release tags` (27319897) forbids updating, deleting and
+  non-fast-forwarding every tag. Only a repository admin bypasses it.
+- A second ruleset (27442449) forbids creating every tag except `refs/tags/v*`.
+  The `github-release` job's `GITHUB_TOKEN` can therefore create `v<version>`
+  and no other tag.
+
+The per-package tags `sandloom*-v*` are created by the owner, who is an admin
+and bypasses the second ruleset.
 
 GitHub can briefly delay a newly created draft's visibility in REST reads.
 The publisher retries that read up to six times, with two seconds between

@@ -43,6 +43,10 @@ they refuse a key over 1024 bytes. A key that holds a value of another Redis typ
   answers `True`.
 - `incr` is atomic. It sets the TTL in the same step when it creates the key, and the result is `1`.
 - `get_many` and `set_many` keep the order of their arguments. They are not atomic across keys.
+  The `redis` driver sends `set_many` through the client's `pipeline`, in one round trip. There
+  is no fallback to one `SET` per key: a double of the Redis client the provider uses must
+  implement `pipeline`. The consumer inbox and identity's lockout call `get_many` / `set_many`
+  directly.
 
 ### `windowed_counter`
 

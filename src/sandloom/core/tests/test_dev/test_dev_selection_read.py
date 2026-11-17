@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from sandloom.core.cli.dev import commands, identity
+from sandloom.core.cli.dev import commands, errors, identity
 
 _SELECTION = 'DEFAULT_INFRA = {"cache": {"default": {"driver": "redis"}}}\n'
 
@@ -78,3 +78,135 @@ def test_a_child_that_prints_no_answer_is_refused(
     )
     with pytest.raises(commands.DevError, match="DEFAULT_INFRA.*shopapp"):
         commands.composition_selection(_ctx(checkout, environ), "", checkout)
+
+
+def test_a_banner_printed_without_a_newline_does_not_hide_the_answer(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    (checkout / "shopapp" / "__init__.py").write_text(
+        "import sys\nsys.stdout.write('banner without a newline')\n" + _SELECTION
+    )
+    selection = commands.composition_selection(_ctx(checkout, environ), "", checkout)
+    assert set(selection.infra) == {"cache"}
+
+
+_FAILING_IMPORT = (
+    'raise RuntimeError("cannot reach redis://app:s3cretpw@cache.internal:6379/0")\n'
+)
+
+
+def test_a_failed_read_names_the_exit_code_and_echoes_nothing_the_app_printed(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    (checkout / "shopapp" / "__init__.py").write_text(_FAILING_IMPORT)
+    with pytest.raises(commands.DevError) as caught:
+        commands.composition_selection(_ctx(checkout, environ), "", checkout)
+    message = str(caught.value)
+    assert "exited with code 1" in message
+    assert "s3cretpw" not in message and "cache.internal" not in message
+
+
+def test_the_hint_names_each_switch_that_shows_the_line(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    """The two switches the hint names are the two that turn the tail on."""
+    (checkout / "shopapp" / "__init__.py").write_text(_FAILING_IMPORT)
+    with pytest.raises(commands.DevError) as caught:
+        commands.composition_selection(_ctx(checkout, environ), "", checkout)
+    message = str(caught.value)
+    assert "sandloom --debug dev up" in message and "SANDLOOM_DEBUG=1" in message
+    assert errors.debug_requested(["sandloom", "--debug", "dev", "up"], {})
+    assert errors.debug_requested([], {"SANDLOOM_DEBUG": "1"})
+    assert not errors.debug_requested(["sandloom", "dev", "up"], {})
+
+
+#: (what the app's error says, the part of it that must not reach the terminal).
+_LEAKY_ERRORS = [
+    ("cannot reach redis://app:s3cretpw@cache.internal:6379/0", "s3cretpw"),
+    ("cannot reach postgresql://u:sec/ret@db/x", "sec/ret"),
+    ("cannot reach postgresql://u:sec/ret@db/x", "ret@db"),
+    ("cannot reach postgresql://u:pa ss@db/x", "pa ss"),
+    ("cannot reach redis://user:p@ss@cache.internal:6379/0", "p@ss"),
+    ("cannot reach redis://user:p@ss@cache.internal:6379/0", "ss@cache"),
+    ("cannot reach postgresql://db/x?password=hunter2", "hunter2"),
+    ("cannot reach postgresql://db/x?user=u&password=hunter2", "hunter2"),
+    ("cannot reach postgresql+asyncpg://u:p%40ss@db/x", "p%40ss"),
+    ("cannot reach rediss://:s3cretpw@cache.internal:6380/0", "s3cretpw"),
+    (
+        "cannot reach redis://u:first@h1/0 or postgresql://v:second@h2/1",
+        "first",
+    ),
+    (
+        "cannot reach redis://u:first@h1/0 or postgresql://v:second@h2/1",
+        "second",
+    ),
+]
+
+
+@pytest.mark.parametrize(("error", "secret"), _LEAKY_ERRORS)
+def test_the_last_error_line_shows_under_debug_without_any_url(
+    checkout: Path, environ: dict[str, str], error: str, secret: str
+) -> None:
+    (checkout / "shopapp" / "__init__.py").write_text(
+        f"raise RuntimeError({error!r})\n"
+    )
+    ctx = _ctx(checkout, environ)
+    ctx.verbose = True
+    with pytest.raises(commands.DevError) as caught:
+        commands.composition_selection(ctx, "", checkout)
+    message = str(caught.value)
+    assert "RuntimeError: cannot reach <url>" in message
+    assert secret not in message
+    # The host goes with the url: nothing of it is left to read.
+    assert "cache.internal" not in message and "@" not in message.split("exited")[1]
+
+
+def test_the_debug_tail_keeps_the_text_around_the_url(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    (checkout / "shopapp" / "__init__.py").write_text(
+        'raise RuntimeError("DATABASE_URL is not valid")\n'
+    )
+    ctx = _ctx(checkout, environ)
+    ctx.verbose = True
+    with pytest.raises(commands.DevError) as caught:
+        commands.composition_selection(ctx, "", checkout)
+    assert "RuntimeError: DATABASE_URL is not valid" in str(caught.value)
+
+
+def test_dev_up_reads_the_selection_once_per_checkout(
+    checkout: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``write_checkout_files`` and the summary both ask for it: one child."""
+    (checkout / "shopapp" / "__init__.py").write_text(_SELECTION)
+    reads: list[Path | None] = []
+    real = commands.composition_selection
+
+    def counting(
+        ctx: commands.Context, env_text: str, at: Path | None = None
+    ) -> commands.CompositionSelection:
+        reads.append(at)
+        return real(ctx, env_text, at)
+
+    monkeypatch.setattr(commands, "composition_selection", counting)
+    ctx = _ctx(checkout, environ)
+    row = commands.CheckoutRow(
+        path=str(checkout),
+        database="shop",
+        cache_index=1,
+        broker_index=2,
+        test_database="shop_test",
+    )
+    first = commands.row_selection(ctx, row)
+    assert commands.row_selection(ctx, row) is first
+    assert reads == [checkout]
+    other = commands.CheckoutRow(
+        path=str(checkout.parent),
+        database="x",
+        cache_index=3,
+        broker_index=4,
+        test_database="x_test",
+    )
+    # another checkout (no package there: nothing to manage) is its own read
+    assert commands.row_selection(ctx, other) == commands.CompositionSelection({}, {})
+    assert reads == [checkout, checkout.parent]
