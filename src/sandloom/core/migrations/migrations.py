@@ -53,11 +53,6 @@ from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations import alembic_support
-from sandloom.core.migrations.url_mask import (
-    mask_query_secrets,
-    mask_url_credentials,
-    split_url_list,
-)
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
 from sandloom.core.sql_alchemy.models import (
@@ -74,6 +69,11 @@ from sandloom.core.sql_alchemy.portable import (
     optional_lock_statement_for,
     schema_from_models,
     unlock_statement_for,
+)
+from sandloom.core.url_mask import (
+    mask_query_secrets,
+    mask_url_credentials,
+    split_url_list,
 )
 
 logger = logging.getLogger("sandloom.core.migrations.migrations")
@@ -276,22 +276,26 @@ def ensure_core_infra_tables(database_url: str, dry_run: bool = True) -> None:
 def _mask_url(url: str) -> str:
     """Redact credentials in a DSN or a ``;``-separated kombu broker list.
 
-    Each url of a list (a ``;`` that starts another ``scheme://`` separates; a
-    ``;`` in a password does not) is masked on its own: its userinfo ends at the
-    LAST ``@`` (a password may hold a raw ``@`` or ``;``), and the value of a
-    secret-named query parameter goes too. A part that holds a later ``@`` in its
-    path or query is masked too far, never too short.
+    Each url of a list (a ``;`` that starts another ``scheme://`` separates, but
+    not one inside a password that is still open or inside the value of a
+    secret-named query parameter, see :func:`split_url_list`) is masked on its
+    own: its userinfo ends at the LAST ``@`` (a password may hold a raw ``@`` or
+    ``;``), and the value of a secret-named query parameter goes too. A part that
+    holds a later ``@`` in its path or query is masked too far, never too short.
     """
     return ";".join(_mask_url_part(part) for part in split_url_list(url))
 
 
 def _mask_url_part(part: str) -> str:
-    scheme, sep, rest = part.partition("://")
+    # The query secrets first: a raw '@' in ``?password=p@ss`` must not move the
+    # end of the userinfo behind the name of the parameter.
+    masked = mask_query_secrets(part)
+    scheme, sep, rest = masked.partition("://")
     if not sep:
-        scheme, rest = "", part
+        scheme, rest = "", masked
     if "@" in rest:
         rest = f"***@{rest.rsplit('@', 1)[1]}"
-    return mask_query_secrets(f"{scheme}{sep}{rest}")
+    return f"{scheme}{sep}{rest}"
 
 
 #: Advisory-lock key serialising every ``sandloom-migrate`` run against one database

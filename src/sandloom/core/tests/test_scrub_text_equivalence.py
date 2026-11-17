@@ -12,13 +12,21 @@ from __future__ import annotations
 
 import random
 import re
+import time
 
 import pytest
 
 from sandloom.core.observability.guardrails import scrub_text
+from sandloom.core.url_mask import (
+    mask_query_secrets,
+    mask_url_credentials,
+    mask_url_userinfo,
+)
 
 # ---- reference: independent unconditional security substitutions ---------
-_REF_DSN = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)[^\s/@:]*:[^\s/@]+@")
+# The url credentials and the query secrets are the shared masker of
+# ``sandloom.core.url_mask`` (one pattern, no copy here); the reference runs it
+# unconditionally, query first and credentials last, like ``scrub_text``.
 _REF_PROVIDER = re.compile(
     r"\b(?:sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_]+"
 )
@@ -44,11 +52,17 @@ def _ref_mask(match: re.Match[str]) -> str:
 def reference_scrub(text: str) -> str:
     if not text:
         return text
-    out = _REF_DSN.sub(r"\g<scheme>***@", text)
+    out = mask_query_secrets(text)
+    out = re.sub(
+        r"\S+",
+        lambda m: mask_url_userinfo(m[0], keep_user=False) if "://" in m[0] else m[0],
+        out,
+    )
     out = _REF_PROVIDER.sub("***", out)
     out = _REF_SQL.sub("[parameters: ***]", out)
     out = _REF_BEARER.sub(r"\1 ***", out)
-    return _REF_KV.sub(_ref_mask, out)
+    out = _REF_KV.sub(_ref_mask, out)
+    return mask_url_userinfo(out, keep_user=False)
 
 
 # ---- corpus -----------------------------------------------------------------
@@ -110,6 +124,13 @@ _FRAGMENTS = [
     "sk_live_syntheticproviderkey",
     "whsec_syntheticwebhookkey",
     "user:pa55@",
+    "?",
+    "?password=p4ss",
+    "&sig=abc123",
+    ";key=k3y",
+    "?sslpassword=ssl-secret;redis://",
+    "user:p@ss@",
+    "http://u:p/ss w@",
     "admin:s3cr3t@db.local:5432/app",
     "host/path",
     "[parameters: ",
@@ -221,6 +242,223 @@ def test_secret_values_are_still_masked(raw: str, secret: str) -> None:
     out = scrub_text(raw)
     assert secret not in out, out
     assert "***" in out
+
+
+@pytest.mark.parametrize(
+    ("raw", "secret"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        ("postgresql://u:p@ss@h/db", "ss"),
+        ("postgresql://u:p/ss@h/db", "ss"),
+        ("postgresql://u:p ss@h/db", "ss"),
+        ("redis://h/0?password=ab;cd&x=1", "cd"),
+        ("redis://h/0?password=a)b", "b"),
+        ("redis://h/0?sig=abc123&x=1", "abc123"),
+        ("amqp://h/?auth=s3cr3t", "s3cr3t"),
+        ("connect to /db?sslkey=/etc/k3y.pem failed", "k3y"),
+        ("redis://h1;redis://u:pw0rd@h2", "pw0rd"),
+        ("https://tok3n:x-oauth-basic@h", "tok3n"),
+        # a ';' followed by 'x://' inside a password or a query value.
+        ("postgresql://u:pw1;kw://pw2@h/db", "pw1"),
+        ("postgresql://u:pw1;kw://pw2@h/db", "pw2"),
+        ("redis://h/0?password=ab;cd://x", "cd://x"),
+        ("redis://h/0?password=ab;cd://x", "ab"),
+    ],
+)
+def test_url_credentials_are_hidden_whole(raw: str, secret: str) -> None:
+    """The userinfo runs to the last ``@`` and a secret-named query value is
+    masked to its end: a raw ``@``, ``/``, space or ``;`` in it does not leave a tail."""
+    out = scrub_text(raw)
+    assert secret not in out, out
+    assert "***" in out
+    assert out == reference_scrub(raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        # A raw '@' is legal in a query: the userinfo of the url in front of it
+        # must not run to that '@' and eat the name of the parameter.
+        ("redis://h:6379/0?password=p@ss", "redis://h:6379/0?password=***"),
+        (
+            "postgresql://u@h/db?sslpassword=ab@cd",
+            "postgresql://***@h/db?sslpassword=***",
+        ),
+        (
+            "connect url=postgresql://db:5432/app password=hunter@2",
+            "connect url=postgresql://db:5432/app password=***",
+        ),
+        ("redis://u:p@ss@h/0?token=x@y", "redis://***@h/0?token=***"),
+    ],
+)
+def test_a_raw_at_after_a_url_does_not_hide_the_name_of_a_secret(
+    raw: str, expected: str
+) -> None:
+    """The ``key=value`` and query steps run before the credentials: their names
+    are still there when the userinfo runs to the last ``@`` of the line."""
+    assert scrub_text(raw) == expected
+    assert reference_scrub(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "secret"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        ("SECRET_DATABASE_URL=postgresql://app:Xy7,kQ@db/app", "kQ"),
+        ("DB_CREDENTIALS=postgresql://app:Xy7;kQ@db/app", "kQ"),
+        ("redis_password_url: redis://default:Xy7&kQ@cache:6379/0", "kQ"),
+        ("credentials: postgresql://app:pa)ss@db/app", "ss"),
+        ("token=redis://u:ab&cd@h/0", "cd"),
+        ("password='postgresql://app:pa'ss@db/app'", "pa'ss"),
+        # the same url inside a longer line, and in a non-ASCII one
+        ("connect failed, SECRET_URL=postgresql://a:Xy7,kQ@h/d (retry)", "kQ"),
+        ("é SECRET_URL=postgresql://a:Xy7,kQ@h/d", "kQ"),
+    ],
+)
+def test_a_url_after_a_secret_named_key_prints_no_tail_of_its_password(
+    raw: str, secret: str
+) -> None:
+    """A ``key=value`` value stops at ``,``, ``;``, ``&``, a quote or ``)``, all of
+    which a password may hold, and takes the ``scheme://`` of the url with it: the
+    credentials of a one-word url are masked before the pairs, so none is left."""
+    out = scrub_text(raw)
+    assert secret not in out, out
+    assert "***" in out
+    assert out == reference_scrub(raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            "SECRET_DATABASE_URL=postgresql://app:Xy7,kQ@db/app",
+            "SECRET_DATABASE_URL=***",
+        ),
+        ("credentials: postgresql://app:pa)ss@db/app", "credentials: ***"),
+        ("redis://u:p&auth=1@h", "redis://***@h"),
+        ("redis://u:ab;key=xyz@h", "redis://***@h"),
+    ],
+)
+def test_the_scrubber_prints_the_masked_form_of_a_password_with_a_delimiter(
+    raw: str, expected: str
+) -> None:
+    assert scrub_text(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("SECRET_URL=" + "x://u:a,b@h " * 4000, id="url-words"),
+        pytest.param("SECRET=" + "x://u:a,b@h," * 4000, id="one-long-word"),
+        pytest.param("x://u:p" + "&key=" * 10_000 + "@h", id="query-names-in-userinfo"),
+        pytest.param("x://u:p" + ";key=" * 10_000 + "@h", id="semicolon-names"),
+        pytest.param(
+            "x://h" + "?key=" * 10_000 + "&;x://h", id="open-query-secret-repeated"
+        ),
+    ],
+)
+def test_the_url_word_pass_and_the_userinfo_lead_are_linear(text: str) -> None:
+    started = time.perf_counter()
+    scrub_text(text)
+    assert time.perf_counter() - started < 1.0
+
+
+#: The names the query step masks (``url_mask._QUERY_PARAM_HEAD``), each in
+#: lower and upper case, alone and behind a prefix: removing one from the
+#: pattern prints its value through ``scrub_text``.
+_SECRET_QUERY_NAMES = [
+    "password",
+    "passwd",
+    "pass",
+    "pwd",
+    "secret",
+    "token",
+    "key",
+    "sig",
+    "signature",
+    "auth",
+    "credential",
+    "credentials",
+]
+
+
+@pytest.mark.parametrize("name", _SECRET_QUERY_NAMES)
+@pytest.mark.parametrize("variant", ["plain", "prefixed", "upper"])
+def test_every_secret_query_name_is_masked_by_the_scrubber(
+    name: str, variant: str
+) -> None:
+    param = {"plain": name, "prefixed": f"ssl_{name}", "upper": name.upper()}[variant]
+    for sep in ("?", "&", ";"):
+        # A url without ``@`` and without a ``key=value`` shape the other steps
+        # would mask: only the query step is under test.
+        raw = f"redis://h/0{sep}x=1{sep}{param}=zzTOPSECRETzz"
+        assert scrub_text(raw) == f"redis://h/0{sep}x=1{sep}{param}=***", raw
+        assert mask_query_secrets(raw) == f"redis://h/0{sep}x=1{sep}{param}=***", raw
+
+
+#: Urls on which the scrubber and the masker of ``sandloom config`` / the migration
+#: logs (``sandloom.core.url_mask``) must print the same text: ``scrub_text`` runs
+#: that masker, and these urls show that its other steps leave them as they are.
+_SHARED_URLS = [
+    "postgresql://u:p@ss@h/db",
+    "postgresql://u:p/ss@h/db",
+    "redis://:pw@h:6379/0",
+    "redis://h/0?password=ab;cd&x=1",
+    "redis://h/0?password=a)b",
+    "redis://h/0?sig=abc123&key=zzz",
+    "amqp://h/?auth=abc",
+    "postgresql://u:pw@h/db?sslpassword=xx",
+    "redis://h1;redis://u:pw@h2",
+    "redis://h1:6379;redis://h2:6379/1",
+    "redis://h1:6379;redis://u:pw@h2",
+    "redis://h1:6379,h2:6379;redis://u:pw@h3",
+    "redis://[::1]:6379;redis://u:pw@h2",
+    "amqp://u:p@h1;amqp://u:p@h2",
+    "redis://u:ab;cd@h1/0;redis://v:ef;gh@h2/0",
+    "postgresql://u:pw1;kw://pw2@h/db",
+    "postgresql://u:pw1; kw://pw2@h/db",
+    "postgresql://u:a;b://c;d://e@h/db",
+    "redis://h/0?password=ab;cd://x",
+    "redis://h/0?password=a;redis://h2/0",
+    "https://tok:x-oauth-basic@h",
+    "http://host/path no credentials",
+]
+
+
+@pytest.mark.parametrize("raw", _SHARED_URLS)
+def test_the_scrubber_and_the_url_masker_print_the_same_url(raw: str) -> None:
+    assert scrub_text(raw) == mask_url_credentials(raw, keep_user=False)
+
+
+def test_a_long_run_after_a_scheme_is_linear() -> None:
+    """A letter-and-digit run in a text that holds ``://`` was rescanned from
+    every position (quadratic: a 32 000 character token took seconds)."""
+    text = "GET http://h/" + "a" * 60_000
+    started = time.perf_counter()
+    assert scrub_text(text) == text
+    assert time.perf_counter() - started < 2.0
+
+
+def _repeat(piece: str, size: int = 50_000) -> str:
+    return (piece * (size // len(piece) + 1))[:size]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(_repeat("y://u:p;"), id="y-scheme-semicolon"),
+        pytest.param(_repeat("a://u:p;"), id="a-scheme-semicolon"),
+        pytest.param(_repeat("x://u:p; "), id="semicolon-space"),
+    ],
+)
+def test_a_chain_of_semicolon_schemes_is_not_quadratic(text: str) -> None:
+    """The open-password branch chains ``;x://`` pieces; unbounded, every start
+    scanned to the end of a line without ``@``: 12 s on 50 000 characters. The
+    chain is capped (``url_mask.MAX_CHAINED_SCHEMES``)."""
+    started = time.perf_counter()
+    scrub_text(text)
+    assert time.perf_counter() - started < 1.0
 
 
 def test_long_identifier_is_linear() -> None:
