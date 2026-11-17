@@ -570,7 +570,7 @@ def publish_github_release(
     existing = ensure_release_draft(
         api, command, base, spec, repository, source_sha, notes
     )
-    assets =[dist / row["filename"] for row in rows] + [checksums, manifest_path]
+    assets = [dist / row["filename"] for row in rows] + [checksums, manifest_path]
     wanted = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in assets}
 
     def check_assets() -> set[str]:
