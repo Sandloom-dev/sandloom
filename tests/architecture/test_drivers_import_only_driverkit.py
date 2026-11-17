@@ -67,7 +67,7 @@ NOT_DRIVER_PACKAGES: dict[str, str] = {
 }
 
 #: Kernel-internal providers a row of ``BUILTIN_DRIVER_ROWS`` targets that are
-#: not drivers: the volatile-bus shape of ``eventbus`` (``memory``, ``redis``,
+#: not drivers: the volatile-bus shape of ``eventbus`` (``memory``, ``broadcast``,
 #: spec 7) is the kernel's own bus behind the capability, in ``core/eventing``,
 #: and implements no transport. It is not exported from the driverkit, so a
 #: driver package cannot be written against it. Permanent by design: the

@@ -118,35 +118,35 @@ async def test_named_streams_instance_client_is_bounded() -> None:
         await provider.aclose()
 
 
-def _redis_bus(options: dict[str, Any], name: str = "side") -> Any:
+def _broadcast_bus(options: dict[str, Any], name: str = "side") -> Any:
     cfg = InstanceConfig(
-        capability="eventbus", name=name, driver="redis", options=options
+        capability="eventbus", name=name, driver="broadcast", options=options
     )
     return make_volatile_bus_drivers(
         InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
-    )["redis"](cfg)
+    )["broadcast"](cfg)
 
 
-def test_the_default_redis_bus_gets_no_url_it_uses_the_default_broadcast(
+def test_the_default_broadcast_bus_gets_no_url_it_uses_the_default_broadcast(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The volatile bus has no Redis client of its own: it runs over a
+    """The volatile bus has no client of its own: it runs over a
     ``broadcast`` instance (option ``broadcast``, default ``default``)."""
-    monkeypatch.setattr(settings, "event_bus_backend", "redis")
+    monkeypatch.setattr(settings, "event_bus_backend", "broadcast")
     monkeypatch.setattr(settings, "infra", {})
     options = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].options
     assert "url" not in options
     assert VolatileBusOptions.model_validate(options).broadcast == "default"
 
 
-def test_a_redis_bus_with_a_url_is_refused_and_says_where_the_url_goes() -> None:
+def test_a_broadcast_bus_with_a_url_is_refused_and_says_where_the_url_goes() -> None:
     """A ``url`` here used to be dropped by the bus, so its events went to the
     cache Redis outside the operator's TLS/ACL/network separation."""
     with pytest.raises(RuntimeError, match="broadcast"):
-        _redis_bus({"url": _URL})
+        _broadcast_bus({"url": _URL})
 
 
-async def test_a_redis_bus_refuses_a_broadcast_without_pattern_subscribe(
+async def test_a_broadcast_bus_refuses_a_broadcast_without_pattern_subscribe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _NoPatterns:
@@ -157,12 +157,12 @@ async def test_a_redis_bus_refuses_a_broadcast_without_pattern_subscribe(
         "sandloom.core.eventing.pubsub_bus.access.broadcast",
         lambda name="default": _NoPatterns(),
     )
-    provider = _redis_bus({"broadcast": "plain"})
+    provider = _broadcast_bus({"broadcast": "plain"})
     with pytest.raises(Unsupported, match="pattern_subscribe"):
         await provider.aopen()
 
 
-async def test_a_redis_bus_health_is_its_broadcast_instances(
+async def test_a_broadcast_bus_health_is_its_broadcast_instances(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _Down:
@@ -176,7 +176,7 @@ async def test_a_redis_bus_health_is_its_broadcast_instances(
         "sandloom.core.eventing.pubsub_bus.access.broadcast",
         lambda name="default": _Down(),
     )
-    provider = _redis_bus({"broadcast": "down"})
+    provider = _broadcast_bus({"broadcast": "down"})
     await provider.aopen()
     health = await provider.health()
     assert health.status == "fail"

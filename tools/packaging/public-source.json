@@ -1436,6 +1436,7 @@
         "src/sandloom/core/config/module_settings.py",
         "src/sandloom/core/config/observability.py",
         "src/sandloom/core/config/password_params.py",
+        "src/sandloom/core/config/removed_drivers.py",
         "src/sandloom/core/config/replay_limits.py",
         "src/sandloom/core/config/rpc.py",
         "src/sandloom/core/config/runtime.py",
@@ -1777,6 +1778,7 @@
         "src/sandloom/core/tests/test_database_atomic_store.py",
         "src/sandloom/core/tests/test_database_provider_kit.py",
         "src/sandloom/core/tests/test_db_provider_get_db.py",
+        "src/sandloom/core/tests/test_eventbus_broadcast_driver.py",
         "src/sandloom/core/tests/test_eventbus_kit.py",
         "src/sandloom/core/tests/test_audit_and_secrets.py",
         "src/sandloom/core/tests/test_auth_rotation_revocation.py",
@@ -2720,6 +2722,7 @@
         "tests/fixtures/specs/api10-ledger-delta-backup-core-tables.md",
         "tests/fixtures/specs/api10-ledger-delta-dxfix.md",
         "tests/fixtures/specs/api10-ledger-delta-ecosystem.md",
+        "tests/fixtures/specs/api10-ledger-delta-eventbus-broadcast-driver.md",
         "tests/fixtures/specs/api10-ledger-delta-firstrun.md",
         "tests/fixtures/specs/api10-ledger-delta-generate.md",
         "tests/fixtures/specs/api10-ledger-delta-idk-atomic-adopt.md",
@@ -3111,6 +3114,7 @@
         "changelog.d/README.md",
         "changelog.d/idk-low6-product.md",
         "changelog.d/redis-tag-release.md",
+        "changelog.d/eventbus-broadcast-driver.md",
         "conftest.py",
         "guarantees.yml",
         "public_api_baseline.json",
@@ -3183,12 +3187,6 @@
         "design/infra-agnostic/research-reliability-mechanisms.md",
         "design/infra-agnostic/review-relational-interface.md",
         "design/infra-agnostic/spec.md"
-      ]
-    },
-    {
-      "reason": "Infrastructure driver design: the audit of the Celery configuration keys that move a connection, one decision per key.",
-      "paths": [
-        "design/infra-drivers/celery-conf-audit.md"
       ]
     },
     {
@@ -3320,6 +3318,12 @@
         "tools/checks/runtime_review.py",
         "tools/checks/zlib_source_evidence.py",
         "design/security/runtime-validation-2026-10-31.json"
+      ]
+    },
+    {
+      "reason": "Infrastructure driver design: the audit of the Celery configuration keys that move a connection, one decision per key.",
+      "paths": [
+        "design/infra-drivers/celery-conf-audit.md"
       ]
     }
   ],

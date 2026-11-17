@@ -508,7 +508,7 @@ def build_event_bus(
 ) -> BaseEventBus:
     """The kernel's bus for one ``eventbus`` provider (spec 7: two shapes).
 
-    A volatile provider (``memory``, ``redis``) hands over its own bus, which
+    A volatile provider (``memory``, ``broadcast``) hands over its own bus, which
     that provider closes itself; any other is an ``EventTransportProvider``,
     over which the kernel builds its durable bus. The caller closes a bus it
     built over a transport (before the provider), never a volatile one.

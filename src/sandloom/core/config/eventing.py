@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from sandloom.core.config.removed_drivers import removed_driver_problem
+
 #: Default age bound of an event stream, in seconds (7 days): the one value of
 #: the ``streams`` driver's ``retention_seconds`` option and the transport's own
 #: default.
@@ -20,9 +22,11 @@ class EventingConfig(BaseModel):
     """
 
     # Event bus transport: unset (None) = the composition's selection (no kernel
-    # default, never memory); the volatile memory/redis drivers are refused in
-    # prod (see infra.config).
-    event_bus_backend: Literal["memory", "redis", "streams"] | None = Field(
+    # default, never memory); the volatile memory/broadcast drivers are refused
+    # in prod (see infra.config). A driver name that was removed is refused by
+    # name in the validator below (config.removed_drivers), not as a bare
+    # "not a permitted value".
+    event_bus_backend: Literal["memory", "broadcast", "streams"] | None = Field(
         default=None,
         alias="EVENT_BUS_BACKEND",
         description=(
@@ -42,8 +46,12 @@ class EventingConfig(BaseModel):
             raise ValueError(
                 "EVENT_BUS_BACKEND=auto is no longer a value: unset "
                 "EVENT_BUS_BACKEND to leave the bus to the composition's "
-                "selection, or name a driver (memory, redis, streams)"
+                "selection, or name a driver (memory, broadcast, streams)"
             )
+        if isinstance(value, str):
+            removed = removed_driver_problem("eventbus", "default", value.strip())
+            if removed is not None:
+                raise ValueError(f"EVENT_BUS_BACKEND: {removed}")
         return value
 
     # Logical service name of this process (e.g. "billing-api"). It names the
@@ -213,7 +221,7 @@ class EventingConfig(BaseModel):
         default=100,
         alias="EVENT_BUS_REDIS_SEMAPHORE_LIMIT",
         description=(
-            "Max concurrent callbacks for RedisEventBus to prevent overload. "
+            "Max concurrent callbacks for BroadcastEventBus to prevent overload. "
             "Adjust based on CPU/network capacity."
         ),
     )

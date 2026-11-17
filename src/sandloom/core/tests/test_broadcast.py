@@ -562,13 +562,13 @@ async def test_infra_can_select_the_memory_driver_for_broadcast(
 
 # ------------------------------------------------- the volatile bus over broadcast
 def _bus(provider: Any) -> Any:
-    from sandloom.core.eventing.pubsub_bus import RedisEventBus
+    from sandloom.core.eventing.pubsub_bus import BroadcastEventBus
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
     registry = InMemorySchemaRegistry()
     for channel in ("core.thing.v1", "core.lost.v1", "core.gone.v1"):
         registry.register(channel, channel, {"type": "object"})
-    return RedisEventBus(registry, broadcast=provider)
+    return BroadcastEventBus(registry, broadcast=provider)
 
 
 def _envelope(channel: str, **payload: Any) -> Any:

@@ -45,7 +45,7 @@ _DECLARING_DRIVERS = [
     ("atomic_store", "redis"),
     ("lease", "redis"),
     ("eventbus", "streams"),
-    ("eventbus", "redis"),
+    ("eventbus", "broadcast"),
 ]
 
 
@@ -214,10 +214,12 @@ def test_the_retention_is_the_stated_option_else_the_drivers_schema_default() ->
     )
 
 
-def test_the_redis_bus_has_no_retention_option_so_none_is_configured() -> None:
-    assert configured_stream_retention_seconds(_bus_settings("redis")) is None
+def test_the_broadcast_bus_has_no_retention_option_so_none_is_configured() -> None:
+    assert configured_stream_retention_seconds(_bus_settings("broadcast")) is None
     assert (
-        configured_stream_retention_seconds(_bus_settings("redis", retention_seconds=9))
+        configured_stream_retention_seconds(
+            _bus_settings("broadcast", retention_seconds=9)
+        )
         == 9  # only what the configuration states: no option refutes it
     )
 

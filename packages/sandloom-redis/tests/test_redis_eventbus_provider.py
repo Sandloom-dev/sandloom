@@ -100,7 +100,7 @@ async def test_broker_unavailability_is_reported_as_health_failure() -> None:
 def test_the_streams_driver_is_durable_and_not_a_volatile_bus_in_prod(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The volatile-bus refusal covers the ``memory`` and ``redis`` Pub/Sub drivers
+    """The volatile-bus refusal covers the ``memory`` and ``broadcast`` Pub/Sub drivers
     only: ``streams`` builds in production without the ``volatile_event_bus`` risk."""
     monkeypatch.setattr(settings, "environment", Environment.prod)
     monkeypatch.setattr(settings, "sandloom_accepted_risks", [])

@@ -18,7 +18,7 @@ from sandloom.core.contracts.validators import ContractValidationError
 from sandloom.core.drivers.filesystem_storage import Storage
 from sandloom.core.drivers.local_objectstore import LocalObjectStoreProvider
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
-from sandloom.core.eventing.pubsub_bus import RedisEventBus
+from sandloom.core.eventing.pubsub_bus import BroadcastEventBus
 from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import register_event_schemas
@@ -79,7 +79,7 @@ async def test_concurrent_subscribe_starts_one_listen_loop() -> None:
     provider = MemoryBroadcastProvider(
         name="default", driver="memory", options={"namespace": "hardening"}
     )
-    bus = RedisEventBus(InMemorySchemaRegistry(), broadcast=provider)
+    bus = BroadcastEventBus(InMemorySchemaRegistry(), broadcast=provider)
 
     async def _noop(_msg) -> None:
         return None

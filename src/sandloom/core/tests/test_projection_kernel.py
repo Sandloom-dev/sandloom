@@ -215,7 +215,7 @@ def test_the_purge_floor_reads_the_configured_retention_not_the_live_bus() -> No
     assert _stream_retention_s(unbounded) == 0  # purge_floor_seconds: inf
 
 
-@pytest.mark.parametrize("backend", ["memory", "redis", "auto"])
+@pytest.mark.parametrize("backend", ["memory", "broadcast", "auto"])
 def test_an_undetermined_retention_refuses_the_purge_unless_forced(
     backend: str,
 ) -> None:

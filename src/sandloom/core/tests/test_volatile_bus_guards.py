@@ -17,7 +17,7 @@ from sandloom.core.drivers.bootstrap import (
     volatile_event_bus_allowed,
 )
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
-from sandloom.core.eventing.pubsub_bus import RedisEventBus
+from sandloom.core.eventing.pubsub_bus import BroadcastEventBus
 from sandloom.core.eventing.volatile_provider import make_volatile_bus_drivers
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.schema.registry import InMemorySchemaRegistry
@@ -43,7 +43,7 @@ async def _noop(_env: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_durable_consumer_refused_on_pubsub_bus() -> None:
-    bus = RedisEventBus(InMemorySchemaRegistry())
+    bus = BroadcastEventBus(InMemorySchemaRegistry())
     with pytest.raises(VolatileBusError):
         await subscribe_to_bus(bus, "core.thing.v1", _noop, "notifier@thing")
     assert bus._subs == {}  # nothing half-registered
@@ -75,17 +75,17 @@ def test_driver_refuses_volatile_bus_in_prod(monkeypatch: pytest.MonkeyPatch) ->
         InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
     )
     monkeypatch.setattr(settings, "environment", Environment.prod)
-    for driver in ("memory", "redis"):
+    for driver in ("memory", "broadcast"):
         cfg = InstanceConfig(capability="eventbus", name="side", driver=driver)
         with pytest.raises(RuntimeError, match="volatile"):
             drivers[driver](cfg)
     # The accepted risk admits the volatile driver.
     monkeypatch.setattr(settings, "sandloom_accepted_risks", ["volatile_event_bus"])
-    for driver in ("memory", "redis"):
+    for driver in ("memory", "broadcast"):
         cfg = InstanceConfig(capability="eventbus", name="side", driver=driver)
         assert drivers[driver](cfg).bus() is not None
     # The policy covers the volatile drivers only: no durable driver is in its table.
-    assert set(drivers) == {"memory", "redis"}
+    assert set(drivers) == {"memory", "broadcast"}
 
 
 def _registry_for(resolved: Any) -> Any:

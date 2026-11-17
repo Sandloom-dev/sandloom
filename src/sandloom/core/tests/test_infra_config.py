@@ -49,7 +49,7 @@ def test_defaults_synthesized_for_every_capability() -> None:
     assert cfg["database"][DEFAULT_INSTANCE].options["url"] == settings.database_url
     assert cfg["cache"][DEFAULT_INSTANCE].driver == "redis"
     # eventbus auto resolves to memory outside prod
-    assert cfg["eventbus"][DEFAULT_INSTANCE].driver in {"memory", "redis"}
+    assert cfg["eventbus"][DEFAULT_INSTANCE].driver in {"memory", "broadcast"}
 
 
 def test_infra_overlay_adds_named_instance(monkeypatch: pytest.MonkeyPatch) -> None:

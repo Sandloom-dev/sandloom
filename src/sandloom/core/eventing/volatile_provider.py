@@ -1,4 +1,4 @@
-"""The volatile-bus shape of the ``eventbus`` capability (``memory``, ``redis``).
+"""The volatile-bus shape of the ``eventbus`` capability (``memory``, ``broadcast``).
 
 One capability, two driver shapes (spec 7). The transport shape (``streams``
 and every external driver) is an ``EventTransportProvider`` the kernel builds
@@ -24,26 +24,26 @@ from sandloom.core.contracts import SchemaRegistryContract
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.eventing.bus_base import BaseEventBus
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
-from sandloom.core.eventing.pubsub_bus import RedisEventBus
+from sandloom.core.eventing.pubsub_bus import BroadcastEventBus
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.registry import DriverFactory
 
 
 class VolatileBusOptions(BaseModel):
-    """Config-shape schema of the ``memory`` and ``redis`` volatile buses.
+    """Config-shape schema of the ``memory`` and ``broadcast`` volatile buses.
 
-    ``memory`` ignores every option. The ``redis`` bus has no client of its own:
-    it runs over the ``broadcast`` instance named by ``broadcast`` (default
-    ``default``), on that instance's Redis, TLS, credentials and channel
-    namespace. A ``url`` on a ``redis`` bus is refused at startup;
+    ``memory`` ignores every option. The ``broadcast`` bus has no client of its
+    own: it runs over the ``broadcast`` instance named by ``broadcast`` (default
+    ``default``), on that instance's service, TLS, credentials and channel
+    namespace. A ``url`` on a ``broadcast`` bus is refused at startup;
     ``extra="forbid"`` rejects a typo'd key.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     url: str | None = None
-    #: The ``broadcast`` instance of the ``redis`` driver.
+    #: The ``broadcast`` instance of the ``broadcast`` driver.
     broadcast: str = "default"
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
     health_check_interval_seconds: int = Field(default=30, ge=0)
@@ -95,15 +95,14 @@ class MemoryEventBusProvider(VolatileBusProvider):
     supported_features = frozenset({"wildcard_subscribe"})
 
 
-class RedisEventBusProvider(VolatileBusProvider):
-    """``eventbus`` / ``redis``: the volatile bus over a ``broadcast`` instance."""
+class BroadcastEventBusProvider(VolatileBusProvider):
+    """``eventbus`` / ``broadcast``: the volatile bus over a ``broadcast`` instance."""
 
     supported_features = frozenset({"wildcard_subscribe"})
-    # No url: the bus runs over a ``broadcast`` instance (option ``broadcast``).
-    required_imports = ("redis",)
-    install_hint = "pip install 'sandloom[redis]'"
+    # No url and no import: the bus runs over a ``broadcast`` instance (option
+    # ``broadcast``), whose driver brings its own client.
 
-    _bus: RedisEventBus
+    _bus: BroadcastEventBus
 
     async def aopen(self) -> None:
         """Refuse a ``broadcast`` instance without ``pattern_subscribe``."""
@@ -123,7 +122,7 @@ def make_volatile_bus_drivers(
     *,
     volatile_allowed: Callable[[], bool],
 ) -> dict[str, DriverFactory]:
-    """Return ``{driver_name: factory}`` for the ``memory`` and ``redis`` buses.
+    """Return ``{driver_name: factory}`` for the ``memory`` and ``broadcast`` buses.
 
     ``volatile_allowed`` is the kernel's policy, asked each time a volatile
     bus is built: ``False`` refuses it (production without the accepted risk
@@ -151,30 +150,32 @@ def make_volatile_bus_drivers(
             bus_instance=InMemoryEventBus(schema_registry),
         )
 
-    def _redis(cfg: InstanceConfig) -> InfraProvider:
+    def _broadcast(cfg: InstanceConfig) -> InfraProvider:
         _refuse_volatile_in_prod(cfg)
         options = VolatileBusOptions.model_validate(cfg.options)
         if options.url:
             raise RuntimeError(
-                f"eventbus instance {cfg.name!r}: driver 'redis' takes its Redis "
-                "from a broadcast instance, not from a 'url' (the bus would "
-                "otherwise run outside that Redis's TLS, credentials and "
-                "network). fix: declare INFRA broadcast.<name> with this url "
-                'and set "broadcast": "<name>" on this instance'
+                f"eventbus instance {cfg.name!r}: driver 'broadcast' takes its "
+                "service from a broadcast instance, not from a 'url' (the bus "
+                "would otherwise run outside that service's TLS, credentials "
+                "and network). fix: declare INFRA broadcast.<name> with this "
+                'url and set "broadcast": "<name>" on this instance'
             )
-        return RedisEventBusProvider(
+        return BroadcastEventBusProvider(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
-            bus_instance=RedisEventBus(schema_registry, broadcast=options.broadcast),
+            bus_instance=BroadcastEventBus(
+                schema_registry, broadcast=options.broadcast
+            ),
         )
 
-    return {"memory": _memory, "redis": _redis}
+    return {"memory": _memory, "broadcast": _broadcast}
 
 
 __all__ = [
     "MemoryEventBusProvider",
-    "RedisEventBusProvider",
+    "BroadcastEventBusProvider",
     "VolatileBusOptions",
     "VolatileBusProvider",
     "make_volatile_bus_drivers",

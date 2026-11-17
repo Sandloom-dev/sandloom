@@ -42,7 +42,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CONSUMER_STARTUP_TIMEOUT_SECONDS` | `float` | `15.0` | Seconds allowed for required event consumers to establish their initial subscriptions. |
 | `CONSUMER_RETRY_BASE_SECONDS` | `float` | `1.0` | Initial backoff delay in seconds when supervised event consumers retry a failed subscription. |
 | `CONSUMER_RETRY_MAX_SECONDS` | `float` | `30.0` | Maximum backoff delay in seconds for supervised event-consumer subscription retries. |
-| `EVENT_BUS_BACKEND` | `Optional[Literal['memory', 'redis', 'streams']]` | `None` | Event transport selector: unset leaves the bus to the composition's selection (startup refuses when none names one); volatile production transports require accepted risk. |
+| `EVENT_BUS_BACKEND` | `Optional[Literal['memory', 'broadcast', 'streams']]` | `None` | Event transport selector: unset leaves the bus to the composition's selection (startup refuses when none names one); volatile production transports require accepted risk. |
 | `SANDLOOM_SERVICE_NAME` | `str | None` | `None` | This service's name: required on a shared event bus and distinct per service, the same for all its replicas. Names the kernel revocation applier's consumer group (sandloom:auth@tokens_revoked@<name>) and labels the Streams consumer inventory and ownership diagnostics; never renames a module consumer group. |
 | `OUTBOX_RELAY_ENABLED` | `Literal['auto', 'on', 'off', 'delegated']` | `'auto'` | Outbox relay policy: auto enables production relaying, on forces it, off disables it, and delegated is reserved for framework-elected worker leadership. |
 | `OUTBOX_RELAY_MAX_ATTEMPTS` | `int` | `10` | Failed publish attempts before an outbox row is dead-lettered; broker-outage circuit pauses do not consume attempts. |
@@ -53,7 +53,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `EVENT_CALLBACK_TIME_BUDGET_SECONDS` | `float` | `0.0` | If > 0, each event bus callback execution time is measured and a warning is logged when exceeded (non-fatal). |
 | `EVENT_PAYLOAD_MAX_BYTES` | `int` | `0` | If > 0, serialized payload size is checked before publish; ValueError raised if exceeded. |
 | `EVENT_SHUTDOWN_DRAIN_SECONDS` | `float` | `5.0` | Max seconds to wait for in-flight event callbacks to finish on bus shutdown before cancelling the stragglers. Bounds shutdown so a hung callback cannot hang the process. <= 0 waits unbounded. |
-| `EVENT_BUS_REDIS_SEMAPHORE_LIMIT` | `int` | `100` | Max concurrent callbacks for RedisEventBus to prevent overload. Adjust based on CPU/network capacity. |
+| `EVENT_BUS_REDIS_SEMAPHORE_LIMIT` | `int` | `100` | Max concurrent callbacks for BroadcastEventBus to prevent overload. Adjust based on CPU/network capacity. |
 | `SCHEMA_REGISTRY_PATH` | `str` | `'./data/schema_registry.json'` | Path to JSON file used to persist in-memory event schema registry. If empty, persistence is disabled. File will be created atomically on updates. |
 
 ## Service Registry & RPC

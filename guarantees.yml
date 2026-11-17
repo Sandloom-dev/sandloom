@@ -1810,11 +1810,11 @@ guarantees:
   rests_on:
   - capability: eventbus
     without_features: [durable]
-    note: the volatile drivers memory and redis
+    note: the volatile drivers memory and broadcast
   - capability: broadcast
-    note: the volatile eventbus drivers memory and redis sit over broadcast
+    note: the volatile eventbus drivers memory and broadcast sit over broadcast
   statement: Durable/required consumers are refused on the volatile Pub/Sub bus unless the volatile_event_bus
-    risk is accepted, and the memory/redis Pub/Sub drivers are refused in production without it.
+    risk is accepted, and the memory/broadcast Pub/Sub drivers are refused in production without it.
   sources:
   - docs/reference/cli.md
   tests:
@@ -5380,10 +5380,10 @@ guarantees:
   rests_on:
   - capability: eventbus
     without_features: [durable]
-    note: the volatile drivers memory and redis
+    note: the volatile drivers memory and broadcast
   - capability: broadcast
-    note: the volatile eventbus drivers memory and redis sit over broadcast
-  statement: In prod the volatile event-bus drivers (memory, redis Pub/Sub) are refused unless volatile_event_bus
+    note: the volatile eventbus drivers memory and broadcast sit over broadcast
+  statement: In prod the volatile event-bus drivers (memory, broadcast Pub/Sub) are refused unless volatile_event_bus
     is accepted; required/durable consumers on a Pub/Sub bus are refused even with the risk, and outside
     prod need the risk.
   sources:

@@ -8,7 +8,7 @@ One capability, two driver shapes, both an :class:`InfraProvider` with
   the kernel builds its durable bus over. Schema validation, payload limits and
   the bus logic above the transport stay kernel code. This is the only shape a
   driver package implements.
-* **Volatile-bus shape** (``memory``, ``redis``): a kernel-internal
+* **Volatile-bus shape** (``memory``, ``broadcast``): a kernel-internal
   ``VolatileBusProvider`` (:mod:`sandloom.core.eventing.volatile_provider`)
   that implements no transport; it is not exported to drivers.
 
@@ -457,7 +457,7 @@ EVENTBUS_CAPABILITY = CapabilitySpec(
     feature_kinds={
         # Entries survive a transport restart within its durability class and
         # a consumer crash, and are delivered at least once. Only a transport
-        # declares it: the volatile buses (memory, redis) never do, so a
+        # declares it: the volatile buses (memory, broadcast) never do, so a
         # module that needs delivery to survive requires it and can never
         # silently run on one (G-EVENT-14, G-RISK-04).
         "durable": "guarantee",

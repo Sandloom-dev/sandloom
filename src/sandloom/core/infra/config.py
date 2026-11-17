@@ -39,6 +39,7 @@ from types import MappingProxyType
 from typing import Any
 
 from sandloom.core.config.common import Environment
+from sandloom.core.config.removed_drivers import removed_driver_problem
 from sandloom.core.config.settings import Settings
 
 #: Capabilities whose ``default`` instance a composition selects (options from
@@ -268,6 +269,7 @@ def _select(
     a composition default that selects the same driver are kept (flat settings
     below them), another driver starts from the flat options alone."""
     existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
+    _refuse_removed_driver(capability, DEFAULT_INSTANCE, driver)
     merged = dict(options)
     if existing is not None and existing.driver == driver:
         merged.update(existing.options)
@@ -341,6 +343,14 @@ class InfraConfigError(ValueError):
     """Raised when the INFRA declaration is structurally invalid."""
 
 
+def _refuse_removed_driver(capability: str, instance: str, driver: str) -> None:
+    """Refuse an instance that names a driver that was removed
+    (:mod:`sandloom.core.config.removed_drivers`), naming the new spelling."""
+    problem = removed_driver_problem(capability, instance, driver)
+    if problem is not None:
+        raise InfraConfigError(problem)
+
+
 def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
     """Merge the raw ``INFRA`` mapping into ``base`` in place.
 
@@ -368,6 +378,7 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
                 raise InfraConfigError(
                     f"INFRA[{capability!r}][{inst_name!r}] needs a 'driver'"
                 )
+            _refuse_removed_driver(capability, str(inst_name), str(driver))
             if existing is not None and existing.driver == driver:
                 # Override: keep prior options not re-specified, layer new ones.
                 # A different driver starts empty: the prior options are another
