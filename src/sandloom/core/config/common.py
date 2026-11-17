@@ -80,7 +80,12 @@ def validate_service_binding(contract: str, binding: object) -> dict[str, object
     url = binding.get("base_url") or binding.get("url")
     if not isinstance(url, str) or not url.strip():
         raise ValueError(f"{where} needs a base_url (e.g. http://tenancy:2222)")
-    parsed = urlparse(url.strip())
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        # urllib's message carries the whole netloc (``user:password``), and a
+        # validation error copies it: say nothing of the value.
+        raise ValueError(f"{where}.base_url must be an absolute http(s):// URL") from None
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{where}.base_url must be an absolute http(s):// URL")
     timeout = binding.get("timeout_seconds")
