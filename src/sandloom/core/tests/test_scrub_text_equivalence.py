@@ -12,13 +12,22 @@ from __future__ import annotations
 
 import random
 import re
+import time
 
 import pytest
 
+from sandloom.core.migrations.url_mask import mask_url_credentials
 from sandloom.core.observability.guardrails import scrub_text
 
 # ---- reference: independent unconditional security substitutions ---------
-_REF_DSN = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)[^\s/@:]*:[^\s/@]+@")
+#: Credentials run from ``scheme://`` to the last ``@`` of the line, without
+#: crossing another ``scheme://``.
+_REF_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]{0,31}://"
+_REF_DSN = re.compile(rf"(?P<scheme>{_REF_SCHEME})(?:(?!{_REF_SCHEME})[^\n])*@")
+_REF_QUERY = re.compile(
+    r"(?i)(?P<name>[?&;][\w.\-]*?(?:password|passwd|pass|pwd|secret|token|key|sig"
+    rf"|signature|auth|credentials?)=)(?:(?!;\s*{_REF_SCHEME})[^&#\s])*"
+)
 _REF_PROVIDER = re.compile(
     r"\b(?:sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_]+"
 )
@@ -45,6 +54,7 @@ def reference_scrub(text: str) -> str:
     if not text:
         return text
     out = _REF_DSN.sub(r"\g<scheme>***@", text)
+    out = _REF_QUERY.sub(r"\g<name>***", out)
     out = _REF_PROVIDER.sub("***", out)
     out = _REF_SQL.sub("[parameters: ***]", out)
     out = _REF_BEARER.sub(r"\1 ***", out)
@@ -110,6 +120,13 @@ _FRAGMENTS = [
     "sk_live_syntheticproviderkey",
     "whsec_syntheticwebhookkey",
     "user:pa55@",
+    "?",
+    "?password=p4ss",
+    "&sig=abc123",
+    ";key=k3y",
+    "?sslpassword=ssl-secret;redis://",
+    "user:p@ss@",
+    "http://u:p/ss w@",
     "admin:s3cr3t@db.local:5432/app",
     "host/path",
     "[parameters: ",
@@ -221,6 +238,64 @@ def test_secret_values_are_still_masked(raw: str, secret: str) -> None:
     out = scrub_text(raw)
     assert secret not in out, out
     assert "***" in out
+
+
+@pytest.mark.parametrize(
+    ("raw", "secret"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        ("postgresql://u:p@ss@h/db", "ss"),
+        ("postgresql://u:p/ss@h/db", "ss"),
+        ("postgresql://u:p ss@h/db", "ss"),
+        ("redis://h/0?password=ab;cd&x=1", "cd"),
+        ("redis://h/0?password=a)b", "b"),
+        ("redis://h/0?sig=abc123&x=1", "abc123"),
+        ("amqp://h/?auth=s3cr3t", "s3cr3t"),
+        ("connect to /db?sslkey=/etc/k3y.pem failed", "k3y"),
+        ("redis://h1;redis://u:pw0rd@h2", "pw0rd"),
+        ("https://tok3n:x-oauth-basic@h", "tok3n"),
+    ],
+)
+def test_url_credentials_are_hidden_whole(raw: str, secret: str) -> None:
+    """The userinfo runs to the last ``@`` and a secret-named query value is
+    masked to its end: a raw ``@``, ``/``, space or ``;`` in it does not leave a tail."""
+    out = scrub_text(raw)
+    assert secret not in out, out
+    assert "***" in out
+    assert out == reference_scrub(raw)
+
+
+#: Urls on which the scrubber and the masker of ``sandloom config`` / the migration
+#: logs (``url_mask``, which the kernel layers keep out of ``observability``'s
+#: reach) must print the same text: the two patterns are copies and drift here.
+_SHARED_URLS = [
+    "postgresql://u:p@ss@h/db",
+    "postgresql://u:p/ss@h/db",
+    "redis://:pw@h:6379/0",
+    "redis://h/0?password=ab;cd&x=1",
+    "redis://h/0?password=a)b",
+    "redis://h/0?sig=abc123&key=zzz",
+    "amqp://h/?auth=abc",
+    "postgresql://u:pw@h/db?sslpassword=xx",
+    "redis://h1;redis://u:pw@h2",
+    "redis://h1:6379;redis://h2:6379/1",
+    "https://tok:x-oauth-basic@h",
+    "http://host/path no credentials",
+]
+
+
+@pytest.mark.parametrize("raw", _SHARED_URLS)
+def test_the_scrubber_and_the_url_masker_print_the_same_url(raw: str) -> None:
+    assert scrub_text(raw) == mask_url_credentials(raw, keep_user=False)
+
+
+def test_a_long_run_after_a_scheme_is_linear() -> None:
+    """A letter-and-digit run in a text that holds ``://`` was rescanned from
+    every position (quadratic: a 32 000 character token took seconds)."""
+    text = "GET http://h/" + "a" * 60_000
+    started = time.perf_counter()
+    assert scrub_text(text) == text
+    assert time.perf_counter() - started < 2.0
 
 
 def test_long_identifier_is_linear() -> None:

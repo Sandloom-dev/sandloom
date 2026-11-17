@@ -117,8 +117,27 @@ def is_sensitive_key(key: str) -> bool:
 # Free-text scrubbing (log messages, exception text, tracebacks). Key-based
 # redaction cannot see inside an f-string, so these patterns catch the common
 # shapes secrets take in prose.
-_DSN_CREDENTIALS = re.compile(
-    r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)[^\s/@:]*:[^\s/@]+@"
+#
+# The two url patterns follow ``sandloom.core.migrations.url_mask`` (the masker
+# of ``sandloom config``, ``sandloom doctor`` and the migration logs): the
+# kernel layers put ``observability`` below ``migrations``, so this module
+# cannot import it, and ``test_scrub_text_equivalence`` runs both on the same
+# urls so that they do not drift apart. One difference is deliberate: a scheme
+# is at most 32 characters, so a log line holding a very long ``[\w-]`` run
+# after a ``://`` is scanned in linear time (the unbounded form rescanned the
+# rest of the run from every position). Credentials run from ``scheme://`` to
+# the last ``@`` of the line without crossing another ``scheme://``: a password
+# may hold a raw ``@``, ``/`` or space. A line with a later ``@`` (a mail
+# address) is masked too far, never too short.
+_URL_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]{0,31}://"
+_DSN_CREDENTIALS = re.compile(rf"(?P<scheme>{_URL_SCHEME})(?:(?!{_URL_SCHEME})[^\n])*@")
+#: A query parameter whose NAME ends in a secret word (``password``,
+#: ``sslpassword``, ``access_token``, ``sig``, ...): its value, up to the next
+#: ``&``, ``#``, space or a ``;`` that starts another url, is masked.
+_QUERY_SECRET = re.compile(
+    r"(?P<name>[?&;][\w.\-]*?(?:password|passwd|pass|pwd|secret|token|key|sig"
+    r"|signature|auth|credentials?)=)(?:(?!;\s*" + _URL_SCHEME + r")[^&#\s])*",
+    re.IGNORECASE,
 )
 _PROVIDER_SECRET = re.compile(
     r"\b(?:sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_]+"
@@ -176,9 +195,11 @@ def _mask_value(match: re.Match[str]) -> str:
 def scrub_text(text: str) -> str:
     """Redact secrets embedded in free text (messages, exception strings).
 
-    Masks DSN credentials (``scheme://user:pass@`` -> ``scheme://***@``), SQL
-    bound-parameter blocks, bearer tokens and ``<secret-ish key>=<value>``
-    pairs. Best-effort and never raises.
+    Masks DSN credentials (``scheme://user:pass@`` -> ``scheme://***@``; the
+    userinfo runs to the last ``@`` of the line, so a password with a raw ``@``
+    is hidden whole), the value of a secret-named query parameter
+    (``?password=``, ``&sig=``, ...), SQL bound-parameter blocks, bearer tokens
+    and ``<secret-ish key>=<value>`` pairs. Best-effort and never raises.
     """
     if not text:
         return text
@@ -186,6 +207,8 @@ def scrub_text(text: str) -> str:
         out = text
         if "://" in out:
             out = _DSN_CREDENTIALS.sub(r"\g<scheme>***@", out)
+        if "=" in out:
+            out = _QUERY_SECRET.sub(r"\g<name>***", out)
         if any(
             prefix in out
             for prefix in ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_")

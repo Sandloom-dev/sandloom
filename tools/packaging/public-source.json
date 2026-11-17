@@ -3124,6 +3124,7 @@
         "changelog.d/README.md",
         "changelog.d/backup-urlsplit-secret-leak.md",
         "changelog.d/sandloom-celery/idk-low9.md",
+        "changelog.d/scrub-dsn-credentials-gaps.md",
         "changelog.d/sandloom-redis/idk-low6-kernel.md",
         "changelog.d/idk-low6-kernel.md",
         "changelog.d/idk-low9.md",
