@@ -2718,6 +2718,7 @@
         "tests/fixtures/specs/api10-ledger-delta-backup-core-tables.md",
         "tests/fixtures/specs/api10-ledger-delta-dxfix.md",
         "tests/fixtures/specs/api10-ledger-delta-ecosystem.md",
+        "tests/fixtures/specs/api10-ledger-delta-eventbus-broadcast-driver.md",
         "tests/fixtures/specs/api10-ledger-delta-firstrun.md",
         "tests/fixtures/specs/api10-ledger-delta-generate.md",
         "tests/fixtures/specs/api10-ledger-delta-idk-atomic-adopt.md",
