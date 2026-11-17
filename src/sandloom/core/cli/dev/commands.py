@@ -17,7 +17,6 @@ import http.client
 import io
 import json
 import os
-import re
 import signal
 import socket
 import subprocess
@@ -239,6 +238,7 @@ _READ_SELECTION = (
 #: Prefix of the answer line: the app may print at import or at exit, so the
 #: answer is the line that starts with it, never the last line of stdout.
 _SELECTION_SENTINEL = "SANDLOOM-DEV-SELECTION:"
+
 
 @dataclass(frozen=True, slots=True)
 class CompositionSelection:

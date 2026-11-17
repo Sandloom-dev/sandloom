@@ -76,7 +76,7 @@ async def test_poison_dead_lettered_after_exactly_max_deliveries() -> None:
         " 1-2",
         "1-2 ",
         "1-2-3",
-        "١-٢",
+        "\u0661-\u0662",
         "18446744073709551616-1",
         "1-18446744073709551616",
     ],
