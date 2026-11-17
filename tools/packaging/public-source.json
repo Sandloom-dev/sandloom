@@ -3123,6 +3123,7 @@
         "THIRD_PARTY.md",
         "architecture_rules.yml",
         "changelog.d/README.md",
+        "changelog.d/admin-npm-audit-picomatch.md",
         "changelog.d/url-mask-semicolon-scheme-password.md",
         "changelog.d/backup-urlsplit-secret-leak.md",
         "changelog.d/sandloom-celery/idk-low9.md",
