@@ -22,7 +22,6 @@ from sandloom.core.drivers.memory_broadcast import _Channels as Channels
 from sandloom.core.drivers.memory_broadcast import _check_publish as check_publish
 from sandloom.core.drivers.memory_broadcast import _check_subscribe as check_subscribe
 from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
-from sandloom.core.observability.metrics import broadcast_reconnect_attempts_total
 from sandloom.core.infra.errors import (
     InfraError,
     InvalidArgument,
@@ -37,6 +36,7 @@ from sandloom.core.infra.ports.broadcast import (
     BroadcastProvider,
     Subscription,
 )
+from sandloom.core.observability.metrics import broadcast_reconnect_attempts_total
 from sandloom.driverkit.testing import BroadcastConformance
 
 
