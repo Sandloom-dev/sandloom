@@ -1991,15 +1991,7 @@ def check_driver_class(
             "install_hint to a string, development_only to a bool and tier to one "
             f"of {', '.join(DRIVER_TIERS)}",
         )
-    opens_after = provider_class.opens_after
-    if not isinstance(opens_after, tuple) or any(
-        not isinstance(name, str) or not name.isidentifier() for name in opens_after
-    ):
-        raise DriverLoadError(
-            f"Driver {key!r} declares opens_after {opens_after!r}: it is a tuple "
-            "of capability names",
-            fix='set opens_after to a tuple such as ("cache",), never a bare string',
-        )
+    _check_opens_after(key, provider_class)
     if spec is not None:
         unknown = frozenset(provider_class.supported_features) - spec.features
         if unknown:
@@ -2010,6 +2002,20 @@ def check_driver_class(
                 fix="add the feature to the CapabilitySpec or drop it",
             )
     return provider_class
+
+
+def _check_opens_after(key: str, provider_class: type[InfraProvider]) -> None:
+    """``opens_after`` is a tuple of capability names (SANDLOOM-B022): a bare
+    string iterates by character and would order nothing, silently."""
+    opens_after = provider_class.opens_after
+    if not isinstance(opens_after, tuple) or any(
+        not isinstance(name, str) or not name.isidentifier() for name in opens_after
+    ):
+        raise DriverLoadError(
+            f"Driver {key!r} declares opens_after {opens_after!r}: it is a tuple "
+            "of capability names",
+            fix='set opens_after to a tuple such as ("cache",), never a bare string',
+        )
 
 
 def _import_target(
