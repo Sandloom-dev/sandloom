@@ -19,9 +19,11 @@ judged) only when every check passed and GitHub reports the PR mergeable.
 ``--head`` fails fast when the PR's head is not the commit you mean to merge.
 ``--required`` judges only the checks branch protection requires.
 
-Exit codes: 0 green (merged with ``--merge``), 1 a check failed or was
-cancelled, 2 not mergeable / head moved / PR closed / merge refused,
-3 timed out (checks pending or a required check not registered).
+Exit codes: 0 green (merged with ``--merge``), 1 a check failed, was cancelled
+or sits in a bucket this tool does not know, 2 not mergeable / head moved / PR
+closed / merge refused / a ``gh`` call that kept failing (printed as ``ERROR``,
+also at the deadline), 3 timed out (checks pending or a required check not
+registered).
 Standard library and ``gh`` only.
 """
 
@@ -111,8 +113,9 @@ def read_state(pr: str, required: bool, gh: Runner) -> State:
     if view.code != 0:
         raise RuntimeError(f"gh pr view {pr}: {view.err.strip() or view.out.strip()}")
     v = json.loads(view.out)
-    # Two calls at most: ``gh pr view --json statusCheckRollup`` carries neither
-    # the bucket nor the required flag, so the view cannot replace them.
+    # Three ``gh`` calls a poll (two with --required, which one call serves):
+    # ``gh pr view --json statusCheckRollup`` carries neither the bucket nor the
+    # required flag, so the view cannot replace the two ``gh pr checks`` calls.
     required_rows = _checks(pr, True, gh)
     # With --required the judged set is the required one: one call serves both.
     rows = required_rows if required else _checks(pr, False, gh)

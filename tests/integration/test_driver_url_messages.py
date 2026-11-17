@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.infra.config import InfraConfig, InstanceConfig
 from sandloom.core.infra.registry import InfraRegistry, InfraStartupError
 from sandloom.core.schema.registry import InMemorySchemaRegistry
+from sandloom.driverkit.shared_endpoints import reset
 
 
 @pytest.mark.asyncio
@@ -94,6 +96,16 @@ def _no_default_client(monkeypatch: pytest.MonkeyPatch) -> None:
     nothing to fall back on."""
     monkeypatch.setattr(redis_cache, "_default_options", None)
     monkeypatch.setattr(redis_cache, "_default_client", None)
+
+
+@pytest.fixture
+def _clean_shared_endpoints() -> Iterator[None]:
+    """Opening a Redis driver registers its endpoint with the process-wide
+    rendezvous: a test that opens one and never closes it leaves the entry for
+    the next test's shared-url warning."""
+    reset()
+    yield
+    reset()
 
 
 def _registry(
@@ -187,7 +199,7 @@ async def test_a_url_less_streams_bus_runs_on_the_default_cache_client(
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_no_default_client")
+@pytest.mark.usefixtures("_no_default_client", "_clean_shared_endpoints")
 async def test_a_url_less_bus_listed_before_the_cache_still_finds_its_url() -> None:
     """INFRA may list ``eventbus`` before ``cache``: the startup opens the cache
     first, so the bus finds the default cache client's url."""

@@ -102,6 +102,34 @@ def refuse_unfolded_fragments(root: Path, packages: list[str]) -> None:
     changelog_fragments.refuse_unfolded(root, scopes)
 
 
+def select_release_packages(
+    package: str, event: str, ref: str, versions: dict[str, str], *, dry_run: bool
+) -> tuple[list[str], bool]:
+    """The packages the event releases and whether it publishes them."""
+    if event == "push":
+        matched = [
+            name for name in PACKAGES if ref == f"refs/tags/{name}-v{versions[name]}"
+        ]
+        if len(matched) != 1:
+            raise ValueError(
+                "Release tag must exactly match a known package and its source version"
+            )
+        if not release_packages.by_name(matched[0]).tag_release:
+            raise ValueError(
+                f"{matched[0]} is not released by tag (tag_release is false in "
+                "packages.json); run the Release workflow by hand"
+            )
+        return matched, True
+    if event == "workflow_dispatch":
+        if package not in (*PACKAGES, "all"):
+            raise ValueError("Unknown release package")
+        publish = not dry_run
+        if publish and ref != "refs/heads/main":
+            raise ValueError("Manual publication is allowed only from main")
+        return (list(PACKAGES) if package == "all" else [package]), publish
+    raise ValueError("Only a manual run or a package release tag can request a release")
+
+
 def plan_release(
     root: Path,
     package: str,
@@ -125,33 +153,9 @@ def plan_release(
         raise ValueError(
             "Package versions must be public X.Y.Z or alpha/beta/rc versions"
         )
-    if event == "push":
-        matched = [
-            name for name in PACKAGES if ref == f"refs/tags/{name}-v{versions[name]}"
-        ]
-        if len(matched) != 1:
-            raise ValueError(
-                "Release tag must exactly match a known package and its source version"
-            )
-        if not release_packages.by_name(matched[0]).tag_release:
-            raise ValueError(
-                f"{matched[0]} is not released by tag (tag_release is false in "
-                "packages.json); run the Release workflow by hand"
-            )
-        selected, publish = matched, True
-    elif event == "workflow_dispatch":
-        if package not in (*PACKAGES, "all"):
-            raise ValueError("Unknown release package")
-        selected, publish = (
-            list(PACKAGES) if package == "all" else [package],
-            not dry_run,
-        )
-        if publish and ref != "refs/heads/main":
-            raise ValueError("Manual publication is allowed only from main")
-    else:
-        raise ValueError(
-            "Only a manual run or a package release tag can request a release"
-        )
+    selected, publish = select_release_packages(
+        package, event, ref, versions, dry_run=dry_run
+    )
     if publish and not on_main:
         raise ValueError("Publication requires a commit reachable from origin/main")
     if len(selected) > 1 and len({versions[name] for name in selected}) != 1:
@@ -298,7 +302,7 @@ def missing_files(manifest: JSON, fetch: Fetch = fetch_release) -> list[JSON]:
 def prepare_upload(
     manifest: JSON, dist: Path, upload: Path, fetch: Fetch = fetch_release
 ) -> bool:
-    rows = validate_local_artifacts(manifest, dist)
+    validate_local_artifacts(manifest, dist)
     missing = missing_files(manifest, fetch)
     upload.mkdir(parents=True, exist_ok=False)
     for row in missing:
@@ -472,30 +476,17 @@ def wait_github_release(api: Api, base: str, tag: str) -> JSON:
     raise RuntimeError("GitHub release is not visible after 6 reads")
 
 
-def publish_github_release(
-    manifest_path: Path,
-    dist: Path,
-    *,
-    repository: str,
-    source_sha: str,
-    api: Api = github_api,
-    command: Callable[[list[str]], str] = github_command,
-    fetch: Fetch = fetch_release,
-) -> None:
-    """Publish a draft only after PyPI and every GitHub asset hash are verified.
-
-    Reruns fill missing assets; an existing tag or asset is never overwritten.
-    No checkout, build, package installation or PyPI credentials are needed.
-    """
-    manifest = json.loads(manifest_path.read_text())
-    rows = validate_local_artifacts(manifest, dist)
+def require_reviewed_source(manifest: JSON, repository: str, source_sha: str) -> None:
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository) or not re.fullmatch(
         r"[a-f0-9]{40}", source_sha
     ):
         raise ValueError("Invalid GitHub repository/source")
     if manifest.get("source_sha") != source_sha:
         raise ValueError("Release source does not match the reviewed manifest")
-    spec = github_release_spec(manifest)
+
+
+def read_release_files(manifest_path: Path, rows: list[JSON]) -> tuple[Path, Path]:
+    """The reviewed checksum file and release notes, each checked."""
     folder = manifest_path.parent
     checksums = folder / "SHA256SUMS"
     if checksums.read_text() != checksum_text(rows):
@@ -503,8 +494,21 @@ def publish_github_release(
     notes = folder / "release-notes.md"
     if not notes.read_text().strip():
         raise ValueError("Release notes are empty")
-    verify_published(manifest, fetch=fetch)
-    base = f"repos/{repository}"
+    return checksums, notes
+
+
+def ensure_release_draft(
+    api: Api,
+    command: Callable[[list[str]], str],
+    base: str,
+    spec: JSON,
+    repository: str,
+    source_sha: str,
+    notes: Path,
+) -> JSON | None:
+    """The existing release of the tag (``None``: a draft was created for it).
+
+    An existing tag or draft must point at the reviewed source commit."""
     tag = spec["tag"]
     tag_source = github_tag_source(api, base, tag)
     if tag_source is not None and tag_source != source_sha:
@@ -537,6 +541,35 @@ def publish_github_release(
         )
     elif bool(existing["prerelease"]) != spec["prerelease"]:
         raise ValueError("Existing release has a different prerelease status")
+    return existing
+
+
+def publish_github_release(
+    manifest_path: Path,
+    dist: Path,
+    *,
+    repository: str,
+    source_sha: str,
+    api: Api = github_api,
+    command: Callable[[list[str]], str] = github_command,
+    fetch: Fetch = fetch_release,
+) -> None:
+    """Publish a draft only after PyPI and every GitHub asset hash are verified.
+
+    Reruns fill missing assets; an existing tag or asset is never overwritten.
+    No checkout, build, package installation or PyPI credentials are needed.
+    """
+    manifest = json.loads(manifest_path.read_text())
+    rows = validate_local_artifacts(manifest, dist)
+    require_reviewed_source(manifest, repository, source_sha)
+    spec = github_release_spec(manifest)
+    checksums, notes = read_release_files(manifest_path, rows)
+    verify_published(manifest, fetch=fetch)
+    base = f"repos/{repository}"
+    tag = spec["tag"]
+    existing = ensure_release_draft(
+        api, command, base, spec, repository, source_sha, notes
+    )
     assets = [dist / row["filename"] for row in rows] + [checksums, manifest_path]
     wanted = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in assets}
 
