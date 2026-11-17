@@ -100,9 +100,9 @@ class CeleryTaskQueueOptions(BaseModel):
     #: No default (``None``): no result backend unless the instance states one.
     backend: str | None = None
     #: Required by a ``sentinel://`` ``broker``, refused with any other scheme.
-    master_name: str | None = Field(default=None, max_length=64)
+    master_name: str | None = None
     #: The same, for a ``sentinel://`` ``backend``.
-    backend_master_name: str | None = Field(default=None, max_length=64)
+    backend_master_name: str | None = None
     #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
     #: the driver imports no kernel module (test_celery_replay_limits keeps them equal).
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
@@ -118,11 +118,17 @@ class CeleryTaskQueueOptions(BaseModel):
 
     @model_validator(mode="after")
     def _connection_is_connectable(self) -> Self:
-        """Refuse a ``rediss://`` url with no ``ssl_cert_reqs`` (kombu would not
-        verify the server), mixed schemes, and a sentinel url without its master
-        or a master without one (``connection_policy.validate_connection``)."""
+        """Refuse a ``rediss://`` url that does not verify the server (no
+        ``ssl_cert_reqs``, or no ``ssl_check_hostname``), mixed schemes, padded
+        ``;`` chunks, and a sentinel url without its master or a master without one
+        (``connection_policy.validate_connection``)."""
         validate_connection(
-            self.broker, self.backend, self.master_name, self.backend_master_name
+            ConnectionOptions(
+                self.broker or "",
+                self.backend,
+                self.master_name,
+                self.backend_master_name,
+            )
         )
         return self
 

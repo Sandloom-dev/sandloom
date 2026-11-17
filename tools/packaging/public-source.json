@@ -3171,7 +3171,6 @@
       "reason": "Database-agnostic kernel design: research, code inventory, review of the relational interface, and the proposal.",
       "paths": [
         "design/infra-agnostic/design.md",
-        "design/infra-drivers/celery-conf-audit.md",
         "design/infra-agnostic/inventory-kernel-postgres.md",
         "design/infra-agnostic/ledger-proposal-tenant.md",
         "design/infra-agnostic/object-store-contract-review.md",
@@ -3179,6 +3178,12 @@
         "design/infra-agnostic/research-reliability-mechanisms.md",
         "design/infra-agnostic/review-relational-interface.md",
         "design/infra-agnostic/spec.md"
+      ]
+    },
+    {
+      "reason": "Infrastructure driver design: the audit of the Celery configuration keys that move a connection, one decision per key.",
+      "paths": [
+        "design/infra-drivers/celery-conf-audit.md"
       ]
     },
     {

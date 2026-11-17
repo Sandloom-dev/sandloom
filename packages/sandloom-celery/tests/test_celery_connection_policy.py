@@ -73,23 +73,79 @@ def test_a_rediss_url_without_a_valid_ssl_cert_reqs_is_refused(
     assert "infra-secret" not in str(refused.value)
 
 
+_VERIFIED = "?ssl_cert_reqs=required&ssl_check_hostname=true"
+
+
 @pytest.mark.parametrize(
-    "value", ["required", "optional", "none", "CERT_REQUIRED", "CERT_NONE"]
+    "query",
+    [
+        "?ssl_cert_reqs=required&ssl_check_hostname=true",
+        "?ssl_cert_reqs=CERT_REQUIRED&ssl_check_hostname=TRUE",
+        "?ssl_cert_reqs=optional&ssl_check_hostname=1",
+        # none states that no check is wanted: no hostname to check either
+        "?ssl_cert_reqs=none",
+        "?ssl_cert_reqs=CERT_NONE",
+    ],
 )
-def test_a_rediss_url_that_states_ssl_cert_reqs_is_accepted(value: str) -> None:
+def test_a_rediss_url_that_states_its_verification_is_accepted(query: str) -> None:
     """A stated value is the operator's decision, as for the result backend
     (``none`` is the explicit way to skip verification, which kombu then logs)."""
-    options = CeleryTaskQueueOptions.model_validate(
-        {"broker": f"{_TLS}?ssl_cert_reqs={value}"}
-    )
+    options = CeleryTaskQueueOptions.model_validate({"broker": f"{_TLS}{query}"})
     assert options.broker is not None
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "?ssl_cert_reqs=required",
+        "?ssl_cert_reqs=required&ssl_check_hostname=false",
+        "?ssl_cert_reqs=optional&ssl_check_hostname=0",
+        "?ssl_check_hostname=true&ssl_cert_reqs=required&ssl_check_hostname=false",
+    ],
+)
+@pytest.mark.parametrize("role", ["broker", "backend"])
+def test_a_rediss_url_that_checks_no_hostname_is_refused(role: str, query: str) -> None:
+    """redis-py (< 6) defaults ``ssl_check_hostname`` to false, so
+    ``ssl_cert_reqs=required`` alone accepts any certificate of the CA, for any
+    name: the url must say ``ssl_check_hostname=true`` too."""
+    options = {"broker": "redis://127.0.0.1/0"}
+    options[role] = _TLS + query
+    with pytest.raises(ValidationError, match="ssl_check_hostname") as refused:
+        CeleryTaskQueueOptions.model_validate(options)
+    assert f"the {role} url" in str(refused.value)
+    assert "infra-secret" not in str(refused.value)
 
 
 def test_every_chunk_of_a_multi_host_rediss_url_must_state_it() -> None:
     """kombu switches to the next ``;`` url on failure and parses its own query."""
-    url = f"{_TLS}?ssl_cert_reqs=required;{_TLS}"
+    url = f"{_TLS}{_VERIFIED};{_TLS}"
     with pytest.raises(ValidationError, match="ssl_cert_reqs"):
         CeleryTaskQueueOptions.model_validate({"broker": url})
+    url = f"{_TLS}{_VERIFIED};{_TLS}?ssl_cert_reqs=required"
+    with pytest.raises(ValidationError, match="ssl_check_hostname"):
+        CeleryTaskQueueOptions.model_validate({"broker": url})
+    assert CeleryTaskQueueOptions.model_validate(
+        {"broker": f"{_TLS}{_VERIFIED};{_TLS}{_VERIFIED}"}
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://:infra-secret@a:1/0; redis://:infra-secret@b:1/0",
+        "redis://:infra-secret@a:1/0 ;redis://:infra-secret@b:1/0",
+        " redis://:infra-secret@a:1/0",
+        "redis://:infra-secret@a:1/0 ",
+        "redis://:infra-secret@a:1/0;",
+        ";redis://:infra-secret@a:1/0",
+    ],
+)
+def test_a_padded_or_empty_chunk_is_refused(url: str) -> None:
+    """kombu splits a url on ``;`` without stripping: a padded chunk fails over
+    with the password in the error it logs."""
+    with pytest.raises(ValidationError, match="empty chunk or a space") as refused:
+        CeleryTaskQueueOptions.model_validate({"broker": url})
+    assert "infra-secret" not in str(refused.value)
 
 
 def test_a_plain_redis_url_needs_no_ssl_option() -> None:
@@ -100,7 +156,24 @@ def test_urls_of_different_schemes_are_refused() -> None:
     """kombu switches the transport with the url, and the transport options are
     allowed per scheme."""
     with pytest.raises(ValueError, match="mixes schemes"):
-        validate_connection("redis://a;amqp://b", None, None, None)
+        validate_connection(ConnectionOptions("redis://a;amqp://b"))
+
+
+@pytest.mark.parametrize(
+    ("broker", "stated"),
+    [
+        ("sqs://KEY:SECRET@sqs.eu-west-1.amazonaws.com", {"is_secure": True}),
+        ("sqs://KEY:SECRET@", {}),
+        ("redis://h:1/0", {}),
+    ],
+)
+def test_infra_states_tls_for_an_sqs_url_with_a_host(
+    broker: str, stated: dict[str, object]
+) -> None:
+    """kombu builds ``http://<host>`` for an SQS url with a host unless
+    ``is_secure`` is true (``SQS.py:923-934``), and only the transport options
+    carry it: INFRA states it, a conf may repeat it and never turn it off."""
+    assert ConnectionOptions(broker).broker_stated_options() == stated
 
 
 @pytest.mark.parametrize("role", ["broker", "backend"])

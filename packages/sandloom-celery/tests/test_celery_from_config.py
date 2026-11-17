@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 from sandloom_celery import worker as celery_worker
-from sandloom_celery.connection_policy import FOREIGN_BACKEND_KEYS
+from sandloom_celery.connection_policy import (
+    FOREIGN_BACKEND_KEYS,
+    FOREIGN_BACKEND_NAMES,
+)
 from sandloom_celery.taskqueue import CeleryTaskQueueProvider, create_celery_taskqueue
 from sandloom_celery.worker import ForeignCeleryConfError
 
@@ -218,7 +221,8 @@ def test_broker_use_ssl_is_accepted_as_none_or_false_only(
             name=name,
             driver="celery",
             options={
-                "broker": "rediss://:infra-secret@127.0.0.1:6380/0?ssl_cert_reqs=required"
+                "broker": "rediss://:infra-secret@127.0.0.1:6380/0"
+                "?ssl_cert_reqs=required&ssl_check_hostname=true"
             },
         )
     )
@@ -266,6 +270,8 @@ def test_the_defaults_and_the_safe_shapes_of_the_backend_keys_pass(
 
 _SENTINEL = "sentinel://:infra-secret@127.0.0.1:26379/0"
 _SQS = "sqs://AKIA:infra-secret@"
+_SQS_HOST = "sqs://AKIA:infra-secret@sqs.eu-west-1.amazonaws.com"
+_QUEUE_URL = "https://sqs.eu-west-1.amazonaws.com/123456789012/q"
 _AMQP = "amqp://u:infra-secret@127.0.0.1:1//"
 _REDIS = "redis://:infra-secret@127.0.0.1:1/0"
 _MASTER = {"master_name": "infra-master"}
@@ -398,12 +404,57 @@ _TRANSPORT_REPROS = {
         "'http://stray-host'}}}\n",
         "broker_transport_options",
     ),
+    # a queue's own region and credentials replace the INFRA url's and the
+    # transport's (``SQS.py:769-781``): tasks would go to another AWS account
     "sqs predefined_queues region": (
         _SQS,
         {},
         "broker_transport_options = {'predefined_queues': {'q': "
-        "{'url': 'https://sqs.eu-west-1.amazonaws.com/1/q', "
-        "'region': 'stray-host.example/x#'}}}\n",
+        f"{{'url': '{_QUEUE_URL}', 'region': 'us-west-2'}}}}}}\n",
+        "broker_transport_options",
+    ),
+    "sqs predefined_queues access_key_id": (
+        _SQS,
+        {},
+        "broker_transport_options = {'predefined_queues': {'q': "
+        f"{{'url': '{_QUEUE_URL}', 'access_key_id': 'AKIASTAGING'}}}}}}\n",
+        "broker_transport_options",
+    ),
+    "sqs predefined_queues secret_access_key": (
+        _SQS,
+        {},
+        "broker_transport_options = {'predefined_queues': {'q': "
+        f"{{'url': '{_QUEUE_URL}', 'secret_access_key': 'stray-secret'}}}}}}\n",
+        "broker_transport_options",
+    ),
+    # the queue url: TLS, an AWS host, an account and a name, nothing else
+    "sqs predefined_queues plain http url": (
+        _SQS,
+        {},
+        "broker_transport_options = {'predefined_queues': {'q': "
+        "{'url': 'http://sqs.eu-west-1.amazonaws.com/123456789012/q'}}}\n",
+        "broker_transport_options",
+    ),
+    "sqs predefined_queues foreign host url": (
+        _SQS,
+        {},
+        "broker_transport_options = {'predefined_queues': {'q': "
+        "{'url': 'https://sqs.eu-west-1.amazonaws.com.stray.example/123456789012/q'}}}\n",
+        "broker_transport_options",
+    ),
+    "sqs predefined_queues no url": (
+        _SQS,
+        {},
+        "broker_transport_options = {'predefined_queues': {'q': "
+        "{'backoff_tasks': ['t']}}}\n",
+        "broker_transport_options",
+    ),
+    # an sqs:// url with a host is https only through ``is_secure``, which INFRA
+    # states: the conf may not turn it off
+    "sqs host is_secure off": (
+        _SQS_HOST,
+        {},
+        "broker_transport_options = {'is_secure': False}\n",
         "broker_transport_options",
     ),
     "sqs predefined_queues shape": (
@@ -468,9 +519,14 @@ _HARMLESS_TRANSPORT_OPTIONS = {
         {},
         "broker_transport_options = {'region': 'eu-west-1', 'queue_name_prefix': "
         "'app-', 'wait_time_seconds': 20, 'visibility_timeout': 60, "
-        "'predefined_queues': {'q': {'url': "
-        "'https://sqs.eu-west-1.amazonaws.com/1/q', 'access_key_id': 'a', "
-        "'secret_access_key': 'b', 'region': 'eu-west-1'}}}\n",
+        f"'predefined_queues': {{'q': {{'url': '{_QUEUE_URL}', "
+        "'backoff_policy': {1: 10}, 'backoff_tasks': ['t']}}}\n",
+    ),
+    # an sqs:// url with a host: INFRA states ``is_secure``, the conf may repeat it
+    "sqs host": (
+        _SQS_HOST,
+        {},
+        "broker_transport_options = {'is_secure': True, 'region': 'eu-west-1'}\n",
     ),
     "sentinel": (
         _SENTINEL,
@@ -515,6 +571,56 @@ def test_a_harmless_transport_option_is_accepted(
     conf = provider._app.conf
     stated = "broker" if "broker_transport_options" in body else "result_backend"
     assert conf.get(f"{stated}_transport_options")
+
+
+@pytest.mark.usefixtures("_clean_celery_env")
+@pytest.mark.parametrize("name", ["default", "aux"])
+@pytest.mark.parametrize(
+    ("broker", "expected"),
+    [(_SQS_HOST, {"is_secure": True}), (_SQS, None)],
+)
+def test_an_sqs_url_with_a_host_reaches_kombu_over_https(
+    name: str, broker: str, expected: dict[str, object] | None
+) -> None:
+    """kombu builds ``http://<host>`` unless the transport option ``is_secure`` is
+    true: INFRA lays it under the conf for an ``sqs://`` url with a host, and
+    leaves an url without one (``use_ssl=True`` there) alone."""
+    provider = create_celery_taskqueue(
+        InstanceConfig(
+            capability="taskqueue",
+            name=name,
+            driver="celery",
+            options={"broker": broker},
+        )
+    )
+    options = provider._app.conf.get("broker_transport_options")
+    assert (options or None) == expected
+
+
+@pytest.mark.usefixtures("_clean_celery_env")
+@pytest.mark.parametrize("key", FOREIGN_BACKEND_NAMES)
+def test_a_backend_container_or_collection_name_is_refused_unless_default(
+    _config_module: Callable[[str], None], key: str
+) -> None:
+    """``azureblockblob_container_name`` and the Cosmos DB database and collection
+    default to a name of their own: the default passes, any other names where the
+    result backend stores (a refusal naming the option, not the value)."""
+    _config_module(f"{key} = 'stray-value'\n")
+    provider = create_celery_taskqueue(_instance("aux"))
+    with pytest.raises(ForeignCeleryConfError, match=key) as refused:
+        provider._app  # noqa: B018
+    assert "stray-value" not in str(refused.value)
+    assert provider._built_app is None
+
+
+@pytest.mark.usefixtures("_clean_celery_env")
+def test_the_default_backend_names_pass(
+    _config_module: Callable[[str], None],
+) -> None:
+    _config_module(
+        "".join(f"{key} = {value!r}\n" for key, value in FOREIGN_BACKEND_NAMES.items())
+    )
+    assert create_celery_taskqueue(_instance("aux"))._app is not None
 
 
 @pytest.mark.usefixtures("_clean_celery_env")

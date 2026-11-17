@@ -79,10 +79,15 @@ from sandloom.driverkit.periodic import (
     slot_lease_name,
 )
 from sandloom_celery.connection_policy import (
+    BACKEND_TRANSPORT_OPTIONS,
+    BROKER_TRANSPORT_OPTIONS,
     FOREIGN_BACKEND_KEYS,
+    FOREIGN_BACKEND_NAMES,
+    FOREIGN_CONNECTION_KEYS,
     SAFE_DATABASE_ENGINE_OPTIONS,
     SAFE_FAILOVER_STRATEGIES,
     ConnectionOptions,
+    backend_name_is_foreign,
     backend_transport_keys,
     broker_transport_keys,
     infra_transport_options,
@@ -173,20 +178,21 @@ def _apply_framework_defaults(app: Any) -> Any:
 
 
 def _apply_connection_options(app: Any, connection: ConnectionOptions) -> Any:
-    """Hand the instance's sentinel masters to kombu and Celery, which read them
-    only from the transport options: laid under what the conf already carries, so
-    a conf naming another master stays visible to the conf check (and is refused)
-    instead of being replaced."""
-    for option, master in (
-        ("broker_transport_options", connection.master_name),
-        ("result_backend_transport_options", connection.backend_master_name),
+    """Hand the options ``INFRA`` states (the sentinel masters, TLS of an SQS
+    endpoint) to kombu and Celery, which read them only from the transport
+    options: laid under what the conf already carries, so a conf naming another
+    value stays visible to the conf check (and is refused) instead of being
+    replaced."""
+    for option, stated in (
+        (BROKER_TRANSPORT_OPTIONS, connection.broker_stated_options()),
+        (BACKEND_TRANSPORT_OPTIONS, connection.backend_stated_options()),
     ):
-        if master is None:
+        if not stated:
             # Reading the conf loads the config module: left to the first real
             # access, as before, when there is nothing to state.
             continue
         conf = app.conf
-        merged = infra_transport_options(conf.get(option), master)
+        merged = infra_transport_options(conf.get(option), stated)
         if merged is not None:
             conf[option] = merged
     return app
@@ -316,20 +322,6 @@ def refuse_foreign_app_conf(
         )
 
 
-# Connection parts Celery hands to kombu next to the url, where they win over what
-# the url omits (``broker_transport`` and ``broker_host`` even over what it states):
-# a config module setting one redirects the publish (``broker_transport = "memory"``
-# loses every task into an in-process queue) with the url itself untouched. INFRA
-# states the whole connection in the url, so none of them may be set at all.
-_FOREIGN_CONNECTION_KEYS = (
-    "broker_transport",
-    "broker_host",
-    "broker_port",
-    "broker_vhost",
-    "broker_user",
-    "broker_password",
-)
-
 # ``broker_use_ssl`` is the connection's TLS switch, and Celery hands its value to
 # kombu as ``ssl=``. A dict is merged into the redis connection parameters AFTER
 # the url: ``{"host": ..., "port": ..., "password": ..., "virtual_host": ...}``
@@ -353,10 +345,7 @@ _BROKER_SSL_KEY = "broker_use_ssl"
 # connection without moving it are accepted, and the sentinel master only as the
 # INFRA option states it. Any other key is refused, named only by the option that
 # holds it.
-_TRANSPORT_OPTIONS_KEYS = (
-    "broker_transport_options",
-    "result_backend_transport_options",
-)
+_TRANSPORT_OPTIONS_KEYS = (BROKER_TRANSPORT_OPTIONS, BACKEND_TRANSPORT_OPTIONS)
 
 # ``broker_failover_strategy`` is a name (``round-robin``, ``shuffle``) or a
 # callable that yields the urls kombu switches to; ``database_engine_options`` is
@@ -412,6 +401,15 @@ def _foreign_conf_reason(option: str, instance: str) -> str:
             "--config`, CELERY_CONFIG_MODULE) or a loader (`--loader default` "
             "reads celeryconfig.py) set it. Remove the other keys"
         )
+    if option in FOREIGN_BACKEND_NAMES:
+        return (
+            "is set to something but its Celery default: it names the container, "
+            "database or collection the result backend of "
+            f"taskqueue.{instance}.backend stores to: a config module (`celery "
+            "--config`, CELERY_CONFIG_MODULE) or a loader (`--loader default` "
+            "reads celeryconfig.py) set it. Remove that setting, or state it in "
+            "the INFRA url"
+        )
     if option in FOREIGN_BACKEND_KEYS:
         return (
             f"is set, and INFRA states the result backend, whole, in the url of "
@@ -420,7 +418,7 @@ def _foreign_conf_reason(option: str, instance: str) -> str:
             "celeryconfig.py) set it. Remove that setting, or state it in the "
             "INFRA url"
         )
-    if option in _FOREIGN_CONNECTION_KEYS:
+    if option in FOREIGN_CONNECTION_KEYS:
         return (
             f"is set, and INFRA states the whole connection in the url of "
             f"taskqueue.{instance}.broker: a config module (`celery --config`, "
@@ -448,11 +446,24 @@ def _is_unset(value: object) -> bool:
     return value is None
 
 
+def _foreign_connection_setting(conf: Any) -> str | None:
+    """The first connection part or result-backend setting of the conf that is set
+    at all (or, for a ``FOREIGN_BACKEND_NAMES`` one, set to a non-default)."""
+    for option in (*FOREIGN_CONNECTION_KEYS, *FOREIGN_BACKEND_KEYS):
+        if not _is_unset(conf.get(option)):
+            return option
+    for option in FOREIGN_BACKEND_NAMES:
+        if backend_name_is_foreign(option, conf.get(option)):
+            return option
+    return None
+
+
 def _foreign_conf_option(app: Any, connection: ConnectionOptions) -> str | None:
     """The first of the app's final ``broker_url``, ``broker_read_url``,
     ``broker_write_url`` and ``result_backend`` that is not what ``connection``
-    states, or of the connection parts of :data:`_FOREIGN_CONNECTION_KEYS` and the
-    result-backend keys of ``FOREIGN_BACKEND_KEYS`` that is set at all, or
+    states, or of the connection parts of ``FOREIGN_CONNECTION_KEYS`` and the
+    result-backend keys of ``FOREIGN_BACKEND_KEYS`` that is set at all, or a
+    ``FOREIGN_BACKEND_NAMES`` setting that is not its default, or
     ``broker_use_ssl`` when it is anything but ``None`` / ``False``, or a
     ``broker_failover_strategy`` / ``database_engine_options`` of a shape that
     moves the connection, or a transport-options key outside the scheme's
@@ -471,9 +482,9 @@ def _foreign_conf_option(app: Any, connection: ConnectionOptions) -> str | None:
             found = found.strip()
         if found != expected:
             return option
-    for option in (*_FOREIGN_CONNECTION_KEYS, *FOREIGN_BACKEND_KEYS):
-        if not _is_unset(conf.get(option)):
-            return option
+    foreign = _foreign_connection_setting(conf)
+    if foreign is not None:
+        return foreign
     # An allow-list, by identity: absent, None or False; never True (plain text on
     # a rediss:// url), a dict, or anything else.
     ssl_switch = conf.get(_BROKER_SSL_KEY)
@@ -496,21 +507,21 @@ def _foreign_transport_option(conf: Any, connection: ConnectionOptions) -> str |
     """The first of :data:`_TRANSPORT_OPTIONS_KEYS` that is set to something but a
     mapping of the keys the scheme of its url allows (the sentinel master only as
     ``connection`` states it); ``None`` when none."""
-    for option, allowed, master in (
+    for option, allowed, stated in (
         (
-            "broker_transport_options",
+            BROKER_TRANSPORT_OPTIONS,
             broker_transport_keys(connection.broker),
-            connection.master_name,
+            connection.broker_stated_options(),
         ),
         (
-            "result_backend_transport_options",
+            BACKEND_TRANSPORT_OPTIONS,
             backend_transport_keys(connection.backend),
-            connection.backend_master_name,
+            connection.backend_stated_options(),
         ),
     ):
         options = conf.get(option)
         if options is not None and not transport_options_are_safe(
-            options, allowed, master
+            options, allowed, stated
         ):
             return option
     return None
