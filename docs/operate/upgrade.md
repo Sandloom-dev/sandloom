@@ -204,8 +204,8 @@ alias: the old names are gone.
 ## Upgrading to 0.7.0a15: the test harness holds no Redis
 
 The harness that isolates parallel test runs reads each backend's rules from its harness
-family (the `sandloom.testing` entry-point group), not from a Redis url form in the kernel.
-Some names of the harness are renamed or removed. There is no alias: the old names are gone.
+family, not from a Redis url form in the kernel. A family registers in the
+`sandloom.testing` entry-point group. Some names of the harness are renamed or removed. There is no alias: the old names are gone.
 An app on the standard stack changes nothing.
 
 | Before | After |

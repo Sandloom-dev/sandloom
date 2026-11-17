@@ -202,7 +202,9 @@ def test_the_harness_moves_the_broker_through_the_celery_hook(worker: str) -> No
     base = "redis://127.0.0.1:6380/1"
     number = int(worker[2:])
     env = {workers.WORKER_ENV: worker}
-    expected = f"redis://127.0.0.1:6380/{1 + redis_isolation.DEFAULT_STRIDE * (number + 1)}"
+    expected = (
+        f"redis://127.0.0.1:6380/{1 + redis_isolation.DEFAULT_STRIDE * (number + 1)}"
+    )
     moved = _harness_url(
         base, env, capability="taskqueue", driver="celery", option="broker"
     )

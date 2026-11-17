@@ -5,7 +5,7 @@
     sandloom test --full           the parallel FULL suite (slow tests included)
     sandloom test --no-gates       tests only
     sandloom test --plan           print the steps, run nothing
-    sandloom test --ci             CI: the same gates, without the route-effect recording
+    sandloom test --ci             CI: the same gates, no route-effect recording
     sandloom test --seed N         replay a test order (default: a fresh seed, printed)
     sandloom test --no-shuffle     run the tests in file order
 
@@ -169,6 +169,7 @@ def _parallel_env() -> dict[str, str]:
     for family in harness_families():
         env.update(family.parallel_env())
     return env
+
 
 #: Outside ``--ci`` the tests record the effects each route ran (G-ROUTE-05),
 #: which ``sandloom routes snapshot --write`` attaches as observed_effects.

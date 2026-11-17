@@ -245,7 +245,9 @@ def _point_at(
     except (OSError, RuntimeError) as exc:  # backend full: the run reports it itself
         claimed = {}
         if announce:
-            print(f"sandloom testing: no own backend resources ({exc})", file=sys.stderr)
+            print(
+                f"sandloom testing: no own backend resources ({exc})", file=sys.stderr
+            )
     slot.family_urls = {**urls, **claimed}
     slot.claimed_urls = tuple(dict.fromkeys(claimed.values()))
     env.update(slot.family_urls)
