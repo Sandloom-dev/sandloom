@@ -376,7 +376,11 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
             driver = spec.get("driver") or (existing.driver if existing else None)
             if not driver:
                 raise InfraConfigError(
-                    f"INFRA[{capability!r}][{inst_name!r}] needs a 'driver'"
+                    f"INFRA[{capability!r}][{inst_name!r}] needs a 'driver': the "
+                    "composition in use selects none for it. Name one in INFRA. If "
+                    "your app's composition selects it, run against that "
+                    "composition (SANDLOOM_COMPOSITION_ROOT, e.g. your app's asgi "
+                    "module)"
                 )
             _refuse_removed_driver(capability, str(inst_name), str(driver))
             if existing is not None and existing.driver == driver:

@@ -210,6 +210,12 @@ class InfraProvider(abc.ABC):
     #: without naming the driver, once the registry has the class
     #: (``build_infra_registry``); ``None``: the driver reads none.
     settings_fill: ClassVar[SettingsFill | None] = None
+    #: The capabilities whose instances must be opened before this driver's:
+    #: a driver that reads state another capability's ``aopen`` sets up (a
+    #: process-wide client) names it here, and ``aopen_all`` opens those first
+    #: whatever order ``INFRA`` lists them in. Every other instance keeps the
+    #: order ``INFRA`` gives. A cycle between two drivers is refused at startup.
+    opens_after: ClassVar[tuple[str, ...]] = ()
     #: Top-level imports needed by the backend. The entry point must be
     #: importable without them so the registry can check them before building.
     required_imports: ClassVar[tuple[str, ...]] = ()

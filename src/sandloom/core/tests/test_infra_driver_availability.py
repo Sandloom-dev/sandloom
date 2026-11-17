@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import socket
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from sandloom.core.infra.config import (
 from sandloom.core.infra.contracts import InfraProvider
 from sandloom.core.infra.registry import (
     CapabilityUnavailable,
+    DriverLoadError,
     DriverUnavailableError,
     FeatureUnsupportedError,
     InfraRegistry,
@@ -415,32 +417,113 @@ async def test_an_unused_synthesized_instance_is_not_opened_or_probed() -> None:
     assert "status" not in described["cache"]["default"]
 
 
+def _class_driver(capability: str, **attributes: Any) -> type[_Provider]:
+    """A provider class (so the registry reads its declarations) for ``capability``."""
+    return type(
+        f"_{capability}_class_driver",
+        (_Provider,),
+        {"capability": capability, "contract_version": 1, **attributes},
+    )
+
+
 @pytest.mark.asyncio
-async def test_the_cache_opens_before_any_other_capability_whatever_the_infra_order() -> (
-    None
-):
+async def test_a_driver_that_opens_after_a_capability_opens_after_it() -> None:
     """A url-less event bus runs on the default cache client the cache instance
-    configures when it is built: INFRA listing the bus first must not open it
-    first (the bus was refused for a url the cache had)."""
-    registry, spies = _registry(
+    configures when it is built: its driver says ``opens_after = ("cache",)``,
+    and INFRA listing the bus first must not open it first (the bus was refused
+    for a url the cache had). A driver that declares nothing keeps INFRA's
+    order: the task queue, listed before the cache, still opens before it."""
+    registry, _ = _registry(
         _instance("eventbus", "bus"),
         _instance("taskqueue", "jobs"),
         _instance("cache", "kv"),
     )
-    for capability, driver in (
-        ("eventbus", "bus"),
-        ("taskqueue", "jobs"),
-        ("cache", "kv"),
-    ):
-        registry.register_driver(capability, driver, spies[capability])
+    registry.register_driver(
+        "eventbus", "bus", _class_driver("eventbus", opens_after=("cache",))
+    )
+    registry.register_driver("taskqueue", "jobs", _class_driver("taskqueue"))
+    registry.register_driver("cache", "kv", _class_driver("cache"))
 
     await registry.aopen_all(strict=True)
 
     assert _Provider.opened == [
+        "taskqueue/default",
         "cache/default",
         "eventbus/default",
-        "taskqueue/default",
     ]
+
+
+@pytest.mark.asyncio
+async def test_drivers_that_open_after_each_other_are_refused_at_startup() -> None:
+    registry, _ = _registry(_instance("eventbus", "bus"), _instance("cache", "kv"))
+    registry.register_driver(
+        "eventbus", "bus", _class_driver("eventbus", opens_after=("cache",))
+    )
+    registry.register_driver(
+        "cache", "kv", _class_driver("cache", opens_after=("eventbus",))
+    )
+
+    with pytest.raises(InfraStartupError, match="wait for each other"):
+        await registry.aopen_all(strict=True)
+    assert _Provider.opened == []
+
+
+@pytest.mark.parametrize(
+    "declared", ["cache", ["cache"], ("cache", 1), ("not a name",)]
+)
+def test_opens_after_must_be_a_tuple_of_capability_names(declared: object) -> None:
+    """A bare string iterates by character and would order nothing, silently:
+    the class is refused when it is registered (SANDLOOM-B022)."""
+    registry, _ = _registry(_instance("eventbus", "bus"))
+    with pytest.raises(DriverLoadError, match="opens_after"):
+        registry.register_driver(
+            "eventbus", "bus", _class_driver("eventbus", opens_after=declared)
+        )
+
+
+def test_opens_after_a_tuple_of_names_is_accepted() -> None:
+    registry, _ = _registry(_instance("eventbus", "bus"))
+    registry.register_driver(
+        "eventbus", "bus", _class_driver("eventbus", opens_after=("cache", "lease"))
+    )
+    driver = registry.driver_class("eventbus", "bus")
+    assert driver is not None
+    assert driver.opens_after == ("cache", "lease")
+
+
+def test_opens_after_may_not_name_the_drivers_own_capability() -> None:
+    """Instances of one capability open in INFRA's order: a driver waiting for
+    its own capability would be ordered by nothing, so it is refused at load."""
+    registry, _ = _registry(_instance("cache", "kv"))
+    with pytest.raises(DriverLoadError, match="own capability"):
+        registry.register_driver(
+            "cache", "kv", _class_driver("cache", opens_after=("cache",))
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [False, True])
+async def test_a_lazy_driver_class_refused_at_load_does_not_stop_the_ordering(
+    monkeypatch: pytest.MonkeyPatch, strict: bool
+) -> None:
+    """Ordering reads each driver's class. A class the registry refuses (here a
+    feature the capability does not define, SANDLOOM-B022 family) is left to
+    the open of its own instance, which reports it: under a non-strict startup
+    the healthy instances still open, under a strict one the startup fails."""
+    bad = _class_driver("taskqueue", supported_features=frozenset({"unknown"}))
+    module = types.ModuleType("sandloom_opens_after_lazy_driver")
+    module.BadDriver = bad  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    registry, _ = _registry(_instance("taskqueue", "jobs"), _instance("cache", "kv"))
+    registry.register_driver("taskqueue", "jobs", f"{module.__name__}:BadDriver")
+    registry.register_driver("cache", "kv", _class_driver("cache"))
+
+    if strict:
+        with pytest.raises(InfraStartupError, match="taskqueue/default"):
+            await registry.aopen_all(strict=True)
+    else:
+        await registry.aopen_all(strict=False)
+    assert _Provider.opened == ["cache/default"]
 
 
 @pytest.mark.asyncio

@@ -184,6 +184,9 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
     url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+    #: An instance with no ``url`` runs on the default cache client, which the
+    #: cache instance's ``aopen`` configures.
+    opens_after = ("cache",)
     # Beta, the floor for a driver of this repository (spec 2.5): the
     # redis-drivers job runs the event-bus kit against a real Redis. The
     # entry point has no registration call, so an undeclared tier would be

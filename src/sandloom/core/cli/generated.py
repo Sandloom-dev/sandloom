@@ -78,6 +78,7 @@ from sandloom.core.contracts.schema_compatibility import (
     schema_problems as schema_problems,
 )
 from sandloom.core.descriptors.module_names import module_name
+from sandloom.core.infra.config import InfraConfigError
 from sandloom.core.module_api import contract_schema
 
 #: File name of a module's generated surface snapshot.
@@ -1233,7 +1234,14 @@ def main(argv: list[str] | None = None) -> int:
         # not generated yet (ADR-0013 decision 2).
         apply(pre, write=True, shared_dir=rules.shared_dir, root=rules.root)
         before = _inspection_generation.capture(rules)
-    app = load_composition_app()
+    try:
+        app = load_composition_app()
+    except InfraConfigError as exc:
+        # The composition cannot be built from this INFRA (an instance that
+        # names a url and no driver, the composition selecting none): a
+        # configuration to fix, not a crash.
+        print(f"sandloom generate: the composition cannot be built: {exc}")
+        return 2
     if args.modules:
         known = {
             name
