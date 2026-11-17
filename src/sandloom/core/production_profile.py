@@ -54,6 +54,7 @@ import logging
 import posixpath
 from collections.abc import Iterable, Mapping
 from typing import Any
+from urllib.parse import unquote
 
 import sandloom.core.tenant as _tenant
 from sandloom.core import rpc_pair_mac
@@ -77,11 +78,13 @@ def _server(url: object) -> tuple[str, str, int | None] | None:
         return None
     parts = split_url(url)
     # ``c.`` is the fully-qualified spelling of ``c``: one host, so one server.
-    host = (parts.hostname or "").lower().rstrip(".")
-    if not host and parts.scheme.lower().split("+")[-1] == "unix" and parts.path:
+    if parts.scheme.lower().split("+")[-1] == "unix" and parts.path:
         # a unix socket (``unix:///run/x.sock``, ``<driver>+unix://...``) names
-        # its server by the socket path, whatever the driver prefix
-        return "unix", f"unix:{posixpath.normpath(parts.path)}", None
+        # its server by the socket path, whatever the driver prefix and whatever
+        # host the url states (``unix://localhost/run/x.sock`` is the same
+        # socket as ``unix:///run/x.sock``); the driver reads the path decoded
+        return "unix", f"unix:{posixpath.normpath(unquote(parts.path))}", None
+    host = (parts.hostname or "").lower().rstrip(".")
     if not host:
         return None
     try:

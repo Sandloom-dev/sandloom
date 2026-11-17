@@ -16,7 +16,7 @@ import redis.exceptions as redis_errors
 from _redis_required import cache_url_or_unavailable
 from sandloom_redis import lease
 from sandloom_redis.lease import RedisLeaseProvider
-from sandloom_redis.testing.isolation import use_layout
+from sandloom_redis.testing.isolation import REDIS_FAMILY, use_layout
 
 from sandloom.driverkit import InfraError, InvalidArgument, PermissionDenied
 from sandloom.driverkit.lease_limits import (
@@ -173,7 +173,7 @@ def test_the_redis_lease_runs_each_xdist_worker_on_its_own_database_index() -> N
         assert moved["never_evicts_check"] == "verify"
         assert RedisLeaseProvider.test_isolation(options, "master") == options
     finally:
-        set_url_mover(None)
+        set_url_mover(REDIS_FAMILY, None)
 
 
 def test_the_redis_lease_shares_the_limits_of_the_port() -> None:

@@ -4154,6 +4154,102 @@
       "signature": "(env_var:POSITIONAL_OR_KEYWORD|str, reason:POSITIONAL_OR_KEYWORD|str) -> NoReturn"
     }
   },
+  "sandloom.driverkit.testing_family": {
+    "HarnessFamily": {
+      "kind": "class",
+      "members": [
+        "allocate_workers",
+        "cap_workers",
+        "claim",
+        "flush_owned",
+        "name",
+        "owns_url",
+        "parallel_env",
+        "release_slot_bases",
+        "rewrite_worker",
+        "same_database",
+        "slot_bases"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "INFRA_VAR": {
+      "kind": "value"
+    },
+    "INSTANCE_URL_OPTIONS": {
+      "kind": "value"
+    },
+    "OWNER_ENV": {
+      "kind": "value"
+    },
+    "Resource": {
+      "kind": "class",
+      "members": [
+        "age_days",
+        "fingerprint"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str, owner:POSITIONAL_OR_KEYWORD|str | None, last_used:POSITIONAL_OR_KEYWORD|float | None, source:POSITIONAL_OR_KEYWORD|str, live:POSITIONAL_OR_KEYWORD|int, size:POSITIONAL_OR_KEYWORD|int, fingerprint:POSITIONAL_OR_KEYWORD|tuple[str, str, int]=tuple('','',0)) -> None"
+    },
+    "TAKEOVER_ENV": {
+      "kind": "value"
+    },
+    "TestResourceOwnershipError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "already_claimed": {
+      "kind": "function",
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, identity:POSITIONAL_OR_KEYWORD|str, owner:POSITIONAL_OR_KEYWORD|str) -> bool"
+    },
+    "check_holder": {
+      "kind": "function",
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, what:POSITIONAL_OR_KEYWORD|str, holder:POSITIONAL_OR_KEYWORD|str | None, owner:POSITIONAL_OR_KEYWORD|str, hint:POSITIONAL_OR_KEYWORD|str, environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> None"
+    },
+    "current_owner": {
+      "kind": "function",
+      "signature": "(environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None, cwd:POSITIONAL_OR_KEYWORD|Path | None=None) -> str"
+    },
+    "default_driver": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str) -> str | None"
+    },
+    "isolated_instance_options": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str, driver:POSITIONAL_OR_KEYWORD|str, options:POSITIONAL_OR_KEYWORD|Mapping[str, Any], worker_id:POSITIONAL_OR_KEYWORD|str) -> Mapping[str, Any]"
+    },
+    "parse_infra": {
+      "kind": "function",
+      "signature": "(raw:POSITIONAL_OR_KEYWORD|str | None) -> dict[str, dict[str, dict[str, Any]]]"
+    },
+    "record_claim": {
+      "kind": "function",
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, identity:POSITIONAL_OR_KEYWORD|str, owner:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "verdict": {
+      "kind": "function",
+      "signature": "(resource:POSITIONAL_OR_KEYWORD|Resource, now:KEYWORD_ONLY|float, max_age_days:KEYWORD_ONLY|float=7.0, include_unmarked:KEYWORD_ONLY|bool=False, protect_owners:KEYWORD_ONLY|Iterable[str]=tuple()) -> tuple[bool, str]"
+    }
+  },
+  "sandloom.driverkit.testing_isolation": {
+    "isolated_url_options": {
+      "kind": "function",
+      "signature": "(options:POSITIONAL_OR_KEYWORD|Mapping[str, Any], worker_id:POSITIONAL_OR_KEYWORD|str, keys:POSITIONAL_OR_KEYWORD|Sequence[str]=tuple('url')) -> Mapping[str, Any]"
+    },
+    "set_url_mover": {
+      "kind": "function",
+      "signature": "(family:POSITIONAL_OR_KEYWORD|str, mover:POSITIONAL_OR_KEYWORD|Callable[[str, int], str] | None) -> None"
+    }
+  },
+  "sandloom.driverkit.url_split": {
+    "split_url": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str) -> SplitResult"
+    }
+  },
   "sandloom.sdk": {
     "Base": {
       "kind": "class",

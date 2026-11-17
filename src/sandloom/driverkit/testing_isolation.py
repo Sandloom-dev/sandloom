@@ -18,11 +18,12 @@ task queue). A ``worker_id`` that is not ``gw<N>`` returns the options as given.
 
 How a URL moves is the backend's harness family's (``sandloom.driverkit.
 testing_family``), not the driver's and not the kernel's: the family computes
-its layout from its own configuration and installs a *mover* with
-:func:`set_url_mover` before the harness calls a hook, so a driver reads no
-environment. The mover returns a URL its family does not own unchanged, so a
-driver whose option may hold a URL of another backend is safe to call. The
-harness calls the hook of every configured instance of a driver; a driver
+its layout from its own configuration and installs its *mover* with
+:func:`set_url_mover` (keyed by the family's name; each family has one and the
+hook applies every installed one in turn) before the harness calls a hook, so a
+driver reads no environment. A mover returns a URL its family does not own
+unchanged, so a driver whose option may hold a URL of another backend is safe
+to call. The harness calls the hook of every configured instance of a driver; a driver
 package needs no pytest plugin for it.
 """
 

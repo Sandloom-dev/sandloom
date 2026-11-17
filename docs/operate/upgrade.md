@@ -210,8 +210,8 @@ An app on the standard stack changes nothing.
 
 | Before | After |
 | --- | --- |
-| `sandloom.driverkit.testing_isolation.isolated_redis_options(options, worker_id, keys)` | `isolated_url_options(options, worker_id, keys)`, from the same module. It applies the URL mover the harness family installed and leaves the options unchanged when none is installed. |
-| `testing_isolation.WorkerLayout`, `DEFAULT_STRIDE`, `set_worker_layout`, `worker_layout` | `testing_isolation.set_url_mover(mover)`, with `mover(url, worker_number) -> url`. The Redis layout (`WorkerLayout`, the stride) is `sandloom_redis.testing.isolation`. |
+| `sandloom.driverkit.testing_isolation.isolated_redis_options(options, worker_id, keys)` | `isolated_url_options(options, worker_id, keys)`, from the same module. It applies the URL movers the harness families installed, one after another, and leaves the options unchanged when none is installed. |
+| `testing_isolation.WorkerLayout`, `DEFAULT_STRIDE`, `set_worker_layout`, `worker_layout` | `testing_isolation.set_url_mover(family_name, mover)`, with `mover(url, worker_number) -> url`: one mover per family, a mover leaves the URLs it does not own as they are. The Redis layout (`WorkerLayout`, the stride) is `sandloom_redis.testing.isolation`. |
 | `sandloom.core.testing.workers.REDIS_VARS` | `URL_VARS` |
 | `Slot.redis_urls` | `Slot.family_urls` |
 | A `HarnessFamily` with seven hooks | Three more, which a family of your own must implement (the protocol is checked at load): `owns_url(url)`, `same_database(stated, base)` and `parallel_env()`. |
@@ -219,6 +219,8 @@ An app on the standard stack changes nothing.
 `SANDLOOM_TEST_REDIS_DB_STRIDE` keeps its name: it is the Redis family's own variable. A
 `SANDLOOM_TEST_CACHE_URL` or `SANDLOOM_TEST_BROKER_URL` that no installed family owns is
 refused with `UnmatchedOverrideError`, where the kernel once accepted any Redis-shaped one.
+So is an override value that is no URL of an installed backend (`unix:///tmp/r.sock` or
+`memcached://h` next to a Redis default). The message does not quote it.
 Upgrade `sandloom-redis` and `sandloom-celery` with the kernel.
 
 ## Upgrading to 0.7.0a15: `sandloom dev` and `sandloom new` ask the driver package for the server

@@ -1558,8 +1558,9 @@ For the orchestrator's review; each departs from or details `design.md`.
       `parallel_env()`.** The harness asks the installed families which one owns a
       `SANDLOOM_TEST_*_URL` override (none: `UnmatchedOverrideError`), whether an override
       names the instance's own database, and which environment an xdist step needs.
-    - **One URL mover replaces the Redis layout in `driverkit`.** `testing_isolation` exports
-      two names: `set_url_mover(mover)` (a family installs `(url, worker number) -> url`) and
+    - **One URL mover per family replaces the Redis layout in `driverkit`.** `testing_isolation` exports
+      two names: `set_url_mover(family, mover)` (a family installs `(url, worker number) -> url`
+      under its name; the hook applies every installed mover in turn) and
       `isolated_url_options(options, worker_id, keys)` (a driver's `test_isolation` calls it).
       `WorkerLayout`, `DEFAULT_STRIDE`, `isolated_redis_options`, `set_worker_layout` and
       `worker_layout` are removed (no alias, ADR-0010); the layout is
