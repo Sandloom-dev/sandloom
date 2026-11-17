@@ -52,16 +52,19 @@ cp .env.example .env
 `DATABASE_URL` and `JWT_SECRET` are mandatory, and so is `INFRA`: it gives each Redis <!-- prose-ok: P6 a list of settings and commands -->
 instance and the Celery broker its own url. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
 root that `sandloom migrate`, `sandloom generate`, the worker and the other `sandloom`
-commands build; keep it. A checkout or worktree without a `.env` needs no variable for
-the commands you run from the repository root: `sandloom generate`, `sandloom migrate`
-and the steps of `sandloom test` that build the app (generated files, schema & deploy,
-the contract and route snapshots, migration drift) build `sandloom_standard.main`, the
-default that `pyproject.toml` names (`[tool.sandloom] composition-root`), and the root
-`conftest.py` picks the standard root for the pytest suites. The variable, in the
-process or in `.env`, still wins over that default. The commands that read only the
-variable are the worker and the operator CLIs (`sandloom outbox`, `sandloom streams`,
-`sandloom projection`): without it they get the lean root and refuse with
-`SANDLOOM-B035`. Export it there:
+commands build; keep it.
+
+A checkout or worktree without a `.env` needs no variable for the commands you run from <!-- prose-ok: P6 a list of commands and steps -->
+the repository root. `sandloom generate`, `sandloom migrate` and the steps of
+`sandloom test` that build the app (generated files, schema & deploy, the contract and
+route snapshots, migration drift) build `sandloom_standard.main`. `pyproject.toml` names
+it under `[tool.sandloom] composition-root`. The root `conftest.py` picks the standard
+root for the pytest suites. The variable, in the process or in `.env`, still wins over
+that default.
+
+The worker and the operator CLIs (`sandloom outbox`, `sandloom streams`,
+`sandloom projection`) read only the variable. Without it they get the lean root and
+refuse with `SANDLOOM-B035`. Export it there:
 
 ```bash
 export SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main

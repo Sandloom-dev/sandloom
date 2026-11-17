@@ -62,12 +62,13 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   generate`"), the tests, and with `--full` the typing tests. A failing step names its code: `uv run sandloom explain <code>`.
 - **Which composition it builds.** The steps that build the application (generated
   files, schema & deploy, contract and route snapshots, migration drift) take the
-  root from `SANDLOOM_COMPOSITION_ROOT` (process env, then `.env`), else from
-  `[tool.sandloom] composition-root` in the project's `pyproject.toml`, else the lean
-  `sandloom.main`. The framework checkout names `sandloom_standard.main` there, so the
-  bare command works from the repository root; an app from `sandloom new` names its
-  root in `.env`. The pytest suites never read that key: their root is the root
-  `conftest.py`'s (or the plugin's `sandloom_composition_root` ini key).
+  root from `SANDLOOM_COMPOSITION_ROOT` (process env, then `.env`). Without it they
+  read `[tool.sandloom] composition-root` in the project's `pyproject.toml`, and
+  without that the lean `sandloom.main`. The framework checkout names
+  `sandloom_standard.main`, so the bare command works from the repository root. An app
+  from `sandloom new` names its root in `.env`. The pytest suites never read that
+  key. Their root comes from the root `conftest.py` or the plugin's
+  `sandloom_composition_root` ini key.
 - **Random order.** Every test step runs in a seeded random order (the
   files, then the tests inside each file); the seed is printed. Replay it
   with `sandloom test --seed <seed>` or `pytest --sandloom-shuffle=<seed>` (the plugin
