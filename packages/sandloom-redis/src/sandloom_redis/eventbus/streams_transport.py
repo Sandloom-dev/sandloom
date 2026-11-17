@@ -215,6 +215,10 @@ class RedisStreamsTransport(_StreamsConsume):
     ) -> list[DeadLetter]:
         if after:
             _require_entry_id(after, "the cursor")
+            if all(int(part) == _STREAM_ID_PART_MAX for part in after.split("-")):
+                # The largest id: nothing follows it, and Redis refuses an
+                # exclusive range start there ("invalid start ID").
+                return []
         client = await self._client()
         entries = await client.xrange(
             self._dlq_key(stream),

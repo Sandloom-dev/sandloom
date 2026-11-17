@@ -87,10 +87,10 @@ instance. It writes no `SANDLOOM_TEST_BROKER_URL` for an app with no task queue 
 `.env.test` declares no url.
 
 `dev up` reads `.env.test` only. It fills a `${VAR}` in it from its own environment, while
-the harness uses the environment of the test process. An `INFRA` you export in your shell
-wins over `.env.test` in the test run, and `dev up` does not read it. With none in
-`.env.test` it writes no override and says so. The tests then run on the Redis that the
-shell `INFRA` names.
+the harness uses the environment of the test process. A shell `INFRA` counts in the test
+run only where `.env.test` declares none: an `INFRA` in `.env.test` replaces the shell's.
+`dev up` does not read the shell's. With none in `.env.test` it writes no override and
+says so. The tests then run on the Redis that the shell `INFRA` names.
 
 A variable you export yourself is yours to unset. `CACHE_URL` and `BROKER_URL` are not
 settings any more: setting either fails startup.
@@ -324,7 +324,8 @@ harness only through `sandloom.driverkit.testing_family`. It offers:
 The Redis family is the one `sandloom-redis` registers. `sandloom.core.testing` has no
 Redis half:
 
-- `redis_family`, `redis_isolation` and `redis_urls` are gone from it.
+- The functions `redis_family`, `redis_isolation` and `redis_urls` are gone from it.
+  `Slot.redis_urls` stays: the urls the held slot claimed.
 - The Redis ownership claim (`claim_redis`, `REDIS_OWNER_KEY`, `REDIS_LAST_USED_KEY`) is
   in `sandloom_redis.testing.ownership`.
 - The scan, prune and allocation of Redis indexes (`scan_redis`, `prune_redis`,

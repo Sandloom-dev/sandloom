@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -43,25 +42,13 @@ from pydantic_settings import (
     SecretsSettingsSource,
 )
 
+from sandloom.core.cli.url_text import mask_url_credentials as mask_url_credentials
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config.settings import effective_secrets_dir, settings
 from sandloom.core.observability.guardrails import is_secret_name
 
 REDACTED = "<redacted>"
-
-_URL_CREDENTIALS = re.compile(r"([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/@\s]+)@")
-
-
-def mask_url_credentials(text: str) -> str:
-    """``scheme://user:pw@host`` -> ``scheme://user:***@host`` anywhere in text."""
-
-    def _sub(match: re.Match[str]) -> str:
-        userinfo = match.group(2)
-        user = userinfo.split(":", 1)[0] if ":" in userinfo else ""
-        return f"{match.group(1)}{user + ':' if user else ''}***@"
-
-    return _URL_CREDENTIALS.sub(_sub, text)
 
 
 def _plain(value: Any) -> Any:

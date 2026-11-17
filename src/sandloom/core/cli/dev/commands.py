@@ -54,6 +54,7 @@ from sandloom.core.cli.dev.state import (
     save_registry,
     save_state,
 )
+from sandloom.core.cli.url_text import drop_urls
 from sandloom.core.testing.machine import sandloom_home
 
 #: A checkout that ran ``dev up`` this recently counts as using the servers.
@@ -239,14 +240,6 @@ _READ_SELECTION = (
 #: answer is the line that starts with it, never the last line of stdout.
 _SELECTION_SENTINEL = "SANDLOOM-DEV-SELECTION:"
 
-#: ``scheme://user:password@``: the credentials of a url inside a text.
-_URL_USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]*@")
-
-
-def _without_url_credentials(text: str) -> str:
-    return _URL_USERINFO.sub(r"\1***@", text)
-
-
 @dataclass(frozen=True, slots=True)
 class CompositionSelection:
     """What the composition root selects: ``infra`` is its ``DEFAULT_INFRA`` and
@@ -296,16 +289,19 @@ def composition_selection(
     ]
     if proc.returncode != 0 or not lines:
         # The child's last stderr line can carry a url or a secret (a settings
-        # error echoes its input): it is shown only under --debug, without the
-        # credentials of a url.
+        # error echoes its input): it is shown only when a debug switch is on,
+        # and without any url, which can hold a password anywhere in it.
         what = f"it exited with code {proc.returncode}" + (
             "" if lines else " and printed no answer"
         )
         if ctx.verbose:
             tail = (proc.stderr.strip().splitlines() or ["it printed nothing"])[-1]
-            what += f": {_without_url_credentials(tail)}"
+            what += f": {drop_urls(tail)}"
         else:
-            what += " (`uv run sandloom --debug dev up` shows its last error line)"
+            what += (
+                " (`uv run sandloom --debug dev up` or `SANDLOOM_DEBUG=1`"
+                " shows its last error line)"
+            )
         raise DevError(refusal % what)
     try:
         answer = json.loads(lines[-1])
@@ -497,8 +493,9 @@ def write_checkout_files(ctx: Context, state: State, row: CheckoutRow) -> list[s
     if _envfile.write_test_local(root, test_urls(ctx, state, row, selection)):
         notes.append(f"wrote {root / '.env.test.local'}")
     if ctx.environ.get("INFRA") and _test_env_infra(row) is None:
-        # The harness merges its overrides into the INFRA of the test process,
-        # where the shell's wins over .env.test; dev up reads .env.test only.
+        # The test run takes the shell's INFRA only where .env.test declares
+        # none (an INFRA in .env.test replaces the shell's); dev up reads
+        # .env.test only, so it cannot tell which instances the shell's has.
         notes.append(
             "INFRA is exported in your shell and .env.test states none: dev up "
             "wrote no SANDLOOM_TEST_CACHE_URL / SANDLOOM_TEST_BROKER_URL, so the "

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import replace
@@ -38,15 +39,23 @@ from sandloom.core.observability.metrics_utils import safe_inc
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
 
+#: The shape the Streams transport accepts (ASCII digits only, each number an
+#: unsigned 64-bit integer), so the same id is refused by both.
+_ENTRY_ID = re.compile(r"[0-9]{1,20}-[0-9]{1,20}")
+_ENTRY_ID_PART_MAX = 2**64 - 1
+
+
 def _entry_key(entry_id: str, what: str = "a DLQ cursor") -> tuple[int, ...]:
     """Order key of an entry id (``<ms>-<seq>``); any other shape is refused."""
-    try:
-        return tuple(map(int, entry_id.split("-")))
-    except ValueError:
+    parts = entry_id.split("-")
+    if _ENTRY_ID.fullmatch(entry_id) is None or any(
+        int(part) > _ENTRY_ID_PART_MAX for part in parts
+    ):
         raise InvalidArgument(
             f"{what} is not an entry id of this transport (<ms>-<seq>)",
             capability="eventbus",
-        ) from None
+        )
+    return tuple(map(int, parts))
 
 
 class MemoryTransport(TransportDefaults):

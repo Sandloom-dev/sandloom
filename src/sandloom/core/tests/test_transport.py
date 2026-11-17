@@ -63,7 +63,24 @@ async def test_poison_dead_lettered_after_exactly_max_deliveries() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad_id", ["abc", "", "1-", "-1", "1-x"])
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "abc",
+        "",
+        "1-",
+        "-1",
+        "1-x",
+        "123",
+        "1_0-2",
+        " 1-2",
+        "1-2 ",
+        "1-2-3",
+        "١-٢",
+        "18446744073709551616-1",
+        "1-18446744073709551616",
+    ],
+)
 async def test_replay_refuses_an_id_that_is_no_entry_id_and_replays_nothing(
     bad_id: str,
 ) -> None:

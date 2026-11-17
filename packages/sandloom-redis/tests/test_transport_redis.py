@@ -453,6 +453,20 @@ async def test_dlq_listing_continues_after_a_valid_cursor(redis_stream) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dlq_listing_after_the_largest_id_is_empty(redis_stream) -> None:
+    """Nothing follows the largest id, and Redis refuses an exclusive range start
+    there: the listing answers ``[]`` instead of an outage."""
+    factory, stream, client = redis_stream
+    t = RedisStreamsTransport(client_factory=factory)
+    await client.xadd(f"{stream}.dlq", {"group": "g", "reason": "r"})
+    largest = "18446744073709551615-18446744073709551615"
+    assert await t.list_dlq(stream, after=largest) == []
+    # The next id below it is still a cursor Redis takes.
+    just_below = "18446744073709551615-18446744073709551614"
+    assert await t.list_dlq(stream, after=just_below) == []
+
+
+@pytest.mark.asyncio
 async def test_trimmed_entry_dead_letters_with_reason_marker(redis_stream) -> None:
     """Low: a pending entry trimmed from the stream is recorded with a reason,
     never as an empty payload masquerading as an event."""
