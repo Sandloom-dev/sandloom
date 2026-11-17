@@ -78,6 +78,16 @@ from sandloom.driverkit.periodic import (
     periodic_slot,
     slot_lease_name,
 )
+from sandloom_celery.connection_policy import (
+    FOREIGN_BACKEND_KEYS,
+    SAFE_DATABASE_ENGINE_OPTIONS,
+    SAFE_FAILOVER_STRATEGIES,
+    ConnectionOptions,
+    backend_transport_keys,
+    broker_transport_keys,
+    infra_transport_options,
+    transport_options_are_safe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +133,9 @@ _BACKEND_ENV = "CELERY_RESULT_BACKEND"
 
 
 class _DefaultApp:
-    """The process-wide ``default`` Celery app, built lazily, and the ``(broker,
-    backend)`` it was built from.
+    """The process-wide ``default`` Celery app, built lazily, and the connection
+    (:class:`~sandloom_celery.connection_policy.ConnectionOptions`: broker,
+    backend and sentinel masters) it was built from.
 
     A holder, never a module global: ``celery -A sandloom_celery.worker`` falls
     back to scanning ``vars(module)`` for any ``Celery`` instance once ``app`` and
@@ -134,7 +145,7 @@ class _DefaultApp:
     Celery instance."""
 
     app: Any | None = None
-    urls: tuple[str, str | None] | None = None
+    connection: ConnectionOptions | None = None
 
 
 _default = _DefaultApp()
@@ -161,43 +172,73 @@ def _apply_framework_defaults(app: Any) -> Any:
     return app
 
 
-def get_default_app(broker: str, backend: str | None) -> Any:
+def _apply_connection_options(app: Any, connection: ConnectionOptions) -> Any:
+    """Hand the instance's sentinel masters to kombu and Celery, which read them
+    only from the transport options: laid under what the conf already carries, so
+    a conf naming another master stays visible to the conf check (and is refused)
+    instead of being replaced."""
+    for option, master in (
+        ("broker_transport_options", connection.master_name),
+        ("result_backend_transport_options", connection.backend_master_name),
+    ):
+        if master is None:
+            # Reading the conf loads the config module: left to the first real
+            # access, as before, when there is nothing to state.
+            continue
+        conf = app.conf
+        merged = infra_transport_options(conf.get(option), master)
+        if merged is not None:
+            conf[option] = merged
+    return app
+
+
+def get_default_app(connection: ConnectionOptions) -> Any:
     """Return the process-wide ``default`` Celery app (built once, from the
-    ``default`` instance's ``broker`` and ``backend``)."""
+    ``default`` instance's connection options)."""
     if _default.app is None:
-        _default.app = _new_default_app(broker, backend)
-        _default.urls = (broker, backend)
+        _default.app = _new_default_app(connection)
+        _default.connection = connection
     return _default.app
 
 
-def _new_default_app(broker: str, backend: str | None) -> Any:
+def _new_default_app(connection: ConnectionOptions) -> Any:
     # Not current yet: ``Celery(...)`` would make it ``celery.current_app`` at
     # construction, and an app refused by the conf check would stay current. The
     # caller makes it current (``app.set_current()``) once the check has passed.
-    return _apply_framework_defaults(
-        _celery_module().Celery(
-            "project", broker=broker, backend=backend, set_as_current=False
-        )
+    return _apply_connection_options(
+        _apply_framework_defaults(
+            _celery_module().Celery(
+                "project",
+                broker=connection.broker,
+                backend=connection.backend,
+                set_as_current=False,
+            )
+        ),
+        connection,
     )
 
 
-def default_app_matches(broker: str, backend: str | None) -> bool:
+def default_app_matches(connection: ConnectionOptions) -> bool:
     """Whether the ``default`` instance may use the process-wide app: it is not
-    built yet, or was built from these URLs."""
-    return _default.app is None or _default.urls == (broker, backend)
+    built yet, or was built from this connection."""
+    return _default.app is None or _default.connection == connection
 
 
-def build_named_app(name: str, broker: str, backend: str | None) -> Any:
+def build_named_app(name: str, connection: ConnectionOptions) -> Any:
     """A Celery app of a named instance (its own broker and namespace). Not
-    current: the caller makes it so (``app.set_current()``) once the conf check
-    has passed."""
-    return _apply_framework_defaults(
-        _celery_module().Celery(
-            f"sandloom-{name}",
-            broker=broker,
-            backend=backend,
-            set_as_current=False,
-        )
+    current, and never made so: the thread's ``celery.current_app`` (what an
+    unbound ``@shared_task`` publishes through) stays the ``default`` instance's
+    app, or whatever the process set."""
+    return _apply_connection_options(
+        _apply_framework_defaults(
+            _celery_module().Celery(
+                f"sandloom-{name}",
+                broker=connection.broker,
+                backend=connection.backend,
+                set_as_current=False,
+            )
+        ),
+        connection,
     )
 
 
@@ -205,22 +246,21 @@ def __getattr__(name: str) -> Any:
     # ``celery -A sandloom_celery.worker`` looks up ``app`` (or
     # ``celery``); building lazily keeps a plain import free of side effects.
     if name in {"app", "celery", "celery_app"}:
-        if _default.app is not None and _default.urls is not None:
+        if _default.app is not None and _default.connection is not None:
             # Built first by the provider (or by an earlier lookup): its options
             # are the ones it was built from, and the final conf is checked
             # against them just the same.
-            broker, backend = _default.urls
             app = _default.app
-            _refuse_foreign_conf(app, broker, backend)
+            _refuse_foreign_conf(app, _default.connection)
         else:
-            broker, backend = _importable_app_urls()
+            connection = _importable_app_connection()
             # Built in a local and stored only once every check passed: a refused
             # app is neither the process-wide one nor reachable from the module,
             # and (built not current) never ``celery.current_app`` either.
-            app = _new_default_app(broker, backend)
-            _refuse_foreign_conf(app, broker, backend)
+            app = _new_default_app(connection)
+            _refuse_foreign_conf(app, connection)
             _default.app = app
-            _default.urls = (broker, backend)
+            _default.connection = connection
         # Current only after every step that can fail (the refusal's signal
         # wiring imports celery.signals): nothing half-set stays current.
         _refuse_unhosted_runs(app)
@@ -229,11 +269,11 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def _refuse_foreign_conf(app: Any, broker: str, backend: str | None) -> None:
+def _refuse_foreign_conf(app: Any, connection: ConnectionOptions) -> None:
     """Refuse an importable app whose final ``app.conf`` names another broker or
     result backend than ``INFRA`` states.
 
-    The environment check of :func:`_importable_app_urls` covers the variables
+    The environment check of :func:`_importable_app_connection` covers the variables
     Celery's CLI writes; the rest of what feeds ``app.conf`` it does not see: a
     config module (``celery --config``, ``CELERY_CONFIG_MODULE``), the default
     loader (``--loader default`` imports ``celeryconfig.py`` from the working
@@ -244,7 +284,7 @@ def _refuse_foreign_conf(app: Any, broker: str, backend: str | None) -> None:
     Celery falls back to ``broker_url`` for a read / write url left unset, and
     stores no backend when none is set. The message names the option, never its
     value: it is a URL, with a password."""
-    option = _foreign_conf_option(app, broker, backend)
+    option = _foreign_conf_option(app, connection)
     if option is not None:
         raise AttributeError(
             f"the importable Celery app's {option} "
@@ -261,14 +301,14 @@ class ForeignCeleryConfError(RuntimeError):
 
 
 def refuse_foreign_app_conf(
-    app: Any, broker: str, backend: str | None, instance: str
+    app: Any, connection: ConnectionOptions, instance: str
 ) -> None:
     """Refuse (:class:`ForeignCeleryConfError`) an app whose final ``app.conf``
     names another broker or result backend than the instance states: the enqueue
     side's twin of the importable app's check, for the app a provider publishes
     through. The message names the option and the instance, never a url: it
     carries a password."""
-    option = _foreign_conf_option(app, broker, backend)
+    option = _foreign_conf_option(app, connection)
     if option is not None:
         raise ForeignCeleryConfError(
             f"the Celery app of taskqueue instance {instance!r} resolves a {option} "
@@ -307,53 +347,23 @@ _BROKER_SSL_KEY = "broker_use_ssl"
 # (``pyamqp.establish_connection`` builds ``dict({host, userid, password, ssl,
 # ...}, **transport_options)``), so a key there redirects an ``amqp://`` broker or
 # turns its certificate checks off with the INFRA url untouched; the sentinel
-# transport takes ``master_name`` and ``sentinel_kwargs`` from them. An
-# allow-list, not a deny-list: only keys that tune a connection without moving it
-# (timeouts, keep-alive, pool size, key prefixes, retry and visibility settings)
-# are accepted. Any other key is refused, named only by the option that holds it.
+# transport takes ``master_name`` and ``sentinel_kwargs`` from them, and the SQS
+# one its region, queue map, ``is_secure`` and ``port``. An allow-list per scheme
+# (``sandloom_celery.connection_policy``), not a deny-list: only keys that tune a
+# connection without moving it are accepted, and the sentinel master only as the
+# INFRA option states it. Any other key is refused, named only by the option that
+# holds it.
 _TRANSPORT_OPTIONS_KEYS = (
     "broker_transport_options",
     "result_backend_transport_options",
 )
-_SAFE_TRANSPORT_OPTIONS = frozenset(
-    {
-        "visibility_timeout",
-        "polling_interval",
-        "global_keyprefix",
-        "sep",
-        "priority_steps",
-        "queue_order_strategy",
-        "socket_timeout",
-        "socket_connect_timeout",
-        "socket_keepalive",
-        "socket_keepalive_options",
-        "max_connections",
-        "health_check_interval",
-        "client_name",
-        "retry_policy",
-        "max_retries",
-        "interval_start",
-        "interval_step",
-        "interval_max",
-        "confirm_publish",
-        "fanout_prefix",
-        "fanout_patterns",
-    }
-)
 
-# What the redis result backend takes from the conf where its url omits the part
-# (``celery.backends.redis``): host, port, database, credentials, TLS options and a
-# credential provider. INFRA states the whole backend in its url, so none of them
-# may be set at all.
-_FOREIGN_BACKEND_KEYS = (
-    "redis_host",
-    "redis_port",
-    "redis_db",
-    "redis_username",
-    "redis_password",
-    "redis_backend_use_ssl",
-    "redis_backend_credential_provider",
-)
+# ``broker_failover_strategy`` is a name (``round-robin``, ``shuffle``) or a
+# callable that yields the urls kombu switches to; ``database_engine_options`` is
+# laid over the SQLAlchemy result backend's ``create_engine`` call
+# (``connect_args`` / ``creator`` name the host). Both have an accepted shape.
+_FAILOVER_KEY = "broker_failover_strategy"
+_ENGINE_OPTIONS_KEY = "database_engine_options"
 
 
 def _foreign_conf_reason(option: str, instance: str) -> str:
@@ -375,14 +385,34 @@ def _foreign_conf_reason(option: str, instance: str) -> str:
             "is not a mapping of tuning options, or holds a key that is none: "
             "kombu lays transport options over the connection built from the "
             f"url of taskqueue.{instance}.broker or backend (host, credentials "
-            "and TLS of an amqp:// broker, the master of a sentinel one), so only "
-            "timeouts, keep-alive, pool size, key prefix, retry and visibility "
-            "options are accepted (docs/modules/background/tasks.md lists them): "
-            "a config module (`celery --config`, CELERY_CONFIG_MODULE) or a "
+            "and TLS of an amqp:// broker, the endpoint of an SQS one), so only "
+            "the timeouts, keep-alive, pool size, key prefix, retry, visibility "
+            "and queue-map options of the url's scheme are accepted "
+            "(docs/modules/background/tasks.md lists them); the master of a "
+            f"sentinel:// url is the INFRA option taskqueue.{instance}.master_name "
+            "(backend_master_name for a backend), not a transport option: a "
+            "config module (`celery --config`, CELERY_CONFIG_MODULE) or a "
             "loader (`--loader default` reads celeryconfig.py) set it. Remove "
             "the other keys, or state the connection in the INFRA url"
         )
-    if option in _FOREIGN_BACKEND_KEYS:
+    if option == _FAILOVER_KEY:
+        return (
+            "is neither unset, 'round-robin' nor 'shuffle': a callable yields the "
+            f"urls kombu switches to, besides the one of taskqueue.{instance}.broker: "
+            "a config module (`celery --config`, CELERY_CONFIG_MODULE) or a "
+            "loader (`--loader default` reads celeryconfig.py) set it. Remove "
+            "that setting, or state the broker in the INFRA url"
+        )
+    if option == _ENGINE_OPTIONS_KEY:
+        return (
+            "holds a key that is no pool setting (pool_pre_ping, pool_recycle, "
+            "pool_size, max_overflow, pool_timeout): connect_args and creator reach "
+            "the database driver's connect call and can name another host than the "
+            f"url of taskqueue.{instance}.backend: a config module (`celery "
+            "--config`, CELERY_CONFIG_MODULE) or a loader (`--loader default` "
+            "reads celeryconfig.py) set it. Remove the other keys"
+        )
+    if option in FOREIGN_BACKEND_KEYS:
         return (
             f"is set, and INFRA states the result backend, whole, in the url of "
             f"taskqueue.{instance}.backend: a config module (`celery --config`, "
@@ -408,62 +438,90 @@ def _foreign_conf_reason(option: str, instance: str) -> str:
     )
 
 
-def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | None:
+def _is_unset(value: object) -> bool:
+    """A conf value Celery treats as not set: ``None``, blank, or an empty
+    mapping / list (the default of some dict-valued backend settings)."""
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, Mapping | list | tuple | set | frozenset):
+        return not value
+    return value is None
+
+
+def _foreign_conf_option(app: Any, connection: ConnectionOptions) -> str | None:
     """The first of the app's final ``broker_url``, ``broker_read_url``,
-    ``broker_write_url`` and ``result_backend`` that is not what ``broker`` /
-    ``backend`` state, or of the connection parts of
-    :data:`_FOREIGN_CONNECTION_KEYS` and the ``redis_*`` backend keys of
-    :data:`_FOREIGN_BACKEND_KEYS` that is set at all, or ``broker_use_ssl`` when
-    it is anything but ``None`` / ``False``, or a transport-options key holding
-    a connection part (:func:`_foreign_transport_option`); ``None`` when none."""
+    ``broker_write_url`` and ``result_backend`` that is not what ``connection``
+    states, or of the connection parts of :data:`_FOREIGN_CONNECTION_KEYS` and the
+    result-backend keys of ``FOREIGN_BACKEND_KEYS`` that is set at all, or
+    ``broker_use_ssl`` when it is anything but ``None`` / ``False``, or a
+    ``broker_failover_strategy`` / ``database_engine_options`` of a shape that
+    moves the connection, or a transport-options key outside the scheme's
+    allow-list (:func:`_foreign_transport_option`); ``None`` when none."""
     conf = app.conf
     # Attribute access, not ``conf.get``: only the attribute applies the
     # ``broker_url`` fallback of a read / write url left unset.
     final = {
-        "broker_url": (conf.broker_url, broker),
-        "broker_read_url": (conf.broker_read_url, broker),
-        "broker_write_url": (conf.broker_write_url, broker),
-        "result_backend": (conf.result_backend, backend),
+        "broker_url": (conf.broker_url, connection.broker),
+        "broker_read_url": (conf.broker_read_url, connection.broker),
+        "broker_write_url": (conf.broker_write_url, connection.broker),
+        "result_backend": (conf.result_backend, connection.backend),
     }
     for option, (found, expected) in final.items():
         if isinstance(found, str):
             found = found.strip()
         if found != expected:
             return option
-    for option in (*_FOREIGN_CONNECTION_KEYS, *_FOREIGN_BACKEND_KEYS):
-        found = conf.get(option)
-        if isinstance(found, str):
-            found = found.strip()
-        if found not in (None, ""):
+    for option in (*_FOREIGN_CONNECTION_KEYS, *FOREIGN_BACKEND_KEYS):
+        if not _is_unset(conf.get(option)):
             return option
     # An allow-list, by identity: absent, None or False; never True (plain text on
     # a rediss:// url), a dict, or anything else.
     ssl_switch = conf.get(_BROKER_SSL_KEY)
     if ssl_switch is not None and ssl_switch is not False:
         return _BROKER_SSL_KEY
-    return _foreign_transport_option(conf)
+    strategy = conf.get(_FAILOVER_KEY)
+    if strategy is not None and not (
+        isinstance(strategy, str) and strategy in SAFE_FAILOVER_STRATEGIES
+    ):
+        return _FAILOVER_KEY
+    engine = conf.get(_ENGINE_OPTIONS_KEY)
+    if engine is not None and not (
+        isinstance(engine, Mapping) and set(engine) <= SAFE_DATABASE_ENGINE_OPTIONS
+    ):
+        return _ENGINE_OPTIONS_KEY
+    return _foreign_transport_option(conf, connection)
 
 
-def _foreign_transport_option(conf: Any) -> str | None:
+def _foreign_transport_option(conf: Any, connection: ConnectionOptions) -> str | None:
     """The first of :data:`_TRANSPORT_OPTIONS_KEYS` that is set to something but a
-    mapping whose keys are all in :data:`_SAFE_TRANSPORT_OPTIONS`; ``None`` when
-    none."""
-    for option in _TRANSPORT_OPTIONS_KEYS:
+    mapping of the keys the scheme of its url allows (the sentinel master only as
+    ``connection`` states it); ``None`` when none."""
+    for option, allowed, master in (
+        (
+            "broker_transport_options",
+            broker_transport_keys(connection.broker),
+            connection.master_name,
+        ),
+        (
+            "result_backend_transport_options",
+            backend_transport_keys(connection.backend),
+            connection.backend_master_name,
+        ),
+    ):
         options = conf.get(option)
-        if options is None:
-            continue
-        if not isinstance(options, Mapping) or not set(options) <= (
-            _SAFE_TRANSPORT_OPTIONS
+        if options is not None and not transport_options_are_safe(
+            options, allowed, master
         ):
             return option
     return None
 
 
-def _importable_app_urls() -> tuple[str, str | None]:
-    """The ``broker`` and ``backend`` of the importable app: the options of the
-    ``default`` taskqueue instance, as the application resolves them (``INFRA``
-    through ``Settings``; no environment variable of this driver). The backend is
-    ``None`` unless the instance states one.
+def _importable_app_connection() -> ConnectionOptions:
+    """The connection of the importable app: the options of the ``default``
+    taskqueue instance (``broker``, ``backend``, and the sentinel masters), as the
+    application resolves them (``INFRA`` through ``Settings``; no environment
+    variable of this driver). The backend is ``None`` unless the instance states
+    one.
 
     Celery's own CLI would replace them: ``celery -b`` (envvar ``BROKER_URL``) and
     ``--result-backend`` (``RESULT_BACKEND``) write ``CELERY_BROKER_URL`` and
@@ -495,14 +553,26 @@ def _importable_app_urls() -> tuple[str, str | None]:
     backend = instance.options.get("backend")
     if backend is not None and not isinstance(backend, str):
         raise AttributeError("the INFRA option taskqueue.default.backend must be a url")
+    masters = []
+    for master_option in ("master_name", "backend_master_name"):
+        master = instance.options.get(master_option)
+        if master is not None and not isinstance(master, str):
+            raise AttributeError(
+                f"the INFRA option taskqueue.default.{master_option} must be a string"
+            )
+        masters.append(master)
     broker = broker.strip()
     backend = backend.strip() if backend else None
+    # The urls and masters passed ``CeleryTaskQueueOptions`` (``process_instance``
+    # validates the instance against the driver's schema, which runs
+    # ``validate_connection``): an unverified ``rediss://`` url or a ``sentinel://``
+    # one without its master never gets here.
     for key in _BROKER_ENV:
         _refuse_foreign_env(key, broker, f"the INFRA option {_BROKER_OPTION}")
     _refuse_foreign_env(
         _BACKEND_ENV, backend, "the INFRA option taskqueue.default.backend"
     )
-    return broker, backend
+    return ConnectionOptions(broker, backend, masters[0], masters[1])
 
 
 def _refuse_foreign_env(key: str, stated: str | None, option: str) -> None:

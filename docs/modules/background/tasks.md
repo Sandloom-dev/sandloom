@@ -208,7 +208,15 @@ The refusal is the same error. It names the key, never the value:
 - `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_user` and
   `broker_password`;
 - `redis_host`, `redis_port`, `redis_db`, `redis_username`, `redis_password`,
-  `redis_backend_use_ssl` and `redis_backend_credential_provider`, for the result backend.
+  `redis_backend_use_ssl` and `redis_backend_credential_provider`, for the result backend;
+- the settings that name a result backend's host, credentials or bucket where the url
+  omits them: `database_url`, `mongodb_backend_settings`, `couchbase_backend_settings`,
+  `arangodb_backend_settings`, `cassandra_*`, `s3_*`, `gcs_bucket`, `gcs_project`,
+  `cache_backend` and `cache_backend_options`.
+
+`database_engine_options` may carry only `pool_pre_ping`, `pool_recycle`, `pool_size`,
+`max_overflow` and `pool_timeout`: `connect_args` and `creator` reach the database
+connect call. `broker_failover_strategy` may only be `round-robin` or `shuffle`.
 
 `broker_use_ssl` must be absent, `None` or `False`. A dict there is merged into the
 connection after the url. It can change the host or the password, and it can turn off
@@ -216,21 +224,48 @@ the certificate check. `True` is refused too. Kombu then skips the TLS default o
 `rediss://` url and connects in plain text, so the password goes out in the clear. TLS
 comes from the scheme and from the query of the `INFRA` url (`?ssl_cert_reqs=required`).
 
+A `rediss://` url in `broker` or `backend` must state `ssl_cert_reqs` in its query. Kombu
+connects a `rediss://` url without it with no certificate check and only logs a warning,
+and Celery's result backend refuses such a url, so the instance is refused at startup
+with both. `?ssl_cert_reqs=required` verifies the server's certificate, and `none` is the
+explicit way to skip it. A url of several `;`-separated hosts uses one scheme.
+
+A `sentinel://` url needs the name of its Redis master. Kombu and Celery read it only from
+the transport options, so it is an `INFRA` option: `master_name` for the `broker` and
+`backend_master_name` for the `backend`. A url without it is refused, and so is the option
+on a url that is not `sentinel://`. A config module may state the same master in its
+transport options, and any other master is refused. `sentinel_kwargs` is not supported: it
+holds the host, the credentials and the TLS of the sentinel nodes.
+
 `broker_transport_options` and `result_backend_transport_options` accept only keys that
-tune a connection without moving it. Some transports lay these options over the url.
-An `amqp://` broker takes its host, user, password and `ssl` from them, and a
-`sentinel://` broker takes its master. A key outside the list below is refused, and so
-is a value that is not a mapping. Every broker scheme stays supported. The allowed keys:
+tune a connection without moving it, and the keys depend on the scheme of the url. Some
+transports lay these options over the url. An `amqp://` broker takes its host, user,
+password and `ssl` from them, and an SQS broker takes its region and queue map. A key
+outside the list of its scheme is refused, and so is a value that is not a mapping. Every
+scheme stays supported. The allowed keys:
 
-- `visibility_timeout`, `polling_interval`, `global_keyprefix`, `sep`, `priority_steps`
-  and `queue_order_strategy`;
-- `socket_timeout`, `socket_connect_timeout`, `socket_keepalive`,
-  `socket_keepalive_options`, `max_connections`, `health_check_interval` and
-  `client_name`;
-- `retry_policy`, `max_retries`, `interval_start`, `interval_step` and `interval_max`;
-- `confirm_publish`, `fanout_prefix` and `fanout_patterns`.
+- every scheme: `visibility_timeout`, `polling_interval`, `retry_policy`, `max_retries`,
+  `interval_start`, `interval_step` and `interval_max`;
+- `redis://`, `rediss://` and `sentinel://`: `global_keyprefix`, `sep`, `priority_steps`,
+  `queue_order_strategy`, `socket_timeout`, `socket_connect_timeout`, `socket_keepalive`,
+  `socket_keepalive_options`, `max_connections`, `health_check_interval`,
+  `retry_on_timeout`, `client_name`, `fanout_prefix`, `fanout_patterns`, `ack_emulation`
+  and the `unacked_*` keys; `sentinel://` adds `min_other_sentinels`;
+- `amqp://`, `amqps://` and `pyamqp://`: `confirm_publish`, `read_timeout`,
+  `write_timeout`, `socket_settings`, `channel_max` and `frame_max`;
+- `sqs://`: `wait_time_seconds`, `region` (an AWS region name), `queue_name_prefix` and
+  `predefined_queues` (each queue carries only `url`, `access_key_id`,
+  `secret_access_key`, `region`, `backoff_policy` and `backoff_tasks`);
+- `result_backend_transport_options` of any backend: `retry_policy`,
+  `result_chord_ordered` and `global_keyprefix`.
 
-A config module cannot name the master of a `sentinel://` broker for that reason.
+`design/infra-drivers/celery-conf-audit.md` lists every key with its decision and the line
+of the library that reads it.
+
+Only the `default` instance's app becomes `celery.current_app`, the app an unbound
+`@shared_task` `.delay()` publishes through, and only when it is the process-wide app. A
+named instance (`aux`) never does: its broker would capture the tasks of every unbound
+call in the thread.
 
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
 the lease (the `lease` instance `INFRA.lease.beat`; `BEAT_LEASE_TTL_SECONDS`,
