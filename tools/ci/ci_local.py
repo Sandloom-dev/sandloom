@@ -504,7 +504,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:skip-ledger": "26c3a5f95f413506",
     "ci.yml:benchmarks-security": "27f1de980280a470",
     "ci.yml:examples": "5d40246e94ae4f7c",
-    "ci.yml:quickstart": "0f6563faeb3c2d10",
+    "ci.yml:quickstart": "2ad0dcd75fd8585a",
     "ci.yml:app-split": "40ce521d833336e8",
     "ci.yml:app-recipes": "3708a6d3b9426a26",
     "ci.yml:deploy-profiles": "fe116108319c0d69",

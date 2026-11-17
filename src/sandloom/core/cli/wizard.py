@@ -75,6 +75,8 @@ def _label() -> str:
     """The keyed server's name in what the wizard says (the stack's driver
     package supplies it)."""
     return _dev_commands.stack_service().label
+
+
 #: ``Machine.docker()``: Docker answers, is not installed, or is not running.
 DOCKER_READY, DOCKER_MISSING, DOCKER_STOPPED = "ready", "missing", "stopped"
 UV_INSTALL_URL = "https://docs.astral.sh/uv/getting-started/installation/"
@@ -519,10 +521,7 @@ def ask_services(p: Prompter, machine: Machine) -> tuple[str, str | None, str | 
     status = machine.docker()
     found: tuple[str | None, str | None] | None = None
     both = f"PostgreSQL and {_label()}"
-    p.say(
-        p.style.bold(both)
-        + p.style.muted(" (the app's database and cache)")
-    )
+    p.say(p.style.bold(both) + p.style.muted(" (the app's database and cache)"))
     if status == DOCKER_READY:
         default = 1
     else:

@@ -71,9 +71,7 @@ def test_new_writes_the_compose_text_and_urls_the_package_supplies(
     # CI: the published port and the test run's two indexes; the compose
     # profile: the service name and the container port; a person's server: the
     # local port.
-    assert infra(".env.test")["cache"]["default"]["url"] == (
-        "redis://127.0.0.1:7003/9"
-    )
+    assert infra(".env.test")["cache"]["default"]["url"] == ("redis://127.0.0.1:7003/9")
     assert infra(".env.test")["lease"]["beat"]["url"] == "redis://127.0.0.1:7003/8"
     assert infra("deploy/docker-compose.yml")["atomic_store"]["security"]["url"] == (
         "redis://kvstore:7001/2"

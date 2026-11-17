@@ -327,7 +327,9 @@ def test_a_checkout_takes_only_the_indexes_the_stack_reports_empty(
     assert min(indexes) >= 40
     assert not any(fake_stack.keys.get(index) for index in indexes)
     # No two empty indexes left: refused, naming the server, never reused.
-    fake_stack.keys = {index: {"theirs": "1"} for index in range(fake_stack.index_count)}
+    fake_stack.keys = {
+        index: {"theirs": "1"} for index in range(fake_stack.index_count)
+    }
     with pytest.raises(commands.DevError, match="no two empty database indexes"):
         commands._external_indexes(ctx, state, str(root))
 

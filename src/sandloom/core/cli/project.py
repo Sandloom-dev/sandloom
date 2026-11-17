@@ -1463,9 +1463,7 @@ def generate_project(
             ci_server.url(stack.test_broker_index),
             eventbus=False,
         ),
-        "infra_compose": _infra_json(
-            compose_server.url(1), compose_server.url(2)
-        ),
+        "infra_compose": _infra_json(compose_server.url(1), compose_server.url(2)),
         "infra_sqlite": _infra_json(
             local_server.url(0), local_server.url(1), eventbus=False
         ),

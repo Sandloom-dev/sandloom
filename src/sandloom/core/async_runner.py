@@ -3,8 +3,8 @@
 Why not ``asyncio.run`` per task: the async engines/pools (SQLAlchemy +
 asyncpg, async cache and broker clients) are process-wide singletons, and every
 pooled connection is bound to the event loop that opened it. ``asyncio.run``
-creates — and then closes — a fresh loop per call, so the 2nd task in a worker child gets a pooled
-connection whose loop is already closed (``Event loop is closed`` /
+creates — and then closes — a fresh loop per call, so the 2nd task in a worker
+child gets a pooled connection whose loop is already closed (``Event loop is closed`` /
 ``attached to a different loop``). :func:`run_async` keeps one persistent loop
 per worker PROCESS, so the pool and the loop live (and die) together.
 

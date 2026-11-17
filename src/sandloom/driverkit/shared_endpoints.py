@@ -24,8 +24,9 @@ that call it sit in two packages (``sandloom-redis``: cache, broadcast, lease,
 atomic store, event bus; ``sandloom-celery``: the broker on a Redis url) that
 import nothing of each other, so the one copy lives in the shared ``driverkit``
 (a driver of another server writes its own parser and registers the result
-here: the registry compares opaque strings). A persistent instance the kernel synthesized (``declared=False``:
-nobody wrote it in ``INFRA``, so nobody chose it) is logged at INFO, never as a
+here: the registry compares opaque strings). A persistent instance the kernel
+synthesized (``declared=False``: nobody wrote it in ``INFRA``, so nobody chose
+it) is logged at INFO, never as a
 WARNING: a development default (an instance the composition selects without
 an ``INFRA`` entry) shares by construction and a warning every start would hide
 the one that matters. In production nothing counts as a development default: a

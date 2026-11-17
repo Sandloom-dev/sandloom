@@ -458,8 +458,7 @@ def allocate_indexes(state: State, path: str, *, main: bool) -> tuple[int, int]:
     free = [i for i in range(1, count) if i not in used]
     if len(free) < 2:
         raise DevError(
-            f"the dev {stack_service().label} has no free database index left "
-            f"({count})"
+            f"the dev {stack_service().label} has no free database index left ({count})"
         )
     return (free[0], free[1])
 
@@ -806,8 +805,7 @@ def _wants_external(ctx: Context, options: UpOptions) -> bool:
         return True
     if options.database_url or options.kv_url:
         raise DevError(
-            "--database-url and --kv-url name your own servers: add "
-            "--services external"
+            "--database-url and --kv-url name your own servers: add --services external"
         )
     return False
 
@@ -2056,7 +2054,7 @@ def _prune_checkouts(ctx: Context, state: State) -> list[str]:
 
 
 def _prune_test_databases(ctx: Context, state: State) -> list[str]:
-    from sandloom.core.testing import resources  # noqa: PLC0415 - only `dev prune` needs the test harness
+    from sandloom.core.testing import resources  # noqa: PLC0415 - cold: only `dev prune` needs the test harness
 
     url = ctx.postgres(state, test=True).url("postgres", driver="postgresql")
     try:
