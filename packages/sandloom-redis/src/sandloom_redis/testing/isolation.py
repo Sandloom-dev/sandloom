@@ -38,7 +38,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import SplitResult, urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlunsplit
 
 from sandloom.driverkit import testing_isolation as _isolation
 from sandloom.driverkit.testing_family import (
@@ -47,6 +47,7 @@ from sandloom.driverkit.testing_family import (
     isolated_instance_options,
     parse_infra,
 )
+from sandloom.driverkit.url_split import split_url
 from sandloom_redis.testing.urls import (
     REDIS_SCHEMES,
     instance_redis_options,
@@ -80,7 +81,7 @@ class WorkerLayout:
 
 
 def _plain_index(url: str) -> tuple[SplitResult, int] | None:
-    parts = urlsplit(url)
+    parts = split_url(url)
     raw = parts.path.lstrip("/")
     try:
         return parts, (int(raw) if raw else 0)

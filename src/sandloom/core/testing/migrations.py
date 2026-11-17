@@ -37,13 +37,14 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from alembic import command
 from alembic.config import Config
 
 from sandloom.core.composition import load_composition_core
 from sandloom.core.descriptors.module_names import module_name as _module_name
+from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.migrations import (
     _order_by_dependencies,
     core_chain_dir,
@@ -74,7 +75,7 @@ CHAINS_CHECKED_ON_POSTGRESQL = (
 
 
 def _sync(url: str, db: str) -> str:
-    parts = urlsplit(url)
+    parts = split_url(url)
     return urlunsplit(parts._replace(scheme="postgresql", path=f"/{db}", query=""))
 
 

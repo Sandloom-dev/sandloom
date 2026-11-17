@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from sandloom.driverkit.testing_family import (
     already_claimed,
@@ -25,6 +25,7 @@ from sandloom.driverkit.testing_family import (
     current_owner,
     record_claim,
 )
+from sandloom.driverkit.url_split import split_url
 from sandloom_redis.testing.urls import is_redis_url, redis_client_installed
 
 #: Redis key carrying the owner of a database index.
@@ -47,7 +48,10 @@ def decoded(value: Any) -> str | None:
 
 
 def _redact(url: str) -> str:
-    parts = urlsplit(url)
+    try:
+        parts = split_url(url)
+    except ValueError:
+        return "<unparseable url>"  # it may hold the password: not echoed
     netloc = parts.hostname or ""
     if parts.port:
         netloc += f":{parts.port}"

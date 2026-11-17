@@ -54,10 +54,11 @@ import re
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from dotenv import dotenv_values, load_dotenv
 
+from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 from sandloom.core.testing import families
 from sandloom.core.testing.families import INFRA_VAR
@@ -114,7 +115,7 @@ def worker_database_url(url: str, worker: str) -> str:
 
     A SQLite file gets the suffix on its stem, in the same directory:
     ``…/run_test.db`` -> ``…/run_test_gw0.db``."""
-    parts = urlsplit(url)
+    parts = split_url(url)
     if parts.scheme.startswith("sqlite"):
         return _worker_sqlite_url(url, worker)
     name = parts.path.lstrip("/")
@@ -125,7 +126,7 @@ def worker_database_url(url: str, worker: str) -> str:
 
 def sqlite_file(url: str) -> Path | None:
     """The file a SQLite URL names (``None``: not SQLite, or in memory)."""
-    parts = urlsplit(url)
+    parts = split_url(url)
     if not parts.scheme.startswith("sqlite"):
         return None
     # ``sqlite:///rel.db`` is relative, ``sqlite:////abs.db`` absolute: the
@@ -140,7 +141,7 @@ def _worker_sqlite_url(url: str, worker: str) -> str:
     file = sqlite_file(url)
     if file is None or file.stem.endswith(f"_{worker}"):
         return url
-    parts = urlsplit(url)
+    parts = split_url(url)
     renamed = file.with_name(f"{file.stem}_{worker}{file.suffix}")
     # spelled out: urlunsplit drops the empty authority of ``sqlite:///rel``
     query = f"?{parts.query}" if parts.query else ""
@@ -457,7 +458,7 @@ def ensure_database(url: str) -> None:
     A SQLite file's directory is created (the harness claims and builds the
     file); other URLs are ignored.
     """
-    parts = urlsplit(url)
+    parts = split_url(url)
     if parts.scheme.startswith("sqlite"):
         _ensure_sqlite_file(url)
         return

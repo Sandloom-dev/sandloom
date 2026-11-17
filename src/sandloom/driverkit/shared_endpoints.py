@@ -36,7 +36,9 @@ from __future__ import annotations
 
 import logging
 from typing import Literal
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs
+
+from sandloom.core.infra.url_split import split_url
 
 __all__ = ["Role", "redis_endpoint", "register", "reset", "unregister"]
 
@@ -77,7 +79,7 @@ def redis_endpoint(url: str | None) -> str | None:
     if not url:
         return None
     try:
-        parts = urlsplit(url)
+        parts = split_url(url)
         port = parts.port or _DEFAULT_PORT
     except ValueError:
         return None

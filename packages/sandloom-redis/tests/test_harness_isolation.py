@@ -677,3 +677,45 @@ def test_an_app_with_no_redis_runs_its_tests_in_parallel(tmp_path: Path) -> None
     out = proc.stdout + proc.stderr
     assert proc.returncode == 0, out[-3000:]
     assert "4 passed" in out, out[-1500:]
+
+
+# A url a person typed can hold a character that NFKC-normalises to ``#``: the
+# stdlib ``urlsplit`` then raises a ValueError that quotes the netloc, password
+# included. No Redis package place that parses such a url puts it in an error.
+_SECRET = "S3CRETpw"
+_HOSTILE = f"redis://user:{_SECRET}@host＃x:6379/1"
+
+
+def _hostile_calls() -> dict[str, Any]:
+    from sandloom_redis import broadcast  # noqa: PLC0415 - cold: one test
+    from sandloom_redis.testing import (  # noqa: PLC0415 - cold: one test
+        family,
+        isolation,
+        resources,
+    )
+
+    return {
+        "broadcast prefix": lambda: broadcast._database_prefix(_HOSTILE),
+        "worker_redis_url": lambda: isolation.worker_redis_url(_HOSTILE, 0, 16),
+        "same_database": lambda: family.FAMILY.same_database(_HOSTILE, _HOSTILE),
+        "server_url": lambda: resources._server_url(_HOSTILE),
+        "display": lambda: resources._display(_HOSTILE, 1),
+        "index_of": lambda: resources._index_of(_HOSTILE),
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_hostile_calls()))
+def test_a_url_urlsplit_refuses_never_puts_its_password_in_the_error(
+    name: str,
+) -> None:
+    with pytest.raises(ValueError, match="cannot be parsed") as caught:
+        _hostile_calls()[name]()
+    assert _SECRET not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+def test_the_ownership_message_does_not_echo_a_url_it_cannot_parse() -> None:
+    from sandloom_redis.testing import ownership  # noqa: PLC0415 - cold: one test
+
+    assert _SECRET not in ownership._redact(_HOSTILE)
+    assert ownership._redact("redis://u:pw@h:6379/1") == "redis://h:6379/1"

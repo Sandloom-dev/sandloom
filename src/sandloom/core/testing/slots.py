@@ -46,10 +46,11 @@ from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from dotenv import dotenv_values
 
+from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.testing import families
 from sandloom.core.testing.env import LOCAL_ENV_FILE, find_env_file
@@ -118,7 +119,7 @@ def slot_database_url(base_url: str, number: int) -> str:
     """``base_url`` for slot ``number``: the name as is for slot 1, else ``_N``."""
     if number <= 1:
         return base_url
-    parts = urlsplit(base_url)
+    parts = split_url(base_url)
     name = parts.path.lstrip("/")
     return urlunsplit(parts._replace(path=f"/{name}_{number}"))
 
@@ -161,7 +162,7 @@ def local_env_file(starts: Iterable[Path]) -> Path | None:
 
 
 def _admin_dsn(url: str) -> str:
-    parts = urlsplit(url)
+    parts = split_url(url)
     return urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
 
 
@@ -309,7 +310,7 @@ def acquire_test_slot(
         conn.close()  # frees the advisory lock of a slot this run will not use
         raise
     if announce and number > 1:
-        name = urlsplit(slot.database_url).path.lstrip("/")
+        name = split_url(slot.database_url).path.lstrip("/")
         print(
             f"sandloom testing: another test run holds slot 1 of this checkout; "
             f"this run uses slot {number} (database {name})",

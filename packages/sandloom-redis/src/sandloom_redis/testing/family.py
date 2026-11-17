@@ -17,13 +17,14 @@ import os
 import sys
 from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Protocol, runtime_checkable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from sandloom.driverkit.testing_family import (
     INFRA_VAR,
     OWNER_ENV,
     current_owner,
 )
+from sandloom.driverkit.url_split import split_url
 from sandloom_redis.testing import resources
 from sandloom_redis.testing.ownership import claim_redis, flush_owned_redis
 from sandloom_redis.testing.urls import (
@@ -83,7 +84,7 @@ class RedisFamily:
             raise RuntimeError(str(exc)) from exc
         out: dict[str, str] = {}
         for var, url in urls.items():
-            parts = urlsplit(url)
+            parts = split_url(url)
             raw = parts.path.lstrip("/") or "0"
             if not raw.isdigit() or int(raw) not in mapping:
                 continue
@@ -147,7 +148,7 @@ class RedisFamily:
     def same_database(self, stated: str, base: str) -> bool:
         """Same scheme, authority, query and database index (a URL without a path
         is database 0)."""
-        a, b = urlsplit(stated), urlsplit(base)
+        a, b = split_url(stated), split_url(base)
         return (a.scheme, a.netloc, a.path.strip("/") or "0", a.query) == (
             b.scheme,
             b.netloc,

@@ -12,8 +12,9 @@ import socket
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote
 
+from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 
 #: (user, password) of the generated compose file's local services.
@@ -58,7 +59,7 @@ class Postgres:
     def from_url(cls, url: str) -> Postgres:
         """The server of ``url`` (any ``postgresql[+driver]://`` URL; its
         database is ignored). ``ValueError`` for anything else."""
-        parts = urlsplit(url.strip())
+        parts = split_url(url.strip())
         if (
             not parts.scheme.startswith(("postgresql", "postgres"))
             or not parts.hostname
@@ -113,7 +114,7 @@ class RedisServer:
 
     @classmethod
     def from_url(cls, url: str) -> RedisServer:
-        parts = urlsplit(url.strip())
+        parts = split_url(url.strip())
         if parts.scheme == "rediss":
             # TLS is not carried end to end yet (the URLs written, the checks'
             # client): refuse rather than send AUTH in cleartext.
@@ -145,8 +146,12 @@ class RedisServer:
 
 
 def redact(url: str) -> str:
-    """``url`` with its password replaced by ``<password>`` (for messages)."""
-    parts = urlsplit(url)
+    """``url`` with its password replaced by ``<password>`` (for messages). A url
+    that cannot be parsed is not echoed at all: it may hold the password."""
+    try:
+        parts = split_url(url)
+    except ValueError:
+        return "<unparseable url>"
     if not parts.password:
         return url
     netloc = parts.netloc.replace(f":{parts.password}@", ":<password>@", 1)

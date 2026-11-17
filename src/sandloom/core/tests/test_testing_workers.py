@@ -13,7 +13,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -506,3 +506,52 @@ def test_generate_opens_no_database_on_a_worker_either() -> None:
 
 def _refuse_a_connection(_url: str) -> None:
     raise AssertionError("no database may be opened")
+
+
+# A url a person typed can hold a character that NFKC-normalises to ``#``: the
+# stdlib ``urlsplit`` then raises a ValueError that quotes the netloc, password
+# included. Every kernel place that parses such a url raises without it.
+_SECRET = "S3CRETpw"
+_HOSTILE = f"postgresql://user:{_SECRET}@host＃x:5432/db"
+
+
+def _hostile_calls() -> dict[str, Callable[[], object]]:
+    from sandloom.core import production_profile  # noqa: PLC0415 - cold: one test
+    from sandloom.core.cli import wizard  # noqa: PLC0415 - cold: one test
+    from sandloom.core.cli.dev import services  # noqa: PLC0415 - cold: one test
+    from sandloom.core.infra.url_split import split_url  # noqa: PLC0415 - cold: one test
+    from sandloom.core.testing import (  # noqa: PLC0415 - cold: one test
+        connections,
+        ownership,
+        slots,
+    )
+
+    return {
+        "split_url": lambda: split_url(_HOSTILE),
+        "same_server": lambda: production_profile._same_server(_HOSTILE, _HOSTILE),
+        "postgres.from_url": lambda: services.Postgres.from_url(_HOSTILE),
+        "redis.from_url": lambda: services.RedisServer.from_url(_HOSTILE),
+        "wizard._address": lambda: wizard._address(_HOSTILE),
+        "worker_database_url": lambda: workers.worker_database_url(_HOSTILE, "gw0"),
+        "sqlite_file": lambda: workers.sqlite_file(_HOSTILE),
+        "slot_database_url": lambda: slots.slot_database_url(_HOSTILE, 2),
+        "headroom": lambda: connections.server_headroom(_HOSTILE),
+        "plain_dsn": lambda: ownership._plain_dsn(_HOSTILE),
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_hostile_calls()))
+def test_a_url_urlsplit_refuses_never_puts_its_password_in_the_error(
+    name: str,
+) -> None:
+    with pytest.raises(ValueError, match="cannot be parsed") as caught:
+        _hostile_calls()[name]()
+    assert _SECRET not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+def test_redact_does_not_echo_a_url_it_cannot_parse() -> None:
+    from sandloom.core.cli.dev import services  # noqa: PLC0415 - cold: one test
+
+    assert _SECRET not in services.redact(_HOSTILE)
+    assert services.redact("redis://u:pw@h:6379/0") == "redis://u:<password>@h:6379/0"

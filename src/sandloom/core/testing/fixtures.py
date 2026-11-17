@@ -383,8 +383,8 @@ async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
     ``SANDLOOM_TEST_CACHE_URL`` into it). Yields the ``CacheProvider`` the app
     itself resolves (``core.cache()``, rate limits). The cache is emptied
     before the test (by the harness family that owns its driver) so keys never
-    leak between tests — so that url must name a disposable test database. Also needed where the app was
-    imported before ``.env.test`` was loaded (its settings snapshot names
+    leak between tests — so that url must name a disposable test database.
+    Also needed where the app was imported before ``.env.test`` was loaded (its settings snapshot names
     another cache), as in the framework's own suite. The implicit development
     ``security`` store (revocation marks, blocks, idempotency) follows it onto
     the same database.

@@ -33,7 +33,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from typing import Any, ClassVar, NamedTuple, TypeVar
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,6 +47,7 @@ from sandloom.driverkit import (
     TooLarge,
     Unavailable,
 )
+from sandloom.driverkit.url_split import split_url
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._url import require_url
 
@@ -99,7 +100,7 @@ def _database_prefix(url: str | None) -> str:
     ``redis://`` URL, ``?db=N`` of any, ``0`` when it names none)."""
     index = 0
     if url:
-        parts = urlsplit(url)
+        parts = split_url(url)
         candidate = parts.path.strip("/") if parts.scheme != "unix" else ""
         for value in (candidate, *parse_qs(parts.query).get("db", [])[:1]):
             if value.isdigit():

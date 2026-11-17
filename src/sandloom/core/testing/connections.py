@@ -29,8 +29,9 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
+from sandloom.core.infra.url_split import split_url
 from sandloom.core.migrations.pg_sync import psycopg2
 
 SKIP_ENV = "SANDLOOM_TEST_SKIP_CONNECTION_CHECK"
@@ -115,7 +116,7 @@ class Headroom:
 
 def server_headroom(database_url: str) -> Headroom | None:
     """The server's connection headroom (``None``: not PostgreSQL / down)."""
-    parts = urlsplit(database_url)
+    parts = split_url(database_url)
     if not parts.scheme.startswith("postgresql"):
         return None
     dsn = urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
@@ -153,7 +154,7 @@ def check_headroom(
     room = server_headroom(database_url)
     if room is None or need <= room.free:
         return room
-    host = urlsplit(database_url).hostname
+    host = split_url(database_url).hostname
     raise ConnectionBudgetError(
         f"{what} needs up to {need} PostgreSQL connections, but the server at "
         f"{host} has only {room.free} free (max_connections "

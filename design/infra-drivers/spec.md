@@ -1568,6 +1568,11 @@ For the orchestrator's review; each departs from or details `design.md`.
     - **Names:** `workers.URL_VARS` (was `REDIS_VARS`) and `Slot.family_urls` (was
       `Slot.redis_urls`). `SANDLOOM_TEST_REDIS_DB_STRIDE` stays: it is the Redis family's variable.
     - **Fixtures take the cache driver from the app or `INFRA`**, not the name `redis`.
+    - **`sandloom.driverkit.url_split.split_url`** is `urlsplit` for a url a person typed: a url
+      it refuses raises one fixed `ValueError` (no chained error), because the stdlib message
+      quotes the netloc with its password. The kernel's implementation is
+      `sandloom.core.infra.url_split`; a driver package imports the driverkit name. A
+      redaction helper answers `<unparseable url>` instead of raising.
 
 ## 14. Open for the owner
 

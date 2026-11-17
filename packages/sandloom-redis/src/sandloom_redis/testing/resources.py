@@ -34,9 +34,10 @@ import importlib
 import time
 from collections.abc import Sequence
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from sandloom.driverkit.testing_family import Resource, TestResourceOwnershipError
+from sandloom.driverkit.url_split import split_url
 from sandloom_redis.testing.ownership import (
     REDIS_LAST_USED_KEY,
     REDIS_OWNER_KEY,
@@ -84,11 +85,11 @@ REDIS_SPARES_PER_BASE = 2
 
 
 def _server_url(url: str, index: int = 0) -> str:
-    return urlunsplit(urlsplit(url)._replace(path=f"/{index}"))
+    return urlunsplit(split_url(url)._replace(path=f"/{index}"))
 
 
 def _display(url: str, index: int) -> str:
-    parts = urlsplit(url)
+    parts = split_url(url)
     host = parts.hostname or ""
     if parts.port:
         host += f":{parts.port}"
@@ -96,7 +97,7 @@ def _display(url: str, index: int) -> str:
 
 
 def _index_of(url: str) -> int:
-    raw = urlsplit(url).path.lstrip("/")
+    raw = split_url(url).path.lstrip("/")
     return int(raw) if raw else 0
 
 
@@ -261,7 +262,7 @@ def scan_redis(url: str, *, include_empty: bool = False) -> list[Resource]:
 
 
 def _redis_index(resource: Resource) -> int:
-    return int(urlsplit(resource.name).path.lstrip("/"))
+    return int(split_url(resource.name).path.lstrip("/"))
 
 
 def prune_redis(url: str, resource: Resource) -> bool:
@@ -301,7 +302,7 @@ def allocate_worker_redis(
     bases = sorted({_index_of(u) for u in base_urls})
     if not bases or workers <= 0:
         return {}
-    if len({urlsplit(u).netloc for u in base_urls}) > 1:
+    if len({split_url(u).netloc for u in base_urls}) > 1:
         raise TestResourceOwnershipError(
             "SANDLOOM_TEST_REDIS_DB_STRIDE=auto needs every Redis URL of the run "
             "(the url / broker of each INFRA instance) on one Redis server; "

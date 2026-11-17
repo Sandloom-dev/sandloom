@@ -1,5 +1,6 @@
 ### Added
 
+- **`sandloom.driverkit.url_split.split_url`** (redis-out-harness). `urlsplit` for a url a person typed: the stdlib raises a `ValueError` that quotes the netloc, password included, when it holds a character that NFKC-normalises to `:`, `/`, `?`, `#` or `@` (for example U+FF1A). `split_url` raises one fixed message and drops the chained error. The kernel's production profile, the `sandloom dev` and wizard url parsing, the test harness and the Redis package's url handling use it; the redaction helpers answer `<unparseable url>`. A driver package imports it from `sandloom.driverkit`.
 - **Three hooks on `HarnessFamily`** (redis-out-harness). A harness family now also says which URLs it owns (`owns_url(url)`), whether two of its URLs name the same database (`same_database(stated, base)`) and which environment a parallel run needs (`parallel_env()`). `sandloom.driverkit.testing_isolation` gains `set_url_mover(mover)`: a family installs one function `(url, worker number) -> url`, and `isolated_url_options` applies it to each URL option of a worker `gw<N>`. With no mover installed the options are unchanged.
 
 ### Changed

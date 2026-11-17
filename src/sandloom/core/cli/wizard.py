@@ -33,7 +33,6 @@ import signal
 import subprocess
 import sys
 import threading
-import urllib.parse
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -52,6 +51,7 @@ import sandloom.core.cli.dev.services as _services
 import sandloom.core.cli.project as _project
 import sandloom.core.cli.skills as _skills
 import sandloom.core.cli.ui as _ui
+from sandloom.core.infra.url_split import split_url
 
 #: The standard modules, in the generator's order, with one line each.
 MODULES: tuple[tuple[str, str], ...] = (
@@ -497,7 +497,7 @@ def ask_yes(p: Prompter, question: str) -> bool:
 
 
 def _address(url: str) -> str:
-    parts = urllib.parse.urlsplit(url)
+    parts = split_url(url)
     return f"{parts.hostname}:{parts.port}" if parts.port else str(parts.hostname)
 
 
