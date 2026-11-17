@@ -21,6 +21,7 @@ from sandloom.core.infra.config import (
     InstanceConfig,
     fill_driver_defaults,
     load_infra_config,
+    resolve_driver_aliases,
 )
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
 from sandloom.core.infra.ports._base import DriverTier, InfraProvider
@@ -33,9 +34,6 @@ from sandloom.core.infra.registry import (
     load_selected_plugins,
 )
 
-#: The import name and the extra of the redis-py client.
-_REDIS: tuple[str, ...] = ("redis",)
-_REDIS_INSTALL = "pip install 'sandloom[redis]'"
 #: The drivers of the packages the kernel knows by name, ``(capability, driver)
 #: -> (import name, install command)``: the package registers each through its
 #: ``sandloom.drivers`` entry point, and the kernel keeps no row for it. An
@@ -99,10 +97,10 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     ),
     (
         "eventbus",
-        "redis",
-        "sandloom.core.eventing.volatile_provider:RedisEventBusProvider",
-        _REDIS,
-        _REDIS_INSTALL,
+        "broadcast",
+        "sandloom.core.eventing.volatile_provider:BroadcastEventBusProvider",
+        (),
+        "",
         "",
     ),
     # The only non-relational driver of 1.0: in-memory, a projection target.
@@ -178,7 +176,7 @@ BUILTIN_DRIVER_TIERS: dict[tuple[str, str], DriverTier] = {
     ("cache", "memory"): "beta",
     ("objectstore", "local"): "beta",
     ("eventbus", "memory"): "beta",
-    ("eventbus", "redis"): "beta",
+    ("eventbus", "broadcast"): "beta",
     ("document_store", "memory"): "beta",
     ("notification", "log"): "beta",
     ("notification", "smtp"): "beta",
@@ -196,7 +194,7 @@ SQLALCHEMY_SQL_DIALECTS = frozenset({"postgresql", "sqlite"})
 
 
 def volatile_event_bus_allowed(settings: Settings | None = None) -> bool:
-    """Whether a volatile event bus (``memory``, ``redis``) may be built: not
+    """Whether a volatile event bus (``memory``, ``broadcast``) may be built: not
     in production unless the risk ``volatile_event_bus`` is accepted. The
     kernel's policy, handed to the event bus drivers (they read no setting).
     ``settings`` are the ones the registry was built with (the process
@@ -210,7 +208,7 @@ def _event_bus_build(
     driver: str,
     settings: Settings | None = None,
 ) -> DriverFactory:
-    """The build of a volatile event bus driver: ``memory`` and ``redis`` are the
+    """The build of a volatile event bus driver: ``memory`` and ``broadcast`` are the
     kernel's volatile buses, which need the application's schema registry
     (``from_config`` cannot reach it) and the policy of the registry's own
     ``settings``. ``streams`` has no build here: it is a transport of the
@@ -334,6 +332,7 @@ def build_infra_registry(
     configuration from the settings itself)."""
     resolved_settings = settings or _default_settings
     cfg = config if config is not None else load_infra_config(resolved_settings)
+    resolve_driver_aliases(cfg)
     # Strict in production: a driver cannot be registered for a capability with
     # no spec, and a built instance must report the features it declared.
     registry = InfraRegistry(strict_capabilities=True)

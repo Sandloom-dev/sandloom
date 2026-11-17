@@ -159,7 +159,7 @@ def configured_inbox_purge_problems(settings: Any, inbox_days: float) -> list[Pr
     instance is CONFIGURED with (``eventbus.default`` of the resolved ``INFRA``:
     ``retention_seconds``, a pure configuration read; no live bus is asked).
 
-    A retention that cannot be determined (a volatile ``memory`` / ``redis``
+    A retention that cannot be determined (a volatile ``memory`` / ``broadcast``
     bus, a driver without a ``retention_seconds`` option) is a problem too: the
     purge cannot prove it stays outside the redelivery window.
     """

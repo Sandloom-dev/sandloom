@@ -1,4 +1,4 @@
-"""The volatile event bus over ``broadcast`` (driver ``redis``; refused in prod by
+"""The volatile event bus over ``broadcast`` (driver ``broadcast``; refused in prod by
 default).
 
 The bus speaks no backend: it publishes and subscribes through a ``broadcast``
@@ -45,13 +45,13 @@ from sandloom.core.observability.metrics_utils import safe_inc
 logger = logging.getLogger("sandloom.core.eventing.event_bus")
 
 
-class RedisEventBus(BaseEventBus):
+class BroadcastEventBus(BaseEventBus):
     """The volatile bus over a ``broadcast`` instance.
 
     - ``broadcast`` is the instance, a callable answering it (looked up at
       each connect, so a provider rebuilt for another event loop is picked up)
       or the NAME of an instance of the active registry; ``None`` is the
-      ``default`` instance. The bus holds no Redis client of its own.
+      ``default`` instance. The bus holds no client of its own.
     - ``prefix.*`` channels need the instance's ``pattern_subscribe``
       (:meth:`check_broadcast` refuses an instance without it).
     - When processing messages the ContextVar trace_id is not changed: the
@@ -346,7 +346,7 @@ class RedisEventBus(BaseEventBus):
                 # finds the bug (the driver and transport branches log the type
                 # only).
                 logger.error(
-                    "Callback failed for Redis channel=%s (%s)",
+                    "Callback failed for broadcast channel=%s (%s)",
                     channel,
                     type(exc).__name__,
                     exc_info=True,

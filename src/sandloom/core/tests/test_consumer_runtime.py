@@ -26,7 +26,7 @@ from sandloom.core.consumers.runtime import (
 from sandloom.core.eventing.bus_base import BaseEventBus
 from sandloom.core.eventing.event_bus import get_event_bus, set_active_event_bus
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
-from sandloom.core.eventing.pubsub_bus import RedisEventBus
+from sandloom.core.eventing.pubsub_bus import BroadcastEventBus
 from sandloom.core.eventing.subscriptions import SubscriptionHandle, SubscriptionState
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.active import get_active_infra, set_active_infra
@@ -724,7 +724,7 @@ async def test_redis_subscription_becomes_ready_only_after_broker_subscribe() ->
     broadcast = _FakeBroadcast()
     channel = "demo.redis.created.v1"
     broadcast.hold.add(channel)
-    bus = RedisEventBus(PermissiveSchemaRegistry(), broadcast=broadcast)
+    bus = BroadcastEventBus(PermissiveSchemaRegistry(), broadcast=broadcast)
 
     handle = await bus.subscribe(channel, _noop_handler)
     await asyncio.wait_for(broadcast.waiting.wait(), timeout=1)
@@ -746,7 +746,7 @@ async def test_redis_cancelled_dynamic_subscribe_rolls_back_local_registration()
     broadcast = _FakeBroadcast()
     channel = "demo.rediscancelled.created.v1"
     other = "demo.rediscancelled.other.v1"
-    bus = RedisEventBus(PermissiveSchemaRegistry(), broadcast=broadcast)
+    bus = BroadcastEventBus(PermissiveSchemaRegistry(), broadcast=broadcast)
     first_handle = await bus.subscribe(channel, _noop_handler)
     await first_handle.wait_ready(timeout=1)
 

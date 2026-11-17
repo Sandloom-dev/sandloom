@@ -100,7 +100,7 @@ class _Proxy:
 
 
 async def test_the_volatile_bus_delivers_over_redis_broadcast(_redis: Any) -> None:
-    from sandloom.core.eventing.pubsub_bus import RedisEventBus
+    from sandloom.core.eventing.pubsub_bus import BroadcastEventBus
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
     provider = RedisBroadcastProvider(
@@ -111,7 +111,7 @@ async def test_the_volatile_bus_delivers_over_redis_broadcast(_redis: Any) -> No
     await provider.aopen()
     registry = InMemorySchemaRegistry()
     registry.register("core.redisbus.v1", "RedisBus", {"type": "object"})
-    bus = RedisEventBus(registry, broadcast=provider)
+    bus = BroadcastEventBus(registry, broadcast=provider)
     got: list[Any] = []
 
     async def on_event(envelope: Any) -> None:
@@ -135,7 +135,7 @@ async def test_the_volatile_bus_delivers_over_redis_broadcast(_redis: Any) -> No
         await provider.aclose()
 
 
-async def test_the_redis_bus_runs_on_the_redis_of_its_broadcast_instance(
+async def test_the_broadcast_bus_runs_on_the_redis_of_its_broadcast_instance(
     _redis: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A named eventbus instance publishes and subscribes through the broadcast
@@ -153,7 +153,7 @@ async def test_the_redis_bus_runs_on_the_redis_of_its_broadcast_instance(
         "infra",
         {
             "broadcast": {"side": {"driver": "redis", "url": proxy.url(5)}},
-            "eventbus": {"sidebus": {"driver": "redis", "broadcast": "side"}},
+            "eventbus": {"sidebus": {"driver": "broadcast", "broadcast": "side"}},
         },
     )
     schemas = InMemorySchemaRegistry()

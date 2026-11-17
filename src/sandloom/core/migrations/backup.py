@@ -224,7 +224,8 @@ def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
     for url, role in _atomic_store_roles(config.get("atomic_store") or {}):
         roles.setdefault(url, []).append(role)
     for name, inst in sorted((config.get("eventbus") or {}).items()):
-        if inst.driver not in ("streams", "redis"):
+        # The volatile ``broadcast`` bus keeps no data: only ``streams`` has any.
+        if inst.driver != "streams":
             continue
         # A bus with no url of its own runs on the default cache client, so its
         # data lives where ``cache.default`` points (INFRA).

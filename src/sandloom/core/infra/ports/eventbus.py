@@ -457,7 +457,7 @@ EVENTBUS_CAPABILITY = CapabilitySpec(
     feature_kinds={
         # Entries survive a transport restart within its durability class and
         # a consumer crash, and are delivered at least once. Only a transport
-        # declares it: the volatile buses (memory, redis) never do, so a
+        # declares it: the volatile buses (memory, broadcast) never do, so a
         # module that needs delivery to survive requires it and can never
         # silently run on one (G-EVENT-14, G-RISK-04).
         "durable": "guarantee",

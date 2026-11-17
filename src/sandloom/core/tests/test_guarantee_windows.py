@@ -136,7 +136,7 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
         # a volatile bus states no retention: refused (never "no window")
         ({"event_bus_backend": "memory"}, 365, True),
         ({"event_bus_backend": None}, 365, True),
-        ({"event_bus_backend": "redis"}, 365, True),
+        ({"event_bus_backend": "broadcast"}, 365, True),
     ],
 )
 def test_the_inbox_window_follows_the_configured_retention(

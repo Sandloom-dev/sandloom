@@ -2,7 +2,7 @@
 
 ``streams`` is the transport shape of the ``eventbus`` capability (spec 7):
 this class IS the transport (Redis Streams) and the kernel builds its durable
-bus over it. The volatile buses (``memory``, ``redis``) are kernel-internal
+bus over it. The volatile buses (``memory``, ``broadcast``) are kernel-internal
 (:mod:`sandloom.core.eventing.volatile_provider`).
 """
 

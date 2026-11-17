@@ -2071,7 +2071,7 @@ def configured_stream_retention(
     is not configured; it states an invalid value; its driver's package is not
     installed in this process (the reason names the package to install) or is
     installed but fails to load; or the driver has no ``retention_seconds``
-    option with a default (a volatile ``memory`` / ``redis`` bus keeps no
+    option with a default (a volatile ``memory`` / ``broadcast`` bus keeps no
     stream). A driver package that is missing or fails to load never raises
     from here (a read-only probe, ``check``, ``doctor`` or purge, must still say
     why); a malformed ``INFRA`` still raises ``InfraConfigError``, which

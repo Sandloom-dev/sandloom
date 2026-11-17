@@ -267,7 +267,7 @@ async def test_inbox_purge_inside_the_redelivery_window_is_refused(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("backend", ["memory", "redis"])
+@pytest.mark.parametrize("backend", ["memory", "broadcast"])
 async def test_inbox_purge_on_an_unknown_retention_is_refused_unless_forced(
     sessionmaker: async_sessionmaker[AsyncSession], backend: str
 ) -> None:

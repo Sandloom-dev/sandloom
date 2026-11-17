@@ -649,7 +649,7 @@ class BroadcastProvider(InfraProvider, Broadcast):
 the deployment receive it; `memory` reaches only its own process).
 **Performance hints.** none.
 **Users.** The contract-cache shadow (ADR-0003, opt-in `CONTRACT_CACHE_SHADOW`; needs `shared` when
-more than one process serves) and the volatile event bus (eventbus driver `redis`, section 7).
+more than one process serves) and the volatile event bus (eventbus driver `broadcast`, section 7).
 **Built-ins.** `redis` (sandloom-redis), `memory` (kernel, `development_only`).
 **Kit (`BroadcastConformance`).** A live subscriber receives a message; a subscriber that joins
 later does not receive earlier ones; order of one publisher on one channel; several channels on one
@@ -687,7 +687,7 @@ and `features()`. What differs is what the kernel builds over it:
   `EventTransportProvider` (below), exported from `sandloom.driverkit`, and the kernel builds its
   durable bus over it. This is the only shape a driver package can implement, and the only one
   `EventTransportConformance` tests.
-- **Volatile-bus shape** (`memory`, `redis`): the class is a kernel-internal `VolatileBusProvider`
+- **Volatile-bus shape** (`memory`, `broadcast`): the class is a kernel-internal `VolatileBusProvider`
   (in `core/eventing`, not exported from driverkit) that implements no `EventTransport`; the kernel
   builds its volatile bus from it (`memory_bus.py` in process, `pubsub_bus.py` over a `broadcast`
   instance). Its tests are the volatile buses' kernel tests, not the transport kit.
@@ -843,7 +843,7 @@ inventory operations without their feature: `Unsupported(feature)`.
 
 The bus's own facts (`in_process`, `supports_prevalidated`, `supports_preflighted`) are attributes
 of the kernel's bus classes, read by kernel code through a kernel type, not through the transport.
-The volatile bus (`memory`, `redis`) has no `durable`, so G-EVENT-14 and G-RISK-04 rest on its
+The volatile bus (`memory`, `broadcast`) has no `durable`, so G-EVENT-14 and G-RISK-04 rest on its
 absence. **Performance hints.** `publish_many`, `ack_many`: `one_round_trip`.
 
 **Kit (`EventTransportConformance`).** Run against `MemoryTransport` and `streams`: publish and
@@ -1230,7 +1230,7 @@ capability.
 | G-EVENT-10 | eventbus (`streams`) | redelivery, reclaim, DLQ order | `durable` | "Streams transport" to "a `durable` transport; on Redis, XAUTOCLAIM" |
 | G-EVENT-11 | eventbus | `replay_dlq` | `dlq_ops` | no |
 | G-EVENT-12 | eventbus | `retention()`, driver options | | yes: driver options, not settings |
-| G-EVENT-14, G-RISK-04 | eventbus drivers `memory` / `redis` (volatile) over broadcast | absence of `durable` | | no |
+| G-EVENT-14, G-RISK-04 | eventbus drivers `memory` / `broadcast` (volatile) over broadcast | absence of `durable` | | no |
 | G-EVENT-04, -08, -13 | kernel bus logic, no capability | | | no |
 | G-MIGRATE-07, -08 (owner transfer) | eventbus | `transfer_group_owner`, `release_group_owner` | | no |
 | G-INFRA-10 | every driver | `required_imports`, `install_hint` | | no |
@@ -1276,8 +1276,12 @@ For the orchestrator's review; each departs from or details `design.md`.
 12. **Lease drivers on Redis run the `noeviction` check** like `atomic_store.redis`, since the fence
     key has no TTL.
 13. **`broadcast` gaps surface as `Unavailable` from the iterator**; the payload floor is 1 MiB.
-14. **`eventbus` driver names stay** (`streams`, `memory`, `redis`); only `streams` is a transport
-    provider; `redis` becomes the kernel's volatile bus over `broadcast`. `MemoryTransport` is the
+14. **`eventbus` driver names stay** (`streams`, `memory`); only `streams` is a transport
+    provider. The kernel's volatile bus over `broadcast` was first named `redis`; deviation
+    (`eventbus-broadcast-driver`, 0.7.0a15): it talks to no service, so it is named after the
+    capability it runs on, `broadcast`, as `atomic_store`'s `database` driver is. `redis` stays
+    one release as a deprecated alias (`DEPRECATED_DRIVER_ALIASES` in `core/infra/driver_aliases.py`)
+    that resolves to `broadcast` and logs one WARNING per instance. `MemoryTransport` is the
     kit reference, not an `INFRA` choice.
 15. **Group ownership and `never_dead_letter` are required** eventbus operations, not features; the
     optional diagnostics fold into `inspection` and `inventory`, DLQ inspection and replay into
@@ -1476,7 +1480,7 @@ For the orchestrator's review; each departs from or details `design.md`.
     - **Retention.** `configured_stream_retention_seconds` moved to `sandloom.core.infra.registry`.
       Its answer is the instance's `retention_seconds` option, else the default the driver's
       `options_schema` gives it (seven days for `streams`), the class read from the installed
-      package's entry point. No volatile-driver set stays in the kernel: `memory` and `redis`
+      package's entry point. No volatile-driver set stays in the kernel: `memory` and `broadcast`
       have no such option, so nothing is configured. Deviation: a driver whose package is not
       installed in the tool process answers `None` (it was seven days for `streams`), and a
       volatile bus that states `retention_seconds` (refused at startup) answers that value.

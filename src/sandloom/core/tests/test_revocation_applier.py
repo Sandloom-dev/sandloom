@@ -168,7 +168,7 @@ def test_an_unset_bus_without_a_composition_bus_counts_as_shared() -> None:
     assert applier.cross_process_bus(cfg)
 
 
-@pytest.mark.parametrize("backend", ["streams", "redis"])
+@pytest.mark.parametrize("backend", ["streams", "broadcast"])
 def test_a_shared_bus_without_a_name_is_refused(backend: str) -> None:
     """Outside production too: a silent group merge is the failure."""
     from sandloom.core.app_factory import configuration_problems
@@ -188,7 +188,7 @@ def test_a_shared_bus_without_a_name_is_refused(backend: str) -> None:
     assert applier.revocation_applier_config_problem(named) is None
 
 
-@pytest.mark.parametrize("driver", ["streams", "redis", "kafka"])
+@pytest.mark.parametrize("driver", ["streams", "broadcast", "kafka"])
 def test_a_shared_bus_chosen_through_infra_is_refused_without_a_name(
     driver: str,
 ) -> None:

@@ -330,7 +330,7 @@ class, on the record.
 The names of the previous major are gone, with no alias. A module or driver that names
 `publish`, `subscribe`, `volatile`, `at_least_once` or `consumer_groups` is refused at
 load, and the refusal names the replacement. The last two become `durable`; the first
-three are dropped. The `memory` and `redis` buses are the kernel's own volatile buses,
+three are dropped. The `memory` and `broadcast` buses are the kernel's own volatile buses,
 not a driver shape.
 
 #### A taskqueue driver's worker host

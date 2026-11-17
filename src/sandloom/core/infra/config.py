@@ -33,6 +33,7 @@ passed verbatim to that driver as an option.
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -40,6 +41,7 @@ from typing import Any
 
 from sandloom.core.config.common import Environment
 from sandloom.core.config.settings import Settings
+from sandloom.core.infra.driver_aliases import canonical_driver
 
 #: Capabilities whose ``default`` instance a composition selects (options from
 #: the flat settings: DATABASE_URL, …). This is NOT the set of valid
@@ -58,6 +60,8 @@ DEFAULTED_CAPABILITIES: tuple[str, ...] = (
 
 
 DEFAULT_INSTANCE = "default"
+
+logger = logging.getLogger("sandloom.core.infra")
 
 #: The synthesized instances the kernel itself uses in every composition, so
 #: they count as required whether or not a module names them: the database
@@ -90,6 +94,10 @@ class InstanceConfig:
     settings that ``INFRA`` does not name: nobody selected it, so nothing
     opens or probes it unless the kernel (:data:`KERNEL_INSTANCES`) or a
     module's requirement uses it. An instance ``INFRA`` names is explicit.
+
+    ``deprecated_driver`` is the old spelling the configuration wrote when
+    ``driver`` is its resolved new name (``driver_aliases.DEPRECATED_DRIVER_ALIASES``);
+    ``None`` when the configuration wrote ``driver`` itself.
     """
 
     capability: str
@@ -97,6 +105,7 @@ class InstanceConfig:
     driver: str
     options: dict[str, Any] = field(default_factory=dict)
     implicit: bool = False
+    deprecated_driver: str | None = None
 
 
 # capability -> {instance_name -> InstanceConfig}
@@ -251,6 +260,7 @@ def _composition_instances() -> InfraConfig:
                 name=cfg.name,
                 driver=cfg.driver,
                 options=dict(cfg.options),
+                deprecated_driver=cfg.deprecated_driver,
             )
             for name, cfg in instances.items()
         }
@@ -268,11 +278,16 @@ def _select(
     a composition default that selects the same driver are kept (flat settings
     below them), another driver starts from the flat options alone."""
     existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
+    resolved = canonical_driver(capability, driver)
     merged = dict(options)
-    if existing is not None and existing.driver == driver:
+    if existing is not None and existing.driver == resolved:
         merged.update(existing.options)
     config.setdefault(capability, {})[DEFAULT_INSTANCE] = InstanceConfig(
-        capability=capability, name=DEFAULT_INSTANCE, driver=driver, options=merged
+        capability=capability,
+        name=DEFAULT_INSTANCE,
+        driver=resolved,
+        options=merged,
+        deprecated_driver=driver if resolved != driver else None,
     )
 
 
@@ -363,8 +378,14 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
                 )
             existing = bucket.get(inst_name)
             options = {k: v for k, v in spec.items() if k != "driver"}
-            driver = spec.get("driver") or (existing.driver if existing else None)
-            if not driver:
+            named = spec.get("driver")
+            deprecated: str | None = None
+            if named:
+                driver = canonical_driver(capability, str(named))
+                deprecated = str(named) if driver != named else None
+            elif existing is not None:
+                driver, deprecated = existing.driver, existing.deprecated_driver
+            else:
                 raise InfraConfigError(
                     f"INFRA[{capability!r}][{inst_name!r}] needs a 'driver'"
                 )
@@ -380,6 +401,7 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
                 name=inst_name,
                 driver=str(driver),
                 options=options,
+                deprecated_driver=deprecated,
             )
 
 
@@ -483,6 +505,35 @@ def fill_driver_defaults(
                 _apply_fill(cfg, fill, settings)
 
 
+def resolve_driver_aliases(config: InfraConfig) -> None:
+    """Resolve the deprecated driver spellings of ``config`` in place and log
+    one WARNING per instance that wrote one
+    (``driver_aliases.DEPRECATED_DRIVER_ALIASES``).
+
+    The loaders resolve what they read (``INFRA``, the composition's selection,
+    ``EVENT_BUS_BACKEND``); an explicit configuration built by hand (a tool, a
+    test) is resolved here too. The registry is built once per process, so the
+    WARNING is logged once, at startup."""
+    for capability, instances in config.items():
+        for cfg in instances.values():
+            resolved = canonical_driver(capability, cfg.driver)
+            if resolved != cfg.driver:
+                cfg.deprecated_driver, cfg.driver = cfg.driver, resolved
+            if cfg.deprecated_driver is not None:
+                logger.warning(
+                    "%s instance %r: driver %r is a deprecated spelling of %r "
+                    "and goes away in a later release; write "
+                    'INFRA={"%s": {"%s": {"driver": "%s"}}}',
+                    capability,
+                    cfg.name,
+                    cfg.deprecated_driver,
+                    resolved,
+                    capability,
+                    cfg.name,
+                    resolved,
+                )
+
+
 def load_infra_config(settings: Settings) -> InfraConfig:
     """Return the merged infrastructure configuration: the composition's
     selection, the flat settings that select a driver or give an option the
@@ -509,6 +560,7 @@ __all__ = [
     "use_default_infra",
     "database_instance_url",
     "eventbus_driver",
+    "resolve_driver_aliases",
     "fill_driver_defaults",
     "InstanceConfig",
     "InfraConfig",

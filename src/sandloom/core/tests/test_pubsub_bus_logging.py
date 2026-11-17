@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from sandloom.core.eventing.envelope import EventEnvelope
-from sandloom.core.eventing.pubsub_bus import RedisEventBus
+from sandloom.core.eventing.pubsub_bus import BroadcastEventBus
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 SECRET = "redis://user:hunter2@10.9.8.7:6379/0 payload=card-4242"
@@ -61,7 +61,7 @@ def _assert_no_value_or_traceback(record: logging.LogRecord) -> None:
 async def test_a_failed_broadcast_publish_logs_the_type_and_still_raises(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    bus = RedisEventBus(InMemorySchemaRegistry(), broadcast=_FailingBroadcast())
+    bus = BroadcastEventBus(InMemorySchemaRegistry(), broadcast=_FailingBroadcast())
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
         with pytest.raises(ConnectionError):  # the relay must see it and retry
             await bus._publish_to_transport("core.thing.v1", _envelope())
@@ -72,7 +72,7 @@ async def test_a_failed_broadcast_publish_logs_the_type_and_still_raises(
 async def test_a_failed_delivery_logs_the_type_only(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    bus = RedisEventBus(InMemorySchemaRegistry())
+    bus = BroadcastEventBus(InMemorySchemaRegistry())
 
     async def boom(*_args: Any) -> None:
         raise ConnectionError(SECRET)
@@ -91,7 +91,7 @@ async def test_a_failed_callback_logs_the_full_traceback(
 ) -> None:
     # A callback is application code: its traceback is what finds the bug (the
     # transport branches above keep the type only).
-    bus = RedisEventBus(InMemorySchemaRegistry())
+    bus = BroadcastEventBus(InMemorySchemaRegistry())
 
     async def callback(_envelope: EventEnvelope) -> None:
         raise ValueError("handler bug")
@@ -118,7 +118,7 @@ class _FailingSubscribe:
 async def test_a_lost_subscription_logs_the_type_only(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    bus = RedisEventBus(InMemorySchemaRegistry(), broadcast=_FailingSubscribe())
+    bus = BroadcastEventBus(InMemorySchemaRegistry(), broadcast=_FailingSubscribe())
 
     async def callback(_envelope: EventEnvelope) -> None:
         return None

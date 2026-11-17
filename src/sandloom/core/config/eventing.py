@@ -20,9 +20,10 @@ class EventingConfig(BaseModel):
     """
 
     # Event bus transport: unset (None) = the composition's selection (no kernel
-    # default, never memory); the volatile memory/redis drivers are refused in
-    # prod (see infra.config).
-    event_bus_backend: Literal["memory", "redis", "streams"] | None = Field(
+    # default, never memory); the volatile memory/broadcast drivers are refused
+    # in prod (see infra.config). ``redis`` is the deprecated spelling of
+    # ``broadcast`` (infra.driver_aliases.DEPRECATED_DRIVER_ALIASES).
+    event_bus_backend: Literal["memory", "broadcast", "redis", "streams"] | None = Field(
         default=None,
         alias="EVENT_BUS_BACKEND",
         description=(
@@ -42,7 +43,7 @@ class EventingConfig(BaseModel):
             raise ValueError(
                 "EVENT_BUS_BACKEND=auto is no longer a value: unset "
                 "EVENT_BUS_BACKEND to leave the bus to the composition's "
-                "selection, or name a driver (memory, redis, streams)"
+                "selection, or name a driver (memory, broadcast, streams)"
             )
         return value
 
@@ -213,7 +214,7 @@ class EventingConfig(BaseModel):
         default=100,
         alias="EVENT_BUS_REDIS_SEMAPHORE_LIMIT",
         description=(
-            "Max concurrent callbacks for RedisEventBus to prevent overload. "
+            "Max concurrent callbacks for BroadcastEventBus to prevent overload. "
             "Adjust based on CPU/network capacity."
         ),
     )

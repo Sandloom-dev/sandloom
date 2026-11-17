@@ -304,7 +304,7 @@ def _check_bus_can_host_consumer(bus: Any, channel: str, group: str) -> None:
 
     * the in-process memory bus (dev/tests) is accepted outside prod — there is
       no other process to miss events or duplicate work;
-    * a cross-process volatile bus (Redis Pub/Sub) loses events published while
+    * a cross-process volatile bus (broadcast Pub/Sub) loses events published while
       the consumer is offline and fans every event out to every replica, so it
       is refused unless the risk ``volatile_event_bus`` is accepted (non-prod);
     * in production any non-durable bus is refused.
@@ -329,7 +329,7 @@ def _check_bus_can_host_consumer(bus: Any, channel: str, group: str) -> None:
         return
     else:
         reason = (
-            "the bus has no consumer groups/persistence (Redis Pub/Sub); use "
+            "the bus has no consumer groups/persistence (broadcast Pub/Sub); use "
             "EVENT_BUS_BACKEND=streams or accept lossy delivery outside "
             'production with SANDLOOM_ACCEPTED_RISKS=["volatile_event_bus"]'
         )

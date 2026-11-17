@@ -90,7 +90,7 @@ RISKS: tuple[Risk, ...] = (
     ),
     Risk(
         "volatile_event_bus",
-        "A volatile event bus (memory / Redis Pub/Sub): in prod the driver is "
+        "A volatile event bus (memory / broadcast Pub/Sub): in prod the driver is "
         "admitted and events can be lost; outside prod durable consumers may "
         "run on Pub/Sub (lost or duplicated deliveries).",
         "volatile bus provider (sandloom.core.eventing.volatile_provider) and the "

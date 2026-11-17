@@ -77,7 +77,7 @@ The `database` contract is major 2. Update a driver package that implements it
 
 The `eventbus` contract is major 2: the `streams` transport is a typed
 `EventTransportProvider` ([Write a driver](../infrastructure/write-a-driver.md#an-eventbus-driver))
-and `memory` and `redis` are the kernel's own volatile buses. A driver or module that names
+and `memory` and `broadcast` are the kernel's own volatile buses. A driver or module that names
 a feature of the previous vocabulary is refused at load, and the refusal names the
 replacement. There is no alias.
 
@@ -166,6 +166,29 @@ The three commands are unchanged for an operator. `sandloom worker check` now bu
 infrastructure registry from the settings and asks the driver's host. It needs the same
 `DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
+
+## Upgrading to 0.7.0a15: the volatile event bus driver is `broadcast`
+
+The volatile `eventbus` driver that ran over a `broadcast` instance was called `redis`. It
+talks to no service of its own: it runs on the `broadcast` instance named by its option
+`broadcast`. It is now named after that capability, as the `database` driver of
+`atomic_store` is. An instance that selects it changes one line:
+
+```diff
+-INFRA={"eventbus": {"default": {"driver": "redis"}}}
++INFRA={"eventbus": {"default": {"driver": "broadcast"}}}
+```
+
+`EVENT_BUS_BACKEND=redis` becomes `EVENT_BUS_BACKEND=broadcast`. The driver no longer
+needs the `redis` package: the Redis client belongs to the `redis` driver of
+`broadcast`, which you still select under `INFRA.broadcast`. Behavior is the same.
+
+The old spelling keeps working in this release. A configuration that writes
+`"driver": "redis"` for an `eventbus` instance, in `INFRA`, in a composition's
+`DEFAULT_INFRA` or in `EVENT_BUS_BACKEND`, loads as `broadcast`, and startup logs one
+WARNING per instance that names the new spelling. The alias goes away in a later release,
+and an instance that still writes `redis` is then refused at startup. The `redis` driver
+of `cache`, `lease`, `atomic_store` and `broadcast` is unchanged.
 
 ## Upgrading to 0.7.0a14: the flat Redis settings
 

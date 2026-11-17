@@ -205,7 +205,7 @@ async def test_feature_operations_default_to_unsupported() -> None:
         base.renew_interval_seconds(provider)
 
 
-def test_memory_and_redis_are_volatile_providers_without_a_transport() -> None:
+def test_memory_and_broadcast_are_volatile_providers_without_a_transport() -> None:
     assert issubclass(MemoryEventBusProvider, VolatileBusProvider)
     assert not issubclass(MemoryEventBusProvider, EventTransportProvider)
     assert MemoryEventBusProvider.contract_version == 2
