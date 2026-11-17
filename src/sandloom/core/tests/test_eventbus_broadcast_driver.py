@@ -2,9 +2,9 @@
 
 The ``eventbus`` driver that runs over a ``broadcast`` instance is named after
 the capability it runs on. The old spelling ``redis`` keeps working for one
-release: the configuration loads it as ``broadcast`` and startup logs one
-WARNING that names the new spelling (``DEPRECATED_DRIVER_ALIASES``). The driver
-imports nothing of Redis, so it loads where the client is absent.
+release: the configuration loads it as ``broadcast`` and logs one WARNING that
+names the new spelling (``DEPRECATED_DRIVER_ALIASES``). The driver imports
+nothing of Redis, so it loads where the client is absent.
 """
 
 from __future__ import annotations
@@ -14,9 +14,11 @@ import sys
 
 import pytest
 
+import sandloom.core.infra.config as config_module
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.eventing.volatile_provider import BroadcastEventBusProvider
+from sandloom.core.infra.active import use_infra
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
     InfraConfig,
@@ -26,7 +28,6 @@ from sandloom.core.infra.config import (
     resolve_driver_aliases,
     use_default_infra,
 )
-from sandloom.core.infra.active import use_infra
 from sandloom.core.infra.driver_aliases import canonical_driver
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
@@ -49,13 +50,13 @@ def _config(bus_driver: str) -> InfraConfig:
     }
 
 
-@pytest.fixture
-def no_selection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No composition selection and no process ``INFRA``: the test states both."""
-    import sandloom.core.infra.config as config_module
-
+@pytest.fixture(autouse=True)
+def fresh_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No composition selection, no process ``INFRA`` and no WARNING already
+    given: each test states its own configuration and sees its own warnings."""
     monkeypatch.setattr(config_module, "_PIN", None)
     monkeypatch.setattr(config_module, "_APP", None)
+    monkeypatch.setattr(config_module, "_WARNED_ALIASES", set())
     use_default_infra({})
     monkeypatch.setattr(settings, "infra", {}, raising=False)
     monkeypatch.setattr(settings, "event_bus_backend", None)
@@ -80,10 +81,10 @@ def test_only_the_eventbus_redis_spelling_is_an_alias() -> None:
 
 
 # -------------------------------------------------------------- the loaders
-@pytest.mark.usefixtures("no_selection")
-def test_infra_driver_redis_loads_as_broadcast_and_remembers_the_spelling(
-    monkeypatch: pytest.MonkeyPatch,
+def test_infra_driver_redis_loads_as_broadcast_and_warns_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.WARNING, logger=_LOGGER)
     monkeypatch.setattr(
         settings,
         "infra",
@@ -91,40 +92,48 @@ def test_infra_driver_redis_loads_as_broadcast_and_remembers_the_spelling(
         raising=False,
     )
     cfg = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE]
-    assert (cfg.driver, cfg.deprecated_driver) == ("broadcast", "redis")
-    assert cfg.options == {"broadcast": "side"}
-    # The readers that run before the registry see the new name only.
+    assert (cfg.driver, cfg.options) == ("broadcast", {"broadcast": "side"})
+    # The readers that run before the registry see the new name only, and a
+    # configuration read again does not repeat the WARNING.
     assert eventbus_driver(settings) == "broadcast"
+    load_infra_config(settings)
+    (message,) = _warnings(caplog)
+    assert 'INFRA={"eventbus": {"default": {"driver": "broadcast"}}}' in message
+    assert "'redis'" in message and "later release" in message
 
 
-@pytest.mark.usefixtures("no_selection")
-def test_the_new_spelling_carries_no_deprecation(
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_new_spelling_logs_no_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.WARNING, logger=_LOGGER)
     monkeypatch.setattr(
         settings,
         "infra",
         {"eventbus": {"default": {"driver": "broadcast"}}},
         raising=False,
     )
-    cfg = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE]
-    assert (cfg.driver, cfg.deprecated_driver) == ("broadcast", None)
+    assert load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].driver == (
+        "broadcast"
+    )
+    assert _warnings(caplog) == []
 
 
-@pytest.mark.usefixtures("no_selection")
 def test_event_bus_backend_redis_is_the_alias_too(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.WARNING, logger=_LOGGER)
     monkeypatch.setattr(settings, "event_bus_backend", "redis")
-    cfg = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE]
-    assert (cfg.driver, cfg.deprecated_driver) == ("broadcast", "redis")
+    assert load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].driver == (
+        "broadcast"
+    )
     assert eventbus_driver(settings) == "broadcast"
+    assert len(_warnings(caplog)) == 1
 
 
-@pytest.mark.usefixtures("no_selection")
 def test_a_composition_selecting_redis_is_resolved_and_infra_options_layer_on_it(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.WARNING, logger=_LOGGER)
     use_default_infra({"eventbus": {"default": {"driver": "redis"}}})
     monkeypatch.setattr(
         settings,
@@ -133,28 +142,27 @@ def test_a_composition_selecting_redis_is_resolved_and_infra_options_layer_on_it
         raising=False,
     )
     cfg = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE]
-    # INFRA states no driver: the composition's, resolved, with its spelling.
-    assert (cfg.driver, cfg.deprecated_driver) == ("broadcast", "redis")
-    assert cfg.options == {"broadcast": "side"}
+    # INFRA states no driver: the composition's, resolved, with INFRA's options.
+    assert (cfg.driver, cfg.options) == ("broadcast", {"broadcast": "side"})
+    assert len(_warnings(caplog)) == 1
 
 
-@pytest.mark.usefixtures("no_selection")
-def test_infra_naming_broadcast_over_a_redis_selection_drops_the_deprecation(
-    monkeypatch: pytest.MonkeyPatch,
+def test_only_the_eventbus_capability_is_aliased(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    use_default_infra({"eventbus": {"default": {"driver": "redis"}}})
+    caplog.set_level(logging.WARNING, logger=_LOGGER)
     monkeypatch.setattr(
         settings,
         "infra",
-        {"eventbus": {"default": {"driver": "broadcast"}}},
+        {"cache": {"default": {"driver": "redis"}}},
         raising=False,
     )
-    cfg = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE]
-    assert (cfg.driver, cfg.deprecated_driver) == ("broadcast", None)
+    assert load_infra_config(settings)["cache"][DEFAULT_INSTANCE].driver == "redis"
+    assert _warnings(caplog) == []
 
 
 # ---------------------------------------------------- the registry at startup
-def test_startup_logs_one_warning_that_names_the_new_spelling(
+def test_an_explicit_configuration_with_the_alias_builds_the_broadcast_driver(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.WARNING, logger=_LOGGER)
@@ -166,10 +174,11 @@ def test_startup_logs_one_warning_that_names_the_new_spelling(
     assert provider.driver == "broadcast"
     (message,) = _warnings(caplog)
     assert 'INFRA={"eventbus": {"default": {"driver": "broadcast"}}}' in message
-    assert "'redis'" in message and "later release" in message
 
 
-def test_the_new_spelling_logs_no_warning(caplog: pytest.LogCaptureFixture) -> None:
+def test_the_new_spelling_builds_with_no_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     caplog.set_level(logging.WARNING, logger=_LOGGER)
     registry = build_infra_registry(
         InMemorySchemaRegistry(), config=_config("broadcast"), load_plugins=False
@@ -178,7 +187,7 @@ def test_the_new_spelling_logs_no_warning(caplog: pytest.LogCaptureFixture) -> N
     assert _warnings(caplog) == []
 
 
-def test_a_resolved_configuration_warns_once_per_instance(
+def test_every_instance_that_wrote_the_alias_is_warned_about(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.WARNING, logger=_LOGGER)

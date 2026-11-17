@@ -94,10 +94,6 @@ class InstanceConfig:
     settings that ``INFRA`` does not name: nobody selected it, so nothing
     opens or probes it unless the kernel (:data:`KERNEL_INSTANCES`) or a
     module's requirement uses it. An instance ``INFRA`` names is explicit.
-
-    ``deprecated_driver`` is the old spelling the configuration wrote when
-    ``driver`` is its resolved new name (``driver_aliases.DEPRECATED_DRIVER_ALIASES``);
-    ``None`` when the configuration wrote ``driver`` itself.
     """
 
     capability: str
@@ -105,7 +101,6 @@ class InstanceConfig:
     driver: str
     options: dict[str, Any] = field(default_factory=dict)
     implicit: bool = False
-    deprecated_driver: str | None = None
 
 
 # capability -> {instance_name -> InstanceConfig}
@@ -260,7 +255,6 @@ def _composition_instances() -> InfraConfig:
                 name=cfg.name,
                 driver=cfg.driver,
                 options=dict(cfg.options),
-                deprecated_driver=cfg.deprecated_driver,
             )
             for name, cfg in instances.items()
         }
@@ -278,16 +272,12 @@ def _select(
     a composition default that selects the same driver are kept (flat settings
     below them), another driver starts from the flat options alone."""
     existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
-    resolved = canonical_driver(capability, driver)
+    resolved = _resolved_driver(capability, DEFAULT_INSTANCE, driver)
     merged = dict(options)
     if existing is not None and existing.driver == resolved:
         merged.update(existing.options)
     config.setdefault(capability, {})[DEFAULT_INSTANCE] = InstanceConfig(
-        capability=capability,
-        name=DEFAULT_INSTANCE,
-        driver=resolved,
-        options=merged,
-        deprecated_driver=driver if resolved != driver else None,
+        capability=capability, name=DEFAULT_INSTANCE, driver=resolved, options=merged
     )
 
 
@@ -379,12 +369,10 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
             existing = bucket.get(inst_name)
             options = {k: v for k, v in spec.items() if k != "driver"}
             named = spec.get("driver")
-            deprecated: str | None = None
             if named:
-                driver = canonical_driver(capability, str(named))
-                deprecated = str(named) if driver != named else None
+                driver = _resolved_driver(capability, str(inst_name), str(named))
             elif existing is not None:
-                driver, deprecated = existing.driver, existing.deprecated_driver
+                driver = existing.driver
             else:
                 raise InfraConfigError(
                     f"INFRA[{capability!r}][{inst_name!r}] needs a 'driver'"
@@ -401,7 +389,6 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
                 name=inst_name,
                 driver=str(driver),
                 options=options,
-                deprecated_driver=deprecated,
             )
 
 
@@ -505,33 +492,43 @@ def fill_driver_defaults(
                 _apply_fill(cfg, fill, settings)
 
 
+#: The ``(capability, instance, written name)`` of every deprecated spelling
+#: already warned about in this process: the configuration is read many times
+#: (every resolver, every tool), the WARNING is logged once per spelling.
+_WARNED_ALIASES: set[tuple[str, str, str]] = set()
+
+
+def _resolved_driver(capability: str, instance: str, written: str) -> str:
+    """The driver ``written`` for ``instance``, resolved
+    (``driver_aliases.DEPRECATED_DRIVER_ALIASES``); a deprecated spelling logs
+    one WARNING that names the new one, the first time it is read."""
+    resolved = canonical_driver(capability, written)
+    key = (capability, instance, written)
+    if resolved != written and key not in _WARNED_ALIASES:
+        _WARNED_ALIASES.add(key)
+        logger.warning(
+            "%s instance %r: driver %r is a deprecated spelling of %r and goes "
+            'away in a later release; write INFRA={"%s": {"%s": {"driver": "%s"}}}',
+            capability,
+            instance,
+            written,
+            resolved,
+            capability,
+            instance,
+            resolved,
+        )
+    return resolved
+
+
 def resolve_driver_aliases(config: InfraConfig) -> None:
-    """Resolve the deprecated driver spellings of ``config`` in place and log
-    one WARNING per instance that wrote one
-    (``driver_aliases.DEPRECATED_DRIVER_ALIASES``).
+    """Resolve the deprecated driver spellings of ``config`` in place.
 
     The loaders resolve what they read (``INFRA``, the composition's selection,
     ``EVENT_BUS_BACKEND``); an explicit configuration built by hand (a tool, a
-    test) is resolved here too. The registry is built once per process, so the
-    WARNING is logged once, at startup."""
+    test) is resolved here, where the registry takes it."""
     for capability, instances in config.items():
         for cfg in instances.values():
-            resolved = canonical_driver(capability, cfg.driver)
-            if resolved != cfg.driver:
-                cfg.deprecated_driver, cfg.driver = cfg.driver, resolved
-            if cfg.deprecated_driver is not None:
-                logger.warning(
-                    "%s instance %r: driver %r is a deprecated spelling of %r "
-                    "and goes away in a later release; write "
-                    'INFRA={"%s": {"%s": {"driver": "%s"}}}',
-                    capability,
-                    cfg.name,
-                    cfg.deprecated_driver,
-                    resolved,
-                    capability,
-                    cfg.name,
-                    resolved,
-                )
+            cfg.driver = _resolved_driver(capability, cfg.name, cfg.driver)
 
 
 def load_infra_config(settings: Settings) -> InfraConfig:

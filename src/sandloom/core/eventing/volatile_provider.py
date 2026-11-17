@@ -165,7 +165,9 @@ def make_volatile_bus_drivers(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
-            bus_instance=BroadcastEventBus(schema_registry, broadcast=options.broadcast),
+            bus_instance=BroadcastEventBus(
+                schema_registry, broadcast=options.broadcast
+            ),
         )
 
     return {"memory": _memory, "broadcast": _broadcast}

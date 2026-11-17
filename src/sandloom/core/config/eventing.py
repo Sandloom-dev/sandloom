@@ -23,14 +23,16 @@ class EventingConfig(BaseModel):
     # default, never memory); the volatile memory/broadcast drivers are refused
     # in prod (see infra.config). ``redis`` is the deprecated spelling of
     # ``broadcast`` (infra.driver_aliases.DEPRECATED_DRIVER_ALIASES).
-    event_bus_backend: Literal["memory", "broadcast", "redis", "streams"] | None = Field(
-        default=None,
-        alias="EVENT_BUS_BACKEND",
-        description=(
-            "Event transport selector: unset leaves the bus to the composition's "
-            "selection (startup refuses when none names one); volatile "
-            "production transports require accepted risk."
-        ),
+    event_bus_backend: Literal["memory", "broadcast", "redis", "streams"] | None = (
+        Field(
+            default=None,
+            alias="EVENT_BUS_BACKEND",
+            description=(
+                "Event transport selector: unset leaves the bus to the composition's "
+                "selection (startup refuses when none names one); volatile "
+                "production transports require accepted risk."
+            ),
+        )
     )
 
     @field_validator("event_bus_backend", mode="before")
