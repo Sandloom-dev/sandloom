@@ -9,11 +9,11 @@ this lane's environment).
 from __future__ import annotations
 
 import pytest
+from sandloom_celery.backup import _PERSISTENCE, broker_hint
+from sandloom_celery.taskqueue import CeleryTaskQueueProvider
+from sandloom_redis import backup as redis_backup
 
 from sandloom.driverkit import BackupHint
-from sandloom_celery.backup import _PERSISTENCE, broker_hint
-from sandloom_redis import backup as redis_backup
-from sandloom_celery.taskqueue import CeleryTaskQueueProvider
 
 
 @pytest.mark.parametrize("scheme", ["redis", "rediss"])
