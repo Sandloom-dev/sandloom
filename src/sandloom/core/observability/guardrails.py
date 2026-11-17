@@ -14,6 +14,8 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, TypeVar, cast
 
+from sandloom.core.url_mask import mask_query_secrets, mask_url_userinfo
+
 # pyright: reportUnknownVariableType=false
 
 logger = logging.getLogger("sandloom.core.observability.guardrails")
@@ -117,9 +119,11 @@ def is_sensitive_key(key: str) -> bool:
 # Free-text scrubbing (log messages, exception text, tracebacks). Key-based
 # redaction cannot see inside an f-string, so these patterns catch the common
 # shapes secrets take in prose.
-_DSN_CREDENTIALS = re.compile(
-    r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)[^\s/@:]*:[^\s/@]+@"
-)
+#
+# The url credentials and the secret-named query values are masked by
+# ``sandloom.core.url_mask`` (the masker of ``sandloom config``, ``sandloom
+# doctor`` and the migration logs too; its docstring has the rules): one pattern
+# for all of them. ``scrub_text`` runs it last, after the ``key=value`` pairs.
 _PROVIDER_SECRET = re.compile(
     r"\b(?:sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_]+"
 )
@@ -173,19 +177,42 @@ def _mask_value(match: re.Match[str]) -> str:
     return f"{match['key']}{match['sep']}***"
 
 
+_NON_SPACE_RUN = re.compile(r"\S+")
+
+
+def _mask_token_userinfo(match: re.Match[str]) -> str:
+    """The userinfo of a url that is one word, masked (any other word as written)."""
+    word = match[0]
+    return mask_url_userinfo(word, keep_user=False) if "://" in word else word
+
+
+def _mask_url_words(text: str) -> str:
+    """The credentials of every url that is one word of ``text``, masked."""
+    return _NON_SPACE_RUN.sub(_mask_token_userinfo, text) if "://" in text else text
+
+
 def scrub_text(text: str) -> str:
     """Redact secrets embedded in free text (messages, exception strings).
 
-    Masks DSN credentials (``scheme://user:pass@`` -> ``scheme://***@``), SQL
-    bound-parameter blocks, bearer tokens and ``<secret-ish key>=<value>``
-    pairs. Best-effort and never raises.
+    Masks the value of a secret-named query parameter (``?password=``,
+    ``&sig=``, ...), the credentials of every url that is one word, SQL
+    bound-parameter blocks, bearer tokens, ``<secret-ish key>=<value>`` pairs,
+    then DSN credentials of the whole line
+    (``scheme://user:pass@`` -> ``scheme://***@``; the userinfo runs to the last
+    ``@`` of the line, so a password with a raw ``@`` is hidden whole, and the
+    secrets in front of it are gone already, so the run does not eat their
+    names). The url words go before the ``key=value`` pairs: a pair's value
+    stops at ``,``, ``;``, ``&`` or a quote, all of which a password may hold, and
+    ``SECRET_URL=postgresql://u:a,b@h`` would print ``,b@h`` after it. See
+    :mod:`sandloom.core.url_mask`. Best-effort and never raises.
     """
     if not text:
         return text
     try:
         out = text
-        if "://" in out:
-            out = _DSN_CREDENTIALS.sub(r"\g<scheme>***@", out)
+        if "=" in out:
+            out = mask_query_secrets(out)
+        out = _mask_url_words(out)
         if any(
             prefix in out
             for prefix in ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_")
@@ -195,13 +222,16 @@ def scrub_text(text: str) -> str:
             out = _SQL_PARAMETERS.sub("[parameters: ***]", out)
         if not out.isascii():
             out = _BEARER.sub(r"\1 ***", out)
-            return _KEY_VALUE.sub(_mask_value, out)
-        low = out.lower()
-        if "bearer" in low:
-            out = _BEARER.sub(r"\1 ***", out)
-            low = out.lower()
-        if any(marker in low for marker in _KEY_VALUE_MARKERS):
             out = _KEY_VALUE.sub(_mask_value, out)
+        else:
+            low = out.lower()
+            if "bearer" in low:
+                out = _BEARER.sub(r"\1 ***", out)
+                low = out.lower()
+            if any(marker in low for marker in _KEY_VALUE_MARKERS):
+                out = _KEY_VALUE.sub(_mask_value, out)
+        if "://" in out:
+            out = mask_url_userinfo(out, keep_user=False)
         return out
     except Exception:  # pragma: no cover  # noqa: BLE001 - redaction must never break logging
         return text

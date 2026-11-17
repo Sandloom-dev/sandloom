@@ -364,7 +364,6 @@ STEPS = (
         "generate-check",
         BACKEND_PATHS,
         ("uv", "run", "--locked", "sandloom", "generate", "--check"),
-        env=(("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main"),),
         timeout=180,
     ),
     Step(

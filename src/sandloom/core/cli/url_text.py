@@ -3,7 +3,7 @@
 The dev CLI reads no settings, so this module imports none: ``cli.config`` and
 ``cli.doctor`` mask urls through it, and the ``dev up`` failure line drops them.
 
-The masker is :mod:`sandloom.core.migrations.url_mask` (the migration runner masks
+The masker is :mod:`sandloom.core.url_mask` (the migration runner masks
 its logs and ``sandloom backup plan`` with the same one), re-exported here; its
 docstring says where a password of a url can stand.
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from sandloom.core.migrations.url_mask import (
+from sandloom.core.url_mask import (
     SCHEME,
     USERINFO,
     mask_query_secrets,
