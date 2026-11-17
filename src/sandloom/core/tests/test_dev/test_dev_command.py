@@ -1017,7 +1017,7 @@ def test_a_dropped_capability_leaves_the_override_file(
     [
         ("", '{"cache":{"default":{"url":"redis://h:1/0"}}}', True),
         ("", None, False),
-        ("INFRA='{\"cache\":{\"default\":{\"url\":\"redis://h:1/0\"}}}'\n", "{}", False),
+        ('INFRA=\'{"cache":{"default":{"url":"redis://h:1/0"}}}\'\n', "{}", False),
     ],
     ids=["shell-only", "none", "env-test-has-it"],
 )
