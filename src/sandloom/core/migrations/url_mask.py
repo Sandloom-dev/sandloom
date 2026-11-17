@@ -38,7 +38,7 @@ _QUERY_SECRET = re.compile(
 _URL_LIST_SEPARATOR = re.compile(rf";(?=\s*{SCHEME})")
 #: The password of an HTTP token login (``https://<token>:x-oauth-basic@host``):
 #: the user slot holds the secret.
-_TOKEN_LOGIN_PASSWORD = "x-oauth-basic"  # noqa: S105 - a fixed word, no secret
+_TOKEN_LOGIN_MARKER = "x-oauth-basic"
 
 
 def mask_url_credentials(text: str, *, keep_user: bool = True) -> str:
@@ -53,7 +53,7 @@ def mask_url_credentials(text: str, *, keep_user: bool = True) -> str:
 
     def _sub(match: re.Match[str]) -> str:
         user, _, password = match.group(2).partition(":")
-        if not keep_user or not password or password == _TOKEN_LOGIN_PASSWORD:
+        if not keep_user or not password or password == _TOKEN_LOGIN_MARKER:
             user = ""
         return f"{match.group(1)}{user + ':' if user else ''}***@"
 
