@@ -64,6 +64,16 @@ SERVICE_BINDING_KEYS = frozenset(
 )
 
 
+def _is_absolute_http_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        # urllib's message carries the whole netloc (``user:password``) and a
+        # validation error copies it: the caller words the refusal, naming none.
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 def validate_service_binding(contract: str, binding: object) -> dict[str, object]:
     """Validate one ``SERVICE_BINDINGS`` entry (raises ``ValueError``)."""
     where = f"SERVICE_BINDINGS[{contract!r}]"
@@ -80,8 +90,7 @@ def validate_service_binding(contract: str, binding: object) -> dict[str, object
     url = binding.get("base_url") or binding.get("url")
     if not isinstance(url, str) or not url.strip():
         raise ValueError(f"{where} needs a base_url (e.g. http://tenancy:2222)")
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if not _is_absolute_http_url(url.strip()):
         raise ValueError(f"{where}.base_url must be an absolute http(s):// URL")
     timeout = binding.get("timeout_seconds")
     if timeout is not None and (

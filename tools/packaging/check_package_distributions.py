@@ -268,7 +268,8 @@ POSTGRES_EXTRA = "postgres"
 #: move into a comment or a docstring. Not caught: "XACK stream group id" (three
 #: plain lower-case words reads as prose, an accepted miss) and any prose whose
 #: later words all start with a letter ("XADD is slow."). An all-caps sentence that
-#: starts with ``SCRIPT`` or ``EVAL`` ("SCRIPT FAILED: see log") is flagged too. A
+#: starts with ``SCRIPT``, ``EVAL``, ``EVAL_RO`` or a ``Z*`` command (``ZADD``,
+#: ``ZRANGE``, ...) is flagged too ("SCRIPT FAILED: see log", "ZADD FAILED"). A
 #: false alarm costs one reword, a miss lets protocol code into the kernel wheel;
 #: a spelling-only check cannot do better. Each of these is pinned by a case of
 #: ``tests/architecture/test_release_packages.py``.

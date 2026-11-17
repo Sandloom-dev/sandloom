@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import SplitResult, parse_qs, urlsplit
 
 #: Schemes of the kombu Redis transports (the ``rediss`` one speaks TLS).
 REDIS_SCHEMES = frozenset({"redis", "rediss"})
@@ -252,13 +252,32 @@ SAFE_DATABASE_ENGINE_OPTIONS = frozenset(
 SAFE_FAILOVER_STRATEGIES = frozenset({"round-robin", "shuffle"})
 
 
+def _split(chunk: str) -> SplitResult:
+    """``urlsplit(chunk)``, whose ``ValueError`` is replaced by a fixed message.
+
+    A netloc character that NFKC-normalizes to ``:`` ``/`` ``?`` ``#`` or ``@``
+    (U+FF1A, say) makes ``urllib`` raise a ``ValueError`` that carries the whole
+    netloc, ``user:password`` included, and a pydantic validation error copies the
+    message of the exception. So no ``ValueError`` of the parse goes further: the
+    new one names no part of the url, and the original is not chained."""
+    try:
+        return urlsplit(chunk)
+    except ValueError:
+        raise ValueError(
+            "a broker or backend url cannot be parsed: write its host in plain "
+            "ASCII (no character that stands for ':', '/', '?', '#' or '@' under "
+            "Unicode normalization) and close the brackets of an IPv6 host"
+        ) from None
+
+
 def scheme_of(url: str | None) -> str:
     """The transport a kombu / Celery url selects: the scheme of its first ``;``
     chunk, lower-cased, before a ``+`` (``sqla+mysql://`` is ``sqla``); ``""`` for
-    no url."""
+    no url. ``ValueError`` (a fixed message, never the url) when the chunk cannot be
+    parsed."""
     if not url:
         return ""
-    return urlsplit(url.split(";")[0].strip()).scheme.lower().split("+")[0]
+    return _split(url.split(";")[0].strip()).scheme.lower().split("+")[0]
 
 
 def _chunks(url: str | None) -> list[str]:
@@ -275,7 +294,7 @@ def _sqs_host(chunk: str) -> str | None:
     U+3002 an ideographic full stop that IDNA reads as one), so such a host names a
     real AWS endpoint while the region pin, reading the raw text, would see none.
     """
-    host = urlsplit(chunk).hostname
+    host = _split(chunk).hostname
     if host and ("%" in host or not host.isascii()):
         raise ValueError(
             "the broker url has an SQS host with a percent escape or a non-ASCII "
@@ -285,7 +304,7 @@ def _sqs_host(chunk: str) -> str | None:
 
 
 def _has_host(url: str | None) -> bool:
-    return any(urlsplit(chunk).hostname for chunk in _chunks(url))
+    return any(_split(chunk).hostname for chunk in _chunks(url))
 
 
 @dataclass(frozen=True)
@@ -441,7 +460,7 @@ def _check_sqs_hosts(connection: ConnectionOptions) -> None:
 def _check_tls(option: str, chunk: str) -> None:
     if scheme_of(chunk) != "rediss":
         return
-    query = parse_qs(urlsplit(chunk).query)
+    query = parse_qs(_split(chunk).query)
     reqs = query.get("ssl_cert_reqs", [])
     if not reqs or reqs[-1] not in _CERT_REQS:
         raise ValueError(

@@ -28,6 +28,8 @@ test('a group with no console file gets the block at its end', () => {
 });
 
 test('a run on the committed console leaves tools/packaging/public-source.json as it is', () => {
+  // Needs the monorepo root (the console's files and public-source.json), two
+  // levels above this script: it cannot run from an extracted admin/ copy.
   const repository = fileURLToPath(new URL('../..', import.meta.url));
   const consoleDir = join(repository, PREFIX);
   const walk = (dir) =>

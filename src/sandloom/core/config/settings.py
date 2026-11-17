@@ -226,7 +226,15 @@ class Settings(
     @field_validator("tracing_url")
     @classmethod
     def _tracing_endpoint(cls, value: str) -> str:
-        endpoint = urlsplit(value)
+        try:
+            endpoint = urlsplit(value)
+        except ValueError:
+            # urllib's message carries the whole netloc (``user:password``), and
+            # a validation error copies it: say nothing of the value.
+            raise ValueError(
+                "TRACING_URL must be an http(s) or grpc(s) endpoint it can parse "
+                "(plain ASCII host, closed IPv6 brackets)"
+            ) from None
         if value and (
             endpoint.scheme not in {"http", "https", "grpc", "grpcs"}
             or not endpoint.hostname
@@ -251,8 +259,11 @@ class Settings(
         test) has no snapshot: it sees the secrets directory, and of ``.env``
         only what pydantic hands over, which drops an empty entry.
         """
+        # Names fold with ``lower()``, as pydantic-settings folds them and as the
+        # snapshot lookups below do: ``upper()`` reads U+017F (``ſ``) as an ``S``
+        # and would refuse a name that pydantic does not take for the setting.
         supplied = (
-            {str(k).upper(): v for k, v in value.items()}
+            {str(k).lower(): v for k, v in value.items()}
             if isinstance(value, dict)
             else {}
         )
@@ -270,10 +281,11 @@ class Settings(
         # Settings names are case-insensitive: ``event_bus_redis_semaphore_limit``
         # in the process environment names the removed setting as much as the
         # upper-case spelling does (the exact spelling wins when both are set).
-        folded = {str(k).upper(): v for k, v in os.environ.items()}
+        folded = {str(k).lower(): v for k, v in os.environ.items()}
         for removed in REMOVED:
+            lowered = removed.name.lower()
             raw = supplied.get(
-                removed.name, os.environ.get(removed.name, folded.get(removed.name))
+                lowered, os.environ.get(removed.name, folded.get(lowered))
             )
             if raw is None and snapshot is not None:
                 raw = snapshot.env.get(removed.name.lower())
