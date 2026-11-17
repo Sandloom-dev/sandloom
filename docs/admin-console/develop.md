@@ -62,8 +62,8 @@ cd admin
 npm run package
 ```
 
-Run it on Node 22.21.1, the version in `admin/.nvmrc`: the precompressed `.gz` and `.br`
-files are bytes of the zlib and brotli inside Node, so `npm run package` refuses any other
+Run it on Node 22.21.1, the version in `admin/.nvmrc`. The precompressed `.gz` and `.br`
+files are bytes of the zlib and brotli inside Node. `npm run package` refuses any other
 Node. Commit the result. A test compares its recorded hash with the source, so a stale copy
 fails `sandloom test`. Python contributors and the release build need no Node.
 
