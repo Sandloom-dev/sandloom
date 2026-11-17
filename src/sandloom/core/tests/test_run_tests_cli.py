@@ -156,6 +156,64 @@ def test_an_exported_stride_wins_over_the_step_default(
     assert out.read_text() == "32"
 
 
+def test_a_command_step_reads_the_composition_root_the_project_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The child of a ``resolve_env`` step (the migrate drift one) carries the
+    root `_composition_env` resolved (the process environment does not hold it)."""
+    monkeypatch.delenv(run_tests.COMPOSITION_ROOT_ENV, raising=False)
+    monkeypatch.setattr(
+        run_tests, "composition_root_name", lambda project_root: "acme.asgi"
+    )
+    out = tmp_path / "out"
+    step = run_tests.Step(
+        "probe",
+        [
+            sys.executable,
+            "-c",
+            f"import os; open({str(out)!r}, 'w').write(os.environ['SANDLOOM_COMPOSITION_ROOT'])",
+        ],
+        resolve_env=lambda: run_tests._composition_env(tmp_path),
+    )
+    assert run_tests._run_command(step, tmp_path) == 0
+    assert out.read_text() == "acme.asgi"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        run_tests.CompositionRootError("composition-root is not a dotted path"),
+        SystemExit("settings refuse to load"),
+    ],
+)
+def test_a_step_whose_environment_cannot_be_resolved_fails_with_its_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: BaseException
+) -> None:
+    """A malformed composition root or settings that exit is that one step's
+    failure (message on stderr, exit 1), not a traceback that ends the run."""
+
+    def refuse() -> dict[str, str]:
+        raise failure
+
+    step = run_tests.Step("probe", [sys.executable, "-c", "pass"], resolve_env=refuse)
+    assert run_tests._run_command(step, tmp_path) == 1
+    err = capsys.readouterr().err
+    assert "sandloom test: probe:" in err and str(failure) in err
+
+
+def test_an_unexpected_error_resolving_a_step_environment_still_raises(
+    tmp_path: Path,
+) -> None:
+    """Only the two named refusals are a step failure: a bug stays loud."""
+
+    def broken() -> dict[str, str]:
+        raise ZeroDivisionError
+
+    step = run_tests.Step("probe", [sys.executable, "-c", "pass"], resolve_env=broken)
+    with pytest.raises(ZeroDivisionError):
+        run_tests._run_command(step, tmp_path)
+
+
 def test_the_test_env_is_dotenv_test_with_sandloom_test_overrides_on_top(
     tmp_path: Path,
 ) -> None:

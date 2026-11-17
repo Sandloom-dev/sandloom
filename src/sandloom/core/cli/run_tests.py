@@ -90,7 +90,11 @@ import sandloom.core.cli.tool_process as _tool_process
 import sandloom.core.testing.static_checks as _static_checks_cli
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.cli import check as _check
-from sandloom.core.composition import COMPOSITION_ROOT_ENV, composition_root_name
+from sandloom.core.composition import (
+    COMPOSITION_ROOT_ENV,
+    CompositionRootError,
+    composition_root_name,
+)
 from sandloom.core.descriptors.module_names import installed_modules
 from sandloom.core.migrations.migrations import MigrationDependencyError
 from sandloom.core.testing.env import find_env_file, load_test_env
@@ -147,7 +151,14 @@ def _run_command(step: Step, root: Path) -> int:
     for key, value in step.env.items():
         env.setdefault(key, value)
     if step.resolve_env is not None:
-        env.update(step.resolve_env())
+        try:
+            env.update(step.resolve_env())
+        except CompositionRootError as exc:  # a malformed composition root
+            print(f"sandloom test: {step.name}: {exc}", file=sys.stderr)
+            return 1
+        except SystemExit as exc:  # settings that refuse to load exit with a message
+            print(f"sandloom test: {step.name}: {exc}", file=sys.stderr)
+            return 1
     env.update(step.run_env)
     return _tool_process.run_tool(step.argv, cwd=step.cwd or root, env=env).returncode
 
