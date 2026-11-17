@@ -332,7 +332,7 @@ class _RelayMixin(OutboxStore):
            claimed row carries THIS batch's fresh ownership token.
         2. **Publish** outside any transaction, in ``emitted_at`` order —
            with ``publish_many`` the claimed rows go out in ONE transport
-           round trip (Redis Streams ``MULTI``/``EXEC``). The batch is
+           round trip (one transaction on the streams transport). The batch is
            all-or-nothing for the settle: success marks every row delivered;
            :class:`BrokerUnavailableError` parks the FIRST row (no attempt
            counted) and releases the rest, exactly as a per-row outage at the

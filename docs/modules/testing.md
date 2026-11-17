@@ -75,7 +75,7 @@ Redis instance that has one (`lease.beat`, `atomic_store.security`, `broadcast.d
 harness reads the cache url from the resolved `INFRA`.
 
 The override reaches the default instance of each Redis capability. It also reaches the
-instances on the same Redis server and database as the default (the `url` and `broker`
+instances on the same server and database as the default (the `url` and `broker`
 options). An instance declared in `INFRA` on another database or server is not touched, so
 two parallel runs would share it. Each run overrides those instances too: give them urls of
 your own in the `INFRA` your run loads. An override with no declared Redis default instance

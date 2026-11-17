@@ -167,7 +167,7 @@ class BrokerUnavailableError(Exception):
 
     Distinct from a *poison* message: a broker outage says nothing about the
     event itself, so the outbox relay must NOT burn the event's delivery budget
-    on it (a 20s Redis blip would otherwise dead-letter every pending row). The
+    on it (a 20s broker blip would otherwise dead-letter every pending row). The
     relay wraps transport/connection errors in this type; an
     :class:`OutboxStore` records such a failure without counting an attempt and
     the relay stops the batch (circuit-breaker) until the broker recovers.

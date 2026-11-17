@@ -115,7 +115,7 @@ class DriverRegistration:
     # dialect renderer exists for it (SANDLOOM-B024). Empty for non-SQL drivers.
     sql_dialects: frozenset[str] = field(default_factory=frozenset)
     # The top-level import names the driver needs at build time (``celery``,
-    # ``redis``) and how to install them. The preflight checks them with
+    # for one) and how to install them. The preflight checks them with
     # ``importlib.util.find_spec``: nothing imported, no network. A built-in
     # driver is registered whether or not its package is installed, so this
     # is how a registered driver is told from a usable one (SANDLOOM-B037).
@@ -441,7 +441,7 @@ class InfraRegistry:
     def set_policy(self, capability: str, **policy: Callable[[], bool]) -> None:
         """The kernel's policy for ``capability``'s drivers: each ``name=hook`` is
         passed as that constructor argument to a provider class that declares a
-        parameter of the name (the Redis ``atomic_store`` and ``lease`` take
+        parameter of the name (the keyed ``atomic_store`` and ``lease`` take
         ``assume_allowed``, spec 13 item 45), whether the class comes from an
         entry point or a lazy row. A class without the parameter is built by
         its ``from_config`` as before. The hook is called by the driver, when
@@ -1174,7 +1174,7 @@ class InfraRegistry:
             # "Kernel-synthesized" is a development fact only: in production a
             # synthesized instance (the beat lease, the streams bus, both on the
             # composition's default driver) that shares the default cache's
-            # Redis is as real a risk as a declared one, so its drivers word
+            # server is as real a risk as a declared one, so its drivers word
             # the shared-endpoint message as a WARNING there.
             provider.implicit = instance_cfg.implicit and not settings.is_prod
             self._check_contract(capability, name, provider)
@@ -1899,7 +1899,7 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
 
 
 #: A health detail string the registry passes on: one token (an error type
-#: name, a driver name, ``no-pong``, ``redis:<run_id>``). Anything else is
+#: name, a driver name, ``no-pong``, ``<driver>:<run_id>``). Anything else is
 #: free text that may carry a URL, a host with credentials or a key.
 _HEALTH_TOKEN = re.compile(r"[A-Za-z0-9_.:\-]{1,64}")
 _REDACTED = "<redacted>"

@@ -28,7 +28,7 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
   that no module owns (every versioned channel needs one, SANDLOOM-R003);
 * :func:`override_instance` — point an infrastructure instance at a test
   backend for a block (restored afterwards); :func:`resolved_cache_url` — the
-  Redis URL of the default cache the run uses (to build such an override);
+  URL of the default cache the run uses (to build such an override);
   :func:`has_optimized_reads` —
   what a test asks of its database instead of its name (the kernel's own
   tests also ask ``sandloom.core.testing.infra.has_serial_writers``);
@@ -45,10 +45,10 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
   registers, to pin it in a test;
 * pytest-xdist isolation (:mod:`sandloom.core.testing.workers`):
   :func:`reload_test_env` / :func:`worker_env_values` /
-  :func:`apply_worker_env` keep each worker on its own database and Redis DBs;
+  :func:`apply_worker_env` keep each worker on its own database and keyed-server DBs;
 * resource ownership (:mod:`sandloom.core.testing.ownership`):
   :class:`TestResourceOwnershipError` for a database another run owns. A test
-  that empties a Redis database it owns calls ``flush_owned_redis`` of
+  that empties a keyed-server database it owns calls ``flush_owned_redis`` of
   ``sandloom-redis`` (its ``testing`` package).
 
 Names resolve lazily (PEP 562): importing this package — which pytest does

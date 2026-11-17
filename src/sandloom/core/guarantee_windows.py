@@ -74,7 +74,7 @@ RISK_IDS: tuple[str, ...] = (
 )
 
 #: Slack an inbox claim keeps beyond the stream retention (a group recreated
-#: or a replay right at the retention edge, clock skew between Redis and the
+#: or a replay right at the retention edge, clock skew between the cache server and the
 #: database).
 INBOX_RETENTION_MARGIN_SECONDS = 24 * 60 * 60
 

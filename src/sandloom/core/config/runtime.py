@@ -186,7 +186,7 @@ class RuntimeConfig(BaseModel):
         description=("Timeout in seconds applied to health-check execution."),
     )
     # Public /health and /ready reuse probe results for this long (seconds) so
-    # anonymous traffic cannot fan out DB/Redis/RPC probes per request. 0 = off.
+    # anonymous traffic cannot fan out DB/cache/RPC probes per request. 0 = off.
     health_cache_ttl_seconds: float = Field(
         default=3.0,
         ge=0,

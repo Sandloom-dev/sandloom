@@ -1,7 +1,7 @@
 """Harness families: the backend-specific halves of the test harness, as hooks.
 
 The harness isolates what a parallel test run shares: one database per xdist
-worker, and the cache / broker of a backend the kernel does not ship (Redis).
+worker, and the cache / broker of a backend the kernel does not ship (a keyed server).
 The PostgreSQL / SQLite half lives in :mod:`~sandloom.core.testing.workers`,
 :mod:`~sandloom.core.testing.ownership`, :mod:`~sandloom.core.testing.slots` and
 :mod:`~sandloom.core.testing.session_checks`; every other backend plugs in as a

@@ -774,7 +774,7 @@ _LOAD_LOCK = threading.Lock()
 
 
 #: The service URLs a new app cannot start without, and ``sandloom dev up`` writes
-#: into its ``.env`` (a Redis or Celery driver takes its url from ``INFRA``).
+#: into its ``.env`` (a cache or task-queue driver takes its url from ``INFRA``).
 _DEV_SERVICE_URLS = ("DATABASE_URL",)
 
 
@@ -791,7 +791,8 @@ def _hint(error: ValidationError) -> str:
     return (
         f"{', '.join(n for n in missing if n in _DEV_SERVICE_URLS)} not set. "
         "In a new app, run `uv run sandloom dev up` first: it starts PostgreSQL "
-        "and Redis and writes the URLs into .env (or set them yourself).\n"
+        "and the stack's key-value server and writes the URLs into .env (or set "
+        "them yourself).\n"
     )
 
 

@@ -60,7 +60,7 @@ def _inclusive_stream_cursor(milliseconds: int) -> str:
         raise ValueError(f"invalid start_from {milliseconds!r}")
     # XGROUP's last-delivered ID is exclusive. The previous millisecond's
     # maximum sequence includes this millisecond's first entry (sequence zero).
-    # Redis forbids entry 0-0, so zero already precedes every valid entry.
+    # Streams forbid entry 0-0, so zero already precedes every valid entry.
     return f"{milliseconds - 1}-18446744073709551615" if milliseconds else "0"
 
 

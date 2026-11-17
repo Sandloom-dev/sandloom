@@ -1,23 +1,23 @@
-"""Hard ownership of test resources: never reset another run's database / Redis.
+"""Hard ownership of test resources: never reset another run's database or index.
 
 The harness empties its test database (``TRUNCATE`` / ``drop_all``) and its
-Redis indexes (``FLUSHDB``). On a machine where several checkouts (agents, a
-developer, benchmarks) share one PostgreSQL / Redis server, a run pointed at
+keyed indexes (``FLUSHDB``). On a machine where several checkouts (agents, a
+developer, benchmarks) share one PostgreSQL or keyed server, a run pointed at
 someone else's database — a stale env file, a missing override — would wipe
 that run's state mid-flight. So every test resource carries an OWNER marker:
 
 * a PostgreSQL database: its comment, ``sandloom-test-owner:<owner>``
   (``COMMENT ON DATABASE``; no table, so schema / autogenerate tests never see
   it, and it survives ``drop_all``);
-* a Redis database index: the key ``sandloom:test:owner`` (re-written after every
-  harness ``FLUSHDB``); the Redis family of the harness (``sandloom-redis``,
+* a keyed database index: the key ``sandloom:test:owner`` (re-written after every
+  harness ``FLUSHDB``); the keyed family of the harness (``sandloom-redis``,
   :mod:`sandloom.core.testing.families`) writes and checks it with
   :func:`check_holder`, :func:`already_claimed` and :func:`record_claim`;
 * a SQLite file: the file beside it, ``<file>.owner`` (its text the owner,
   its modification time when a run last used it), kept when the harness
   empties or rebuilds the database.
 
-Every claim also records WHEN the resource was last used — the Redis key
+Every claim also records WHEN the resource was last used — the key
 ``sandloom:test:last_used`` and the per-database setting ``sandloom_test.last_used``
 (``ALTER DATABASE … SET``; epoch seconds) — kept apart from the owner marker,
 whose format older checkouts still parse. ``tools/checks/test_resources.py``
@@ -72,7 +72,7 @@ _claimed: dict[tuple[str, str], str] = {}
 
 
 class TestResourceOwnershipError(RuntimeError):
-    """The test database / Redis index belongs to another run."""
+    """The test database / keyed index belongs to another run."""
 
     __test__ = False  # not a pytest test class
 
@@ -292,9 +292,9 @@ def check_holder(
     environ: Mapping[str, str] | None = None,
 ) -> None:
     """Refuse a resource another run marked: what a harness family calls before
-    it resets one of its own (a Redis index, an object-store bucket).
+    it resets one of its own (a keyed index, an object-store bucket).
 
-    ``kind`` and ``what`` name the resource in the message (``"Redis database"``,
+    ``kind`` and ``what`` name the resource in the message (``"cache database"``,
     its redacted URL); ``holder`` is the marker found (``None``: unmarked);
     ``hint`` says how this run points at its own. Raises
     :class:`TestResourceOwnershipError`, unless ``SANDLOOM_TEST_TAKE_OWNERSHIP=1``
@@ -329,7 +329,7 @@ def record_claim(kind: str, identity: str, owner: str) -> None:
 
 def claim_test_resources(values: Mapping[str, str]) -> None:
     """Claim ``DATABASE_URL`` of ``values``, then what every harness family
-    resets (:mod:`sandloom.core.testing.families`: the Redis family claims the
+    resets (:mod:`sandloom.core.testing.families`: the keyed family claims the
     URL of every named instance ``INFRA`` declares)."""
     database = values.get("DATABASE_URL") or ""
     if database:

@@ -93,7 +93,7 @@ SCRATCH_PREFIX = "sandloom_restore_verify_"
 @dataclass(slots=True)
 class PlanItem:
     # "postgres" | "objectstore" | "secrets" | "warning", or the kind a driver's
-    # ``BackupHint`` names for its server (``redis``)
+    # ``BackupHint`` names for its server (a driver's own kind)
     kind: str
     name: str
     target: str  # masked URL / path

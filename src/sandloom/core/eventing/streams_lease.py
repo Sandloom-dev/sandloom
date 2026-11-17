@@ -16,7 +16,7 @@ class _BatchLease:
     the loop's task and a ``call_later`` timer renews the lease every
     ``interval`` (a renewal task exists only while a renewal is due, i.e.
     for batches running longer than the interval). A failed renewal (lease
-    lost to a successor, or Redis unreachable) records the error and cancels
+    lost to a successor, or the server unreachable) records the error and cancels
     the loop's task, so the active handler is cancelled and its UoW rolled
     back; :meth:`StreamsEventBus._dispatch_with_lease` turns that
     cancellation into the error. ``lock`` serialises a renewal with the

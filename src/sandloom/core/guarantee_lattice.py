@@ -125,7 +125,7 @@ class Mechanism:
     """The facts a label is derived from (the configured provider, its
     windows and the effect's boundary). Unset facts are the unsafe answer."""
 
-    #: the event bus is durable (Redis Streams in production), not in-memory
+    #: the event bus is durable (the streams bus in production), not in-memory
     durable_bus: bool = False
     #: the consumer is registered with ``durable=True`` (inbox claim)
     durable_consumer: bool = False

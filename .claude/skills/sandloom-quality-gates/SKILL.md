@@ -24,8 +24,8 @@ Run the gates from the repository root; every one must pass before work is done.
    ```
 
    - **What `sandloom test` runs:**
-     - `ruff check` first (what it fixes is in the tree the next steps see;
-       `--ci` runs `ruff check --no-fix` with the gates instead);
+     - `ruff check --no-fix` first (the gate writes no file: a violation
+       fails, and `ruff check --fix` on the changed paths is yours to run);
      - the module's tests;
      - `pytest -q -m "not slow" -n auto --dist loadfile` (with
        `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`);

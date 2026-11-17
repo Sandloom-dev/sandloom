@@ -18,7 +18,7 @@ This module
 
 A backend the kernel does not ship lists and prunes its own resources the same
 way: it returns :class:`Resource` rows and judges them with :func:`verdict`
-(the Redis family of ``sandloom-redis`` does, for the Redis database indexes).
+(the keyed family of ``sandloom-redis`` does, for its database indexes).
 
 "Last used" is, in order: the explicit stamp (the database setting
 ``sandloom_test.last_used``); else, for a legacy marker, the database
@@ -50,10 +50,10 @@ DEFAULT_MAX_AGE_DAYS = 7.0
 
 @dataclass(frozen=True)
 class Resource:
-    """One test database / Redis index as a scan saw it."""
+    """One test database / keyed index as a scan saw it."""
 
-    kind: str  # "redis" | "database"
-    name: str  # "redis://host:port/<index>" | database name
+    kind: str  # "database", or a family's own (a keyed index)
+    name: str  # database name | a family's own (a url)
     owner: str | None
     last_used: float | None  # epoch seconds
     source: str  # "stamp" | "idle" | "files" | "unknown"
@@ -201,7 +201,7 @@ def prune(url: str, resource: Resource) -> bool:
     """Prune one stale database (``url``: its server). ``False``: left alone.
 
     Raises ``ValueError`` for a resource of another kind: its backend's family
-    prunes it (a Redis index: ``sandloom-redis``), never a silent no-op here.
+    prunes it (a keyed index: ``sandloom-redis``), never a silent no-op here.
     """
     if resource.kind != "database":
         raise ValueError(

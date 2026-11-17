@@ -335,7 +335,7 @@ class BaseEventBus(BusFacts, ABC, EventBusProtocol):
         how many leading events were published and leaves the rest to its
         retry path (the outbox relay). This default publishes one event at a
         time through :meth:`publish_event`; a bus whose transport can append
-        a whole batch in one round trip overrides it (Redis Streams).
+        a whole batch in one round trip overrides it (the streams bus).
         """
         published = 0
         for event in events:

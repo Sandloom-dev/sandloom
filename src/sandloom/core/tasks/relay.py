@@ -613,7 +613,7 @@ def is_broker_unavailable(exc: BaseException) -> bool:
     without mapping them onto ``InfraError`` (the volatile bus), and on the
     relay's own ``BrokerUnavailableError`` wrapper (raised below and caught in
     the outbox store, which counts no attempt). The kernel names no client
-    library's error: a driver maps its client's errors (a Redis "loading" or
+    library's error: a driver maps its client's errors (a server's "loading" or
     failover reply, a cluster redirect) onto ``Unavailable`` / ``Timeout``, and
     that mapping is what makes them outages, not evidence that the EVENT is
     poison: they must not consume its attempts.
@@ -681,7 +681,7 @@ class RelayBatchPublishError(Exception):
 
 
 def _batch_publish_capable(bus: Any) -> bool:
-    """A bus whose batch publish is ONE transport round trip (Redis Streams).
+    """A bus whose batch publish is ONE transport round trip (the streams bus).
 
     A bus whose batch is only a loop over ``publish_event`` saves nothing and
     would only widen a failure to the whole batch, so the relay keeps
@@ -786,7 +786,7 @@ async def _relay_batch_for_store(  # noqa: C901
     async def _publish_many(
         items: Sequence[tuple[str, dict[str, Any], str, str]],
     ) -> None:
-        # The whole claimed batch in ONE transport round trip (Redis Streams:
+        # The whole claimed batch in ONE transport round trip (the streams bus:
         # MULTI/EXEC), bounded by the same publish timeout as one event. The
         # store settles it all-or-nothing and falls back to per-row publishing
         # (``_publish``) for any failure that is not a broker outage.

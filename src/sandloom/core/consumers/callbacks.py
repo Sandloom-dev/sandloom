@@ -64,7 +64,7 @@ EventHandler = Callable[["AsyncSession", EventEnvelope], Awaitable[None]]
 SessionOpener = Callable[[str], "AbstractAsyncContextManager[AsyncSession]"]
 
 
-# Characters that would break a Redis key / CLI listing if put in a group name.
+# Characters that would break a store key / CLI listing if put in a group name.
 _GROUP_FORBIDDEN = frozenset(" \t\r\n|")
 
 

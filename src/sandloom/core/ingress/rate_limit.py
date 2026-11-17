@@ -40,7 +40,8 @@ def rate_limiter(
         estimate = previous * (1 - elapsed_fraction) + current
 
     using only the cache contract's ``windowed_counter`` (one round trip on
-    Redis, ``incr`` + ``get`` elsewhere), so it stays backend-agnostic. A cache
+    a networked store, ``incr`` + ``get`` elsewhere), so it stays
+    backend-agnostic. A cache
     ``InfraError`` is the contract's fail-open case (any other exception is a
     driver bug and is treated the same way). Each window counter lives for two
     periods so the previous one is still readable while the current one fills.
@@ -61,7 +62,7 @@ def rate_limiter(
 
     async def dependency(request: Request) -> None:
         # Enforced in prod (and anywhere RATE_LIMIT_ENABLED=1); bypassed in
-        # dev/test to avoid a hard Redis dependency in unit tests.
+        # dev/test to avoid a hard server dependency in unit tests.
         if not (settings.is_prod or settings.rate_limit_enabled):
             return None
 
@@ -111,7 +112,7 @@ async def _sliding_window_estimate(base: str, period: int) -> float:
 
     ``previous * (1 - elapsed_fraction) + current`` over two fixed windows
     whose counters live two periods. ``windowed_counter`` (one round trip on
-    Redis) increments, sets the TTL on the first hit, so no counter can leak
+    a networked store) increments, sets the TTL on the first hit, so no counter can leak
     without an expiry, and reads the previous window.
     """
     now = time.time()
