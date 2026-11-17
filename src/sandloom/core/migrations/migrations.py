@@ -276,11 +276,12 @@ def ensure_core_infra_tables(database_url: str, dry_run: bool = True) -> None:
 def _mask_url(url: str) -> str:
     """Redact credentials in a DSN or a ``;``-separated kombu broker list.
 
-    Each url of a list (a ``;`` that starts another ``scheme://`` separates; a
-    ``;`` in a password does not) is masked on its own: its userinfo ends at the
-    LAST ``@`` (a password may hold a raw ``@`` or ``;``), and the value of a
-    secret-named query parameter goes too. A part that holds a later ``@`` in its
-    path or query is masked too far, never too short.
+    Each url of a list (a ``;`` that starts another ``scheme://`` separates, but
+    not one inside a password that is still open or inside the value of a
+    secret-named query parameter, see :func:`split_url_list`) is masked on its
+    own: its userinfo ends at the LAST ``@`` (a password may hold a raw ``@`` or
+    ``;``), and the value of a secret-named query parameter goes too. A part that
+    holds a later ``@`` in its path or query is masked too far, never too short.
     """
     return ";".join(_mask_url_part(part) for part in split_url_list(url))
 

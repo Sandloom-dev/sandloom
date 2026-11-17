@@ -21,12 +21,20 @@ from sandloom.core.observability.guardrails import scrub_text
 
 # ---- reference: independent unconditional security substitutions ---------
 #: Credentials run from ``scheme://`` to the last ``@`` of the line, without
-#: crossing another ``scheme://``.
+#: crossing another ``scheme://``; across a ``;`` + scheme only when the password
+#: is open before it (``user:`` + not a port, no ``@``: ``u:a;b://c@h``).
 _REF_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]{0,31}://"
-_REF_DSN = re.compile(rf"(?P<scheme>{_REF_SCHEME})(?:(?!{_REF_SCHEME})[^\n])*@")
+_REF_NOT_A_PORT = rf"(?!\d*(?:[/?#\s]|;\s*{_REF_SCHEME}|\Z))"
+_REF_USERINFO = rf"(?:(?!{_REF_SCHEME})[^\n])*"
+_REF_DSN = re.compile(
+    rf"(?P<scheme>{_REF_SCHEME})(?:"
+    rf"(?!\[)[^/?#@;:\s\[]*:{_REF_NOT_A_PORT}"
+    rf"(?:(?:(?!{_REF_SCHEME})[^\n@])*;\s*{_REF_SCHEME})+{_REF_USERINFO}"
+    rf"|{_REF_USERINFO})@"
+)
 _REF_QUERY = re.compile(
     r"(?i)(?P<name>[?&;][\w.\-]*?(?:password|passwd|pass|pwd|secret|token|key|sig"
-    rf"|signature|auth|credentials?)=)(?:(?!;\s*{_REF_SCHEME})[^&#\s])*"
+    r"|signature|auth|credentials?)=)[^&#\s]*"
 )
 _REF_PROVIDER = re.compile(
     r"\b(?:sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_]+"
@@ -254,6 +262,11 @@ def test_secret_values_are_still_masked(raw: str, secret: str) -> None:
         ("connect to /db?sslkey=/etc/k3y.pem failed", "k3y"),
         ("redis://h1;redis://u:pw0rd@h2", "pw0rd"),
         ("https://tok3n:x-oauth-basic@h", "tok3n"),
+        # a ';' followed by 'x://' inside a password or a query value.
+        ("postgresql://u:pw1;kw://pw2@h/db", "pw1"),
+        ("postgresql://u:pw1;kw://pw2@h/db", "pw2"),
+        ("redis://h/0?password=ab;cd://x", "cd://x"),
+        ("redis://h/0?password=ab;cd://x", "ab"),
     ],
 )
 def test_url_credentials_are_hidden_whole(raw: str, secret: str) -> None:
@@ -279,6 +292,15 @@ _SHARED_URLS = [
     "postgresql://u:pw@h/db?sslpassword=xx",
     "redis://h1;redis://u:pw@h2",
     "redis://h1:6379;redis://h2:6379/1",
+    "redis://h1:6379;redis://u:pw@h2",
+    "redis://[::1]:6379;redis://u:pw@h2",
+    "amqp://u:p@h1;amqp://u:p@h2",
+    "redis://u:ab;cd@h1/0;redis://v:ef;gh@h2/0",
+    "postgresql://u:pw1;kw://pw2@h/db",
+    "postgresql://u:pw1; kw://pw2@h/db",
+    "postgresql://u:a;b://c;d://e@h/db",
+    "redis://h/0?password=ab;cd://x",
+    "redis://h/0?password=a;redis://h2/0",
     "https://tok:x-oauth-basic@h",
     "http://host/path no credentials",
 ]

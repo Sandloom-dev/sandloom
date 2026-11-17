@@ -7,12 +7,18 @@ tail of a password holding a raw ``@`` were printed in full.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from sandloom.core.cli import url_text
 from sandloom.core.migrations.backup import _postgres_item, _redis_item
 from sandloom.core.migrations.migrations import _mask_dsns, _mask_url
-from sandloom.core.migrations.url_mask import mask_query_secrets, mask_url_credentials
+from sandloom.core.migrations.url_mask import (
+    mask_query_secrets,
+    mask_url_credentials,
+    split_url_list,
+)
 
 _CASES = [
     ("redis://u:hunter2@h:6379/0", "hunter2", "redis://***@h:6379/0"),
@@ -174,12 +180,87 @@ def test_mask_query_secrets_masks_a_value_and_leaves_the_rest() -> None:
     assert mask_query_secrets("x?a=1&mode=require") == "x?a=1&mode=require"
 
 
-def test_a_semicolon_in_a_query_value_is_masked_unless_another_url_follows() -> None:
+def test_a_semicolon_in_a_query_value_is_part_of_the_value() -> None:
+    """Even a ``;`` that starts ``x://``: a password may hold it, and printing the
+    rest as the next url of a list would print the end of the secret."""
     assert mask_query_secrets("redis://h/0?password=a;b") == "redis://h/0?password=***"
     assert (
-        mask_query_secrets("redis://h/0?password=a;redis://h2/0")
-        == "redis://h/0?password=***;redis://h2/0"
+        mask_query_secrets("redis://h/0?password=ab;cd://x")
+        == "redis://h/0?password=***"
     )
+    assert (
+        mask_query_secrets("redis://h/0?password=a;redis://h2/0")
+        == "redis://h/0?password=***"
+    )
+
+
+#: ``;`` + ``x://`` inside a password or a query value: neither part is printed.
+_SCHEME_IN_A_SECRET = [
+    # the first piece holds ``user:`` + a password that is not a port.
+    ("postgresql://u:pw1;kw://pw2@h/db", ("pw1", "pw2"), "postgresql://***@h/db"),
+    ("postgresql://u:pw1; kw://pw2@h/db", ("pw1", "pw2"), "postgresql://***@h/db"),
+    ("redis://:pw1;kw://pw2@h/0", ("pw1", "pw2"), "redis://***@h/0"),
+    (
+        "postgresql://u:pw1;kw://pw2;zz://pw3@h/db",
+        ("pw1", "pw2", "pw3"),
+        "postgresql://***@h/db",
+    ),
+    # a ``?password=`` value that holds it.
+    ("redis://h/0?password=ab;cd://zq", ("ab", "cd", "zq"), "redis://h/0?password=***"),
+    (
+        "redis://h/0?x=1;password=ab;cd://zq&y=2",
+        ("ab", "cd", "zq"),
+        "redis://h/0?x=1;password=***&y=2",
+    ),
+]
+#: Lists whose pieces stay apart: a port or an IPv6 host before the ``;``, a
+#: ``@`` in each piece.
+_LISTS_KEPT_APART = [
+    "redis://h1:6379;redis://h2:6379/1",
+    "redis://h1:6379/0;redis://h2:6379/1",
+    "redis://[::1]:6379;redis://[::2]:6379",
+    "amqp://h1;amqp://h2",
+]
+
+
+@pytest.mark.parametrize(("url", "secrets", "masked"), _SCHEME_IN_A_SECRET)
+def test_a_semicolon_scheme_inside_a_secret_prints_no_part_of_it(
+    url: str, secrets: tuple[str, ...], masked: str
+) -> None:
+    assert _mask_url(url) == masked
+    assert mask_url_credentials(url, keep_user=False) == masked
+    for secret in secrets:
+        assert secret not in _mask_url(url)
+        assert secret not in mask_url_credentials(url)
+    assert split_url_list(url) == [url]
+
+
+@pytest.mark.parametrize("url", _LISTS_KEPT_APART)
+def test_a_url_list_with_ports_or_ipv6_hosts_is_split_and_printed_as_is(
+    url: str,
+) -> None:
+    assert len(split_url_list(url)) == 2
+    assert _mask_url(url) == url
+    assert mask_url_credentials(url) == url
+
+
+def test_a_list_whose_urls_each_hold_a_password_keeps_every_host() -> None:
+    url = "amqp://u:p1@h1;amqp://u:p2@h2/vh"
+    assert _mask_url(url) == "amqp://***@h1;amqp://***@h2/vh"
+    assert mask_url_credentials(url) == "amqp://u:***@h1;amqp://u:***@h2/vh"
+    # a password of digits only before the ';' reads as a host and a port: that
+    # is the documented ambiguity of the rule, the url list wins.
+    assert split_url_list("postgresql://u:123;b://c@h/db") == [
+        "postgresql://u:123",
+        "b://c@h/db",
+    ]
+
+
+def test_a_long_word_after_a_scheme_is_masked_in_linear_time() -> None:
+    text = "redis://h/" + "a" * 60_000
+    started = time.perf_counter()
+    assert mask_url_credentials(text) == text
+    assert time.perf_counter() - started < 2.0
 
 
 def test_the_cli_and_the_migration_runner_mask_with_one_masker() -> None:

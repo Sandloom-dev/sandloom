@@ -118,25 +118,29 @@ def is_sensitive_key(key: str) -> bool:
 # redaction cannot see inside an f-string, so these patterns catch the common
 # shapes secrets take in prose.
 #
-# The two url patterns follow ``sandloom.core.migrations.url_mask`` (the masker
-# of ``sandloom config``, ``sandloom doctor`` and the migration logs): the
-# kernel layers put ``observability`` below ``migrations``, so this module
-# cannot import it, and ``test_scrub_text_equivalence`` runs both on the same
-# urls so that they do not drift apart. One difference is deliberate: a scheme
-# is at most 32 characters, so a log line holding a very long ``[\w-]`` run
-# after a ``://`` is scanned in linear time (the unbounded form rescanned the
-# rest of the run from every position). Credentials run from ``scheme://`` to
-# the last ``@`` of the line without crossing another ``scheme://``: a password
-# may hold a raw ``@``, ``/`` or space. A line with a later ``@`` (a mail
-# address) is masked too far, never too short.
+# The two url patterns are those of ``sandloom.core.migrations.url_mask`` (the
+# masker of ``sandloom config``, ``sandloom doctor`` and the migration logs; see
+# its docstring for the rules): the kernel layers put ``observability`` below
+# ``migrations``, so this module cannot import it, and
+# ``test_scrub_text_equivalence`` runs both on the same urls so that they do not
+# drift apart. Change one, change the other. A scheme is at most 32 characters,
+# which keeps the scan linear on a long word.
 _URL_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]{0,31}://"
-_DSN_CREDENTIALS = re.compile(rf"(?P<scheme>{_URL_SCHEME})(?:(?!{_URL_SCHEME})[^\n])*@")
+_URL_USERINFO = rf"(?:(?!{_URL_SCHEME})[^\n])*"
+_USER_AND_COLON = r"(?!\[)[^/?#@;:\s\[]*:"
+_OPEN_USERINFO_START = rf"{_USER_AND_COLON}(?!\d*(?:[/?#\s]|;\s*{_URL_SCHEME}|\Z))"
+_OPEN_PIECE = rf"(?:(?!{_URL_SCHEME})[^\n@])*"
+_DSN_CREDENTIALS = re.compile(
+    rf"(?P<scheme>{_URL_SCHEME})"
+    rf"(?:{_OPEN_USERINFO_START}(?:{_OPEN_PIECE};\s*{_URL_SCHEME})+{_URL_USERINFO}"
+    rf"|{_URL_USERINFO})@"
+)
 #: A query parameter whose NAME ends in a secret word (``password``,
 #: ``sslpassword``, ``access_token``, ``sig``, ...): its value, up to the next
-#: ``&``, ``#``, space or a ``;`` that starts another url, is masked.
+#: ``&``, ``#`` or space, is masked (a ``;`` in it is part of it).
 _QUERY_SECRET = re.compile(
     r"(?P<name>[?&;][\w.\-]*?(?:password|passwd|pass|pwd|secret|token|key|sig"
-    r"|signature|auth|credentials?)=)(?:(?!;\s*" + _URL_SCHEME + r")[^&#\s])*",
+    r"|signature|auth|credentials?)=)[^&#\s]*",
     re.IGNORECASE,
 )
 _PROVIDER_SECRET = re.compile(
