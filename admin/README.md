@@ -31,7 +31,7 @@ supply English labels and messages.
 
 ## Run locally
 
-Requires Node >=22.12 and a Sandloom backend with identity enabled:
+Requires Node 22.21.1 (`.nvmrc`) and a Sandloom backend with identity enabled:
 
 ```sh
 cd admin

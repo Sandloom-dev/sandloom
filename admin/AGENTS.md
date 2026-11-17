@@ -27,7 +27,7 @@ Full guide: `admin/README.md`, `docs/admin-console/develop.md` (developer) and
 - **Mutations** are never retried by the proxy, and the UI must not
   auto-retry them either.
 
-## Commands (run from `admin/`, Node >= 22.12)
+## Commands (run from `admin/`, Node 22.21.1 from `.nvmrc`)
 
 ```bash
 npm ci
@@ -40,7 +40,10 @@ npm run format:check
 
 After changing anything the build uses, run `npm run package` and commit
 `src/sandloom_admin/console`: the wheel ships that copy, so applications need no Node, and
-a test fails when it no longer matches the source. The copy is served at `/admin/`, so
+a test fails when it no longer matches the source. The `.gz` and `.br` files are bytes of
+the zlib and brotli inside Node, so one exact Node builds them: `.nvmrc`, `engines.node`
+and the CI `setup-node` steps name the same version (change all together), and
+`npm run package` refuses any other Node (`nvm use`). The copy is served at `/admin/`, so
 paths go through `import.meta.env.BASE_URL`; API calls stay absolute.
 
 Stop the dev server before `npm ci` or any dependency change, then run

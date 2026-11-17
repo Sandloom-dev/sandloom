@@ -1,9 +1,25 @@
 // Precompress the hashed text assets (.br and .gz beside each file), so the Python package and
 // nginx (gzip_static) serve them compressed with no work per request and no runtime dependency.
 // A file is skipped when compression saves too little to be worth the extra bytes in the wheel.
+//
+// The bytes of a .gz / .br depend on the zlib and brotli build inside Node, and the packaged copy
+// is committed: `npm run package` (SANDLOOM_REQUIRE_PINNED_NODE=1) refuses any Node but the one in
+// .nvmrc, so the same source gives the same bytes on every machine. A plain `npm run build` only
+// warns, its output is not committed.
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
+
+const pinned = readFileSync(new URL('../.nvmrc', import.meta.url), 'utf8').trim();
+if (process.versions.node !== pinned) {
+  const message = `Node ${process.versions.node} is not the pinned ${pinned} (admin/.nvmrc): the .gz and .br bytes differ between Node builds.`;
+  if (process.env.SANDLOOM_REQUIRE_PINNED_NODE === '1') {
+    throw new Error(
+      `${message} Run \`nvm use\` (or install ${pinned}) before \`npm run package\`.`,
+    );
+  }
+  console.warn(`warning: ${message}`);
+}
 
 const dir = 'dist/assets';
 const TEXT = /\.(js|css|svg)$/;

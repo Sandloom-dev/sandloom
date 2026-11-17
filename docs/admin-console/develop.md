@@ -33,7 +33,7 @@ translated. Dates and numbers use `en-US` formatting. Operator help is under
 
 ## Local development
 
-With a Sandloom backend running, install Node >=22.12 and run:
+With a Sandloom backend running, install Node 22.21.1 (`admin/.nvmrc`; `nvm use` reads it) and run:
 
 ```bash
 cd admin
@@ -62,7 +62,9 @@ cd admin
 npm run package
 ```
 
-Commit the result. A test compares its recorded hash with the source, so a stale copy
+Run it on Node 22.21.1, the version in `admin/.nvmrc`: the precompressed `.gz` and `.br`
+files are bytes of the zlib and brotli inside Node, so `npm run package` refuses any other
+Node. Commit the result. A test compares its recorded hash with the source, so a stale copy
 fails `sandloom test`. Python contributors and the release build need no Node.
 
 To see it end to end, from real wheels through a browser sign-in:
