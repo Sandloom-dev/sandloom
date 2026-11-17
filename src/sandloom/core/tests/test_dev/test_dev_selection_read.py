@@ -78,3 +78,80 @@ def test_a_child_that_prints_no_answer_is_refused(
     )
     with pytest.raises(commands.DevError, match="DEFAULT_INFRA.*shopapp"):
         commands.composition_selection(_ctx(checkout, environ), "", checkout)
+
+
+def test_a_banner_printed_without_a_newline_does_not_hide_the_answer(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    (checkout / "shopapp" / "__init__.py").write_text(
+        "import sys\nsys.stdout.write('banner without a newline')\n" + _SELECTION
+    )
+    selection = commands.composition_selection(_ctx(checkout, environ), "", checkout)
+    assert set(selection.infra) == {"cache"}
+
+
+_FAILING_IMPORT = (
+    'raise RuntimeError("cannot reach redis://app:s3cretpw@cache.internal:6379/0")\n'
+)
+
+
+def test_a_failed_read_names_the_exit_code_and_echoes_nothing_the_app_printed(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    (checkout / "shopapp" / "__init__.py").write_text(_FAILING_IMPORT)
+    with pytest.raises(commands.DevError) as caught:
+        commands.composition_selection(_ctx(checkout, environ), "", checkout)
+    message = str(caught.value)
+    assert "exited with code 1" in message and "--debug" in message
+    assert "s3cretpw" not in message and "cache.internal" not in message
+
+
+def test_the_last_error_line_shows_under_debug_without_url_credentials(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    (checkout / "shopapp" / "__init__.py").write_text(_FAILING_IMPORT)
+    ctx = _ctx(checkout, environ)
+    ctx.verbose = True
+    with pytest.raises(commands.DevError) as caught:
+        commands.composition_selection(ctx, "", checkout)
+    message = str(caught.value)
+    assert "RuntimeError: cannot reach redis://***@cache.internal:6379/0" in message
+    assert "s3cretpw" not in message and "app:" not in message
+
+
+def test_dev_up_reads_the_selection_once_per_checkout(
+    checkout: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``write_checkout_files`` and the summary both ask for it: one child."""
+    (checkout / "shopapp" / "__init__.py").write_text(_SELECTION)
+    reads: list[Path | None] = []
+    real = commands.composition_selection
+
+    def counting(
+        ctx: commands.Context, env_text: str, at: Path | None = None
+    ) -> commands.CompositionSelection:
+        reads.append(at)
+        return real(ctx, env_text, at)
+
+    monkeypatch.setattr(commands, "composition_selection", counting)
+    ctx = _ctx(checkout, environ)
+    row = commands.CheckoutRow(
+        path=str(checkout),
+        database="shop",
+        cache_index=1,
+        broker_index=2,
+        test_database="shop_test",
+    )
+    first = commands.row_selection(ctx, row)
+    assert commands.row_selection(ctx, row) is first
+    assert reads == [checkout]
+    other = commands.CheckoutRow(
+        path=str(checkout.parent),
+        database="x",
+        cache_index=3,
+        broker_index=4,
+        test_database="x_test",
+    )
+    # another checkout (no package there: nothing to manage) is its own read
+    assert commands.row_selection(ctx, other) == commands.CompositionSelection({}, {})
+    assert reads == [checkout, checkout.parent]

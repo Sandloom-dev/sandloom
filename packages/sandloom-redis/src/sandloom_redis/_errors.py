@@ -205,14 +205,9 @@ def map_redis_error(
     A non-backend ``exc`` is re-raised as itself (see :func:`redis_error_kind`).
     """
     kind = redis_error_kind(exc)
-    error = kind(
-        f"{what}: {type(exc).__name__}", capability=capability, instance=instance
+    return kind(
+        f"{what}: {type(exc).__name__}",
+        capability=capability,
+        instance=instance,
+        hint=CLUSTER_REDIRECT_HINT if _is_cluster_redirect(exc) else None,
     )
-    if _is_cluster_redirect(exc):
-        # An attribute, not a ``hint=`` keyword, from when this package also
-        # supported ``sandloom>=0.7.0a13``, whose ``InfraError`` has no such
-        # keyword. The floor is ``>=0.7.0a14``, which has ``hint``, so the
-        # fallback is dead now and ``hint=`` would do; it stays until a release
-        # that changes this code on purpose.
-        error.hint = CLUSTER_REDIRECT_HINT
-    return error

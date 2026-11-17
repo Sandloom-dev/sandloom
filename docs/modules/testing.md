@@ -80,13 +80,21 @@ options). An instance declared in `INFRA` on another database or server is not t
 two parallel runs would share it. Each run overrides those instances too: give them urls of
 your own in the `INFRA` your run loads. An override with no declared Redis default instance
 in `INFRA` is refused (`UnmatchedOverrideError`), never dropped. An app that selects no
-task queue has no `taskqueue.default.broker`. `sandloom dev up` writes no
-`SANDLOOM_TEST_BROKER_URL` for it (likewise no `SANDLOOM_TEST_CACHE_URL` for an app with no
-cache). A variable you export yourself is yours to unset. `CACHE_URL` and
+task queue has no `taskqueue.default.broker`. `sandloom dev up` writes a test override only
+where the `INFRA` of `.env.test` declares a Redis url on that capability's `default`
+instance: it writes no `SANDLOOM_TEST_BROKER_URL` for an app with no task queue (likewise no
+`SANDLOOM_TEST_CACHE_URL` for an app with no cache), and none at all where `.env.test`
+declares no url. It reads `.env.test` only, and fills a `${VAR}` in it from its own
+environment, where the harness uses the environment of the test process. An `INFRA` you
+export in your shell wins over `.env.test` in the test run and `dev up` does not read it:
+with none in `.env.test` it writes no override and says so, and the tests run on the Redis
+that shell `INFRA` names. A variable you export yourself is yours to unset. `CACHE_URL` and
 `BROKER_URL` are not settings any more: setting either fails startup.
 
 - The database is created on first use.
-- Pick two Redis indexes no one else uses (`tools/checks/test_resources.py list`).
+- Pick two Redis indexes no one else uses (`tools/checks/test_resources.py list`). The
+  list shows Redis indexes only where `sandloom-redis` is installed, and says so
+  otherwise.
 - Set `SANDLOOM_TEST_OWNER` so the ownership guard knows the resources are yours.
 
 ```bash
@@ -308,6 +316,13 @@ harness only through `sandloom.driverkit.testing_family`. It offers:
 - the worker layout and the driver a composition selects: `default_driver`,
   `isolated_instance_options`;
 - `Resource` and `verdict`, to list and prune stale resources.
+
+The Redis family is the one `sandloom-redis` registers; `sandloom.core.testing` has no
+Redis half. `redis_family`, `redis_isolation` and `redis_urls` are gone from it, and so is
+the Redis half of `ownership` and `resources`: the Redis ownership claim (`claim_redis`,
+`REDIS_OWNER_KEY`, `REDIS_LAST_USED_KEY`) is in `sandloom_redis.testing.ownership`, and the
+scan, prune and allocation of Redis indexes (`scan_redis`, `prune_redis`,
+`allocate_worker_redis`) in `sandloom_redis.testing.resources`.
 
 The family module loads before the settings snapshot. It must not import
 `sandloom.core.config.settings` or SQLAlchemy at import time.

@@ -1,0 +1,9 @@
+### Changed
+
+- **`sandloom dev up` says when a shell `INFRA` has no test override written** (idk-low6-product). The harness merges `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` into the `INFRA` of the test process, where an exported `INFRA` wins over `.env.test`; `dev up` reads `.env.test` only. With an `INFRA` exported and none in `.env.test` it wrote no override and said nothing, so the tests ran on the Redis that shell `INFRA` names. It now prints one line naming the case. No upgrade step.
+- **The `dev up` composition read prints no text of the app's** (idk-low6-product). A failed read of `DEFAULT_INFRA` (the app's import raised) named the last line of the child's stderr, which can carry a url or a secret (a settings error echoes its input). The error now names the exit code and says `uv run sandloom --debug dev up` shows the line; under `--debug` or `SANDLOOM_DEBUG=1` the line is shown with the credentials of any url replaced by `***`. No upgrade step.
+
+### Fixed
+
+- **`sandloom dev up` reads the composition once and finds its answer after a banner without a newline** (idk-low6-product). The child that reads `DEFAULT_INFRA` now starts its answer on a line of its own: an app that printed text without a final newline at import left the sentinel in the middle of a line and the read was refused. `dev up` also asked for the selection twice (writing the files, then its summary), two child processes importing the app; it asks once per checkout and command now. No upgrade step.
+- **`MemoryTransport.replay_dlq` refuses an id that is no entry id** (idk-low6-product). Its page cursor already did; a replay id such as `abc` replayed nothing and answered 0, so the admin API answered 200 where the Streams transport made it a 422. It raises `InvalidArgument` before anything is replayed, as the Streams transport does. No upgrade step.

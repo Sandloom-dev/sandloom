@@ -72,8 +72,10 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `/ready` answers 503 when the applier is not running, or when its oldest
   pending revocation or block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`.
   It also answers 503 when such an event is dead-lettered. A dead-letter
-  queue it cannot count is not ready either: the read failed, or the queue
-  holds more than 10,000 entries. The queue is read at most once per
+  queue it cannot count is not ready either: the read failed, the queue
+  holds more than 10,000 entries, or the answer is not a list. A transport that does not
+  declare `dlq_ops`, or whose `list_dlq` raises `Unsupported`, has no dead letters
+  to count: that is no reason for 503. The queue is read at most once per
   `HEALTH_CACHE_TTL_SECONDS`, however many probes arrive. The reasons are
   listed under `revocation_consumers`; `sandloom_consumer_lag_seconds`
   exports the lag and drops to 0 once the backlog clears. Revocations made

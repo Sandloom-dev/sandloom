@@ -13,7 +13,7 @@ from sandloom.core.eventing import consumer_inbox
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.memory_transport import MemoryTransport
-from sandloom.core.infra.errors import Unavailable
+from sandloom.core.infra.errors import InvalidArgument, Unavailable
 from sandloom.core.testing import InMemoryCache
 
 
@@ -60,6 +60,30 @@ async def test_poison_dead_lettered_after_exactly_max_deliveries() -> None:
     assert batch == []
     assert t.dlq_depth("s") == 1
     assert t.pending_count("s", "g") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_id", ["abc", "", "1-", "-1", "1-x"])
+async def test_replay_refuses_an_id_that_is_no_entry_id_and_replays_nothing(
+    bad_id: str,
+) -> None:
+    """The Streams transport refuses a malformed id (``InvalidArgument``, which
+    the admin API answers with 422); the memory transport does too, whatever its
+    DLQ holds, and replays nothing of the same call."""
+    t = MemoryTransport(max_deliveries=1)
+    await t.ensure_group("s", "g")
+    await t.publish("s", _env("poison"))
+    await t.consume("s", group="g", consumer="c1")
+    assert await t.consume("s", group="g", consumer="c1") == []
+    (parked,) = await t.list_dlq("s")
+
+    # The valid id leads the list: the refusal comes before anything is replayed.
+    with pytest.raises(InvalidArgument, match="a replay id"):
+        await t.replay_dlq("s", ids=[parked.id, bad_id])
+    assert t.dlq_depth("s") == 1
+    with pytest.raises(InvalidArgument, match="a replay id"):
+        await t.replay_dlq("s", ids=[bad_id])
+    assert await t.replay_dlq("s", ids=[parked.id]) == 1
 
 
 @pytest.mark.asyncio

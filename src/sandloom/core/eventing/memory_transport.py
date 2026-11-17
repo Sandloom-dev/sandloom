@@ -38,13 +38,13 @@ from sandloom.core.observability.metrics_utils import safe_inc
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
 
-def _entry_key(entry_id: str) -> tuple[int, ...]:
+def _entry_key(entry_id: str, what: str = "a DLQ cursor") -> tuple[int, ...]:
     """Order key of an entry id (``<ms>-<seq>``); any other shape is refused."""
     try:
         return tuple(map(int, entry_id.split("-")))
     except ValueError:
         raise InvalidArgument(
-            "a DLQ cursor is not an entry id of this transport (<ms>-<seq>)",
+            f"{what} is not an entry id of this transport (<ms>-<seq>)",
             capability="eventbus",
         ) from None
 
@@ -412,6 +412,10 @@ class MemoryTransport(TransportDefaults):
         count: int = 100,
         group: str | None = None,
     ) -> int:
+        # Refused before anything is replayed, as the Streams transport does: a
+        # malformed id is the caller's input, whatever the DLQ holds.
+        for entry_id in ids or ():
+            _entry_key(entry_id, "a replay id")
         entries = self._dlq.get(stream, [])
         keep: list[tuple[str, EventEnvelope, int, str]] = []
         replayed = 0

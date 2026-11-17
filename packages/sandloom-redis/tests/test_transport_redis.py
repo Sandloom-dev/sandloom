@@ -18,7 +18,10 @@ import orjson
 import pytest
 import redis.asyncio as redis_asyncio
 from _redis_required import cache_url_or_unavailable, redis_unavailable
-from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
+from sandloom_redis.eventbus.streams_transport import (
+    RedisStreamsTransport,
+    _require_entry_id,
+)
 
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.transport_base import DLQ_REASON_SOURCE_MISSING
@@ -367,7 +370,45 @@ async def test_dlq_replay_republishes_and_clears(redis_stream) -> None:
     assert [d.envelope["id"] for d in again] == ["poison"]
 
 
-_NOT_A_STREAM_ID = ["abc", "x", "1700000000000", "1-", "-1", "(1-0", "1-0 ", "+", "-"]
+_NOT_A_STREAM_ID = [
+    "abc",
+    "x",
+    "1700000000000",
+    "1-",
+    "-1",
+    "(1-0",
+    "1-0 ",
+    "+",
+    "-",
+    # twenty digits have the shape but pass Redis's 64-bit limit ("Invalid stream ID")
+    "18446744073709551616-0",
+    "0-18446744073709551616",
+    "99999999999999999999-99999999999999999999",
+]
+
+
+@pytest.mark.parametrize(
+    "entry_id", ["0-0", "1700000000000-3", "18446744073709551615-18446744073709551615"]
+)
+def test_an_entry_id_up_to_the_unsigned_64_bit_limit_is_accepted(entry_id: str) -> None:
+    assert _require_entry_id(entry_id, "a cursor") == entry_id
+
+
+@pytest.mark.parametrize(
+    "entry_id",
+    [
+        "18446744073709551616-0",
+        "0-18446744073709551616",
+        "99999999999999999999-99999999999999999999",
+    ],
+)
+def test_an_entry_id_past_the_unsigned_64_bit_limit_is_refused_before_redis(
+    entry_id: str,
+) -> None:
+    """No Redis involved: the check itself refuses it, with the caller's
+    ``InvalidArgument`` and the name of what was wrong (not a mapped reply)."""
+    with pytest.raises(InvalidArgument, match="a cursor is not a Redis stream"):
+        _require_entry_id(entry_id, "a cursor")
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,7 @@ import http.client
 import io
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -99,6 +100,11 @@ class Context:
     verbose: bool = False
     #: Set by ``up``: this checkout's database is new or holds no table.
     needs_migrate: bool = False
+    #: What ``row_selection`` read in this command, by checkout path and
+    #: composition root.
+    selections: dict[tuple[str, str], CompositionSelection] = field(
+        default_factory=dict
+    )
 
     # --------------------------------------------------------------- paths
     @property
@@ -223,13 +229,22 @@ _READ_SELECTION = (
     "from sandloom.core.composition import root_default_infra\n"
     "from sandloom.core.infra.registry import declared_url_options\n"
     "infra = root_default_infra(sys.argv[1]) or {}\n"
-    "print(sys.argv[2] + json.dumps({'infra': infra, "
+    # The leading newline ends a line the app left open (a banner printed
+    # without one), so the answer always starts its own line.
+    "print('\\n' + sys.argv[2] + json.dumps({'infra': infra, "
     "'url_options': declared_url_options(infra)}))\n"
 )
 
 #: Prefix of the answer line: the app may print at import or at exit, so the
 #: answer is the line that starts with it, never the last line of stdout.
 _SELECTION_SENTINEL = "SANDLOOM-DEV-SELECTION:"
+
+#: ``scheme://user:password@``: the credentials of a url inside a text.
+_URL_USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]*@")
+
+
+def _without_url_credentials(text: str) -> str:
+    return _URL_USERINFO.sub(r"\1***@", text)
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +258,14 @@ class CompositionSelection:
     url_options: Mapping[str, str]
 
 
+def _composition_root(ctx: Context, env_text: str) -> str:
+    """The module of the composition root: the environment, then ``.env``, else
+    ``<app>.asgi``."""
+    named, _ = _envfile.winning_assignment(env_text, "SANDLOOM_COMPOSITION_ROOT")
+    root = ctx.environ.get("SANDLOOM_COMPOSITION_ROOT") or named
+    return (root or f"{ctx.identity.app}.asgi").partition(":")[0].strip()
+
+
 def composition_selection(
     ctx: Context, env_text: str, checkout: Path | None = None
 ) -> CompositionSelection:
@@ -251,9 +274,7 @@ def composition_selection(
     which instances exist, so which ones get a Redis url. Empty when the root
     has no package or exports none (a checkout of the framework itself). Any
     failure of the read, of any kind, stops the command naming the root."""
-    named, _ = _envfile.winning_assignment(env_text, "SANDLOOM_COMPOSITION_ROOT")
-    root = ctx.environ.get("SANDLOOM_COMPOSITION_ROOT") or named
-    name = (root or f"{ctx.identity.app}.asgi").partition(":")[0].strip()
+    name = _composition_root(ctx, env_text)
     refusal = (
         f"cannot read DEFAULT_INFRA of the composition root {name!r}: %s. "
         "Fix the import (or SANDLOOM_COMPOSITION_ROOT in .env), then run "
@@ -274,8 +295,18 @@ def composition_selection(
         if line.startswith(_SELECTION_SENTINEL)
     ]
     if proc.returncode != 0 or not lines:
-        tail = (proc.stderr.strip().splitlines() or ["it printed nothing"])[-1]
-        raise DevError(refusal % tail)
+        # The child's last stderr line can carry a url or a secret (a settings
+        # error echoes its input): it is shown only under --debug, without the
+        # credentials of a url.
+        what = f"it exited with code {proc.returncode}" + (
+            "" if lines else " and printed no answer"
+        )
+        if ctx.verbose:
+            tail = (proc.stderr.strip().splitlines() or ["it printed nothing"])[-1]
+            what += f": {_without_url_credentials(tail)}"
+        else:
+            what += " (`uv run sandloom --debug dev up` shows its last error line)"
+        raise DevError(refusal % what)
     try:
         answer = json.loads(lines[-1])
     except ValueError as exc:
@@ -297,9 +328,15 @@ def _env_text(row: CheckoutRow) -> str:
 
 
 def row_selection(ctx: Context, row: CheckoutRow) -> CompositionSelection:
-    """The composition selection of ``row``'s checkout (a child process: callers
-    that need it twice pass the answer on)."""
-    return composition_selection(ctx, _env_text(row), Path(row.path))
+    """The composition selection of ``row``'s checkout. It is read by a child
+    process, once per command: ``dev up`` asks for it when it writes the files
+    and again for its summary, and the second ask is the first answer (the
+    checkout's code does not change between the two)."""
+    env_text = _env_text(row)
+    key = (row.path, _composition_root(ctx, env_text))
+    if key not in ctx.selections:
+        ctx.selections[key] = composition_selection(ctx, env_text, Path(row.path))
+    return ctx.selections[key]
 
 
 def checkout_urls(
@@ -459,6 +496,15 @@ def write_checkout_files(ctx: Context, state: State, row: CheckoutRow) -> list[s
         notes.append(f"wrote the sandloom dev block of {root / '.env'}")
     if _envfile.write_test_local(root, test_urls(ctx, state, row, selection)):
         notes.append(f"wrote {root / '.env.test.local'}")
+    if ctx.environ.get("INFRA") and _test_env_infra(row) is None:
+        # The harness merges its overrides into the INFRA of the test process,
+        # where the shell's wins over .env.test; dev up reads .env.test only.
+        notes.append(
+            "INFRA is exported in your shell and .env.test states none: dev up "
+            "wrote no SANDLOOM_TEST_CACHE_URL / SANDLOOM_TEST_BROKER_URL, so the "
+            "tests run on the Redis that INFRA names (declare INFRA in .env.test, "
+            "or unset it)"
+        )
     return notes
 
 
