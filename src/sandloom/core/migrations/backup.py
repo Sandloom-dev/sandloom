@@ -265,7 +265,7 @@ class _Server:
         restore = list(self.restore)
         # A server that also holds something that must survive has no tolerable loss.
         if self.tolerable and len(self.tolerable) == len(self.roles):
-            restore.append(self.tolerable[0])
+            restore.extend(dict.fromkeys(self.tolerable))
         return PlanItem(
             kind=self.kind,
             name=", ".join(r.split(" ")[0] for r in self.roles),
@@ -347,6 +347,10 @@ def _servers(
                         criticality="critical",
                         restore=(*_SECURITY_RESTORE, *hint.restore),
                     )
+                elif name == "idempotency" and hint.criticality == "optional":
+                    # The kernel keeps idempotency through a restore (_MUST_SURVIVE):
+                    # its server is at least required, a stronger driver value stays.
+                    hint = replace(hint, criticality="required")
             servers.setdefault((hint.kind, url), _Server(hint.kind, url)).add(
                 role, hint
             )
