@@ -20,10 +20,7 @@ from sandloom.core.app_factory.config import outbox_relay_problem
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult, ModuleLoadSummary
-from sandloom.core.drivers.bootstrap import (
-    close_default_cache,
-    close_default_database,
-)
+from sandloom.core.drivers.bootstrap import close_default_database
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.ports._base import health_failure_details
@@ -173,8 +170,10 @@ def _register_infra_lifecycle(
     async def dispose_engine() -> None:
         await close_default_database()
 
-    async def shutdown_cache() -> None:
-        await close_default_cache()
+    async def close_shared() -> None:
+        # What a driver package keeps for the whole process (a client every
+        # instance of it shares), asked of each loaded driver class.
+        await infra.aclose_shared()
 
     async def close_infra() -> None:
         # Close registry-owned infrastructure: the durable event bus and any
@@ -194,7 +193,7 @@ def _register_infra_lifecycle(
     # registration also covers cleanup after a failed startup.
     core_facade.add_shutdown_task(shutdown_tracer)
     core_facade.add_shutdown_task(dispose_engine)
-    core_facade.add_shutdown_task(shutdown_cache)
+    core_facade.add_shutdown_task(close_shared)
     core_facade.add_shutdown_task(close_infra)
 
 

@@ -184,6 +184,10 @@ already works through renderers.
   a driver still takes from a flat setting is declared on its class
   (`InfraProvider.settings_fill`, spec 13 item 48), and only the readiness probe's bound,
   `HEALTH_CHECK_TIMEOUT_SECONDS`, is left to fill: the kernel's configuration names no driver.
+- The kernel's runtime names no backing server either (spec 13 item 49): a driver reports its
+  backup advice (`InfraProvider.backup_hint`), releases its shared pools (`aclose_shared`) and
+  maps its client's errors to `InfraError`, and the plan, the production profile, the relay and
+  the unreachable line read only that.
 - Parallel test runs are isolated through a driverkit hook, `test_isolation(options, worker_id)`,
   instead of the kernel rewriting Redis URLs per worker. It takes the options because the
   per-worker options derive from them.

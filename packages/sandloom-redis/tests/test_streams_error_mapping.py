@@ -635,11 +635,11 @@ async def test_an_exhausted_entry_whose_source_is_gone_is_parked_without_data() 
             redis_exceptions.ConnectionError(
                 "Error 111 connecting to localhost:6379. Connection refused."
             ),
-            "cannot reach Redis",
+            "cannot reach the event bus",
         ),
         (
             redis_exceptions.TimeoutError("Timeout connecting to server"),
-            "cannot reach Redis",
+            "cannot reach the event bus",
         ),
         (redis_exceptions.AuthenticationError("invalid password"), "refused the login"),
     ],

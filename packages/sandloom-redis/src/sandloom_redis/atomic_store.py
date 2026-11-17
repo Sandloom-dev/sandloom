@@ -70,6 +70,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.driverkit import (
     AtomicStoreProvider,
+    BackupHint,
     HealthResult,
     InfraError,
     InvalidArgument,
@@ -103,6 +104,7 @@ from sandloom_redis._eviction_guard import (
     refusal_reason,
 )
 from sandloom_redis._url import require_url
+from sandloom_redis.backup import atomic_store_hint
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -374,6 +376,11 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         (the security store lives on the cache's database in a suite: the worker's
         marks and blocks stay apart from every other worker's)."""
         return isolated_redis_options(options, worker_id)
+
+    @classmethod
+    def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:
+        """The server this store runs on, for ``sandloom backup plan``."""
+        return atomic_store_hint(options)
 
     def __init__(
         self,

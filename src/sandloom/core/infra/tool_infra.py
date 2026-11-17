@@ -69,10 +69,13 @@ def build_tool_infra() -> InfraRegistry:
 class FilledInfraConfig(NamedTuple):
     """:func:`filled_infra_config`'s answer: the ``config`` and, when an
     installed driver could not be loaded, the ``unfilled`` reason (the config
-    is then as ``load_infra_config`` gave it, nothing filled)."""
+    is then as ``load_infra_config`` gave it, nothing filled). ``registry`` is
+    the one the drivers were loaded into: a reader asks it for a driver's class
+    (``InfraRegistry.driver_class``)."""
 
     config: InfraConfig
-    unfilled: str | None = None
+    unfilled: str | None
+    registry: InfraRegistry
 
 
 def filled_infra_config(settings: Settings) -> FilledInfraConfig:
@@ -101,5 +104,5 @@ def filled_infra_config(settings: Settings) -> FilledInfraConfig:
     except (DriverLoadError, DriverConflictError) as exc:
         # The fill may have stopped half way: hand back a configuration nothing
         # has touched.
-        return FilledInfraConfig(load_infra_config(settings), str(exc))
-    return FilledInfraConfig(config)
+        return FilledInfraConfig(load_infra_config(settings), str(exc), registry)
+    return FilledInfraConfig(config, None, registry)

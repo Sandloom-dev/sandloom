@@ -135,17 +135,26 @@ def test_partial_publish_is_judged_by_its_cause_not_its_retryable() -> None:
 
 
 # -- raw errors (publishers that do not map yet) ---------------------------------
-def test_raw_class_name_match_still_recognised() -> None:
-    class ConnectionError(Exception):  # mimics redis-py's name
+def test_builtin_transport_errors_are_recognised() -> None:
+    assert relay.is_broker_unavailable(BrokerUnavailableError("celery down"))
+    assert relay.is_broker_unavailable(OSError("reset"))
+    assert relay.is_broker_unavailable(ConnectionRefusedError("refused"))
+    assert relay.is_broker_unavailable(TimeoutError("slow"))
+
+
+def test_a_class_name_of_a_client_library_is_not_an_outage() -> None:
+    """The kernel matches no client library by class name: a driver maps its
+    client's errors onto ``InfraError`` (the Redis drivers: ``sandloom_redis``'s
+    mapping, tested in that package). An error that only looks like one is not."""
+
+    class ConnectionError(Exception):  # the name redis-py gives its own class
         pass
 
     class BusyLoadingError(ConnectionError):
         pass
 
-    assert relay.is_broker_unavailable(ConnectionError("refused"))
-    assert relay.is_broker_unavailable(BusyLoadingError("loading"))
-    assert relay.is_broker_unavailable(BrokerUnavailableError("celery down"))
-    assert relay.is_broker_unavailable(OSError("reset"))
+    assert not relay.is_broker_unavailable(ConnectionError("refused"))
+    assert not relay.is_broker_unavailable(BusyLoadingError("loading"))
 
 
 def test_a_raw_non_outage_error_is_not_an_outage() -> None:
@@ -235,7 +244,7 @@ def test_the_outage_reason_is_a_class_name() -> None:
 
 
 class ResponseError(Exception):
-    """A stand-in with the redis-py class name: the relay matches by name."""
+    """A stand-in with the redis-py class name: the relay no longer matches it."""
 
 
 HINT = "driver says: look here"
@@ -258,16 +267,21 @@ def test_the_hint_of_a_raw_cause_below_the_driver_error_is_found() -> None:
 
 
 @pytest.mark.parametrize(
+    "reply", ["LOADING dataset", "MOVED 1 10.0.0.1:6379", "MISCONF can't save"]
+)
+def test_a_reply_word_in_a_raw_error_is_no_outage(reply: str) -> None:
+    # The kernel reads no reply word: only a driver's mapping makes it an outage.
+    assert not relay.is_broker_unavailable(ResponseError(reply))
+    assert relay.outage_reason(ResponseError(reply)) is None
+
+
+@pytest.mark.parametrize(
     "error",
     [
-        ResponseError("LOADING dataset"),
-        # The kernel does not read a reply word any more: a raw redirect is an
-        # outage (the reply prefixes) with no label; only a driver hints.
-        ResponseError("MOVED 1 10.0.0.1:6379"),
         OSError("MOVED 1 10.0.0.1:6379"),
         Unavailable("MOVED 1 10.0.0.1:6379", capability=CAP),
     ],
-    ids=["LOADING", "raw-MOVED", "OSError", "Unavailable-message"],
+    ids=["OSError", "Unavailable-message"],
 )
 def test_an_outage_without_a_hint_is_labelled_by_its_class_name(
     error: BaseException,
@@ -298,6 +312,78 @@ def test_a_hint_of_the_bound_length_is_kept_whole() -> None:
     assert relay.outage_reason(Unavailable("d", capability=CAP, hint=hint)) == (
         f"Unavailable ({hint})"
     )
+
+
+class _ClientError(Exception):
+    """A client library's error no driver mapped onto ``InfraError``."""
+
+
+@pytest.fixture
+def _fresh_unmapped_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(relay, "_unmapped_warned", {})
+
+
+def _unmapped_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if "does not recognise" in r.msg]
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+def test_an_unrecognised_error_that_spends_an_attempt_is_named_once(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [1000.0]
+    monkeypatch.setattr(relay.time, "monotonic", lambda: clock[0])
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        relay._warn_unmapped(_ClientError("secret://user:pw@host"))
+        relay._warn_unmapped(_ClientError("again"))  # inside the window: silent
+        clock[0] += relay._UNMAPPED_WARN_SECONDS + 1
+        relay._warn_unmapped(_ClientError("later"))  # a new window: named again
+    lines = _unmapped_lines(caplog)
+    assert len(lines) == 2
+    # The class (module and name), never the message.
+    assert all("_ClientError" in line and "secret" not in line for line in lines)
+    assert all("Unavailable" in line for line in lines)  # what a driver should do
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+@pytest.mark.parametrize(
+    "exc",
+    [
+        Unavailable("down", capability=CAP),
+        InvalidArgument("bad", capability=CAP),  # a mapped verdict, not a gap
+        ValueError("poison"),
+        TypeError("poison"),
+    ],
+    ids=["outage", "mapped-poison", "ValueError", "TypeError"],
+)
+def test_a_recognised_error_logs_no_unmapped_warning(
+    exc: BaseException, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        relay._warn_unmapped(exc)
+    assert _unmapped_lines(caplog) == []
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+def test_a_partial_publish_is_judged_by_its_cause(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mapped = PartialPublish("batch failed", published=["a"])
+    mapped.__cause__ = Unavailable("down", capability=CAP)
+    raw = PartialPublish("batch failed", published=["a"])
+    raw.__cause__ = _ClientError("x")
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        relay._warn_unmapped(mapped)
+        assert _unmapped_lines(caplog) == []
+        relay._warn_unmapped(raw)
+    assert len(_unmapped_lines(caplog)) == 1
+
+
+@pytest.mark.usefixtures("_fresh_unmapped_log")
+def test_the_unmapped_log_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    for i in range(relay._UNMAPPED_WARN_CLASSES * 2):
+        relay._warn_unmapped(type(f"Err{i}", (Exception,), {})("x"))
+    assert len(relay._unmapped_warned) <= relay._UNMAPPED_WARN_CLASSES
 
 
 def test_a_hint_never_makes_an_error_an_outage() -> None:

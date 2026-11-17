@@ -446,40 +446,6 @@ def relay_backoff(attempts: int) -> float:
     return delay / 2 + random.random() * delay / 2  # noqa: S311 - backoff jitter, not a secret
 
 
-# Names of exception types that mean "the broker/transport is unreachable"
-# regardless of the client library (redis-py's ConnectionError/TimeoutError do
-# NOT subclass the builtins). Matched on the MRO so core imports no client lib.
-_UNAVAILABLE_TYPE_NAMES = frozenset(
-    {
-        "ConnectionError",
-        "TimeoutError",
-        "BusyLoadingError",
-        "ConnectionRefusedError",
-        "ReadOnlyError",
-    }
-)
-#: Redis error-reply prefixes that mean "this server cannot serve writes right
-#: now" (dataset loading, failover to a replica, cluster resharding / down, a
-#: failed background save that stops writes, too few replicas, a key owned by
-#: another cluster node, a blocked read cut by a failover) — an outage of the
-#: broker, never evidence that the EVENT is poison. redis-py maps LOADING to
-#: BusyLoadingError and READONLY to ReadOnlyError, but the others arrive as a
-#: plain ResponseError (or its cluster-redirect subclasses). The Redis drivers
-#: map the same replies to ``Unavailable`` (``sandloom_redis._errors``).
-_UNAVAILABLE_REPLY_PREFIXES = (
-    "LOADING ",
-    "READONLY ",
-    "MASTERDOWN ",
-    "TRYAGAIN ",
-    "CLUSTERDOWN ",
-    "MISCONF ",
-    "NOREPLICAS ",
-    "MOVED ",
-    "ASK ",
-    "UNBLOCKED ",
-)
-
-
 #: How many links of a ``__cause__`` / ``__context__`` chain are inspected. A
 #: real chain is a handful deep; the bound (with the seen-set) keeps a cyclic or
 #: pathological chain from looping.
@@ -549,7 +515,7 @@ def _log_safe_hint(hint: str) -> str | None:
 def outage_reason(exc: BaseException) -> str | None:
     """The reason that makes ``exc`` an outage, else ``None``: the class name of
     the deciding error, followed by the ``hint`` of an ``InfraError`` of the chain
-    when a driver set one (the Redis drivers do for a cluster redirect).
+    when a driver set one (a driver's fixed sentence, e.g. a cluster redirect).
 
     Never the message (no secret, URL or ``host:port`` reaches a log line).
     See :func:`is_broker_unavailable` for the rules.
@@ -584,19 +550,49 @@ def _outage_class_name(exc: BaseException) -> str | None:
             (BrokerUnavailableError, OSError, TimeoutError, asyncio.TimeoutError),
         ):
             return name
-        if any(
-            cls.__name__ in _UNAVAILABLE_TYPE_NAMES for cls in type(current).__mro__
-        ):
-            return name
-        if any(
-            cls.__name__ == "ResponseError" for cls in type(current).__mro__
-        ) and str(current).startswith(_UNAVAILABLE_REPLY_PREFIXES):
-            return name
         # ``__cause__`` is always followed; ``__context__`` (an error raised
         # while another was being handled) only when no ``raise ... from``
         # suppressed it.
         current = _next_link(current)
     return None
+
+
+#: At most one "driver did not map" warning per error class in this window.
+_UNMAPPED_WARN_SECONDS = 300.0
+_UNMAPPED_WARN_CLASSES = 32
+_unmapped_warned: dict[str, float] = {}
+
+
+def _warn_unmapped(exc: BaseException) -> None:
+    """Log, once per error class per window, that an error the relay does not
+    recognise spends a delivery attempt (the class name, never the message).
+
+    The relay reads an outage from the ``InfraError`` a driver maps its client's
+    errors to (and the builtin transport errors). An error that is none of
+    those, nor a poison type, is judged the event's fault: a driver that maps
+    nothing would dead-letter healthy rows during an outage, and this line is
+    how it becomes visible before they go dead. A mapped ``InfraError`` that is
+    not an outage is a verdict, not a gap, and logs nothing. A ``PartialPublish``
+    is judged by its cause."""
+    if isinstance(exc, PartialPublish) and exc.__cause__ is not None:
+        exc = exc.__cause__
+    if isinstance(exc, (InfraError, *_POISON_TYPES)):
+        return
+    name = f"{type(exc).__module__}.{type(exc).__qualname__}"
+    now = time.monotonic()
+    last = _unmapped_warned.get(name)
+    if last is not None and now - last < _UNMAPPED_WARN_SECONDS:
+        return
+    if len(_unmapped_warned) >= _UNMAPPED_WARN_CLASSES:
+        _unmapped_warned.pop(next(iter(_unmapped_warned)))
+    _unmapped_warned[name] = now
+    _logger.warning(
+        "Outbox relay: publish failed with %s, which the relay does not "
+        "recognise as an outage: it counts as a delivery attempt. A driver "
+        "maps its transport errors to Unavailable / Timeout "
+        "(docs/infrastructure/write-a-driver.md)",
+        name,
+    )
 
 
 def is_broker_unavailable(exc: BaseException) -> bool:
@@ -612,19 +608,15 @@ def is_broker_unavailable(exc: BaseException) -> bool:
     ``__cause__``, and ``__context__`` only when ``raise ... from`` did not
     suppress it.
 
-    Everything else is matched on the raw transport errors below, which the
-    publishers that do not map their errors onto ``InfraError`` yet still raise:
-    the volatile bus, and pubsub, which re-raises whatever its broadcast driver
-    raises (raw redis errors while the redis broadcast driver does not map
-    them). That matching goes once they map. ``BrokerUnavailableError`` is not
-    one of them: it is the relay's own wrapper (raised below and caught in the
-    outbox store, which counts no attempt) and it stays.
-
-    Connection refused/reset, timeouts, "broker loading" and a failover /
-    cluster reply (READONLY, MASTERDOWN, TRYAGAIN, CLUSTERDOWN, MISCONF,
-    NOREPLICAS, MOVED, ASK, UNBLOCKED) are outages,
-    not evidence that the EVENT is poison — they must not consume its
-    attempts.
+    Everything else is matched on the builtin transport errors (``OSError``, so
+    a refused or reset connection, and the timeouts) that a publisher raises
+    without mapping them onto ``InfraError`` (the volatile bus), and on the
+    relay's own ``BrokerUnavailableError`` wrapper (raised below and caught in
+    the outbox store, which counts no attempt). The kernel names no client
+    library's error: a driver maps its client's errors (a Redis "loading" or
+    failover reply, a cluster redirect) onto ``Unavailable`` / ``Timeout``, and
+    that mapping is what makes them outages, not evidence that the EVENT is
+    poison: they must not consume its attempts.
     """
     return outage_reason(exc) is not None
 
@@ -788,6 +780,7 @@ async def _relay_batch_for_store(  # noqa: C901
             if reason is not None:
                 outage_reasons.append(reason)
                 raise BrokerUnavailableError(f"{type(exc).__name__}: {exc}") from exc
+            _warn_unmapped(exc)
             raise
 
     async def _publish_many(
@@ -808,6 +801,7 @@ async def _relay_batch_for_store(  # noqa: C901
             if reason is not None:
                 outage_reasons.append(reason)
                 raise BrokerUnavailableError(f"{type(exc).__name__}: {exc}") from exc
+            _warn_unmapped(exc)
             raise
         error = result.error
         if error is None:
@@ -819,6 +813,7 @@ async def _relay_batch_for_store(  # noqa: C901
         if reason is not None:
             outage_reasons.append(reason)
             raise BrokerUnavailableError(f"{type(error).__name__}: {error}") from error
+        _warn_unmapped(error)
         raise RelayBatchPublishError(result.published, error) from error
 
     if sweep:

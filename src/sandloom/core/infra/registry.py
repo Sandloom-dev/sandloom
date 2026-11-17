@@ -404,6 +404,9 @@ class InfraRegistry:
         )
         # (capability, driver) -> registration (factory + features + schema)
         self._drivers: dict[tuple[str, str], DriverRegistration] = {}
+        # Every provider class loaded in this process, kept when a later
+        # register_driver replaces its registration: aclose_shared asks each once.
+        self._loaded_classes: set[type[InfraProvider]] = set()
         # When strict, a driver cannot be registered for a capability that has
         # no spec (production default via build_infra_registry). Lenient by
         # default so unit tests can build bare registries without specs.
@@ -639,6 +642,7 @@ class InfraRegistry:
         checked = check_driver_class(
             f"{capability}.{driver}", provider_class, self._capabilities.get(capability)
         )
+        self._loaded_classes.add(checked)
         return dataclasses.replace(
             registration,
             provider_class=checked,
@@ -1728,6 +1732,23 @@ class InfraRegistry:
         self._providers.clear()
         self._retired_providers.extend(providers)
         await self._close_retired()
+
+    async def aclose_shared(self) -> None:
+        """Close what each loaded driver keeps for the whole process
+        (``InfraProvider.aclose_shared``), best-effort and never raising. Only
+        a class already loaded is asked: nothing is imported here, and a driver
+        nobody selected has nothing to close. A class whose registration a later
+        ``register_driver`` replaced is still asked."""
+        loaded = set(self._loaded_classes)
+        for provider_class in sorted(loaded, key=lambda cls: cls.__qualname__):
+            try:
+                await provider_class.aclose_shared()
+            except Exception:
+                logger.warning(
+                    "[infra] error closing what %s shares",
+                    provider_class.__qualname__,
+                    exc_info=True,
+                )
 
     async def _close_retired(self) -> None:
         retired, self._retired_providers = self._retired_providers, []

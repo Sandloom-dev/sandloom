@@ -45,6 +45,7 @@ from sandloom.core.cli.dev.state import (
 )
 from sandloom.core.cli.project import generate_project
 from sandloom.core.composition import composition_root_name
+from sandloom.core.infra.errors import Unavailable
 from sandloom.core.testing import workers
 from sandloom.core.testing.machine import machine_id
 from sandloom.core.tests._root_support import suite_infra_env
@@ -1258,17 +1259,16 @@ def test_connection_failures_become_one_line() -> None:
         "error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused). "
         "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
     )
-    # The kernel recognises a Redis client's error by its module and name, so a
-    # stand-in needs no client (the real one: the sandloom-redis package's
-    # ``test_redis_unreachable_message.py``).
-    redis_connection_error = type(
-        "ConnectionError", (Exception,), {"__module__": "redis.exceptions"}
-    )
-    rd = redis_connection_error(
+    # A capability driver's mapped error, raised from its client's: the kernel
+    # names the capability and no client (the real client's errors: the
+    # sandloom-redis package's ``test_redis_unreachable_message.py``).
+    client_error = type("ConnectionError", (Exception,), {})(
         "Error 61 connecting to 127.0.0.1:6379. Connection refused."
     )
-    assert "cannot reach Redis at 127.0.0.1:6379" in (
-        errors.connection_failure(rd) or ""
+    mapped = Unavailable("cache 'default' get: ConnectionError", capability="cache")
+    mapped.__cause__ = client_error
+    assert "cannot reach the cache backend at 127.0.0.1:6379" in (
+        errors.connection_failure(mapped) or ""
     )
     assert errors.connection_failure(ValueError("nope")) is None
 
