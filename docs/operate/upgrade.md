@@ -184,9 +184,10 @@ needs the `redis` package: the Redis client belongs to the `redis` driver of
 `broadcast`, which you still select under `INFRA.broadcast`. Behavior is the same.
 
 The old name has no alias. Startup refuses an `eventbus` instance that still writes
-`"driver": "redis"`, wherever it writes it: `INFRA`, the composition's `DEFAULT_INFRA`,
-a configuration built in code or `EVENT_BUS_BACKEND`. The error names the new spelling.
-It prints no option, so no url or password. Other capabilities keep their `redis` driver.
+`"driver": "redis"`, wherever it writes it. That covers `INFRA` and the composition's
+`DEFAULT_INFRA`, as well as a configuration built in code and `EVENT_BUS_BACKEND`.
+The error names the new spelling and prints no option, so it shows no url. Other
+capabilities keep their `redis` driver.
 
 ## Upgrading the Celery driver's connection checks
 
