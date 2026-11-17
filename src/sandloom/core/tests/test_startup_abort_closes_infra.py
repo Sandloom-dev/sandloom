@@ -8,7 +8,9 @@ every provider opened before the failing one: without it a failed start leaks
 their connections. ``run_shutdown`` logs a failing task and goes on, so each
 test reads the provider's own ``closed`` flag rather than waiting for a raise.
 A provider of this file's own stands in for a driver, so the lane that runs the
-kernel alone covers the path.
+kernel alone covers the path. One test drives the real ``create_app`` lifespan
+(the stub instances join the app's own registry); the parametrized one hands
+``run_startup`` / ``run_shutdown`` a bare core, in production and dev.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from sandloom.core.infra.contracts import CacheProvider
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.lifecycle import CriticalStartupError, run_shutdown, run_startup
 from sandloom.core.schema.registry import InMemorySchemaRegistry
+from sandloom.core.tests._root_support import create_root_app
 
 
 class _Misconfigured(RuntimeError):
@@ -73,27 +76,17 @@ class _Cache(CacheProvider):
         return 1
 
 
-def _registry(
-    failure: Exception | None,
-) -> tuple[InfraRegistry, list[str], list[str]]:
-    """``first``, ``second`` and ``fourth`` open fine, ``third`` fails; returns
-    the registry and the opened / closed name lists."""
+def _install_stubs(
+    reg: InfraRegistry, failure: Exception | None
+) -> tuple[list[str], list[str]]:
+    """Register the ``stub`` cache driver on ``reg`` and add four instances:
+    ``first``, ``second`` and ``fourth`` open fine, ``third`` fails; returns the
+    opened / closed name lists."""
     opened: list[str] = []
     closed: list[str] = []
     healthy = type("_Healthy", (_Cache,), {"opened": opened, "closed": closed})
     broken = type(
         "_Broken", (_Cache,), {"opened": opened, "closed": closed, "failure": failure}
-    )
-    names = ("first", "second", "third", "fourth")
-    reg = InfraRegistry(
-        config={
-            "cache": {
-                name: InstanceConfig(
-                    capability="cache", name=name, driver="stub", options={}
-                )
-                for name in names
-            }
-        }
     )
 
     def build(cfg: InstanceConfig) -> CacheProvider:
@@ -101,6 +94,20 @@ def _registry(
         return cls(name=cfg.name, driver=cfg.driver, options=dict(cfg.options))
 
     reg.register_driver("cache", "stub", build)
+    for name in ("first", "second", "third", "fourth"):
+        reg.configure_instance(
+            InstanceConfig(capability="cache", name=name, driver="stub", options={})
+        )
+    return opened, closed
+
+
+def _registry(
+    failure: Exception | None,
+) -> tuple[InfraRegistry, list[str], list[str]]:
+    """A registry of the four stub instances; returns it and the opened / closed
+    name lists."""
+    reg = InfraRegistry()
+    opened, closed = _install_stubs(reg, failure)
     return reg, opened, closed
 
 
@@ -138,9 +145,44 @@ async def test_an_aborted_startup_closes_what_it_opened(
     assert opened == ["first", "second", "fourth"]
     assert closed == [], "nothing is closed before the lifespan's teardown"
 
-    # What the lifespan does on an aborted start (app_factory/lifecycle.py).
+    # Stands in for the lifespan's own ``except`` branch, which the test below
+    # drives: this one covers the registry's side (``run_shutdown`` reaches
+    # ``aclose_all``), in production and dev, without booting an app.
     await run_shutdown(core)
 
     # ``aclose_all`` closes every provider that was opened, the latest first.
     opened_closed = [name for name in closed if name in opened]
     assert opened_closed == ["fourth", "second", "first"]
+
+
+async def test_the_lifespan_of_an_app_closes_what_an_aborted_start_opened(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real ``create_app`` lifespan: its ``except`` branch (app_factory/
+    lifecycle.py) runs ``run_shutdown`` when startup aborts, and a provider that
+    opened before the failing one is closed by it, not leaked."""
+    real_build = app_factory.build_infra_registry
+    stubs: dict[str, list[str]] = {}
+
+    def build_with_stubs(
+        schema_registry: InMemorySchemaRegistry,
+    ) -> InfraRegistry:
+        registry = real_build(schema_registry)
+        stubs["opened"], stubs["closed"] = _install_stubs(
+            registry, _Misconfigured("no url")
+        )
+        return registry
+
+    monkeypatch.setattr(app_factory, "build_infra_registry", build_with_stubs)
+    app = create_root_app()
+
+    with pytest.raises(CriticalStartupError, match="infra_warm_instances"):
+        async with app.router.lifespan_context(app):
+            pytest.fail("the app must not serve after an aborted start")
+
+    assert stubs["opened"] == ["first", "second", "fourth"]
+    assert [n for n in stubs["closed"] if n in stubs["opened"]] == [
+        "fourth",
+        "second",
+        "first",
+    ]

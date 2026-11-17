@@ -136,6 +136,8 @@
         "admin/scripts/check-tokens.mjs",
         "admin/scripts/check-types.mjs",
         "admin/scripts/compress.mjs",
+        "admin/scripts/console-manifest.mjs",
+        "admin/scripts/console-manifest.test.mjs",
         "admin/scripts/dependency-compat.test.mjs",
         "admin/scripts/export_openapi.py",
         "admin/scripts/licenses.mjs",

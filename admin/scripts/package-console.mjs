@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { withConsolePaths } from './console-manifest.mjs';
 import { nodeProblem, pinnedNode } from './node-pin.mjs';
 
 // Also run directly after a build: the committed .gz and .br must come from the pinned Node.
@@ -72,10 +73,11 @@ const policy = JSON.parse(readFileSync(manifestFile, 'utf8'));
 const prefix = 'src/sandloom_admin/console/';
 for (const group of policy.include) {
   if (!group.paths.some((path) => path.startsWith('src/sandloom_admin/'))) continue;
-  group.paths = [
-    ...group.paths.filter((path) => !path.startsWith(prefix)),
-    ...walk(target).map((path) => posix(path, repository)),
-  ].sort();
+  group.paths = withConsolePaths(
+    group.paths,
+    prefix,
+    walk(target).map((path) => posix(path, repository)),
+  );
 }
 writeFileSync(manifestFile, `${JSON.stringify(policy, null, 2)}\n`);
 console.log(`packaged ${walk(target).length} files into ${posix(target, repository)}`);

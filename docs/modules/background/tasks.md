@@ -272,7 +272,7 @@ scheme stays supported. The allowed keys:
   `backoff_tasks`. The credentials and the region of a queue come from the `INFRA` url
   and `region`. The queue `url` is `https://<host>/<account>/<name>` with an AWS host:
   `sqs.<region>.amazonaws.com` (`.amazonaws.com.cn` in China), the FIPS
-  `sqs-fips.<region>.amazonaws.com` or a VPC endpoint
+  `sqs-fips.<region>.amazonaws.com` (not in China) or a VPC endpoint
   `vpce-<id>.sqs.<region>.vpce.amazonaws.com`;
 - `result_backend_transport_options` of any backend: `retry_policy`,
   `result_chord_ordered` and `global_keyprefix`.
@@ -287,6 +287,32 @@ url has an AWS host, the queue urls and the `region` option of the conf must nam
 region of that host. When it has none, the `region` option of the conf is the pin. With
 neither, kombu takes the region from the environment. The check does not read it, so a
 queue of any region passes.
+
+The `INFRA` broker url of an `sqs://` instance takes these hosts. The three AWS forms
+above each name their region. A host outside the AWS domains, such as an emulator or a
+proxy, names none and pins nothing. So does a url with no host.
+
+Any other host under `amazonaws.com`, `amazonaws.com.cn` or `api.aws` is refused at
+startup, because the pin could not read its region. These are the legacy
+`<region>.queue.amazonaws.com` and the dual-stack `sqs.<region>.api.aws`. Another is
+`sqs-fips.<region>.amazonaws.com.cn`: the China regions have no FIPS endpoint.
+
+A trailing dot is refused on any host, an AWS one or not. A host with a percent escape
+(`amazonaws%2Ecom`) or a non-ASCII character (an ideographic full stop) is refused too.
+Kombu decodes such a host into a real AWS endpoint, which the pin would not see.
+
+The AWS hosts are read for three partitions: `aws` and `aws-us-gov` (`amazonaws.com`)
+and `aws-cn` (`amazonaws.com.cn`). A host of another partition, such as
+`amazonaws.eu` or `c2s.ic.gov`, is a proxy host to this check: it names no region and
+pins nothing. A queue `url` on an AWS host is then refused, so the check fails closed.
+
+The AWS hosts of one `INFRA` url must name one region. A url with hosts of two
+regions is refused.
+
+Which host carries the traffic depends on botocore. On the JSON protocol of its SQS
+model, a queue `url` only names a queue and the `INFRA` host carries the traffic. On the
+older query protocol, kombu sends receive calls to the host of the queue `url`. Give the
+queue urls the endpoint you want the traffic on.
 
 The `INFRA` option `sqs_account_id` pins the account. It has 12 digits and any other
 scheme refuses it. A queue url of another account is then refused. Left out, any account
