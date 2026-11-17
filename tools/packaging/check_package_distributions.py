@@ -257,14 +257,24 @@ POSTGRES_EXTRA = "postgres"
 #: Redis wire commands as a whole string constant (``execute_command("XADD")``),
 #: and a Lua script calling the server (``redis.call(``): protocol code, which
 #: lives in ``sandloom_redis``. A name in a comment or a docstring is not one.
-#: The stream commands and ``EVALSHA`` are distinctive in any case; ``EVAL``,
-#: ``SCRIPT`` and ``ZADD`` are ordinary words in lower case, so only the upper
-#: case spelling counts. What follows the command is a subcommand (``GROUP``) or
+#: The stream commands and ``EVALSHA`` (and its ``_RO`` form) are distinctive in
+#: any case; ``EVAL``, ``SCRIPT`` and the sorted-set commands (``ZADD``,
+#: ``ZRANGE``, ...) are ordinary words in lower case, so only the upper case
+#: spelling counts. What follows the command is a subcommand (``GROUP``) or
 #: an argument that is not a word (``*``, ``0-0``): a sentence that starts with
-#: a command name ("XADD is slow") is prose and passes.
+#: a command name ("XADD is slow") is prose and passes. A whole-line command
+#: with lower-case arguments ("XLEN mystream", "XADD orders * a b") is still
+#: caught, for the distinctive commands only: one lower-case argument, or a later
+#: token that does not start with a letter (``*``, an id, a number). Limits, both
+#: by design of a spelling-only check: ``XACK stream group id`` (three plain
+#: lower-case words) reads as prose and passes, and an all-caps sentence that
+#: starts with a command ("SCRIPT FAILED: see log") is flagged; reword it.
 _WIRE_COMMAND = re.compile(
-    r"(?:(?i:X(?:ADD|READGROUP|AUTOCLAIM|GROUP|ACK|TRIM|CLAIM|PENDING|INFO|LEN"
-    r"|REVRANGE|RANGE)|EVALSHA)|EVAL|SCRIPT|ZADD)"
+    r"(?:(?i:X(?:ADD|READGROUP|READ|AUTOCLAIM|GROUP|ACK|DEL|TRIM|CLAIM|PENDING"
+    r"|INFO|LEN|SETID|REVRANGE|RANGE)|EVALSHA(?:_RO)?)"
+    r"(?:\s+\S+|\s+(?:\S+\s+)*[^A-Za-z\s].*)?"
+    r"|(?:EVAL(?:_RO)?|SCRIPT|Z(?:ADD|REM|RANGE|REVRANGE|RANGEBYSCORE"
+    r"|REMRANGEBYSCORE|POPMIN|POPMAX|CARD|SCORE|INCRBY|COUNT)))"
     r"(?:\s+(?:[A-Z][A-Z_]*\b|[^A-Za-z\s]).*)?",
     re.DOTALL,
 )

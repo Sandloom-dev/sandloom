@@ -380,9 +380,11 @@ def test_a_second_required_check_that_is_not_registered_is_not_seen() -> None:
     # check" only while branch protection requires one. With a second required
     # check still unregistered the verdict is settled. If this starts failing,
     # the rule was changed: update the comment on ``State.required`` with it.
-    gh = FakeGh(
-        [[check("gate", "pass")]],
-        required={"gate"},
-    )
-    code, lines, _ = run(gh)
-    assert code == pr_wait.GREEN and lines[0].startswith("GREEN")
+    # ``State`` is built directly: the fake ``gh`` cannot list a check that is
+    # not registered, which is the point.
+    gate = check("gate", "pass")
+    only_registered = pr_wait.State(HEAD, "OPEN", "CLEAN", "MERGEABLE", [gate], [gate])
+    assert only_registered.registered
+    # The same rule refuses when no required check is registered at all.
+    none_registered = pr_wait.State(HEAD, "OPEN", "CLEAN", "MERGEABLE", [gate], [])
+    assert not none_registered.registered
