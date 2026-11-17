@@ -201,6 +201,26 @@ alias: the old names are gone.
 | The key `redis_reconnect_attempts` of the event bus counters in `/diagnostics` | `broadcast_reconnect_attempts` |
 | The Prometheus counter `sandloom_redis_reconnect_attempts_total` | `sandloom_broadcast_reconnect_attempts_total`, which now counts each lost subscription (the old counter stayed at zero). Change an alert or dashboard that queries the old name; the bundled Grafana dashboard (`deploy/observability`) already does. |
 
+## Upgrading to 0.7.0a15: the test harness holds no Redis
+
+The harness that isolates parallel test runs reads each backend's rules from its harness
+family (the `sandloom.testing` entry-point group), not from a Redis url form in the kernel.
+Some names of the harness are renamed or removed. There is no alias: the old names are gone.
+An app on the standard stack changes nothing.
+
+| Before | After |
+| --- | --- |
+| `sandloom.driverkit.testing_isolation.isolated_redis_options(options, worker_id, keys)` | `isolated_url_options(options, worker_id, keys)`, from the same module. It applies the URL mover the harness family installed and leaves the options unchanged when none is installed. |
+| `testing_isolation.WorkerLayout`, `DEFAULT_STRIDE`, `set_worker_layout`, `worker_layout` | `testing_isolation.set_url_mover(mover)`, with `mover(url, worker_number) -> url`. The Redis layout (`WorkerLayout`, the stride) is `sandloom_redis.testing.isolation`. |
+| `sandloom.core.testing.workers.REDIS_VARS` | `URL_VARS` |
+| `Slot.redis_urls` | `Slot.family_urls` |
+| A `HarnessFamily` with seven hooks | Three more, which a family of your own must implement (the protocol is checked at load): `owns_url(url)`, `same_database(stated, base)` and `parallel_env()`. |
+
+`SANDLOOM_TEST_REDIS_DB_STRIDE` keeps its name: it is the Redis family's own variable. A
+`SANDLOOM_TEST_CACHE_URL` or `SANDLOOM_TEST_BROKER_URL` that no installed family owns is
+refused with `UnmatchedOverrideError`, where the kernel once accepted any Redis-shaped one.
+Upgrade `sandloom-redis` and `sandloom-celery` with the kernel.
+
 ## Upgrading the Celery driver's connection checks
 
 The `celery` taskqueue driver now refuses, at startup, connections it used to accept.

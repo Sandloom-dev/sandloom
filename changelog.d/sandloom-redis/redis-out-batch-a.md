@@ -1,0 +1,3 @@
+### Changed
+
+- **The Redis harness family implements the three new `HarnessFamily` hooks and owns the per-worker layout** (redis-out-harness). `owns_url`, `same_database` and `parallel_env` carry what the kernel harness knew about Redis url forms, the database 0 default of a url without a path and the `auto` stride of a parallel run. `WorkerLayout`, the stride and the index mapping live in `sandloom_redis.testing.isolation`; the family installs them as the kernel's URL mover. The package needs the kernel that has `sandloom.driverkit.testing_isolation.set_url_mover`: a kernel before this change has no such name and the harness does not start. Upgrade the package with the kernel.
