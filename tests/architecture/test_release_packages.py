@@ -560,22 +560,35 @@ KERNEL_CASES = {
         KERNEL_METADATA,
         "carries Redis protocol code 'XADD orders * a b'",
     ),
-    "known limit: an all-caps sentence that starts with SCRIPT": (
+    "accepted false alarm: an all-caps sentence that starts with SCRIPT": (
         {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'SCRIPT FAILED: see log'\n"},
         KERNEL_METADATA,
         "carries Redis protocol code 'SCRIPT FAILED: see log'",
     ),
-    "known limit: a prose sentence with a digit-led word after a command name": (
+    "accepted false alarm: a prose sentence with a digit-led word after a command": (
         {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XADD is 10x slower'\n"},
         KERNEL_METADATA,
         "carries Redis protocol code 'XADD is 10x slower'",
     ),
-    "known limit: a prose sentence that ends with a number": (
+    "accepted false alarm: a prose sentence that ends with a number": (
         {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XLEN is 0'\n"},
         KERNEL_METADATA,
         "carries Redis protocol code 'XLEN is 0'",
     ),
-    "known limit: a command whose arguments are plain lower-case words": (
+    "accepted false alarm: a prose sentence with a parenthesised word": (
+        {
+            **DEV_SERVICES,
+            "sandloom/core/a.py": "MSG = 'XLEN (approximate) is bounded'\n",
+        },
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XLEN (approximate) is bounded'",
+    ),
+    "accepted false alarm: a prose sentence with a quoted word": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XADD is \"slow\"'\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XADD is \"slow\"'",
+    ),
+    "accepted miss: a command whose arguments are plain lower-case words": (
         {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XACK stream group id'\n"},
         KERNEL_METADATA,
         "",
@@ -591,6 +604,8 @@ KERNEL_CASES = {
             "sandloom/core/a.py": (
                 "KINDS = ('script', 'eval', 'zadd', 'Script', 'zrange', 'zcard')\n"
                 "MSG = 'XADD is slow'\n"
+                "END = 'XADD is slow.'\n"
+                "WARN = 'XACK failed: retry'\n"
                 "TEXT = 'script failed: see the log'\n"
             ),
         },
