@@ -353,6 +353,27 @@ def test_the_queue_pin_never_reads_an_encoded_host_as_no_region(host: str) -> No
         ConnectionOptions(f"sqs://K:S@{host}").queue_pin()
 
 
+def test_the_sqs_hosts_of_one_broker_url_name_one_region() -> None:
+    """With hosts of two regions the pin would hold both, and the conf region and a
+    queue url could each take a different one."""
+    broker = (
+        "sqs://KEY:infra-secret@sqs.eu-west-1.amazonaws.com;"
+        "sqs://KEY:infra-secret@sqs-fips.us-east-1.amazonaws.com"
+    )
+    with pytest.raises(ValueError, match="more than one AWS region") as refused:
+        validate_connection(ConnectionOptions(broker))
+    assert "infra-secret" not in str(refused.value)
+    with pytest.raises(ValidationError, match="more than one AWS region"):
+        CeleryTaskQueueOptions.model_validate({"broker": broker})
+    # two hosts of one region (a regional and a VPC endpoint) pass
+    validate_connection(
+        ConnectionOptions(
+            "sqs://K:S@sqs.eu-west-1.amazonaws.com;"
+            "sqs://K:S@vpce-0a1b-abcd1234.sqs.eu-west-1.vpce.amazonaws.com"
+        )
+    )
+
+
 def test_a_queue_url_is_pinned_to_the_region_of_the_infra_host() -> None:
     host = "sqs://K:S@sqs.eu-west-1.amazonaws.com"
     assert _queues_are_safe(f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q", host)

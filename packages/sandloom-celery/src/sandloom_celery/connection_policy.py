@@ -409,12 +409,24 @@ def _check_sqs_hosts(connection: ConnectionOptions) -> None:
     """Refuse an ``sqs://`` broker url with a host under an AWS domain that
     :data:`_SQS_HOST` does not spell, or with a trailing dot: the region of such a
     host is not read, so a ``predefined_queues`` url would not be pinned to it. An
-    emulator or a proxy host (no AWS domain) is not refused: it names no region."""
+    emulator or a proxy host (no AWS domain) is not refused: it names no region.
+    The AWS hosts of one url name one region: kombu signs for one ``region``, and a
+    pin of two regions would let the conf ``region`` and a queue url each take a
+    different one."""
     if scheme_of(connection.broker) not in SQS_SCHEMES:
         return
+    regions: set[str] = set()
     for chunk in _chunks(connection.broker):
         host = _sqs_host(chunk)
-        if not host or _host_region(host):
+        if not host:
+            continue
+        if region := _host_region(host):
+            regions.add(region)
+            if len(regions) > 1:
+                raise ValueError(
+                    "the broker url's SQS hosts name more than one AWS region: "
+                    "use hosts of one region"
+                )
             continue
         if host.endswith(".") or ("." + host).endswith(_AWS_DOMAINS):
             raise ValueError(
