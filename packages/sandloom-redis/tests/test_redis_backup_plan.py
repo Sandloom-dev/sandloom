@@ -70,7 +70,9 @@ def test_the_standard_stack_plan_says_what_it_said_before(
     items = _plan(
         monkeypatch,
         {
-            "cache": {"default": {"driver": "redis", "url": "redis://cachehost:6379/3"}},
+            "cache": {
+                "default": {"driver": "redis", "url": "redis://cachehost:6379/3"}
+            },
             "atomic_store": {
                 "security": {"driver": "redis", "url": "redis://cachehost:6379/3"}
             },
@@ -118,10 +120,10 @@ def test_a_streams_bus_alone_is_required_data_not_a_tolerable_loss(
     items = _plan(
         monkeypatch,
         {
-            "cache": {"default": {"driver": "redis", "url": "redis://cachehost:6379/3"}},
-            "eventbus": {
-                "bus": {"driver": "streams", "url": "redis://buscost:6379/0"}
+            "cache": {
+                "default": {"driver": "redis", "url": "redis://cachehost:6379/3"}
             },
+            "eventbus": {"bus": {"driver": "streams", "url": "redis://buscost:6379/0"}},
         },
     )
     bus = _redis(items)["redis://buscost:6379/0"]

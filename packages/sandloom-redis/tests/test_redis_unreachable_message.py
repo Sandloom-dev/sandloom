@@ -10,9 +10,9 @@ does not.
 from __future__ import annotations
 
 from redis.exceptions import AuthenticationError, ConnectionError, RedisError
+from sandloom_redis._errors import map_redis_error
 
 from sandloom.core.observability.unreachable import connection_failure
-from sandloom_redis._errors import map_redis_error
 
 
 def _mapped(raw: BaseException, capability: str = "cache") -> BaseException:
@@ -25,7 +25,9 @@ def test_a_refused_redis_connection_becomes_one_line() -> None:
     raw = ConnectionError("Error 61 connecting to 127.0.0.1:6379. Connection refused.")
     line = connection_failure(_mapped(raw))
     assert line is not None
-    assert "cannot reach the cache backend at 127.0.0.1:6379 (connection refused)" in line
+    assert (
+        "cannot reach the cache backend at 127.0.0.1:6379 (connection refused)" in line
+    )
     assert "Redis" not in line
 
 

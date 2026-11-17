@@ -12,9 +12,9 @@ from __future__ import annotations
 import pytest
 from redis import exceptions as redis_exceptions
 from redis._parsers.base import BaseParser
+from sandloom_redis._errors import map_redis_error
 
 from sandloom.core.tasks import relay
-from sandloom_redis._errors import map_redis_error
 
 _OUTAGE_REPLIES = [
     "LOADING Redis is loading the dataset in memory",

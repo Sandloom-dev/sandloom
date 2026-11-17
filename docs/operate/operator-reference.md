@@ -534,12 +534,12 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
 
 - **`sandloom backup plan`** lists every configured database instance (with the
   migration chains it hosts), every backing server with its roles (cache,
-  **security store**, event-bus streams, task broker; each driver says which
-  servers hold its data and what they need, so the Redis steps below come from
-  the Redis drivers), the object store and the secrets, each with backup and
-  restore steps. Passwords are masked. A driver that fails to load, or is not
-  installed where you run the plan, cannot say: the plan then carries a critical
-  `backing servers` warning naming it, instead of listing urls it cannot vouch for.
+  **security store**, event-bus streams, task broker), the object store and the
+  secrets, each with backup and restore steps. Each driver says which servers
+  hold its data, so the Redis steps come from the Redis drivers. Passwords are
+  masked. A driver that fails to load, or is not installed where you run the
+  plan, cannot say. The plan then carries a critical `backing servers` warning
+  that names it.
 - **PostgreSQL:** `pg_dump --format=custom --no-owner --no-privileges` per
   instance, run as the **owner / migration role** — under `tenant_rls` the app
   role sees one tenant at a time. Production: WAL archiving / managed PITR plus

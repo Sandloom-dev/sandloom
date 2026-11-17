@@ -51,7 +51,9 @@ BACKUP_CRITICALITIES: tuple[str, ...] = ("critical", "required", "optional")
 
 @dataclass(frozen=True, slots=True)
 class BackupHint:
-    """What one instance adds to ``sandloom backup plan`` (``InfraProvider.backup_hint``).
+    """What one instance adds to ``sandloom backup plan``.
+
+    A driver returns it from ``InfraProvider.backup_hint``.
 
     The kernel keeps one plan item per ``(kind, url)``: the instances whose hints
     name the same server share it. It lists the instances as the item's roles,

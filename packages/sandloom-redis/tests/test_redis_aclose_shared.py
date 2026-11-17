@@ -10,11 +10,11 @@ each close it.
 from __future__ import annotations
 
 import pytest
-
-from sandloom.core.infra.registry import InfraRegistry
 from sandloom_redis import cache as redis_cache
 from sandloom_redis.cache import RedisCacheProvider
 from sandloom_redis.eventbus.driver import StreamsEventBusProvider
+
+from sandloom.core.infra.registry import InfraRegistry
 
 
 class _Client:

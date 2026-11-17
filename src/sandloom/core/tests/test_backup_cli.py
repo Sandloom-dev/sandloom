@@ -124,7 +124,7 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
                 "analytics": {
                     "driver": "sqlalchemy",
                     "url": "postgresql+asyncpg://u:s3cret@db2:5432/analytics",
-                }
+                },
             },
             "atomic_store": {
                 "security": {"driver": "stubstore", "url": "stub://:pw@sec:6379/0"}
@@ -288,7 +288,9 @@ def _use_stub_drivers(
     registry = _StubRegistry()
 
     def filled(flat: Any) -> FilledInfraConfig:
-        return FilledInfraConfig(infra_config.load_infra_config(flat), unfilled, registry)
+        return FilledInfraConfig(
+            infra_config.load_infra_config(flat), unfilled, registry
+        )
 
     monkeypatch.setattr(backup_module, "filled_infra_config", filled)
 
@@ -377,7 +379,9 @@ def test_plan_survives_an_installed_driver_that_fails_to_load_and_says_so(
     """A read-only tool still plans: with a driver that fails to load the
     kernel cannot ask the drivers, so it lists no backing server, warns
     (critical) why, and the rest of the plan stands."""
-    _use_stub_drivers(monkeypatch, _STUB_INFRA, unfilled=str(error("cannot be imported")))
+    _use_stub_drivers(
+        monkeypatch, _STUB_INFRA, unfilled=str(error("cannot be imported"))
+    )
     items = build_backup_plan(settings)
     assert not [i for i in items if i.kind == "stubserver"]
     (warning,) = [i for i in items if i.kind == "warning"]

@@ -1,4 +1,6 @@
-"""What the Redis drivers add to ``sandloom backup plan`` (``InfraProvider.backup_hint``).
+"""What the Redis drivers add to ``sandloom backup plan``.
+
+The hook is ``InfraProvider.backup_hint``.
 
 The kernel's plan keeps one item per server: the cache, the atomic store and the
 Streams bus whose urls name one Redis server share it, and it prints each step

@@ -189,7 +189,8 @@ def _atomic_store_roles(
         url = inst.options.get("url")
         if inst.driver != driver or not isinstance(url, str) or not url:
             continue
-        found.append((url, f"atomic_store:{name}{where}{_atomic_store_note(name, atomic)}"))
+        note = _atomic_store_note(name, atomic)
+        found.append((url, f"atomic_store:{name}{where}{note}"))
     return found
 
 

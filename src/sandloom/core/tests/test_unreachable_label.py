@@ -43,7 +43,9 @@ def test_a_mapped_error_is_labelled_by_its_capability() -> None:
     )
     line = connection_failure(error)
     assert line is not None
-    assert "cannot reach the cache backend at 127.0.0.1:6379 (connection refused)" in line
+    assert (
+        "cannot reach the cache backend at 127.0.0.1:6379 (connection refused)" in line
+    )
 
 
 def test_a_named_instance_is_part_of_the_label() -> None:
@@ -59,7 +61,9 @@ def test_a_named_instance_is_part_of_the_label() -> None:
 def test_a_timeout_and_a_refused_login_are_labelled_too() -> None:
     slow = _chained(
         Timeout("x", capability="eventbus"),
-        _client_error("TimeoutError", "somelib", "Timeout connecting to 127.0.0.1:6379"),
+        _client_error(
+            "TimeoutError", "somelib", "Timeout connecting to 127.0.0.1:6379"
+        ),
     )
     line = connection_failure(slow)
     assert line is not None
