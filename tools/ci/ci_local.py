@@ -510,7 +510,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:deploy-profiles": "fe116108319c0d69",
     "ci.yml:microservices-smoke": "b655d1411d676fb7",
     "ci.yml:docker-build": "a33575d214a0fef2",
-    "ci.yml:admin-contracts": "ae4e3ef8a5f5b4ec",
+    "ci.yml:admin-contracts": "9789f0ac55ca5e4c",
     "ci.yml:docs": "2bfd2034c9234a2a",
     "ci.yml:packages": "d7ee97312d5b4b87",
     "ci.yml:architecture": "7fa82238721b3d55",

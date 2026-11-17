@@ -31,7 +31,8 @@ supply English labels and messages.
 
 ## Run locally
 
-Requires Node 22.21.1 (`.nvmrc`) and a Sandloom backend with identity enabled:
+Requires Node 22.12 or later (`npm run package` needs the exact version in `.nvmrc`; other
+versions only warn) and a Sandloom backend with identity enabled:
 
 ```sh
 cd admin

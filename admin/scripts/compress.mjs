@@ -2,24 +2,15 @@
 // nginx (gzip_static) serve them compressed with no work per request and no runtime dependency.
 // A file is skipped when compression saves too little to be worth the extra bytes in the wheel.
 //
-// The bytes of a .gz / .br depend on the zlib and brotli build inside Node, and the packaged copy
-// is committed: `npm run package` (SANDLOOM_REQUIRE_PINNED_NODE=1) refuses any Node but the one in
-// .nvmrc, so the same source gives the same bytes on every machine. A plain `npm run build` only
-// warns, its output is not committed.
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+// The bytes depend on the zlib and brotli inside Node (see node-pin.mjs). A plain `npm run build`
+// only warns on another Node, its output is not committed; `npm run package` refuses it.
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
+import { nodeProblem, pinnedNode } from './node-pin.mjs';
 
-const pinned = readFileSync(new URL('../.nvmrc', import.meta.url), 'utf8').trim();
-if (process.versions.node !== pinned) {
-  const message = `Node ${process.versions.node} is not the pinned ${pinned} (admin/.nvmrc): the .gz and .br bytes differ between Node builds.`;
-  if (process.env.SANDLOOM_REQUIRE_PINNED_NODE === '1') {
-    throw new Error(
-      `${message} Run \`nvm use\` (or install ${pinned}) before \`npm run package\`.`,
-    );
-  }
-  console.warn(`warning: ${message}`);
-}
+const problem = nodeProblem(process.versions.node, pinnedNode());
+if (problem) console.warn(`warning: ${problem}`);
 
 const dir = 'dist/assets';
 const TEXT = /\.(js|css|svg)$/;

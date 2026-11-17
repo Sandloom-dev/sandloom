@@ -3,7 +3,9 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { patchedSource } from './apply-build-tool-patches.mjs';
+import { nodeProblem, parsePin, pinnedNode } from './node-pin.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -111,6 +113,26 @@ test('jsx-a11y still matches custom label and control component patterns', () =>
   assert.equal(contains({ children: [child('AppLabel')] }, '*Button'), false);
   assert.equal(labelled(child('AppControl'), 1, [], undefined, ['App*']), false);
   assert.equal(labelled(child('AppControl'), 1, [], undefined, ['Other*']), true);
+});
+
+test('the Node pin: .nvmrc equals engines.node and is one full version', () => {
+  const engines = require('../package.json').engines.node;
+  assert.equal(pinnedNode(), engines);
+  assert.equal(parsePin('v22.21.1\n'), '22.21.1');
+  assert.equal(parsePin('22.21.1\n# comment'), '22.21.1');
+  for (const loose of ['22', '22.21', 'lts/*', '>=22.12.0', '']) {
+    assert.throws(() => parsePin(loose), /full x\.y\.z/, loose);
+  }
+});
+
+test('the Node pin refuses any other Node, as a function and as a script', () => {
+  assert.equal(nodeProblem('22.21.1', '22.21.1'), null);
+  assert.match(nodeProblem('22.12.0', '22.21.1'), /Node 22\.12\.0 is not the pinned 22\.21\.1/);
+  const script = fileURLToPath(new URL('./node-pin.mjs', import.meta.url));
+  const run = spawnSync(process.execPath, [script], { encoding: 'utf8' });
+  const problem = nodeProblem(process.versions.node, pinnedNode());
+  assert.equal(run.status, problem === null ? 0 : 1);
+  if (problem !== null) assert.match(run.stderr, /is not the pinned/);
 });
 
 test('Redocly still applies URL-matched headers without a network request', async () => {
