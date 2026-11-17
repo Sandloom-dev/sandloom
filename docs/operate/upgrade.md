@@ -212,11 +212,11 @@ Check each of these before the first start:
    `region` (in `broker_transport_options`) that differs from the region of the `INFRA`
    host is refused. A FIPS or VPC endpoint queue `url` does not move traffic: the
    `INFRA` host picks the endpoint. An `INFRA` broker host under an AWS domain that
-   names no readable region is refused, because it would leave the queue-url pin off:
-   a trailing dot (`sqs.eu-west-1.amazonaws.com.`), the legacy
+   names no readable region is refused, because it would leave the queue-url pin off.
+   The refused hosts are a trailing dot (`sqs.eu-west-1.amazonaws.com.`), the legacy
    `<region>.queue.amazonaws.com`, the dual-stack `sqs.<region>.api.aws` and
-   `sqs-fips.<region>.amazonaws.com.cn` (the China regions have no FIPS endpoint). Use
-   `sqs.<region>.amazonaws.com`. An emulator or proxy host is accepted.
+   `sqs-fips.<region>.amazonaws.com.cn` (the China regions have no FIPS endpoint).
+   Use `sqs.<region>.amazonaws.com`. An emulator or proxy host is accepted.
 4. **A `;`-separated url.** A space or an empty chunk around a `;` is refused, and so
    are urls of different schemes.
 5. **A config module that sets a result backend's endpoint, project or path.** For
