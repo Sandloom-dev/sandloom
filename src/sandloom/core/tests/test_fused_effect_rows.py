@@ -362,19 +362,27 @@ async def test_a_uow_leaves_no_cyclic_garbage(
 
     await _run_uow(session_factory, bus, body)  # warm caches
     gc.collect()
+    gc.collect()  # objects a finalizer released in the first pass
     # Count only cycles that involve objects these UoWs created: background
     # work left by earlier tests in the same xdist worker (pool disposal,
     # post-commit dispatch tasks) may produce unrelated cyclic garbage in
-    # this window, so a bare `gc.collect() == 0` is order-dependent.
+    # this window, so a bare `gc.collect() == 0` is order-dependent. An
+    # object alive before the window is not one of ours, whatever holds it:
+    # an earlier test's engine dying here would take its ReconnectBackoff
+    # (held by the engine's event listeners, not by an attribute) with it.
+    # The snapshot holds the objects themselves, so none of them dies in the
+    # window and no id of theirs is reused by an object the UoWs create.
+    alive_before = {id(obj): obj for obj in gc.get_objects()}
     gc.set_debug(gc.DEBUG_SAVEALL)
     gc.disable()
     try:
         for _ in range(5):
             await _run_uow(session_factory, bus, body)
         gc.collect()
-        # An engine of an earlier test (SQLAlchemy's own cycles) may become
-        # unreachable in this window; what the kernel caches on it (a
-        # serial-writer database's nesting policy) goes with it.
+        # `alive_before` covers whatever is older than the window. An engine
+        # (SQLAlchemy's own cycles) dying in it may also take something born
+        # in the window with it, cached on the engine (a serial-writer
+        # database's nesting policy): `on_engines` covers that.
         on_engines = {
             id(value)
             for obj in gc.garbage
@@ -382,11 +390,16 @@ async def test_a_uow_leaves_no_cyclic_garbage(
             for value in vars(obj).values()
         }
         ours = [
-            obj for obj in gc.garbage if _uow_owned(obj) and id(obj) not in on_engines
+            obj
+            for obj in gc.garbage
+            if _uow_owned(obj)
+            and id(obj) not in on_engines
+            and alive_before.get(id(obj)) is not obj
         ]
     finally:
         gc.set_debug(0)
         gc.garbage.clear()
+        alive_before.clear()
         gc.enable()
     assert ours == [], sorted({type(obj).__qualname__ for obj in ours})
 
