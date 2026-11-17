@@ -49,6 +49,7 @@ import sandloom.core.cli.add as _add
 import sandloom.core.cli.dev.envfile as _envfile
 import sandloom.core.cli.image_secrets as _image_secrets
 import sandloom.core.cli.skills as _skills
+import sandloom.core.cli.stack_service as _stack
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _BUNDLED = ("identity", "tenancy", "billing", "admin")
@@ -531,14 +532,15 @@ test_data/
 
 
 def _infra_json(cache: str, persistent: str, *, eventbus: bool = True) -> str:
-    """The ``INFRA`` of the Redis instances ``DEFAULT_INFRA`` (``_APP_INIT``)
+    """The ``INFRA`` of the keyed instances ``DEFAULT_INFRA`` (``_APP_INIT``)
     selects, one explicit url each (an entry carries no ``driver``: the
-    composition's is kept). The instances that may lose their keys (cache,
-    broadcast) take ``cache``; every one that holds state (the security store,
-    the beat lease, the event streams, the Celery broker) takes ``persistent``,
-    never the cache's: a persistent instance sharing the cache's host, port and
-    database logs a startup warning. ``eventbus=False`` leaves the event bus
-    out (the in-process bus is selected)."""
+    composition's is kept; the urls are the stack service's: ``server.url``).
+    The instances that may lose their keys (cache, broadcast) take ``cache``;
+    every one that holds state (the security store, the beat lease, the event
+    streams, the task-queue broker) takes ``persistent``, never the cache's: a
+    persistent instance sharing the cache's host, port and database logs a
+    startup warning. ``eventbus=False`` leaves the event bus out (the
+    in-process bus is selected)."""
     infra: dict[str, dict[str, dict[str, str]]] = {
         "cache": {"default": {"url": cache}},
         "broadcast": {"default": {"url": cache}},
@@ -843,15 +845,7 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--databases", "1024"]
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_REDIS_PORT:?$port_hint}:6379"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 2s
-      retries: 20
+$kv_dev
   postgres_test:
     image: postgres:16-alpine
     environment:
@@ -864,15 +858,7 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
-  redis_test:
-    image: redis:7-alpine
-    command: ["redis-server", "--databases", "1024"]
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_TEST_REDIS_PORT:?$port_hint}:6379"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 2s
-      retries: 20
+$kv_dev_test
 volumes:
   dev_postgres:
 """
@@ -935,16 +921,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always"]
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+$kv_prod
 
   # One-shot schema migration: runs to completion before the app starts.
   migrate:
@@ -975,7 +952,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      $kv_name:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -1002,7 +979,7 @@ services:
     healthcheck:
       disable: true
     depends_on:
-      redis:
+      $kv_name:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -1027,7 +1004,7 @@ services:
     healthcheck:
       disable: true
     depends_on:
-      redis:
+      $kv_name:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -1041,7 +1018,7 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
+  $kv_volume:
   app_data:
 """
 )
@@ -1129,10 +1106,7 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-      redis:
-        image: redis:7
-        ports:
-          - 6380:6379
+$kv_ci
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.2.0
@@ -1449,6 +1423,13 @@ def generate_project(
     if root.exists():
         raise FileExistsError(f"{root} already exists")
 
+    # The standard stack's backing server: the package of its driver describes
+    # it (a missing package is a ``StackServiceError``, a ``ValueError``).
+    stack = _stack.load()
+    port_hint = "start the services with: uv run sandloom dev up"
+    ci_server = stack.server("127.0.0.1", stack.ci_port)
+    compose_server = stack.server(stack.name, stack.container_port)
+    local_server = stack.server("127.0.0.1", stack.local_port)
     ctx = {
         "app": app,
         "runtime_hardening": (
@@ -1473,17 +1454,27 @@ def generate_project(
         "dev_pins": "\n".join(
             f'    "{pin}",' for pin in (*DEV_TOOL_PINS, CHECK_EXTRA_REQ, f"{app}[fast]")
         ),
-        "port_hint": "start the services with: uv run sandloom dev up",
+        "port_hint": port_hint,
         "dev_block": _envfile.empty_block(),
         # CI's test Redis (Postgres :5433, Redis :6380): the cache on /15, the
         # persistent instances on /14. The in-process bus is selected there.
         "infra_test": _infra_json(
-            "redis://127.0.0.1:6380/15", "redis://127.0.0.1:6380/14", eventbus=False
+            ci_server.url(stack.test_cache_index),
+            ci_server.url(stack.test_broker_index),
+            eventbus=False,
         ),
-        "infra_compose": _infra_json("redis://redis:6379/1", "redis://redis:6379/2"),
+        "infra_compose": _infra_json(
+            compose_server.url(1), compose_server.url(2)
+        ),
         "infra_sqlite": _infra_json(
-            "redis://127.0.0.1:6379/0", "redis://127.0.0.1:6379/1", eventbus=False
+            local_server.url(0), local_server.url(1), eventbus=False
         ),
+        "kv_dev": stack.dev_compose(port_hint, test=False),
+        "kv_dev_test": stack.dev_compose(port_hint, test=True),
+        "kv_prod": stack.prod_compose,
+        "kv_ci": stack.ci_service,
+        "kv_name": stack.name,
+        "kv_volume": stack.prod_volume,
         "identity_note": _IDENTITY_NOTE if "identity" in bundled else "",
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled

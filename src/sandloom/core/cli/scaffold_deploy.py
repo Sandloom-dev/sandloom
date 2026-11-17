@@ -66,6 +66,7 @@ from pathlib import Path
 from typing import Any
 
 import sandloom.core.cli.image_secrets as _image_secrets
+import sandloom.core.cli.stack_service as _stack
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.descriptors.module_names import (
@@ -349,7 +350,7 @@ def _json_object(raw: object) -> dict[str, Any]:
 
 
 def _broker_db(env: Mapping[str, Any]) -> int:
-    """The Redis database of the service's Celery broker: the end of
+    """The database of the service's Celery broker: the end of
     ``taskqueue.default.broker`` in its INFRA. A profile written before INFRA
     carried the broker has it in ``BROKER_URL`` (the flat setting, since
     removed): that is read too, so a refresh keeps each service's database."""
@@ -394,12 +395,14 @@ def _q(value: Any) -> str:
 
 
 def _service_infra(shared: Mapping[str, Any], svc: Service) -> dict[str, Any]:
-    """The service's INFRA: the shared one with its own Celery broker (Redis
-    database ``svc.broker_db``; the shared check ignores that one option)."""
+    """The service's INFRA: the shared one with its own Celery broker (database
+    ``svc.broker_db`` of the stack's server; the shared check ignores that one
+    option)."""
+    stack = _stack.load()
     taskqueue = dict(shared.get("taskqueue") or {})
     taskqueue["default"] = {
         **(taskqueue.get("default") or {}),
-        "broker": f"redis://redis:6379/{svc.broker_db}",
+        "broker": stack.server(stack.name, stack.container_port).url(svc.broker_db),
     }
     return {**shared, "taskqueue": taskqueue}
 
@@ -545,7 +548,7 @@ def _worker_blocks(svc: Service) -> list[str]:
             f"{i2}healthcheck:",
             f"{i3}disable: true",
             f"{i2}depends_on:",
-            f"{i3}redis:",
+            f"{i3}{_stack.load().name}:",
             f"{i4}condition: service_started",
             f"{i3}migrate-{svc.name}:",
             f"{i4}condition: service_completed_successfully",
@@ -711,8 +714,13 @@ def _template(project: Project, rel: str) -> str:
         source = TEMPLATES / f"{rel}.tmpl"
     text = source.read_text(encoding="utf-8")
     app_env = "".join(f"{_I}{k}: {v}\n" for k, v in project.app_env)
+    stack = _stack.load()
     return (
-        text.replace("@@TITLE@@", project.title)
+        text.replace("@@KV_INFRA@@", stack.microservices_infra)
+        .replace("@@KV_SERVICE@@", stack.microservices_service)
+        .replace("@@KV_VOLUMES@@", stack.microservices_volumes)
+        .replace("@@KV_NAME@@", stack.name)
+        .replace("@@TITLE@@", project.title)
         .replace("@@BUILD_CONTEXT@@", project.build_context)
         .replace("@@IMAGE@@", project.image)
         .replace(
@@ -850,7 +858,7 @@ def _service_name(dotted: list[str], name: str | None) -> str:
         name = _module_name(dotted[0])
     if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
         raise DeployError("the service name must be snake_case")
-    if name in {"gateway", "db", "redis"} or name.startswith("migrate"):
+    if name in {"gateway", "db", _stack.load().name} or name.startswith("migrate"):
         raise DeployError(f"{name!r} is a reserved service name")
     return name
 

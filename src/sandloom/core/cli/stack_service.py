@@ -125,8 +125,9 @@ class StackService(Protocol):
     #: the name of the volume it mounts.
     prod_compose: str
     prod_volume: str
-    #: The block of a CI job's ``services:``.
+    #: The block of a CI job's ``services:`` and the host port it publishes.
     ci_service: str
+    ci_port: int
     #: The microservices profile (``deploy/compose/microservices.yml``): the
     #: shared ``INFRA`` line, the server block with the opt-in second one, the
     #: volume entries.

@@ -62,6 +62,7 @@ class FakeStack:
     prod_compose: str = ""
     prod_volume: str = ""
     ci_service: str = ""
+    ci_port: int = 6380
     microservices_infra: str = ""
     microservices_service: str = ""
     microservices_volumes: str = ""

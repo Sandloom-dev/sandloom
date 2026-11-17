@@ -191,6 +191,7 @@ class RedisStackService:
     prod_compose = _PROD_BLOCK
     prod_volume = "redis_data"
     ci_service = _CI_BLOCK
+    ci_port = 6380
     microservices_infra = _MICROSERVICES_INFRA
     microservices_service = _MICROSERVICES_SERVICE
     microservices_volumes = _MICROSERVICES_VOLUMES
