@@ -223,12 +223,12 @@ So is an override value that is no URL of an installed backend (`unix:///tmp/r.s
 `memcached://h` next to a Redis default). The message does not quote it.
 Upgrade `sandloom-redis` and `sandloom-celery` with the kernel.
 
-## Upgrading to 0.7.0a15: `sandloom dev` and `sandloom new` ask the driver package for the server
+## Upgrading to 0.7.0a15: dev services and the scaffold ask a package
 
-The kernel no longer holds the Redis server of the standard stack. `sandloom dev` (its checks,
-its reset and prune, the disposable test server) and the scaffold of `sandloom new` and
-`sandloom add deploy` (the compose text, the image, the URL forms) ask the object that
-`sandloom-redis` registers in the `sandloom.stack` entry-point group. The wheel of `sandloom`
+The kernel no longer holds the Redis server of the standard stack. `sandloom dev` asks for its
+checks, its reset and prune and the disposable test server. The scaffold of `sandloom new` and
+`sandloom add deploy` asks for the compose text, the image and the URL forms. Both ask the
+object that `sandloom-redis` registers in the `sandloom.stack` entry-point group. The wheel of `sandloom`
 imports no Redis client any more, not even a guarded one. An app on the standard stack changes
 nothing but the names below, and every file `sandloom new` writes is byte for byte what it was.
 `sandloom dev` and `sandloom new` need `sandloom-redis` installed (`pip install sandloom[redis]`)
@@ -252,8 +252,8 @@ is no alias: the old names are gone. This is for development machines only.
 | `wizard.Plan.redis_url`, `Given.redis_url`, `Answers.redis_url` | `kv_url` (the wizard's own dataclasses) |
 
 `SANDLOOM_DEV_REDIS_PORT`, `SANDLOOM_DEV_TEST_REDIS_PORT` and the compose services `redis` and
-`redis_test` keep their names: the compose files that `sandloom new` already wrote read them, and
-a repository's `dev up` would stop on every project made before. They are now the standard stack's
+`redis_test` keep their names. The compose files that `sandloom new` already wrote read them.
+A rename would stop `dev up` in every project made before. They are now the standard stack's
 data in `sandloom_redis.stack`, not a name in the kernel. A project made earlier needs no
 regeneration.
 
