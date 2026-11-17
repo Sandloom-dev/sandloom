@@ -92,8 +92,9 @@ def test_root_without_core_is_a_clear_error(monkeypatch: pytest.MonkeyPatch) -> 
 # --- the project default (``[tool.sandloom] composition-root``) -------------------
 
 
-def _project(tmp_path: Path, table: str) -> Path:
-    (tmp_path / "pyproject.toml").write_text(table, encoding="utf-8")
+def _project(tmp_path: Path, table: str | bytes) -> Path:
+    data = table.encode("utf-8") if isinstance(table, str) else table
+    (tmp_path / "pyproject.toml").write_bytes(data)
     return tmp_path
 
 
@@ -152,11 +153,34 @@ def test_a_project_without_the_key_keeps_the_lean_default(
     [
         "[tool.sandloom]\ncomposition-root = 3\n",
         '[tool.sandloom]\ncomposition-root = "  "\n',
+        '[tool.sandloom]\ncomposition-root = "../evil"\n',
+        '[tool.sandloom]\ncomposition-root = ".rel"\n',
+        '[tool.sandloom]\ncomposition-root = "/etc/passwd"\n',
+        '[tool.sandloom]\ncomposition-root = "a b"\n',
+        '[tool.sandloom]\ncomposition-root = "x\\ny"\n',
+        '[tool.sandloom]\ncomposition-root = "pkg."\n',
         "[tool.sandloom\n",  # not TOML
+        b"[tool.sandloom]\ncomposition-root = '\xff\xfe'\n",  # not UTF-8
+        'tool = "x"\n',  # `tool` is not a table
+        "[tool]\nsandloom = 3\n",  # `tool.sandloom` is not a table
+    ],
+    ids=[
+        "int",
+        "blank",
+        "parent-path",
+        "relative-dot",
+        "absolute-path",
+        "whitespace",
+        "newline",
+        "trailing-dot",
+        "not-toml",
+        "not-utf8",
+        "tool-not-table",
+        "sandloom-not-table",
     ],
 )
 def test_a_malformed_project_default_refuses(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str | bytes
 ) -> None:
     _no_selection(monkeypatch)
     project = _project(tmp_path, text)

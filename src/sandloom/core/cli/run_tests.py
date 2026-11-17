@@ -88,6 +88,7 @@ import sandloom.core.cli.tool_process as _tool_process
 import sandloom.core.testing.static_checks as _static_checks_cli
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.cli import check as _check
+from sandloom.core.composition import COMPOSITION_ROOT_ENV, composition_root_name
 from sandloom.core.descriptors.module_names import installed_modules
 from sandloom.core.migrations.migrations import MigrationDependencyError
 from sandloom.core.testing.env import find_env_file, load_test_env
@@ -126,6 +127,9 @@ class Step:
     #: After the step ran: what it skipped, shown on its summary line.
     note: Callable[[], str | None] | None = None
     run_env: dict[str, str] = field(default_factory=dict)
+    #: Variables resolved when the step starts, after the project's test env is
+    #: loaded. They win over the process environment, which they already fold in.
+    resolve_env: Callable[[], dict[str, str]] | None = None
 
     def describe(self) -> str:
         if self.call is not None:
@@ -139,6 +143,8 @@ def _run_command(step: Step, root: Path) -> int:
     env = dict(os.environ)
     for key, value in step.env.items():
         env.setdefault(key, value)
+    if step.resolve_env is not None:
+        env.update(step.resolve_env())
     env.update(step.run_env)
     return _tool_process.run_tool(step.argv, cwd=step.cwd or root, env=env).returncode
 
@@ -292,6 +298,13 @@ def _generated(argv: list[str]) -> int:
 
 def _static_checks(argv: list[str]) -> int:
     return _static_checks_cli.main(argv)
+
+
+def _composition_env(root: Path) -> dict[str, str]:
+    """``SANDLOOM_COMPOSITION_ROOT`` for a step that reads only the variable: the
+    root the in-process steps build (:func:`composition_root_name` with the
+    project root: env, ``.env``, then ``[tool.sandloom] composition-root``)."""
+    return {COMPOSITION_ROOT_ENV: composition_root_name(project_root=root)}
 
 
 def _drift_note() -> str | None:
@@ -448,6 +461,9 @@ def _gate_steps(
                 "migration drift",
                 [python, "-m", "sandloom.core.cli.migrate", "drift"],
                 note=_drift_note,
+                # migrate reads the variable only: hand it the root the other
+                # steps build (the project default when nothing else names one).
+                resolve_env=lambda: _composition_env(root),
             )
         )
     baseline = root / "tools" / "packaging" / "check_public_api.py"

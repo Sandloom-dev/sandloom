@@ -64,11 +64,13 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   files, schema & deploy, contract and route snapshots, migration drift) take the
   root from `SANDLOOM_COMPOSITION_ROOT` (process env, then `.env`). Without it they
   read `[tool.sandloom] composition-root` in the project's `pyproject.toml`, and
-  without that the lean `sandloom.main`. The framework checkout names
+  without that the lean `sandloom.main`. `sandloom migrate` reads only the variable,
+  so `sandloom test` sets it for the drift step. The framework checkout names
   `sandloom_standard.main`, so the bare command works from the repository root. An app
   from `sandloom new` names its root in `.env`. The pytest suites never read that
   key. Their root comes from the root `conftest.py` or the plugin's
-  `sandloom_composition_root` ini key.
+  `sandloom_composition_root` ini key. `sandloom migrate` outside `sandloom test`
+  needs the variable.
 - **Random order.** Every test step runs in a seeded random order (the
   files, then the tests inside each file); the seed is printed. Replay it
   with `sandloom test --seed <seed>` or `pytest --sandloom-shuffle=<seed>` (the plugin

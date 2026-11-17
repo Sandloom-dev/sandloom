@@ -84,12 +84,10 @@ def _load_core() -> CoreFacade:
     composition root's app reuses that resolution verbatim (module loading
     performs no I/O; infrastructure is opened lazily).
     """
-    project_root = Path.cwd()
-    core = load_composition_core(project_root=project_root)
+    core = load_composition_core()
     if not isinstance(core, CoreFacade):
         raise CompositionRootError(
-            f"composition root {composition_root_name(project_root=project_root)!r} "
-            "does not expose a "
+            f"composition root {composition_root_name()!r} does not expose a "
             "CoreFacade; set SANDLOOM_COMPOSITION_ROOT to your ASGI module"
         )
     return core

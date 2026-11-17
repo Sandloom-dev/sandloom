@@ -55,16 +55,18 @@ root that `sandloom migrate`, `sandloom generate`, the worker and the other `san
 commands build; keep it.
 
 A checkout or worktree without a `.env` needs no variable for the commands you run from <!-- prose-ok: P6 a list of commands and steps -->
-the repository root. `sandloom generate`, `sandloom migrate` and the steps of
-`sandloom test` that build the app (generated files, schema & deploy, the contract and
-route snapshots, migration drift) build `sandloom_standard.main`. `pyproject.toml` names
-it under `[tool.sandloom] composition-root`. The root `conftest.py` picks the standard
-root for the pytest suites. The variable, in the process or in `.env`, still wins over
-that default.
+the repository root. `sandloom generate`, `sandloom admin export`, `sandloom check --boot`
+and the steps of `sandloom test` that build the app (generated files, schema & deploy,
+the contract and route snapshots, migration drift) build `sandloom_standard.main`.
+`pyproject.toml` names it under `[tool.sandloom] composition-root`. The root
+`conftest.py` picks the standard root for the pytest suites. The variable, in the
+process or in `.env`, still wins over that default.
 
-The worker and the operator CLIs (`sandloom outbox`, `sandloom streams`,
-`sandloom projection`) read only the variable. Without it they get the lean root and
-refuse with `SANDLOOM-B035`. Export it there:
+`sandloom migrate` reads only the variable, as the worker and the operator CLIs
+(`sandloom outbox`, `sandloom streams`, `sandloom projection`) do: it migrates the app
+a deployment runs, and a deployment names it in the variable. Without it they get the
+lean root and refuse with `SANDLOOM-B035`. `sandloom test` sets the variable for its
+own migration drift step. Export it for the rest:
 
 ```bash
 export SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main

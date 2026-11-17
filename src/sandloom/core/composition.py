@@ -12,13 +12,15 @@ exposes ``core`` (a ``CoreFacade``) or ``app.state.core``.
 selects which application to boot) and then from ``Settings`` (``.env`` /
 ``SECRETS_DIR``), so a generated app's ``.env`` configures local CLIs too.
 
-An authoring command of a checkout (``sandloom generate``, ``sandloom migrate``,
-the contract and route snapshots, the static steps of ``sandloom test``) also reads
-a project default: ``composition-root`` under ``[tool.sandloom]`` in the working
-directory's ``pyproject.toml``, behind both of the above and ahead of
-``sandloom.main``. Only a caller that passes its ``project_root`` reads it: the
-runtime entrypoints (API, worker, the operator CLIs) and the pytest suites keep
-the three-step order, so no test boots another composition for it.
+An authoring command of a checkout (``sandloom generate``, ``sandloom admin export``,
+``sandloom check --boot``, the contract and route snapshots, the static steps of
+``sandloom test``) also reads a project default: ``composition-root`` under
+``[tool.sandloom]`` in the project's ``pyproject.toml``, behind both of the above
+and ahead of ``sandloom.main``. Only a caller that passes its ``project_root`` reads
+it: the runtime entrypoints (API, worker, ``sandloom migrate``, the operator CLIs)
+and the pytest suites keep the three-step order, so no test boots another
+composition for it. ``sandloom test`` hands ``sandloom migrate drift`` the resolved
+root in the variable.
 """
 
 from __future__ import annotations
@@ -46,29 +48,41 @@ def project_composition_root(project_root: Path) -> str | None:
     """The project's own default root: ``[tool.sandloom] composition-root`` of
     ``<project_root>/pyproject.toml`` (``None``: no file, no table, no key).
 
-    A malformed value refuses: a default that silently falls through to the
-    lean ``sandloom.main`` would build another application than the one named.
+    A malformed default refuses: one that silently fell through to the lean
+    ``sandloom.main`` would build another application than the one named. That is
+    an unreadable file, a ``tool`` or ``tool.sandloom`` that is not a table, and a
+    value that is not a dotted module path.
     """
+    path = project_root / "pyproject.toml"
+    where = f"[tool.sandloom] composition-root in {path}"
     try:
-        data = tomllib.loads((project_root / "pyproject.toml").read_text("utf-8"))
+        data = tomllib.loads(path.read_text("utf-8"))
     except FileNotFoundError:
         return None
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise CompositionRootError(f"{path} cannot be read for {where}: {exc}") from exc
+    tool = data.get("tool")
+    if tool is None:
+        return None
+    if not isinstance(tool, dict):
+        raise CompositionRootError(f"{where}: `tool` must be a table, not {tool!r}")
+    table = tool.get("sandloom")
+    if table is None:
+        return None
+    if not isinstance(table, dict):
         raise CompositionRootError(
-            f"{project_root / 'pyproject.toml'} cannot be read for "
-            f"[tool.sandloom] composition-root: {exc}"
-        ) from exc
-    tool = data.get("tool", {})
-    table = tool.get("sandloom", {}) if isinstance(tool, dict) else {}
-    value = table.get("composition-root") if isinstance(table, dict) else None
+            f"{where}: `tool.sandloom` must be a table, not {table!r}"
+        )
+    value = table.get("composition-root")
     if value is None:
         return None
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not all(
+        part.isidentifier() for part in value.split(".")
+    ):
         raise CompositionRootError(
-            f"[tool.sandloom] composition-root in {project_root / 'pyproject.toml'} "
-            f"must be a module path string, not {value!r}"
+            f"{where} must be a dotted module path (like `app.asgi`), not {value!r}"
         )
-    return value.strip()
+    return value
 
 
 def composition_root_name(
