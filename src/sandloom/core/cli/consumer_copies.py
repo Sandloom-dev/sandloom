@@ -912,6 +912,27 @@ def plan_static(
     return out, planned
 
 
+def _scan_modules(
+    modules: Mapping[str, Path], prefix: str
+) -> tuple[list[tuple[str, StaticPlan]], list[Planned]]:
+    """Each module's static scan, and a problem per file that does not parse."""
+    scans: list[tuple[str, StaticPlan]] = []
+    problems: list[Planned] = []
+    for package, directory in sorted(modules.items()):
+        try:
+            scans.append((package, static_plan(package, directory, {}, prefix)))
+        except SyntaxError as exc:
+            problems.append(
+                Planned(
+                    Path(exc.filename or directory),
+                    "",
+                    CODE,
+                    [f"{exc.filename}:{exc.lineno}: {exc.msg}"],
+                )
+            )
+    return scans, problems
+
+
 def plan_shared(
     modules: Mapping[str, Path],
     source_root: Path | None,
@@ -937,20 +958,7 @@ def plan_shared(
     provider declares is refused, naming the file."""
     contracts_dir = shared_dir / "contracts"
     prefix = f"{shared_package}.contracts"
-    out: list[Planned] = []
-    scans: list[tuple[str, StaticPlan]] = []
-    for package, directory in sorted(modules.items()):
-        try:
-            scans.append((package, static_plan(package, directory, {}, prefix)))
-        except SyntaxError as exc:
-            out.append(
-                Planned(
-                    Path(exc.filename or directory),
-                    "",
-                    CODE,
-                    [f"{exc.filename}:{exc.lineno}: {exc.msg}"],
-                )
-            )
+    scans, out = _scan_modules(modules, prefix)
 
     def missing(name: str) -> bool:
         return not (contracts_dir / f"{stem_of(name)}.py").is_file()
@@ -1003,7 +1011,13 @@ def plan_shared(
             if p.package == package and p not in group and not missing(p.contract)
         ]
         out += _render_shared(
-            package, group, siblings, stubs, contracts_dir, shared_package, shared_packages
+            package,
+            group,
+            siblings,
+            stubs,
+            contracts_dir,
+            shared_package,
+            shared_packages,
         )
     return out
 

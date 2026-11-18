@@ -864,9 +864,7 @@ def test_a_new_project_starts_as_drafts(tmp_path: Path) -> None:
     assert _snapshot(root, "stats", "contracts.snapshot.json")["released"] == {}
     assert _snapshot(root, "notes", "module.snapshot.json")["released"] == {}
     exported = root / "probe" / "shared" / "events" / "notes.note.archived.v1.json"
-    assert json.loads(exported.read_text(encoding="utf-8"))[
-        "x-sandloom-released"
-    ] == 0
+    assert json.loads(exported.read_text(encoding="utf-8"))["x-sandloom-released"] == 0
 
 
 def test_a_draft_contract_and_event_change_freely(tmp_path: Path) -> None:
@@ -894,9 +892,7 @@ def test_release_marks_everything_and_a_breaking_change_is_then_refused(
     events = _snapshot(root, "notes", "module.snapshot.json")["released"]
     assert events == {"notes.note.archived.v1": 1, "notes.item.created.v1": 1}
     exported = root / "probe" / "shared" / "events" / "notes.note.archived.v1.json"
-    assert json.loads(exported.read_text(encoding="utf-8"))[
-        "x-sandloom-released"
-    ] == 1
+    assert json.loads(exported.read_text(encoding="utf-8"))["x-sandloom-released"] == 1
     # A plain generate changes no mark.
     assert add.run_generate(root)[0] == 0
     assert _snapshot(root, "stats", "contracts.snapshot.json")["released"] == released
@@ -948,7 +944,10 @@ def test_a_snapshot_written_before_the_marks_counts_as_released(
     """The upgrade rule: no ``released`` key, so everything in the file was
     protected and stays so."""
     root = _provider_app(tmp_path)
-    for module, name in (("stats", "contracts.snapshot.json"), ("notes", "module.snapshot.json")):
+    for module, name in (
+        ("stats", "contracts.snapshot.json"),
+        ("notes", "module.snapshot.json"),
+    ):
         path = root / "probe" / "modules" / module / name
         doc = json.loads(path.read_text(encoding="utf-8"))
         del doc["released"]

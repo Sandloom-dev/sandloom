@@ -59,9 +59,9 @@ selected modules, pass their names, for example `uv run sandloom generate notes`
 
 Generation compares every file with the committed version before writing. An
 incompatible change fails and writes nothing. Incompatible changes include a
-removed contract method and an event field changed on the same `.vN`, once the
-contract or event is released: a draft (everything until `uv run sandloom release`)
-is rewritten freely. A route
+removed contract method and an event field changed on the same `.vN`. Both
+apply once the contract or event is released. Everything is a draft until
+`uv run sandloom release`, and a draft is rewritten freely. A route
 that lost its authentication and a DTO the generator cannot copy fail too. A weaker route policy is approved only by
 `sandloom routes snapshot --write`.
 

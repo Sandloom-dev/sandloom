@@ -30,9 +30,8 @@ changes freely.
 
 The `.vN` suffix is the channel's major schema version. `sandloom generate`
 compares the producer's schema with the committed snapshot before it writes
-anything, and `sandloom test` (which never writes) makes the same check, for
-every channel that is released. Exactly one change is accepted on the
-same released `.vN`:
+anything. `sandloom test` never writes and makes the same check. Both compare
+released channels only. Exactly one change is accepted on a released `.vN`:
 
 - **Compatible: add an optional field.** Stay on `.v1`. Consumers must
   treat a missing value as "unknown", because events from producers that
@@ -54,14 +53,14 @@ same released `.vN`:
 
 #### Released and draft
 
-A channel is a draft until you run `sandloom release`, which marks every
-contract and event the project declares as released. A draft is rewritten by
-`sandloom generate` whatever the change: no SANDLOOM-T005, no new `.vN`. A
-released channel is compared as described above, and a compatible change moves
+Every channel is a draft until you run `sandloom release`, which marks every
+contract and event the project declares as released. `sandloom generate`
+rewrites a draft whatever the change: no SANDLOOM-T005, no new `.vN`. It
+compares a released channel as described above, and a compatible change moves
 its revision (`sandloom docs <channel>` prints `release: released, revision N`).
-A channel you add after a release is a draft again. A project whose snapshot
-was written before the marks counts as released: its first `sandloom generate`
-adds the marks. The decision is [ADR-0017](../../adr/0017-released-marks.md).
+Add a channel after a release and it starts as a draft. Snapshots written
+before the marks count as released: the first `sandloom generate` adds the
+marks. The decision is [ADR-0017](../../adr/0017-released-marks.md).
 
 ### 2. Declare v2 next to v1
 

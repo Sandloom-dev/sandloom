@@ -44,7 +44,14 @@ def test_a_file_with_the_key_releases_exactly_what_it_lists() -> None:
 
 @pytest.mark.parametrize(
     "bad",
-    ["yes", ["m.a.v1"], {"m.a.v1": "1"}, {"m.a.v1": True}, {"m.a.v1": -1}, {"m.a.v1": 0}],
+    [
+        "yes",
+        ["m.a.v1"],
+        {"m.a.v1": "1"},
+        {"m.a.v1": True},
+        {"m.a.v1": -1},
+        {"m.a.v1": 0},
+    ],
 )
 def test_a_mark_that_is_not_a_revision_is_refused_not_ignored(bad: object) -> None:
     document = {"contracts": _entries("m.a.v1"), "released": bad}
@@ -57,7 +64,9 @@ def test_a_mark_that_is_not_a_revision_is_refused_not_ignored(bad: object) -> No
 # --------------------------------------------------------------------------- #
 
 
-def test_a_draft_stays_unmarked_without_a_release_and_gets_revision_one_with_it() -> None:
+def test_a_draft_stays_unmarked_without_a_release_and_gets_revision_one_with_it() -> (
+    None
+):
     after = _entries("m.a.v1")
     assert marks.next_marks({}, {}, after, release=False) == {}
     assert marks.next_marks({}, {}, after, release=True) == {"m.a.v1": 1}
@@ -126,7 +135,9 @@ def _committed(mark: object = None) -> str:
     return json.dumps(schema)
 
 
-def test_an_installed_producers_break_is_refused_only_against_a_released_export() -> None:
+def test_an_installed_producers_break_is_refused_only_against_a_released_export() -> (
+    None
+):
     check = generated._exported_problems
     assert check("m.e.v1", None, _NEW) == []  # no export yet
     assert check("m.e.v1", _committed(0), _NEW) == []  # a draft
@@ -147,7 +158,11 @@ def test_a_malformed_export_mark_is_a_problem_not_a_pass() -> None:
 
 
 def test_marked_snapshot_keeps_the_marks_and_compares_only_released_contracts() -> None:
-    doc = {"format": 1, "module": "m", "contracts": _entries("m.a.v1", "m.b.v1", version=2)}
+    doc = {
+        "format": 1,
+        "module": "m",
+        "contracts": _entries("m.a.v1", "m.b.v1", version=2),
+    }
     committed = json.dumps(
         {
             "contracts": _entries("m.a.v1", "m.b.v1"),

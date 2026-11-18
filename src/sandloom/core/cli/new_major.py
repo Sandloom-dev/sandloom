@@ -48,7 +48,11 @@ def _read(path: Path) -> dict[str, Any] | None:
 
 
 def _literal(node: ast.expr) -> str | None:
-    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+    return (
+        node.value
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        else None
+    )
 
 
 def _declared(node: ast.ClassDef) -> list[tuple[str, str]]:
@@ -115,9 +119,7 @@ def _renamed(source: str, node: ast.ClassDef, name: str, following: str) -> str:
     first = min([node.lineno] + [d.lineno for d in node.decorator_list])
     lines = source.splitlines()[first - 1 : node.end_lineno]
     text = re.sub(re.escape(name) + r"(?![\w.])", following, "\n".join(lines))
-    return re.sub(
-        rf"\b{re.escape(node.name)}\b", _class_of(node.name, following), text
-    )
+    return re.sub(rf"\b{re.escape(node.name)}\b", _class_of(node.name, following), text)
 
 
 def new_major(module_dir: Path, name: str) -> list[Path]:
@@ -147,7 +149,9 @@ def new_major(module_dir: Path, name: str) -> list[Path]:
     if _snapshot_state(module_dir, following) is not None or _sites(
         module_dir, following
     ):
-        raise NewMajorError(f"{following} exists already: edit it, it is the next major")
+        raise NewMajorError(
+            f"{following} exists already: edit it, it is the next major"
+        )
     sites = [s for s in _sites(module_dir, name) if s.kind == kind]
     if len(sites) != 1:
         where = ", ".join(str(s.path.relative_to(module_dir)) for s in sites)
@@ -167,7 +171,7 @@ def new_major(module_dir: Path, name: str) -> list[Path]:
         )
     lines = source.splitlines()
     end = site.node.end_lineno or len(lines)
-    merged = lines[:end] + ["", ""] + copy.splitlines() + lines[end:]
+    merged = [*lines[:end], "", "", *copy.splitlines(), *lines[end:]]
     site.path.write_text("\n".join(merged) + "\n", encoding="utf-8")
     return [site.path]
 

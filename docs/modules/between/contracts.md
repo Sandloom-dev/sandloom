@@ -95,9 +95,9 @@ A module that calls a contract another module provides runs
 `sandloom add contract-use <module> <contract>`: it declares the contract in
 `define_module(consumes=[...])` and writes the stub from the importable
 provider at once. A module that already imports a stub nobody generated yet
-needs no command: `sandloom generate` finds the import in the source, writes
-the missing stub from the provider and only then loads the application (an
-import no importable provider declares is refused, naming the file and line).
+needs no command. `sandloom generate` finds the import in the source and writes
+the missing stub from the provider. Only then does it load the application. An
+import no importable provider declares is refused, naming the file and line.
 
 ### Wire types and DTOs
 
@@ -261,18 +261,20 @@ itself: `async with contract_read_scope(): ...` (`sandloom.sdk.contracts`).
 `sandloom generate` writes each provider's describe document to the module's
 `contracts.snapshot.json` and the declared surface (`contracts`, `consumes`)
 to `module.snapshot.json`. A contract is a draft until `sandloom release`
-marks it released (`released` in `contracts.snapshot.json`); a draft is
-rewritten by `sandloom generate` whatever the change. On a released contract a
-breaking change (a removed method or parameter,
-a newly required parameter, an incompatible type, a changed kind or
-idempotency key) fails and nothing is written
-([SANDLOOM-T004](../../reference/error-codes.md#sandloom-t004)); an additive
-change is written (review the diff) and moves the revision, which
-`sandloom docs <contract>` prints. `sandloom test` only checks. A breaking
-change is a new contract version, `x.y.v2`, provided alongside `.v1` until no
-caller uses `.v1`; `sandloom generate --new-major x.y.v1` copies the released
-class to `.v2` for you. A snapshot written before the marks counts as released
-([ADR-0017](../../adr/0017-released-marks.md)).
+marks it released (`released` in `contracts.snapshot.json`). `sandloom generate`
+rewrites a draft whatever the change.
+
+A released contract is compared first. A breaking change fails and nothing is
+written ([SANDLOOM-T004](../../reference/error-codes.md#sandloom-t004)). That
+covers a removed method or parameter, a newly required parameter, an
+incompatible type, and a changed kind or idempotency key. An additive change is
+written (review the diff) and moves the revision, which `sandloom docs <contract>`
+prints. `sandloom test` only checks.
+
+A breaking change is a new contract version, `x.y.v2`, provided alongside `.v1`
+until no caller uses `.v1`. `sandloom generate --new-major x.y.v1` copies the
+released class to `.v2` for you. A snapshot written before the marks counts as
+released ([ADR-0017](../../adr/0017-released-marks.md)).
 
 At runtime a caller compares every bound remote provider's describe document
 with what it expects: the `<stem>.describe.json` beside its own stub first

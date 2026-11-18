@@ -17,9 +17,7 @@ def _chain(tmp_path: Path, revisions: dict[str, str]) -> MigrationChain:
     return MigrationChain("notes", "app.notes", tmp_path, "alembic_version_notes")
 
 
-def _revision(
-    rev: str, down: str | None, upgrade: str, downgrade: str = "pass"
-) -> str:
+def _revision(rev: str, down: str | None, upgrade: str, downgrade: str = "pass") -> str:
     return (
         f"revision = {rev!r}\ndown_revision = {down!r}\n"
         f"def upgrade():\n    {upgrade}\n"
@@ -32,7 +30,9 @@ def test_a_later_drop_table_removes_the_table(tmp_path: Path) -> None:
         tmp_path,
         {
             "0001_create.py": _revision(
-                "r1", None, "op.create_table('notes_items')\n    op.create_table('keep')"
+                "r1",
+                None,
+                "op.create_table('notes_items')\n    op.create_table('keep')",
             ),
             "0002_drop.py": _revision(
                 "r2",
@@ -105,9 +105,7 @@ def test_a_dropped_table_no_model_declares_is_not_a_t002_problem(
     )
     monkeypatch.setattr(checks, "migration_chains", lambda _core: [chain])
     monkeypatch.setattr(checks, "model_tables", lambda _core: {})
-    monkeypatch.setattr(
-        checks, "uncovered_by_chain", lambda _core, *, chains: []
-    )
+    monkeypatch.setattr(checks, "uncovered_by_chain", lambda _core, *, chains: [])
     [problem] = checks.chain_problems(object())
     assert "servers_items" in problem and "SANDLOOM-T002" in problem
 

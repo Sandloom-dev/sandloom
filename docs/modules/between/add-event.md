@@ -89,7 +89,7 @@ sandloom test notes
 The first run writes the producer's schema to `module.snapshot.json` and to
 the shared DTO package. Commit both. The channel is a draft: `sandloom generate`
 rewrites it freely while you shape it. Run `sandloom release` when the schema
-is published; from then on, only an added optional field is accepted on the
+is published. From then on only an added optional field is accepted on the
 same `.v1`, and anything else fails with SANDLOOM-T005.
 
 ## Errors you may hit

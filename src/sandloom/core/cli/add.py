@@ -1016,7 +1016,9 @@ def add_contract_use(
         planned, _names = consumer.plan_static(
             {package: directory}, where.source_root, generated.STUBS
         )
-    files = [generated.Generated(f.path, f.content, f.code, f.problems) for f in planned]
+    files = [
+        generated.Generated(f.path, f.content, f.code, f.problems) for f in planned
+    ]
     declared = bool(created)
     created += [f.path for f in files if f.stale and not f.problems]
     if generated.apply(files, write=True, shared_dir=where.shared_dir) != 0:
@@ -1671,9 +1673,7 @@ def _import_requirement(source: str, tree: ast.Module, name: str, line: str) -> 
     order."""
     imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.level == 0]
     if any(
-        (alias.asname or alias.name) == name
-        for node in imports
-        for alias in node.names
+        (alias.asname or alias.name) == name for node in imports for alias in node.names
     ):
         return source
     lines = source.split("\n")

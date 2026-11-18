@@ -32,7 +32,7 @@ import os
 import re
 import unittest
 import uuid
-from collections.abc import Container, Iterator
+from collections.abc import Callable, Container, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -248,24 +248,30 @@ def _string_constants(tree: ast.AST) -> dict[str, str]:
     return constants
 
 
+def _revision_values(tree: ast.Module) -> dict[str, object]:
+    """The literal ``revision`` and ``down_revision`` of a revision file."""
+    values: dict[str, object] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names = [node.target.id]
+        else:
+            continue
+        for name in names:
+            if name in ("revision", "down_revision") and node.value is not None:
+                with suppress(ValueError):
+                    values[name] = ast.literal_eval(node.value)
+    return values
+
+
 def _revision_order(trees: dict[Path, ast.Module]) -> list[Path]:
     """The revision files parents first (``down_revision``); a file without a
     ``revision`` id has no parents and keeps its name order."""
     ids: dict[str, Path] = {}
     parents: dict[Path, list[str]] = {}
     for path, tree in trees.items():
-        values: dict[str, object] = {}
-        for node in tree.body:
-            if isinstance(node, ast.Assign):
-                names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                names = [node.target.id]
-            else:
-                continue
-            for name in names:
-                if name in ("revision", "down_revision") and node.value is not None:
-                    with suppress(ValueError):
-                        values[name] = ast.literal_eval(node.value)
+        values = _revision_values(tree)
         revision = values.get("revision")
         if isinstance(revision, str):
             ids[revision] = path
@@ -313,34 +319,39 @@ def _table_ops(tree: ast.Module) -> list[tuple[str, str, str | None]]:
         return None
 
     calls = sorted(
-        (
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.Call) and id(n) not in skipped
-        ),
+        (n for n in ast.walk(tree) if isinstance(n, ast.Call) and id(n) not in skipped),
         key=lambda n: (n.lineno, n.col_offset),
     )
-    ops: list[tuple[str, str, str | None]] = []
-    for call in calls:
-        func = call.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-        keywords = {k.arg: k.value for k in call.keywords}
-        first = call.args[0] if call.args else None
-        second = call.args[1] if len(call.args) > 1 else None
-        if name == "create_table":
-            table = text(keywords.get("table_name") or keywords.get("name") or first)
-            if table:
-                ops.append(("create", table, None))
-        elif name == "drop_table":
-            table = text(keywords.get("table_name") or first)
-            if table:
-                ops.append(("drop", table, None))
-        elif name == "rename_table":
-            old = text(keywords.get("old_table_name") or first)
-            new = text(keywords.get("new_table_name") or second)
-            if old and new:
-                ops.append(("rename", old, new))
-    return ops
+    ops = (_table_op(call, text) for call in calls)
+    return [op for op in ops if op is not None]
+
+
+def _table_op(
+    call: ast.Call, text: Callable[[ast.expr | None], str | None]
+) -> tuple[str, str, str | None] | None:
+    """``(action, table, new name)`` of one ``op.*_table`` call, else ``None``."""
+    func = call.func
+    name = (
+        func.attr
+        if isinstance(func, ast.Attribute)
+        else func.id
+        if isinstance(func, ast.Name)
+        else ""
+    )
+    keywords = {k.arg: k.value for k in call.keywords}
+    first = call.args[0] if call.args else None
+    second = call.args[1] if len(call.args) > 1 else None
+    if name == "create_table":
+        table = text(keywords.get("table_name") or keywords.get("name") or first)
+        return ("create", table, None) if table else None
+    if name == "drop_table":
+        table = text(keywords.get("table_name") or first)
+        return ("drop", table, None) if table else None
+    if name == "rename_table":
+        old = text(keywords.get("old_table_name") or first)
+        new = text(keywords.get("new_table_name") or second)
+        return ("rename", old, new) if old and new else None
+    return None
 
 
 def model_tables(core: Any = None) -> dict[str, MigrationChain]:
@@ -483,9 +494,10 @@ def _upgrade(url: str, chain: MigrationChain) -> None:
 
 def _owned_tables(chain: MigrationChain, core: Any) -> frozenset[str]:
     """The tables ``chain`` answers for: those its models declare and those
-    its revisions' ``upgrade()`` leaves (:func:`tables_created_by`; a table dropped from the models but
-    not from the chain is reported, not ignored; a table a ``downgrade()``
-    re-creates, after it moved to another module, is not this chain's)."""
+    its revisions' ``upgrade()`` leaves (:func:`tables_created_by`; a table
+    dropped from the models but not from the chain is reported, not ignored; a
+    table a ``downgrade()`` re-creates, after it moved to another module, is
+    not this chain's)."""
     declared = {t for t, c in model_tables(core).items() if c.key == chain.key}
     return frozenset(declared | tables_created_by(chain))
 

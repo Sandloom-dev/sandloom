@@ -982,6 +982,56 @@ def _exported_problems(
     ]
 
 
+def _event_files(
+    doc: dict[str, Any],
+    path: Path,
+    shared_dir: Path | None,
+    *,
+    owned: bool,
+    release: bool,
+) -> tuple[Generated, list[Generated]]:
+    """A module's snapshot with the verdict on its events, and the exported
+    schema file of each event (none without a shared directory).
+
+    ``doc`` gets its ``released`` map. An event with no mark is a draft: it is
+    rewritten freely, with nothing to compare. An installed package's marks are
+    its own (it ships its snapshot), so ``release`` moves only an owned module's.
+    """
+    committed = path.read_text(encoding="utf-8") if path.is_file() else None
+    old_doc = json.loads(committed) if committed else None
+    before = (old_doc or {}).get("events") or {}
+    problems: list[str] = []
+    try:
+        released = _release_marks.old_marks(old_doc, before, where=MODULE_SNAPSHOT)
+    except _release_marks.ReleaseMarkError as exc:
+        problems.append(str(exc))
+        released = {}
+    marks = (
+        _release_marks.next_marks(released, before, doc["events"], release=release)
+        if owned
+        else released
+    )
+    doc[_release_marks.RELEASED] = marks
+    snapshot = Generated(path, _dump(doc), "SANDLOOM-T005", problems)
+    exported: list[Generated] = []
+    for channel, schema in doc["events"].items():
+        previous = before.get(channel) if channel in released else None
+        snapshot.problems += [
+            f"{channel}: {p}" for p in schema_problems(previous, schema)
+        ]
+        if shared_dir is None:
+            continue
+        file = Generated(
+            shared_dir / "events" / f"{channel}.json",
+            _dump(_release_marks.with_mark(schema, marks.get(channel, 0))),
+            "SANDLOOM-T005",
+        )
+        if not owned:
+            file.problems += _exported_problems(channel, file.current, schema)
+        exported.append(file)
+    return snapshot, exported
+
+
 def plan(
     app: Any,
     shared_dir: Path | None,
@@ -1032,42 +1082,10 @@ def plan(
             directory / MODULE_SNAPSHOT,
             facade.module_settings.records(),
         )
-        path = directory / MODULE_SNAPSHOT
-        committed = path.read_text(encoding="utf-8") if path.is_file() else None
-        old_doc = json.loads(committed) if committed else None
-        before = (old_doc or {}).get("events") or {}
-        problems: list[str] = []
-        try:
-            released = _release_marks.old_marks(old_doc, before, where=MODULE_SNAPSHOT)
-        except _release_marks.ReleaseMarkError as exc:
-            problems.append(str(exc))
-            released = {}
-        # An installed package's marks are its own: it ships its snapshot.
-        marks = (
-            _release_marks.next_marks(released, before, doc["events"], release=release)
-            if owned
-            else released
+        snapshot, exported = _event_files(
+            doc, directory / MODULE_SNAPSHOT, shared_dir, owned=owned, release=release
         )
-        doc[_release_marks.RELEASED] = marks
-        snapshot = Generated(path, _dump(doc), "SANDLOOM-T005", problems)
-        for channel, schema in doc["events"].items():
-            # A draft (no mark) is rewritten freely: nothing to compare with.
-            previous = before.get(channel) if channel in released else None
-            snapshot.problems += [
-                f"{channel}: {p}" for p in schema_problems(previous, schema)
-            ]
-            if shared_dir is None:
-                continue
-            exported = Generated(
-                shared_dir / "events" / f"{channel}.json",
-                _dump(_release_marks.with_mark(schema, marks.get(channel, 0))),
-                "SANDLOOM-T005",
-            )
-            if not owned:
-                exported.problems += _exported_problems(
-                    channel, exported.current, schema
-                )
-            out.append(exported)
+        out += exported
         if owned:
             out.append(snapshot)
             out += _module_snapshots(app, entry.name, contracts, release=release)
@@ -1287,6 +1305,16 @@ def _new_major(rules: Any, name: str) -> int:
     return 0
 
 
+def _unknown_modules(app: Any, names: list[str]) -> list[str]:
+    """The names no composed module answers to (a name or an import path)."""
+    known = {
+        name
+        for entry in app.state.app_manifest.modules
+        for name in (entry.name, module_name(entry.name))
+    }
+    return sorted(set(names) - known)
+
+
 def main(argv: list[str] | None = None) -> int:
     """``sandloom generate [module ...]`` (writes) and the ``generated files``
     step of ``sandloom test`` (``--check``: never writes)."""
@@ -1354,16 +1382,10 @@ def main(argv: list[str] | None = None) -> int:
         # configuration to fix, not a crash.
         print(f"sandloom generate: the composition cannot be built: {exc}")
         return 2
-    if args.modules:
-        known = {
-            name
-            for entry in app.state.app_manifest.modules
-            for name in (entry.name, module_name(entry.name))
-        }
-        unknown = sorted(set(args.modules) - known)
-        if unknown:
-            print(f"sandloom generate: no composed module named {', '.join(unknown)}")
-            return 2
+    unknown = _unknown_modules(app, args.modules)
+    if unknown:
+        print(f"sandloom generate: no composed module named {', '.join(unknown)}")
+        return 2
     consumed_only = not rules.top_level_modules
     files = plan(
         app,

@@ -45,8 +45,8 @@ from sandloom.core.contract_compat import (
     load_snapshot_contracts,
     module_snapshots,
 )
-from sandloom.core.descriptors.release_marks import ReleaseMarkError
 from sandloom.core.descriptors.module_names import module_name as _module_name
+from sandloom.core.descriptors.release_marks import ReleaseMarkError
 from sandloom.core.rpc.outbound import _get_auth, _outbound_mac
 from sandloom.core.rpc.wire import _NONCE_HEADER, _unpack
 

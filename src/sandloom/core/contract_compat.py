@@ -46,8 +46,8 @@ from typing import Any
 
 import sandloom.core.descriptors.generated_provenance as _provenance
 import sandloom.core.descriptors.module_names as _module_names
-import sandloom.core.module_api as _module_api
 import sandloom.core.descriptors.release_marks as _marks
+import sandloom.core.module_api as _module_api
 from sandloom.core.contracts.compatibility import (
     CompatReport as CompatReport,
 )

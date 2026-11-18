@@ -269,10 +269,9 @@ row and the envelope take `schema_version` from it.
   it as required (it is always emitted) and marks it `"x-sandloom-default": true`;
   a reader fills it when an older payload omits it. `sandloom generate`
   compares the producer's schema with the previous committed snapshot before
-  writing anything (`sandloom test` compares and never writes); on a released
+  writing anything (`sandloom test` compares and never writes). On a released
   channel (`sandloom release`; a draft changes freely) any other change fails
-  with
-  [SANDLOOM-T005](../../reference/error-codes.md#sandloom-t005).
+  with [SANDLOOM-T005](../../reference/error-codes.md#sandloom-t005).
   Producers and consumers of one `.vN` deploy independently, so the check
   holds both directions: a new reader accepts what an old producer sends,
   and an old reader accepts what a new producer sends. Loosening a

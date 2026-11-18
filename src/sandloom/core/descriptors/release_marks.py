@@ -48,7 +48,7 @@ def old_marks(
     if document is None:
         return {}
     if RELEASED not in document:
-        return {name: FIRST_REVISION for name in entries}
+        return dict.fromkeys(entries, FIRST_REVISION)
     found = document[RELEASED]
     if not isinstance(found, dict):
         raise ReleaseMarkError(f"{where}: 'released' must be an object of revisions")
@@ -84,9 +84,7 @@ def next_marks(
     return dict(sorted(marks.items()))
 
 
-def strict_entries(
-    old: Mapping[str, int], before: Mapping[str, Any]
-) -> dict[str, Any]:
+def strict_entries(old: Mapping[str, int], before: Mapping[str, Any]) -> dict[str, Any]:
     """The committed entries a new document is compared with: the released
     ones only; a draft is not in the baseline."""
     return {name: entry for name, entry in before.items() if name in old}
