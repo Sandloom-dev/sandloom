@@ -32,11 +32,10 @@ uv run sandloom generate
 uv run sandloom dev up     # Postgres and Redis in Docker, and their URLs in .env
 ```
 
-The bare `sandloom` package holds no Redis text. `sandloom new` installs `sandloom-redis` into
-the app (`uv sync`) and writes the files that package supplies with `uv run sandloom add stack`.
-Those files include the compose files and the CI workflow. If a step failed, `new` printed
-"Fix it and continue with:" and the commands to run. Until `add stack` has run, the commands that
-read those files stop and say so (for example `generate` and `dev up`).
+The bare `sandloom` package holds no Redis text. `sandloom new` runs `uv sync` to install
+`sandloom-redis` into the app. It then runs `uv run sandloom add stack` to write the
+compose files and the CI workflow from that package. When a step fails, `new` prints "Fix it and
+continue with:" followed by the commands to run. Until then `generate` and `dev up` stop and say so.
 
 `sandloom new` writes a complete application: `tasklist/asgi.py` (the
 composition root), `pyproject.toml` with the test plugin activated, a

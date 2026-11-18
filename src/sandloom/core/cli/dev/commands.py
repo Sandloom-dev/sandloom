@@ -1106,12 +1106,11 @@ def up_external(ctx: Context, options: UpOptions) -> int:
         if changed or rewrite:
             state.external[REWRITE_PENDING] = "1"
         save_state(ctx.state_dir, state)
-        if changed or rewrite:
-            if _rewrite_other_checkouts(
-                ctx, state, moved=len(moved), changed=changed
-            ):
-                del state.external[REWRITE_PENDING]
-                save_state(ctx.state_dir, state)
+        if (changed or rewrite) and _rewrite_other_checkouts(
+            ctx, state, moved=len(moved), changed=changed
+        ):
+            del state.external[REWRITE_PENDING]
+            save_state(ctx.state_dir, state)
         pg = ctx.postgres(state)
         with ctx.checkout_lock(ctx.root):
             row = checkout_row(ctx, state)

@@ -379,17 +379,22 @@ def _services_flag(args: argparse.Namespace) -> str | None:
     return str(args.services) if args.services is not None else None
 
 
+def _repeat_extra(plan: Plan) -> str:
+    """The extras of the ``uvx --from`` spec: the batteries, or, for your own
+    servers (checked at once, with the stack's package, which the bare kernel
+    the line runs in does not have), the stack's extras."""
+    if plan.batteries:
+        return "[standard]"
+    if plan.services == EXTERNAL:
+        return f"[{','.join(_stack.stack_choice(plan.stack).extras)}]"
+    return ""
+
+
 def repeat_command(version: str, plan: Plan, *, cwd: Path) -> list[str]:
     """The argv that makes the same app with no question, pinned to this
     version like the docs: ``uvx --from "sandloom==<v>" sandloom new … --yes``.
     It never carries the administrator's email or a password."""
-    extra = ""
-    if plan.batteries:
-        extra = "[standard]"
-    elif plan.services == EXTERNAL:
-        # Your own servers are checked at once, with the stack's package: the
-        # bare kernel the line runs in does not have it.
-        extra = f"[{','.join(_stack.stack_choice(plan.stack).extras)}]"
+    extra = _repeat_extra(plan)
     argv = ["uvx", "--from", f"sandloom{extra}=={version}", "sandloom", "new", plan.app]
     if plan.parent.resolve() != cwd.resolve():
         argv += ["--dir", str(plan.parent)]

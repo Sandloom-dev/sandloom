@@ -599,14 +599,14 @@ def test_going_external_docker_external_rechecks_the_rows_of_the_docker_period(
     state.services = "docker"  # `dev up --services docker`: `external` is kept
     save_state(ctx.state_dir, state)
     fake_stack.keys = {3: {"theirs": "a"}, 4: {"theirs": "b"}}  # on their server
-    assert commands.up(_ctx(root, environ), commands.UpOptions(services="external")) == 0
+    assert (
+        commands.up(_ctx(root, environ), commands.UpOptions(services="external")) == 0
+    )
     after = load_state(ctx.state_dir)
     assert after is not None
     row = after.checkouts[str(others["wt"])]
     assert not set(row.indexes) & {3, 4}
-    assert (
-        f"/{row.cache_index}" in (others["wt"] / ".env").read_text(encoding="utf-8")
-    )
+    assert f"/{row.cache_index}" in (others["wt"] / ".env").read_text(encoding="utf-8")
     # The worktree is gone and `prune` flushes the pair of its row.
     monkeypatch.setattr(
         commands._services, "database_mark", lambda pg, name: commands.dev_mark(row)
