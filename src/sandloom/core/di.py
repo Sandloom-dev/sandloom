@@ -52,6 +52,7 @@ from sandloom.core.http.tenant_scope import TenantScope
 from sandloom.core.idempotency import durable as _idempotency_durable
 from sandloom.core.infra.access import (
     cache,
+    links_are_logged,
     notifier,
     objectstore,
 )
@@ -875,6 +876,7 @@ __all__ = [
     "cache",
     "capability",
     "get_service",
+    "links_are_logged",
     "notifier",
     "objectstore",
     "taskqueue",

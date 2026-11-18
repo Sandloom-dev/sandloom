@@ -22,7 +22,7 @@ from sandloom_tenancy.models import (
     OrganizationMember,
 )
 from sandloom_tenancy.schemas import OrganizationCreateIn, OrganizationUpdateIn
-from sandloom_tenancy.schemas.organization import derive_slug
+from sandloom_tenancy.schemas.organization import NO_DERIVED_SLUG, derive_slug
 from sandloom_tenancy.services.membership_service import MembershipService
 
 
@@ -37,9 +37,7 @@ class OrganizationService:
         if slug is None:
             slug = derive_slug(data.name)
             if slug is None:  # the DTO refuses this; a caller that built it unvalidated
-                raise TenancyConflictError(
-                    "The name has no letters or digits to derive a slug from: pass slug"
-                )
+                raise TenancyConflictError(NO_DERIVED_SLUG)
             taken = TenancyConflictError(
                 f"Organization slug '{slug}' derived from the name is already "
                 "taken: pass slug"

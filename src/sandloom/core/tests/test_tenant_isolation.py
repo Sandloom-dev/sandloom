@@ -33,6 +33,7 @@ from sandloom.core.di import (
     scoped,
     unscoped,
 )
+from sandloom.core.http.error_handlers import register_error_handlers
 from sandloom.core.orm import TenantScoped
 from sandloom.core.tenant_context import configured_tenant_scope, current_tenant_id
 from sandloom.core.testing import reload_test_env
@@ -56,6 +57,7 @@ def _tenant_app(
     *, tenancy_mode: str = "multi", single_tenant_id: uuid.UUID | None = None
 ) -> FastAPI:
     app = FastAPI()
+    register_error_handlers(app)  # the bodies carry their ``code``
     app.state.core = SimpleNamespace(
         settings=SimpleNamespace(
             tenancy_mode=tenancy_mode,
@@ -252,14 +254,13 @@ def test_header_cannot_override_token_tenant() -> None:
     )
 
     assert response.status_code == 403
-    # This app has no framework error handlers: the body is FastAPI's own, the
-    # ``code`` is pinned in tests/integration/test_request_boundaries.py.
     assert response.json() == {
         "detail": (
             "the organization in X-Tenant-Id is not listed by the access token; "
             "if the user joined or created it after the token was issued, "
             "refresh the access token or log in again"
-        )
+        ),
+        "code": "tenant_not_authorized",
     }
 
 
@@ -377,6 +378,28 @@ def test_single_tenant_mode_rejects_other_tenant_selector() -> None:
 
     assert response.status_code == 403
     assert response.json()["detail"] == "tenant does not match the configured tenant"
+    assert response.json()["code"] == "tenant_mismatch"
+
+
+def test_single_tenant_mode_rejects_a_token_naming_another_tenant() -> None:
+    canonical = uuid.uuid4()
+    token = mint_test_token(
+        {
+            "sub": str(uuid.uuid4()),
+            "token_type": "access",
+            "tenant_ids": [str(uuid.uuid4())],
+        }
+    )
+
+    response = TestClient(
+        _tenant_app(tenancy_mode="single", single_tenant_id=canonical)
+    ).get("/tenant", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 403
+    assert (
+        response.json()["detail"] == "token tenant does not match the configured tenant"
+    )
+    assert response.json()["code"] == "tenant_mismatch"
 
 
 def test_single_tenant_mode_requires_canonical_tenant() -> None:

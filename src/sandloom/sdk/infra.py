@@ -9,8 +9,8 @@ advanced: AlreadyExists, CLAIMS_CONTRACT_SUFFIX, Cache, CapabilityRef,
     InfraError, InvalidArgument, NotFound, Notification, Notifier, ObjectStore,
     PermissionDenied, ShutdownTask, StartupTask, TaskQueue, Timeout, TooLarge,
     Unavailable, Unsupported, cache, capability, claims_contract_name,
-    core_from_request, facts_contract_name, get_core, notifier, objectstore,
-    settings, taskqueue
+    core_from_request, facts_contract_name, get_core, links_are_logged,
+    notifier, objectstore, settings, taskqueue
 docs: docs/reference/sdk/infra.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
@@ -35,6 +35,7 @@ from sandloom.core.di import (
     cache,
     core_from_request,
     get_core,
+    links_are_logged,
     notifier,
     settings,
 )
@@ -83,6 +84,7 @@ __all__ = [
     "core_from_request",
     "facts_contract_name",
     "get_core",
+    "links_are_logged",
     "notifier",
     "objectstore",
     "settings",

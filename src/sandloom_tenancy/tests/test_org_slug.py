@@ -8,9 +8,12 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom_tenancy.exceptions import TenancyConflictError
 from sandloom_tenancy.schemas import OrganizationCreateIn
-from sandloom_tenancy.schemas.organization import derive_slug
+from sandloom_tenancy.schemas.organization import NO_DERIVED_SLUG, derive_slug
+from sandloom_tenancy.services import OrganizationService
 
 
 @pytest.mark.parametrize(
@@ -32,8 +35,9 @@ def test_the_slug_is_derived_from_the_name(name: str, slug: str) -> None:
 @pytest.mark.parametrize("name", ["!!!", "日本語", "a", " - "])
 def test_a_name_with_nothing_to_derive_from_has_no_slug(name: str) -> None:
     assert derive_slug(name) is None
-    with pytest.raises(ValidationError, match="pass slug"):
+    with pytest.raises(ValidationError) as refused:
         OrganizationCreateIn(name=name)
+    assert NO_DERIVED_SLUG in str(refused.value)
     assert OrganizationCreateIn(name=name, slug="chosen-slug").slug == "chosen-slug"
 
 
@@ -96,11 +100,21 @@ async def test_a_taken_explicit_slug_keeps_its_own_message(
     assert resp.json()["detail"] == f"Organization slug '{slug}' is already taken"
 
 
-async def test_a_name_without_letters_or_digits_is_422(
-    async_client: AsyncClient, user_a: Any
+@pytest.mark.parametrize("name", ["!!!", "A", "日本語"])
+async def test_a_name_that_yields_no_valid_slug_is_422(
+    async_client: AsyncClient, user_a: Any, name: str
 ) -> None:
+    """A name of no ASCII letters or digits, or of one character, has no slug of
+    the two-character minimum: the 422 says to pass one."""
     _, headers = user_a
-    resp = await async_client.post(
-        "/api/v1/orgs", json={"name": "!!!"}, headers=headers
-    )
+    resp = await async_client.post("/api/v1/orgs", json={"name": name}, headers=headers)
     assert resp.status_code == 422, resp.text
+    assert NO_DERIVED_SLUG in resp.text
+
+
+async def test_a_dto_built_without_validation_is_refused_by_the_service(
+    test_db: AsyncSession,
+) -> None:
+    unvalidated = OrganizationCreateIn.model_construct(name="A", slug=None)
+    with pytest.raises(TenancyConflictError, match="pass an explicit slug"):
+        await OrganizationService.create(unvalidated, owner_id=uuid.uuid4(), db=test_db)

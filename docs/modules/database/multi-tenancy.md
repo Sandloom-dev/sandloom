@@ -45,23 +45,34 @@ written `reason` (stale entries fail too).
 `module_router()` binds the tenant per route with `tenant="derive"`:
 `required` when the module declares a `TenantScoped` model, else `none`. A
 `tenant=` of `"required"`, `"optional"` or `"none"` on the router or the route
-overrides it. A signed `tenant_id` / `org_id` access-token claim binds directly.
+overrides it.
 
-`X-Tenant-Id` is only a selector: the requested id must also be in the token's
-signed `tenant_ids` allowlist, otherwise the request is rejected with
-`403 tenant_not_authorized`. Its `detail` names the header the route reads
-(`TenantScope(header=...)`, default `X-Tenant-Id`). It tells the user to
-refresh the access token or log in again when the organization was joined or
-created after the token was issued.
+`TenantScope` picks the tenant in this order. The header (`X-Tenant-Id`, or the
+`TenantScope(header=...)` the route names) is only a selector: its id is
+accepted when the token's signed `tenant_ids` allowlist lists it or when it is
+the token's signed `tenant_id` or `org_id` claim, otherwise the request is
+rejected with `403 tenant_not_authorized`. Without the header the `tenant_id`
+claim, then the `org_id` claim, binds directly. Without either claim a token
+that lists exactly one tenant in `tenant_ids` binds it. A token that lists
+several and no header gets `400 tenant_required`; only `tenant_ids` decides
+that `400`. A grant the claim policy removed answers `401 token_policy_outdated`
+or `503 claims_policy_mismatch` before these answers. With `TENANCY_MODE=single`
+the configured tenant binds, and a header or token tenant that names another
+one answers `403 tenant_mismatch`.
 
-A missing tenant answers `400 tenant_required`. Its `detail` names the header
-and says the value is an organization id that the access token lists. Both
-bodies carry the `code` and the HTTP statuses are unchanged. The `detail` text
-is part of the API. A client branches on `code`. See
+The `403 tenant_not_authorized` `detail` names the header the route reads. It
+tells the user to refresh the access token or log in again when the
+organization was joined or created after the token was issued.
+
+With no tenant to select the answer is `400 tenant_required`. Its `detail`
+names the header and says the value is an organization id that the access token
+lists. Both bodies carry the `code` and the HTTP statuses are unchanged. The
+`detail` text is part of the API. A client branches on `code`. See
 [Upgrading to 0.7.0a16](../../operate/upgrade.md#upgrading-to-070a16-tenant-selection-errors-carry-a-code).
 A `MissingTenantError` that reaches the request boundary answers the same `400`
-([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)). No route is at
-hand there, so its text says "the tenant header".
+([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)). The route bound
+no tenant there, which is a server-side fault, so its text names no header: it
+says the route needs a tenant scope.
 
 The binding scopes data only and never chooses a billing account
 ([Authorization](../http/authorization.md#billing-subjects-of-is-required)).

@@ -33,6 +33,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`get_core`](#get_core) | async function | Return the read-only `CoreRuntime` view of the app's facade. |
 | [`InfraError`](#infraerror) | exception | Base of every error a capability operation raises on purpose. |
 | [`InvalidArgument`](#invalidargument) | exception | A key, value, TTL or option outside the contract. |
+| [`links_are_logged`](#links_are_logged) | function | Whether a link an e-mail carries also reaches this process's stderr. |
 | [`NotFound`](#notfound) | exception | An addressed resource is absent (`objectstore.get` of a missing key). |
 | [`Notification`](#notification) | class | One outbound notification, independent of the delivery backend. |
 | [`Notifier`](#notifier) | class | What a module calls on `notifier()`. |
@@ -675,6 +676,22 @@ class InvalidArgument(InfraError)(
 ```
 
 A key, value, TTL or option outside the contract.
+
+### `links_are_logged`
+
+```python
+def links_are_logged(name: str = 'default') -> bool
+```
+
+Whether a link an e-mail carries also reaches this process's stderr.
+
+True only when `NOTIFIER_LOG_LINKS` is on AND notifier instance `name`
+is the `log` driver, the one that prints the links of a body and delivers
+nothing. With another driver (`smtp`, a plugin) a real mail goes out and
+the setting does nothing, so a module that wants to print a token for a dev
+without a frontend must not: the token would reach the log pipeline next to
+a delivered mail. Resolves via the process-active registry
+(`RuntimeError` when none is bound), like `notifier`.
 
 ### `NotFound`
 

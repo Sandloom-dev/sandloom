@@ -34,14 +34,15 @@ async def test_a_missing_tenant_at_the_boundary_is_the_tenant_scope_400() -> Non
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         resp = await c.get("/needs-tenant")
     assert resp.status_code == 400
-    # No TenantScope is at hand: the text says "the tenant header", not its name.
+    # The route bound no tenant (a server-side fault): no header is offered.
     assert resp.json() == {
         "detail": (
-            "tenant context required: select an organization by sending the "
-            "tenant header with an organization id that the access token lists"
+            "tenant context required: this route bound no tenant; "
+            "it needs a tenant scope (a fix on the server, not in the request)"
         ),
         "code": "tenant_required",
     }
+    assert "header" not in resp.json()["detail"]
     assert "TenantScoped" not in resp.text
 
 
@@ -169,6 +170,43 @@ async def test_a_token_granting_several_tenants_needs_the_selector(
         resp = await c.get("/scoped", headers=auth)
         assert resp.status_code == 400
         assert "X-Tenant-Id is required" in resp.json()["detail"]
+        assert resp.json()["code"] == "tenant_required"
         picked = await c.get("/scoped", headers={**auth, "X-Tenant-Id": str(two)})
     assert picked.status_code == 200
     assert picked.json() == {"tenant": str(two)}
+
+
+@pytest.mark.parametrize(
+    ("reason", "status", "detail"),
+    [
+        ("token_policy_outdated", 401, "token_policy_outdated"),
+        ("claims_policy_mismatch", 503, "claims_policy_mismatch"),
+    ],
+)
+async def test_a_grant_the_claim_policy_removed_answers_before_the_tenant_400(
+    monkeypatch: pytest.MonkeyPatch, reason: str, status: int, detail: str
+) -> None:
+    """G-TENANT-12: a required ``TenantScope`` whose token lost its ``tenant_ids``
+    grant to the claim policy answers 401 (a refresh fixes it) or 503 (issuer
+    and verifier disagree), never ``400 tenant_required`` that a header cannot
+    fix."""
+    claims = {
+        "sub": str(uuid.uuid4()),
+        "token_type": "access",
+        "sandloom.untrusted": {"tenant_ids": reason},
+    }
+
+    def _claims_of(_request: Any) -> tuple[str, dict[str, Any]]:
+        return "token", claims
+
+    async def _not_revoked(_request: Any, _claims: Any) -> None:
+        return None
+
+    monkeypatch.setattr(_tenant_scope, "bearer_token_and_claims", _claims_of)
+    monkeypatch.setattr(_tenant_scope, "ensure_token_not_revoked", _not_revoked)
+    async with AsyncClient(
+        transport=ASGITransport(app=_tenant_app()), base_url="http://t"
+    ) as c:
+        resp = await c.get("/scoped")
+    assert resp.status_code == status
+    assert resp.json()["detail"] == detail

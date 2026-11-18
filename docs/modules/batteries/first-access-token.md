@@ -19,6 +19,10 @@ Create an application with identity and tenancy:
 uvx --from "sandloom[standard]==0.7.0a15" sandloom new myapp --with identity,tenancy --module notes
 ```
 
+The `tenant_not_authorized` code, the tenant error texts and the printed
+`[dev only] no frontend?` step below need `0.7.0a16` or later. With `0.7.0a15`
+the same answers carry no `code` and the older texts.
+
 Follow the printed quickstart through `uv sync`, `uv run sandloom generate`,
 starting the development services and applying migrations. Before starting the
 API, launch [Mailpit's official Docker image](https://mailpit.axllent.org/docs/install/docker/):
@@ -75,8 +79,10 @@ Start the API and open its interactive API documentation at
     Success is `204`. Sandloom provides the verification API; the URL in the
     email points to your frontend's verification page. A backend-only application
     can use this API request directly without implementing that page yet. With
-    `NOTIFIER_LOG_LINKS=true` (dev only) the API prints the request next to the
-    link: `[dev only] no frontend? POST /auth/verify-email {"token": "..."}`.
+    `NOTIFIER_LOG_LINKS=true` and the default `log` notifier (dev only) the API
+    prints the request after the link: `[dev only] no frontend? POST
+    /auth/verify-email {"token": "..."}`. With the `smtp` driver a real mail
+    goes out and the API prints nothing.
 
 If registration happened before SMTP was configured, execute
 **POST `/auth/resend-verification`** with `{"email": "alice@example.com"}` after
@@ -136,7 +142,8 @@ curl --fail-with-body http://127.0.0.1:8000/api/v1/notes/items \
 The new organization's item list returns `200` with `[]`. The old access token
 with that `X-Tenant-Id` returns `403 tenant_not_authorized`. Its `detail` says
 to refresh the access token or log in again. This does not mean organization
-creation failed. Accepting an invitation requires the same refresh. Refresh tokens rotate, so subsequent refreshes use the newest one.
+creation failed. Accepting an invitation requires the same refresh. Refresh
+tokens rotate, so subsequent refreshes use the newest one.
 
 Stop the inbox when finished:
 

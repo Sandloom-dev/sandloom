@@ -1937,6 +1937,7 @@
         "src/sandloom/core/tests/test_ledger_runtime_pins.py",
         "src/sandloom/core/tests/test_lifecycle_critical.py",
         "src/sandloom/core/tests/test_linger_pool.py",
+        "src/sandloom/core/tests/test_links_are_logged.py",
         "src/sandloom/core/tests/test_loader_migrations_hardening.py",
         "src/sandloom/core/tests/test_mask_migration_urls.py",
         "src/sandloom/core/tests/test_memory_cache.py",

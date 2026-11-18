@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeVar, cast
 
+from sandloom.core.config.settings import settings
 from sandloom.core.infra.active import get_active_infra
 from sandloom.core.infra.capabilities import CapabilityRef
 from sandloom.core.infra.contracts import (
@@ -59,6 +60,28 @@ def notifier(name: str = "default") -> Notifier:
     bound).
     """
     return cast("Notifier", get_active_infra().provider("notification", name))
+
+
+#: The registered name of the built-in notifier driver that logs (never
+#: delivers) a notification, the only one ``NOTIFIER_LOG_LINKS`` acts on.
+_LOG_NOTIFIER_DRIVER = "log"
+
+
+def links_are_logged(name: str = "default") -> bool:
+    """Whether a link an e-mail carries also reaches this process's stderr.
+
+    True only when ``NOTIFIER_LOG_LINKS`` is on AND notifier instance ``name``
+    is the ``log`` driver, the one that prints the links of a body and delivers
+    nothing. With another driver (``smtp``, a plugin) a real mail goes out and
+    the setting does nothing, so a module that wants to print a token for a dev
+    without a frontend must not: the token would reach the log pipeline next to
+    a delivered mail. Resolves via the process-active registry
+    (``RuntimeError`` when none is bound), like :func:`notifier`.
+    """
+    if not settings.notifier_log_links:
+        return False
+    provider = get_active_infra().provider("notification", name)
+    return provider.driver == _LOG_NOTIFIER_DRIVER
 
 
 def objectstore(name: str = "default") -> ObjectStore:

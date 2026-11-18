@@ -21,11 +21,17 @@ _SLUG_MIN_LENGTH = 2
 _SLUG_MAX_LENGTH = 100
 
 
+#: The refusal of a name that yields no slug (the schema's 422, the service's
+#: fallback): fewer than two ASCII ``a-z0-9`` characters are left, as for
+#: ``"A"`` or a name written in another script.
+NO_DERIVED_SLUG = "the name does not produce a valid slug: pass an explicit slug"
+
+
 def derive_slug(name: str) -> str | None:
     """The slug an organization name stands for: lowercase, every run of
-    characters outside ``a-z0-9`` one ``-``, trimmed of ``-`` and cut to the
-    length bound; ``None`` when nothing valid is left (a name of no letters or
-    digits, or of one character)."""
+    characters outside ASCII ``a-z0-9`` one ``-``, trimmed of ``-`` and cut to
+    the length bound; ``None`` when fewer than ``_SLUG_MIN_LENGTH`` characters
+    are left (a name of one letter, or without ASCII letters and digits)."""
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     slug = slug[:_SLUG_MAX_LENGTH].strip("-")
     return slug if len(slug) >= _SLUG_MIN_LENGTH else None
@@ -45,9 +51,7 @@ class OrganizationCreateIn(BaseModel):
     @model_validator(mode="after")
     def _name_yields_a_slug(self) -> Self:
         if self.slug is None and derive_slug(self.name) is None:
-            raise ValueError(
-                "the name has no letters or digits to derive a slug from: pass slug"
-            )
+            raise ValueError(NO_DERIVED_SLUG)
         return self
 
 

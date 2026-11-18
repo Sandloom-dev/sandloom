@@ -22,7 +22,7 @@ from sqlalchemy.future import select
 
 from sandloom.sdk import on_commit, record_audit
 from sandloom.sdk.effects import mark_reauthenticated, sensitive_effect
-from sandloom.sdk.infra import settings
+from sandloom.sdk.infra import links_are_logged, settings
 from sandloom.sdk.security import (
     decode_token,
     ensure_user_not_blocked,
@@ -40,7 +40,7 @@ from sandloom_identity.events import (
     create_user_password_reset_event,
     create_user_registered_event,
 )
-from sandloom_identity.integrations import email_sender
+from sandloom_identity.integrations import NotifierEmailSender, email_sender
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.models.twofa_secret import TwoFASecret
 from sandloom_identity.models.user import User
@@ -93,14 +93,27 @@ RESET_API_PATH = "/auth/reset-password"
 def _dev_api_step(path: str, body: dict[str, str]) -> str | None:
     """The API form of an e-mailed link's step, for a dev app without a frontend.
 
-    Only with ``NOTIFIER_LOG_LINKS`` (refused in prod without the accepted risk
-    ``log_links_in_prod``): the line carries the token like the ``[dev only]``
-    link the log notifier prints. ``None`` otherwise, so a token is never even
-    formatted outside dev.
+    Only when the mail goes through the log notifier with ``NOTIFIER_LOG_LINKS``
+    (:func:`~sandloom.sdk.infra.links_are_logged`; refused in prod without the
+    accepted risk ``log_links_in_prod``): the line carries the token like the
+    ``[dev only]`` link that notifier prints. With ``smtp``, a plugin driver or
+    a custom e-mail sender a real mail goes out, and a token on stderr would
+    reach the log pipeline next to it. ``None`` then, so a token is never even
+    formatted.
     """
-    if not settings.notifier_log_links:
+    if not isinstance(email_sender, NotifierEmailSender) or not links_are_logged():
         return None
     return f"[dev only] no frontend? POST {path} {json.dumps(body)}"
+
+
+def _print_dev_step(dev_step: str) -> None:
+    """``dev_step`` to stderr. A stderr that cannot be written (a closed pipe,
+    a closed stream) loses the hint, never the delivery that follows it; any
+    other error is a bug and surfaces."""
+    try:
+        print(dev_step, file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        logger.warning("identity: the dev API step could not be written to stderr")
 
 
 async def _email_after_commit(
@@ -119,9 +132,9 @@ async def _email_after_commit(
     """
 
     async def _deliver() -> None:
+        if dev_step is not None:
+            _print_dev_step(dev_step)
         try:
-            if dev_step is not None:
-                print(dev_step, file=sys.stderr, flush=True)
             await send()
         except Exception as exc:  # noqa: BLE001 - never surfaces to a request
             logger.warning("identity: email delivery failed (%s)", type(exc).__name__)

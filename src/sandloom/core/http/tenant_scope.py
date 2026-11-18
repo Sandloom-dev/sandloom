@@ -27,6 +27,10 @@ TENANT_REQUIRED = "tenant_required"
 #: ``code`` of the 403 for a selected tenant the access token does not list
 #: (the name the shared authorization atoms use for the same refusal).
 TENANT_NOT_AUTHORIZED = "tenant_not_authorized"
+#: ``code`` of the 403 in ``TENANCY_MODE=single`` for a selector or a token
+#: tenant that is not the configured one (also the shared authorization atoms'
+#: name for the same refusal).
+TENANT_MISMATCH = "tenant_mismatch"
 
 
 class TenantSelectionError(HTTPException):
@@ -38,18 +42,25 @@ class TenantSelectionError(HTTPException):
         self.code = code
 
 
-def tenant_required_detail(header: str | None = None) -> str:
-    """The ``400 tenant_required`` text. ``header`` is the selector header the
-    ``TenantScope`` reads; ``None`` (a ``MissingTenantError`` that reached the
-    request boundary: no scope is at hand) says "the tenant header"."""
-    selector = f"the {header} header" if header else "the tenant header"
+#: The ``400 tenant_required`` text of a ``MissingTenantError`` that reached the
+#: request boundary. The route bound no tenant (a server-side fault), so no
+#: header the client sends changes the answer and the text does not offer one.
+BOUNDARY_TENANT_REQUIRED_DETAIL = (
+    "tenant context required: this route bound no tenant; "
+    "it needs a tenant scope (a fix on the server, not in the request)"
+)
+
+
+def tenant_required_detail(header: str) -> str:
+    """The ``400 tenant_required`` text of a ``TenantScope`` that reads
+    ``header`` as its selector."""
     return (
         "tenant context required: select an organization by sending "
-        f"{selector} with an organization id that the access token lists"
+        f"the {header} header with an organization id that the access token lists"
     )
 
 
-def tenant_required_error(header: str | None = None) -> TenantSelectionError:
+def tenant_required_error(header: str) -> TenantSelectionError:
     return TenantSelectionError(
         status.HTTP_400_BAD_REQUEST, TENANT_REQUIRED, tenant_required_detail(header)
     )
@@ -145,14 +156,16 @@ def _resolve_tenant(  # noqa: C901
             )
         canonical = uuid.UUID(str(canonical))
         if selected is not None and selected != canonical:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="tenant does not match the configured tenant",
+            raise TenantSelectionError(
+                status.HTTP_403_FORBIDDEN,
+                TENANT_MISMATCH,
+                "tenant does not match the configured tenant",
             )
         if (granted or keyed) and canonical not in granted and canonical not in keyed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="token tenant does not match the configured tenant",
+            raise TenantSelectionError(
+                status.HTTP_403_FORBIDDEN,
+                TENANT_MISMATCH,
+                "token tenant does not match the configured tenant",
             )
         return canonical
 
@@ -173,9 +186,10 @@ def _resolve_tenant(  # noqa: C901
     if len(granted) == 1:
         return next(iter(granted))
     if len(granted) > 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{header} is required when the token grants multiple tenants",
+        raise TenantSelectionError(
+            status.HTTP_400_BAD_REQUEST,
+            TENANT_REQUIRED,
+            f"{header} is required when the token grants multiple tenants",
         )
     return None
 

@@ -95,14 +95,27 @@ the required role gets `403`.
 
 ### Rules API clients must know
 
-- **Selecting an organization.** A tenant-scoped application route reads the
-  organization from the `X-Tenant-Id` header (or the header the route's
-  `TenantScope(header=...)` names). The value is an organization id that the
-  access token's `tenant_ids` lists. A token that lists exactly one organization
-  selects it without the header. A token that lists several needs the header
-  (`400` otherwise). No header and no organization to select is `400
-  tenant_required`. An organization the token does not list is `403
-  tenant_not_authorized`. Both answers say in `detail` what to do.
+- **Selecting an organization.** A tenant-scoped application route picks the
+  organization in this order:
+    1. The `X-Tenant-Id` header (or the header the route's
+       `TenantScope(header=...)` names). Its value is an organization id. It is
+       accepted when the access token's `tenant_ids` lists it or when it is the
+       token's signed `tenant_id` or `org_id` claim; any other value is `403
+       tenant_not_authorized`.
+    2. Without the header, the signed `tenant_id` claim, then the `org_id`
+       claim, selects the organization.
+    3. Without either claim, a token whose `tenant_ids` lists exactly one
+       organization selects it. A token that lists several needs the header:
+       the answer is `400 tenant_required`. Only `tenant_ids` decides this
+       `400`.
+
+  No header and nothing to select is `400 tenant_required`. Both answers say in
+  `detail` what to do. A token whose grant the claim policy removed answers
+  `401 token_policy_outdated` (refresh the token) or `503
+  claims_policy_mismatch` (issuer and verifier disagree) before any of these
+  `400` or `403` answers. With `TENANCY_MODE=single` the configured tenant
+  is bound and a header or token tenant that names another one is `403
+  tenant_mismatch`.
 - **New memberships need a fresh access token.** After creating or joining an
   organization, refresh the access token so it lists the organization. Call
   `POST /auth/refresh` with your refresh token and replace **both** stored
@@ -119,8 +132,10 @@ the required role gets `403`.
   lowercase and every run of characters outside `a-z0-9` becomes one `-`.
   Leading and trailing `-` are trimmed (`{"name": "Acme Robotics, Inc."}` gets
   `acme-robotics-inc`). If the derived slug is taken, the answer is `409` asking
-  for an explicit `slug`. A name with no letters or digits to derive from is
-  `422`. A taken explicit slug is `409` too.
+  for an explicit `slug`. The derived slug needs at least two characters and
+  only ASCII `a-z0-9-`: a name such as `{"name": "A"}`, or one written in
+  another script, is `422` ("the name does not produce a valid slug: pass an
+  explicit slug"). A taken explicit slug is `409` too.
 - **`PATCH /api/v1/orgs/{org_id}`** accepts only `name`; any other field
   (including `is_active`) is rejected with `422`. Deactivation is the owner-only
   `DELETE`, which soft-deletes the org, publishes
