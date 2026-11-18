@@ -9,6 +9,14 @@ add|migrate new|generate`` lines run in order and every ``# file: <path>`` block
 written (``recipe_parts``), then ``sandloom test`` must pass. Placeholders:
 ``<app>``, ``<module>`` / ``<Module>`` (the module and its CamelCase name,
 whose scaffolded table is ``<Module>Item``), ``<consumer>`` / ``<Consumer>``.
+
+A file is written verbatim and ``sandloom test`` never fixes it, so it is ruff
+clean as written (``tests/sdk/test_sdk_recipes_ruff.py`` runs the check and the
+format check under the generated app's ruff configuration): the app's package and
+``sandloom`` are one isort block in alphabetical order, so ``<app>.…`` imports
+sit above ``sandloom.…`` ones (an app whose name sorts after ``sandloom`` orders
+them the other way); an import line plus its ``# sandloom: advanced <reason>``
+stays within 88 columns.
 """
 
 from __future__ import annotations
@@ -23,10 +31,11 @@ providers' generated stubs (`sandloom generate`). In tests, fake the
 membership and entitlements contracts; no tenancy or billing data is needed.
 
     from fastapi import Depends
-    from sandloom.sdk import CurrentUser, require
-    from sandloom.sdk.authz import Account  # sandloom: advanced account target
+
     from <app>.shared.contracts.billing_entitlements_v1 import SubscriptionActive
     from <app>.shared.contracts.tenancy_membership_v1 import OrgRole
+    from sandloom.sdk import CurrentUser, require
+    from sandloom.sdk.authz import Account  # sandloom: advanced account target
 
     ORG = Account.org(param="org_id")
     PAID_ADMIN = require(OrgRole("admin") & SubscriptionActive(of=ORG))
@@ -43,9 +52,9 @@ is meant.
 
 Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
 
-    from sandloom.sdk.testing import as_user, fake_contract
     from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
     from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from sandloom.sdk.testing import as_user, fake_contract
 
     RANK = {"member": 1, "admin": 2, "owner": 3}
 
@@ -270,7 +279,7 @@ scaffolds. A service, and a task that runs it for one tenant:
 
     from sandloom.sdk import db
     from sandloom.sdk.data import open_uow  # sandloom: advanced the test's own unit
-    from sandloom.sdk.errors import UnitOfWorkRequiredError  # sandloom: advanced SANDLOOM-R002
+    from sandloom.sdk.errors import UnitOfWorkRequiredError  # sandloom: advanced R002
     from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced tenant rows
 
     from ..models.item import <Module>Item
@@ -336,8 +345,8 @@ Declare the caller at module level: `define_module` adds it to the module's
 
     from uuid import UUID
 
-    from sandloom.sdk import Contract
     from <app>.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
+    from sandloom.sdk import Contract
 
     credits = Contract(BILLING_CREDITS_V1)
 
@@ -393,8 +402,8 @@ Tests fake the provider: a class with the methods your code calls.
 
     from fastapi import HTTPException
 
-    from sandloom.sdk.testing import as_user, fake_contract
     from <app>.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
+    from sandloom.sdk.testing import as_user, fake_contract
 
     URL = "/api/v1/<module>/exports"
 
@@ -493,6 +502,7 @@ can refill it:
 
     from uuid import UUID
 
+    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
     from sandloom.sdk import Contract, Event
     from sandloom.sdk.projections import (  # sandloom: advanced projections
         Projection,
@@ -500,7 +510,6 @@ can refill it:
         full_state,
         tombstone,
     )
-    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     from .models.member import Member
 
@@ -584,9 +593,9 @@ The page: one query on the projection, one billing call:
 
     import sqlalchemy as sa
 
+    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
     from sandloom.sdk import Contract, db
     from sandloom.sdk.tenant import current_tenant_id  # sandloom: advanced the organization
-    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
 
     from .models.member import Member
 
@@ -617,11 +626,11 @@ Tests deliver the events (in any order, twice) and fake both contracts:
     from typing import Any
     from uuid import UUID, uuid4
 
-    from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the organization
-    from sandloom.sdk.testing import deliver, fake_contract
     from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
     from <app>.shared.contracts.tenancy_dto import MemberState
     from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the organization
+    from sandloom.sdk.testing import deliver, fake_contract
 
     from ..projections import MEMBERS, MemberAdded, MemberRemoved, MemberRoleChanged
     from ..team import team_page
@@ -715,7 +724,7 @@ breaking: on the same `.vN` `sandloom generate` refuses it (SANDLOOM-T005). Roll
     from uuid import UUID
 
     from sandloom.sdk import Event
-    from sandloom.sdk.events import publish_event_versions  # sandloom: advanced dual-publish
+    from sandloom.sdk.events import publish_event_versions  # sandloom: advanced v1 and v2
 
 
     class ItemCreated(Event, channel="<module>.item.created.v1"):
