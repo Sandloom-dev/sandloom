@@ -33,6 +33,10 @@ from typing import Any
 from sandloom.core.descriptors.module_names import installed_modules
 
 
+#: The kernel's own ``shared`` package: holds no stub, so it is no application's.
+_KERNEL_SHARED = "sandloom.shared"
+
+
 def _app_shared() -> str | None:
     """``<app>.shared`` of the application in the working directory."""
     pyproject = Path.cwd() / "pyproject.toml"
@@ -45,7 +49,9 @@ def _app_shared() -> str | None:
         found = importlib.util.find_spec(package)
     except (ImportError, ValueError):
         return None
-    return package if found is not None else None
+    if found is None or package == _KERNEL_SHARED:  # the framework checkout
+        return None
+    return package
 
 
 def _package_dir(package: str) -> Path | None:
@@ -112,12 +118,14 @@ def contract_stubs() -> dict[str, _Stub]:
             name = entry.get("name") if isinstance(entry, dict) else None
             if isinstance(name, str) and name not in found:
                 stem, ref = _ref_of(name)
-                found[name] = _Stub(
-                    name,
-                    f"<your_module>._generated.contracts.{stem}",
-                    ref,
-                    provider=package,
+                # An application imports the stub from its shared package, a
+                # module distribution from its own ``_generated`` one.
+                home = (
+                    f"{app}.contracts"
+                    if app
+                    else "<your_module>._generated.contracts"
                 )
+                found[name] = _Stub(name, f"{home}.{stem}", ref, provider=package)
     return dict(sorted(found.items()))
 
 

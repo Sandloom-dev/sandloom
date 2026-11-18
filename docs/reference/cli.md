@@ -74,6 +74,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 | `sandloom add event <module> <name> [--field F]` | A typed `Event` in the module's `events.py`. |
 | `sandloom add consumer <module> <channel> [--field F]` | An `@on` consumer of a channel (another module's event). |
 | `sandloom add contract <module> <name>` | A `@contract` class and its DTO in the module's `schemas.py`; the stub and the DTO copy are generated. |
+| `sandloom add contract-use <module> <contract>` | Declares `consumes=[ContractRequirement("<contract>")]` in the module's `define_module` and writes the stub (and the DTO copies it names) from the importable provider at once. |
 | `sandloom add saga <module> <name>` | A saga with a typed command step, plus tests. |
 | `sandloom add projection <module> <name>` | A projection skeleton. |
 | `sandloom add task <module> <name> [--periodic CRON]` | An idempotent task skeleton; `--periodic` adds its five-field cron beat schedule. |

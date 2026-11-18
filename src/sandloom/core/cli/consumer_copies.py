@@ -22,6 +22,13 @@ The module's ``consumes`` is the single source of the set (ADR-0013 decision
   ``consumes`` entry for nothing); the copies of a contract no longer
   consumed are removed (``--check`` reports them).
 
+An application (modules under ``<app>.modules``, stubs in
+``<app>/shared/contracts``) is planned before composition too
+(:func:`plan_shared`): the same AST scan finds the ``<app>.shared.contracts``
+imports and ``consumes`` entries, and each missing stub is written from an
+importable provider before the app loads; an import no importable provider
+declares is refused naming the file and line (SANDLOOM-T018).
+
 Every consumer file carries a provenance header whose digest covers the body
 (decision 7), and every expectation the digest of its content, so a hand edit
 is found without the provider. With the provider not importable (decision 5),
@@ -313,7 +320,7 @@ class _File:
     def __init__(self, package: str, directory: Path, path: Path) -> None:
         self.path = path
         self.dotted = _dotted(package, directory, path)
-        self.tree = ast.parse(path.read_text(encoding="utf-8"))
+        self.tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         is_package = path.name == "__init__.py"
         self.imports: dict[str, str] = {}
         self.constants: dict[str, str] = {}
@@ -336,7 +343,11 @@ class _Planner:
     """Reads the consumed contracts of one module package from its AST."""
 
     def __init__(
-        self, package: str, directory: Path, stems: Mapping[str, list[str]]
+        self,
+        package: str,
+        directory: Path,
+        stems: Mapping[str, list[str]],
+        prefix: str | None = None,
     ) -> None:
         self.package = package
         self.directory = directory
@@ -346,7 +357,9 @@ class _Planner:
             for f in (_File(package, directory, p) for p in _module_files(directory))
         }
         self.plan = StaticPlan()
-        self.prefix = f"{package}.{GENERATED}.contracts"
+        #: the package the stubs are imported from: the module's own
+        #: ``_generated.contracts``, or an application's ``<app>.shared.contracts``
+        self.prefix = prefix or f"{package}.{GENERATED}.contracts"
 
     def where(self, file: _File, node: ast.AST) -> str:
         rel = file.path.relative_to(self.directory.parent)
@@ -500,11 +513,16 @@ def _called(call: ast.Call) -> str | None:
 
 
 def static_plan(
-    package: str, directory: Path, stems: Mapping[str, list[str]]
+    package: str,
+    directory: Path,
+    stems: Mapping[str, list[str]],
+    prefix: str | None = None,
 ) -> StaticPlan:
     """The contracts ``package``'s declarations consume, read from its AST
-    (``stems`` maps a generated stub's stem to the contracts it may stand for)."""
-    return _Planner(package, directory, stems).run()
+    (``stems`` maps a generated stub's stem to the contracts it may stand for;
+    ``prefix``: the package its stubs are imported from, default the module's
+    own ``_generated.contracts``)."""
+    return _Planner(package, directory, stems, prefix).run()
 
 
 def committed_contracts(out_dir: Path) -> list[str]:
@@ -894,6 +912,147 @@ def plan_static(
     return out, planned
 
 
+def plan_shared(
+    modules: Mapping[str, Path],
+    source_root: Path | None,
+    stubs: Stubs,
+    shared_dir: Path,
+    shared_package: str,
+    shared_packages: tuple[str, ...],
+    extra: Iterable[str] = (),
+) -> list[Planned]:
+    """An application, before composition: the stub (and DTO copies) of every
+    contract its modules import or consume that is not generated yet.
+
+    ``modules`` is ``{package: directory}`` of the application's own modules.
+    A module that imports ``<shared_package>.contracts.<stem>`` before any
+    ``sandloom generate`` wrote it would crash the composition that writes it:
+    the stem is mapped to the contract of an importable provider (installed, or
+    a module of this application; never composed) and its stub written into
+    ``shared_dir/contracts`` exactly as the composed run writes it. A stub that
+    exists is left to the composed run (it checks its compatibility); a
+    ``consumes`` entry and every name in ``extra`` get a stub the same way,
+    when a provider is importable (a provider not importable here is the
+    composition's to report: it may be a remote one). An import of a stem no
+    provider declares is refused, naming the file."""
+    contracts_dir = shared_dir / "contracts"
+    prefix = f"{shared_package}.contracts"
+    out: list[Planned] = []
+    scans: list[tuple[str, StaticPlan]] = []
+    for package, directory in sorted(modules.items()):
+        try:
+            scans.append((package, static_plan(package, directory, {}, prefix)))
+        except SyntaxError as exc:
+            out.append(
+                Planned(
+                    Path(exc.filename or directory),
+                    "",
+                    CODE,
+                    [f"{exc.filename}:{exc.lineno}: {exc.msg}"],
+                )
+            )
+
+    def missing(name: str) -> bool:
+        return not (contracts_dir / f"{stem_of(name)}.py").is_file()
+
+    stems_at = [
+        (package, stem, where)
+        for package, plan in scans
+        for stem, where in sorted(plan.imported.items())
+        if stem != "__init__"
+        and not stem.endswith("_dto")
+        and not (contracts_dir / f"{stem}.py").is_file()
+    ]
+    names_at = [
+        (name, where)
+        for _package, plan in scans
+        for name, where in plan.names.items()
+        if not is_kernel_family(name) and missing(name)
+    ] + [(n, "the request") for n in extra if not is_kernel_family(n) and missing(n)]
+    if not stems_at and not names_at:
+        return out  # nothing to write: no provider is imported
+    providers = importable_providers(source_root, modules)
+    stems = _stems(providers, ())
+    wanted: dict[str, str] = {}
+    for package, stem, where in stems_at:
+        found = stems.get(stem, [])
+        if len(found) == 1:
+            wanted.setdefault(found[0], where)
+            continue
+        problem = (
+            f"{where}: {collision_problem(stem, found)}"
+            if found
+            else (
+                f"{where}: {package} imports {prefix}.{stem}, which is not "
+                "generated and no importable provider declares a contract with "
+                "that stub name: check the contract's name, install the "
+                "provider's package, or drop the import"
+            )
+        )
+        out.append(Planned(contracts_dir / f"{stem}.py", "", CODE, [problem]))
+    for name, where in names_at:
+        if name in providers:  # a provider not importable here may be remote
+            wanted.setdefault(name, where)
+    by_package: dict[str, list[Provider]] = {}
+    for name in sorted(wanted):
+        by_package.setdefault(providers[name].package, []).append(providers[name])
+    for package, group in sorted(by_package.items()):
+        siblings = [
+            p
+            for p in providers.values()
+            if p.package == package and p not in group and not missing(p.contract)
+        ]
+        out += _render_shared(
+            package, group, siblings, stubs, contracts_dir, shared_package, shared_packages
+        )
+    return out
+
+
+def _render_shared(
+    package: str,
+    group: list[Provider],
+    siblings: list[Provider],
+    stubs: Stubs,
+    contracts_dir: Path,
+    shared_package: str,
+    shared_packages: tuple[str, ...],
+) -> list[Planned]:
+    """The new stubs of one provider module and its DTO copies module.
+    ``siblings`` are its stubs already on disk: their DTOs stay in the copies."""
+    short = module_name(package)
+    stem_dto = _dto_copies.dto_module_stem(short)
+    resolver = _dto_copies.Resolver(
+        provider_package=package,
+        dto_package=f"{shared_package}.contracts.{stem_dto}",
+        shared_packages=shared_packages,
+    )
+    everything = sorted([*group, *siblings], key=lambda p: p.contract)
+    refused: list[str] = []
+    for provider in everything:  # every DTO placed before any stub is final
+        try:
+            stub_file(provider.contract, provider, resolver, stubs)
+        except _dto_copies.CopyError as exc:
+            refused.append(f"{provider.contract}: {exc}")
+    out = [
+        Planned(
+            contracts_dir / f"{stem_of(p.contract)}.py",
+            "" if refused else stub_file(p.contract, p, resolver, stubs),
+            "SANDLOOM-T007",
+            list(refused),
+        )
+        for p in group
+    ]
+    if resolver.copied and not refused:
+        try:
+            text, problems = dto_file(short, resolver, everything), []
+        except _dto_copies.CopyError as exc:
+            text, problems = "", [str(exc)]
+        out.append(
+            Planned(contracts_dir / f"{stem_dto}.py", text, _dto_copies.CODE, problems)
+        )
+    return out
+
+
 def plan_composed(
     modules: Mapping[str, Path],
     consumes: Mapping[str, Mapping[str, tuple[str, ...]]],
@@ -1017,6 +1176,7 @@ __all__ = [
     "module_files",
     "orphans",
     "plan_composed",
+    "plan_shared",
     "plan_static",
     "read_header",
     "static_plan",

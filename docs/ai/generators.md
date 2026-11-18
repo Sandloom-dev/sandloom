@@ -23,6 +23,7 @@ A generator writes the starting code for one piece of a Sandloom application, in
 | `sandloom add module <m>` | A module package (`__init__.py`, `models/`, `schemas.py`, `events.py`, `services.py`, `api.py`, `settings.py`), its [migration](../modules/database/migrations.md) chain and a test |
 | `sandloom add event <m> <Name>` | An [event](../modules/between/events.md) class in `events.py`: `NoteArchived` in `notes` gets the channel `notes.note.archived.v1` |
 | `sandloom add contract <m> <name>` | A [contract](../modules/between/contracts.md), the call one module answers for others, with one read and one command, and the stub callers import |
+| `sandloom add contract-use <m> <contract>` | Declares that `<m>` consumes another module's contract (`consumes=[ContractRequirement(...)]`) and writes the stub it imports, before the first use |
 | `sandloom add consumer <m> <channel>` | A handler in `consumers.py` that reacts to another module's event |
 | `sandloom add saga <m> <name>` | A [saga](../modules/between/sagas.md), a process across modules with undo, and the contract it calls |
 | `sandloom add projection <m> <name>` | A [projection](../modules/between/projections.md), a table built from other modules' events, with its migration |

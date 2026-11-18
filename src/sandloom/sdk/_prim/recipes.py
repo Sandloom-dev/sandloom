@@ -332,9 +332,16 @@ billing.credits.v1`). The stubs import from
 the stub names: never edit one; a contract you never released may change
 freely: delete its stub and run `sandloom generate`).
 
-Generate the provider's contract stub before writing the consumer:
+Declare the consumed contract and write its stub before the consumer's code
+imports it:
 
-    uv run sandloom generate billing
+    uv run sandloom add contract-use <module> billing.credits.v1
+
+It adds `ContractRequirement("billing.credits.v1")` to
+`define_module(consumes=[...])` and writes the stub at once. A module that
+already imports a stub nobody has generated needs no command: `sandloom
+generate` writes the missing stub from the installed provider before it loads
+the app.
 
 Declare the caller at module level: `define_module` adds it to the module's
 `consumes`, and startup fails when a required provider is missing

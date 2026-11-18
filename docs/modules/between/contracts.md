@@ -91,6 +91,14 @@ class Credits:
 module's `schemas.py`, then runs `sandloom generate` (the stub and the DTO's
 copy). See [Add a contract](add-contract.md).
 
+A module that calls a contract another module provides runs
+`sandloom add contract-use <module> <contract>`: it declares the contract in
+`define_module(consumes=[...])` and writes the stub from the importable
+provider at once. A module that already imports a stub nobody generated yet
+needs no command: `sandloom generate` finds the import in the source, writes
+the missing stub from the provider and only then loads the application (an
+import no importable provider declares is refused, naming the file and line).
+
 ### Wire types and DTOs
 
 Generated DTO names stay unchanged when unique. If provider submodules declare

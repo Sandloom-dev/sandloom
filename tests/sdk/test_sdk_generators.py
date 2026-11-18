@@ -730,3 +730,97 @@ def test_add_help_lists_deploy(capsys: pytest.CaptureFixture[str]) -> None:
     out = " ".join(capsys.readouterr().out.split())
     assert "deploy" in out.split("positional arguments:")[0]
     assert "sandloom add deploy --help" in out
+
+
+# --------------------------------------------------------------------------- #
+# A consumer stub before its first use (an app: stubs in <app>/shared/contracts)
+# --------------------------------------------------------------------------- #
+
+_STUB_IMPORT = (
+    "from probe.shared.contracts.stats_quota_v1 import STATS_QUOTA_V1  # noqa: F401\n"
+)
+
+
+def _app_with_provider(tmp_path: Path) -> tuple[Path, add.Layout]:
+    """An app whose ``stats`` module provides ``stats.quota.v1`` (generated)."""
+    root = _app(tmp_path, everything=False)
+    where = add.layout(root)
+    add.add_module("stats", where)
+    add.add_contract("stats", "quota", where)
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    return root, where
+
+
+def test_generate_writes_the_stub_a_module_imports_before_it_exists(
+    tmp_path: Path,
+) -> None:
+    root, where = _app_with_provider(tmp_path)
+    add.add_module("reports", where)
+    shared = root / "probe" / "shared" / "contracts"
+    (shared / "stats_quota_v1.py").unlink()
+    init = root / "probe" / "modules" / "reports" / "__init__.py"
+    init.write_text(_STUB_IMPORT + init.read_text(), encoding="utf-8")
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    assert "No module named" not in output
+    assert (shared / "stats_quota_v1.py").is_file()
+
+
+def test_generate_refuses_an_import_no_provider_declares_naming_the_file(
+    tmp_path: Path,
+) -> None:
+    root = _app(tmp_path, everything=False)
+    add.add_module("reports", add.layout(root))
+    init = root / "probe" / "modules" / "reports" / "__init__.py"
+    init.write_text(
+        "from probe.shared.contracts.ghost_thing_v1 import GHOST\n" + init.read_text(),
+        encoding="utf-8",
+    )
+    code, output = add.run_generate(root)
+    assert code != 0
+    assert "SANDLOOM-T018" in output
+    assert "reports/__init__.py:1" in output
+    assert "no importable provider declares a contract" in output
+
+
+def test_add_contract_use_declares_and_writes_the_stub_at_once(
+    tmp_path: Path,
+) -> None:
+    root, where = _app_with_provider(tmp_path)
+    add.add_module("reports", where)
+    stub = root / "probe" / "shared" / "contracts" / "stats_quota_v1.py"
+    stub.unlink()
+    created, note = add.add_contract_use("reports", "stats.quota.v1", where)
+    assert note is None
+    init = root / "probe" / "modules" / "reports" / "__init__.py"
+    assert init in created and stub in created
+    text = init.read_text(encoding="utf-8")
+    assert 'consumes=[ContractRequirement("stats.quota.v1")]' in text
+    assert "import ContractRequirement" in text
+    # Again: nothing is declared twice and the stub is not rewritten.
+    again, note = add.add_contract_use("reports", "stats.quota.v1", where)
+    assert again == [] and note is None
+    assert init.read_text(encoding="utf-8").count("stats.quota.v1") == 1
+    # The module imports the stub at once, and generate passes.
+    init.write_text(_STUB_IMPORT + init.read_text(), encoding="utf-8")
+    code, output = add.run_generate(root)
+    assert code == 0, output
+
+
+def test_add_contract_use_refuses_what_it_cannot_serve(tmp_path: Path) -> None:
+    root, where = _app_with_provider(tmp_path)
+    add.add_module("reports", where)
+    init = root / "probe" / "modules" / "reports" / "__init__.py"
+    before = init.read_text(encoding="utf-8")
+    with pytest.raises(add.GeneratorError, match="not a versioned contract name"):
+        add.add_contract_use("reports", "stats.quota", where)
+    with pytest.raises(add.GeneratorError, match="no importable provider"):
+        add.add_contract_use("reports", "ghost.thing.v1", where)
+    with pytest.raises(add.GeneratorError, match="provides stats.quota.v1 itself"):
+        add.add_contract_use("stats", "stats.quota.v1", where)
+    with pytest.raises(add.GeneratorError, match="kernel contract family"):
+        add.add_contract_use("reports", "stats.claims.v1", where)
+    with pytest.raises(add.GeneratorError, match="no module"):
+        add.add_contract_use("nobody", "stats.quota.v1", where)
+    assert init.read_text(encoding="utf-8") == before

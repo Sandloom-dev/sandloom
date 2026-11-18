@@ -91,7 +91,9 @@ def test_recipe_parts_keep_the_text_order() -> None:
     assert model < migrate < generate < order.index("<module>/projections.py")
 
     order = [what for _kind, what, _body in recipe_parts("call-contract")]
-    assert order.index("uv run sandloom generate billing") < order.index(
+    assert order.index(
+        "uv run sandloom add contract-use <module> billing.credits.v1"
+    ) < order.index(
         "<module>/exports.py"
     )
 

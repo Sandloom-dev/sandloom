@@ -1066,6 +1066,28 @@ def _distribution_modules(rules: Any) -> dict[str, Path]:
     }
 
 
+def _application_stubs(rules: Any) -> list[_consumer_copies.Planned]:
+    """An application's stubs a module imports or consumes before any
+    ``sandloom generate`` wrote them (planned before composition, from the
+    modules' ASTs and the importable providers: ADR-0013 decision 2, the
+    application layout). None in a tree of top-level module packages."""
+    shared_dir, shared_package = rules.shared_dir, rules.shared_dto_package
+    if rules.top_level_modules or shared_dir is None or shared_package is None:
+        return []
+    modules = {
+        rules.module_package(name): rules.modules_path / name
+        for name in rules.business_modules()
+    }
+    return _consumer_copies.plan_shared(
+        modules,
+        rules.source_root,
+        STUBS,
+        shared_dir,
+        shared_package,
+        (_dto_copies.KERNEL_SHARED, shared_package),
+    )
+
+
 def _consumer_plan(
     app: Any, rules: Any, planned: dict[str, set[str]], modules: Iterable[str] | None
 ) -> list[Generated]:
@@ -1224,6 +1246,7 @@ def main(argv: list[str] | None = None) -> int:
             if p in args.modules or module_name(p) in args.modules
         }
     early, planned = _consumer_copies.plan_static(tree, rules.source_root, STUBS)
+    early += _application_stubs(rules)
     pre = [Generated(f.path, f.content, f.code, f.problems) for f in early]
     if any(f.problems for f in pre) or (args.check and any(f.stale for f in pre)):
         return apply(
@@ -1233,6 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
         # Written before composition: a module may import a copy it has
         # not generated yet (ADR-0013 decision 2).
         apply(pre, write=True, shared_dir=rules.shared_dir, root=rules.root)
+        importlib.invalidate_caches()  # the loader must see the new files
         before = _inspection_generation.capture(rules)
     try:
         app = load_composition_app(project_root=rules.root)

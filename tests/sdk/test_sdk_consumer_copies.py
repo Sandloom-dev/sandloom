@@ -481,3 +481,105 @@ def test_explain_diff_names_an_expectation_format_change() -> None:
     new = json.dumps({"fingerprint": "f", "generator_format": 2, "format": 2})
     assert "generator change" in cc.explain_diff(old, new)
     assert cc.explain_diff("[]", "[]") == ""
+
+
+# --------------------------------------------------------------------------- #
+# An application: the stubs a module imports before they are generated
+# --------------------------------------------------------------------------- #
+
+
+def _app_plan(tree: dict[str, Any], source: str) -> list[cc.Planned]:
+    """``plan_shared`` for the consumer whose ``__init__`` reads ``source``."""
+    (tree["src"] / tree["shop"] / "__init__.py").write_text(source)
+    return cc.plan_shared(
+        tree["modules"],
+        tree["src"],
+        generated.STUBS,
+        tree["src"] / "kbapp" / "shared",
+        "kbapp.shared",
+        ("sandloom.shared", "kbapp.shared"),
+    )
+
+
+def _no_provider_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("a provider was looked up although no stub is missing")
+
+    monkeypatch.setattr(cc, "importable_providers", fail)
+
+
+def test_an_application_stub_is_planned_before_composition(
+    tree: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prov = tree["prov"]
+    imports = (
+        f"from kbapp.shared.contracts.{prov}_quota_v1 import {prov.upper()}_QUOTA_V1\n"
+    )
+    files = _app_plan(tree, imports)
+    assert sorted(f.path.name for f in files) == [
+        f"{prov}_dto.py",
+        f"{prov}_quota_v1.py",
+    ]
+    assert all(not f.problems for f in files)
+    stub = next(f for f in files if f.path.name.endswith("_quota_v1.py"))
+    assert f"from kbapp.shared.contracts.{prov}_dto import" in stub.content
+    _write(files)
+    # With the stub on disk nothing is planned and no provider is looked up.
+    _no_provider_lookup(monkeypatch)
+    assert _app_plan(tree, imports) == []
+
+
+def test_an_application_plans_nothing_when_no_stub_is_missing(
+    tree: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _no_provider_lookup(monkeypatch)
+    assert _app_plan(tree, "x = 1\n") == []
+
+
+def test_a_consumes_entry_gets_its_stub_and_an_unknown_provider_none(
+    tree: dict[str, Any],
+) -> None:
+    """``consumes=`` names the contract before any import does; a provider no
+    one can import here may be a remote one: the composition reports it."""
+    prov = tree["prov"]
+    files = _app_plan(
+        tree,
+        "from sandloom.sdk import define_module\n"
+        "from sandloom.sdk.module import ContractRequirement\n"
+        "register = define_module(__name__, consumes=["
+        f'ContractRequirement("{prov}.quota.v1"), "elsewhere.thing.v1"])\n',
+    )
+    assert sorted(f.path.name for f in files) == [
+        f"{prov}_dto.py",
+        f"{prov}_quota_v1.py",
+    ]
+    assert all(not f.problems for f in files)
+
+
+def test_an_import_no_provider_declares_is_refused_naming_the_file(
+    tree: dict[str, Any],
+) -> None:
+    [item] = _app_plan(tree, "from kbapp.shared.contracts.ghost_thing_v1 import G\n")
+    [problem] = item.problems
+    assert f"{tree['shop']}/__init__.py:1" in problem
+    assert "no importable provider declares a contract with that stub name" in problem
+
+
+def test_a_stub_name_two_contracts_share_is_refused(
+    tree: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prov = tree["prov"]
+    monkeypatch.setattr(
+        cc,
+        "_stems",
+        lambda *_a: {f"{prov}_quota_v1": [f"{prov}.quota.v1", "x.quota.v1"]},
+    )
+    [item] = _app_plan(tree, f"from kbapp.shared.contracts.{prov}_quota_v1 import Q\n")
+    assert "stub name collision" in item.problems[0]
+
+
+def test_a_module_that_does_not_parse_is_refused_not_a_crash(
+    tree: dict[str, Any],
+) -> None:
+    [item] = _app_plan(tree, "def broken(:\n")
+    assert "__init__.py:1" in item.problems[0]
