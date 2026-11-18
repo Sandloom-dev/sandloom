@@ -49,6 +49,7 @@ import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import sandloom.core.cli.dto_copies as _dto_copies
@@ -257,16 +258,35 @@ def importable_providers(
     return found
 
 
-def _contracts_of(package: str) -> dict[str, type]:
+def _contracts_module(package: str) -> tuple[ModuleType | None, str | None]:
+    """``(the package's contracts submodule, why it could not be imported)``:
+    ``(None, None)`` for a package with none."""
     target = f"{package}.contracts"
     try:
         if importlib.util.find_spec(target) is None:
-            return {}
+            return None, None
     except (ImportError, ValueError):
-        return {}
+        return None, None
     try:
-        module = importlib.import_module(target)
-    except (ImportError, RuntimeError, ValueError, TypeError, AttributeError):
+        return importlib.import_module(target), None
+    except (ImportError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def failed_imports(packages: Iterable[str]) -> dict[str, str]:
+    """``{package: why}`` of the packages whose ``contracts`` submodule does not
+    import: such a provider is absent from :func:`importable_providers`."""
+    failed: dict[str, str] = {}
+    for package in packages:
+        _module, why = _contracts_module(package)
+        if why is not None:
+            failed[package] = why
+    return failed
+
+
+def _contracts_of(package: str) -> dict[str, type]:
+    module, _why = _contracts_module(package)
+    if module is None:
         return {}  # an unimportable provider package is "absent" here
     out: dict[str, type] = {}
     for value in vars(module).values():
@@ -955,7 +975,10 @@ def plan_shared(
     ``consumes`` entry and every name in ``extra`` get a stub the same way,
     when a provider is importable (a provider not importable here is the
     composition's to report: it may be a remote one). An import of a stem no
-    provider declares is refused, naming the file."""
+    provider declares is refused, naming the file (and, when a module of this
+    application did not import, why: it may be the provider, waiting on a stub
+    of its own). An import of only ``<module>_dto`` gets that module's DTO
+    copies written."""
     contracts_dir = shared_dir / "contracts"
     prefix = f"{shared_package}.contracts"
     scans, out = _scan_modules(modules, prefix)
@@ -963,30 +986,33 @@ def plan_shared(
     def missing(name: str) -> bool:
         return not (contracts_dir / f"{stem_of(name)}.py").is_file()
 
-    stems_at = [
+    imported_at = [
         (package, stem, where)
         for package, plan in scans
         for stem, where in sorted(plan.imported.items())
-        if stem != "__init__"
-        and not stem.endswith("_dto")
-        and not (contracts_dir / f"{stem}.py").is_file()
+        if stem != "__init__" and not (contracts_dir / f"{stem}.py").is_file()
     ]
+    stems_at = [t for t in imported_at if not t[1].endswith("_dto")]
+    dto_at = [t for t in imported_at if t[1].endswith("_dto")]
     names_at = [
         (name, where)
         for _package, plan in scans
         for name, where in plan.names.items()
         if not is_kernel_family(name) and missing(name)
     ] + [(n, "the request") for n in extra if not is_kernel_family(n) and missing(n)]
-    if not stems_at and not names_at:
+    if not stems_at and not names_at and not dto_at:
         return out  # nothing to write: no provider is imported
     providers = importable_providers(source_root, modules)
     stems = _stems(providers, ())
     wanted: dict[str, str] = {}
+    unimportable = ""
     for package, stem, where in stems_at:
         found = stems.get(stem, [])
         if len(found) == 1:
             wanted.setdefault(found[0], where)
             continue
+        if not found and not unimportable:
+            unimportable = _unimportable_note(failed_imports(modules))
         problem = (
             f"{where}: {collision_problem(stem, found)}"
             if found
@@ -994,10 +1020,34 @@ def plan_shared(
                 f"{where}: {package} imports {prefix}.{stem}, which is not "
                 "generated and no importable provider declares a contract with "
                 "that stub name: check the contract's name, install the "
-                "provider's package, or drop the import"
+                "provider's package, or drop the import" + unimportable
             )
         )
         out.append(Planned(contracts_dir / f"{stem}.py", "", CODE, [problem]))
+    dto_stems = {
+        _dto_copies.dto_module_stem(module_name(p.package)): p.package
+        for p in providers.values()
+    }
+    dto_packages: dict[str, str] = {}
+    for package, stem, where in dto_at:
+        provider_package = dto_stems.get(stem)
+        if provider_package is None:
+            out.append(
+                Planned(
+                    contracts_dir / f"{stem}.py",
+                    "",
+                    CODE,
+                    [
+                        f"{where}: {package} imports {prefix}.{stem}, which is "
+                        "not generated and no importable provider has DTO copies "
+                        "under that name: check the module's name, install the "
+                        "provider's package, or drop the import"
+                        + _unimportable_note(failed_imports(modules))
+                    ],
+                )
+            )
+            continue
+        dto_packages.setdefault(provider_package, stem)
     for name, where in names_at:
         if name in providers:  # a provider not importable here may be remote
             wanted.setdefault(name, where)
@@ -1019,7 +1069,46 @@ def plan_shared(
             shared_package,
             shared_packages,
         )
+    for package, stem in sorted(dto_packages.items()):
+        if package in by_package:  # its DTO copies are written with its stubs
+            continue
+        # Only the DTO copies module: the stubs wait for the composed run.
+        group = [p for p in providers.values() if p.package == package]
+        planned_dto = _render_shared(
+            package, [], group, stubs, contracts_dir, shared_package, shared_packages
+        )
+        if not planned_dto:
+            out.append(
+                Planned(
+                    contracts_dir / f"{stem}.py",
+                    "",
+                    CODE,
+                    [
+                        f"{prefix}.{stem} is imported, but no DTO copies module "
+                        f"could be written for {package}: its contracts name no "
+                        "DTO of their own (drop the import), or one is refused "
+                        "(`sandloom generate` on the provider says which)"
+                    ],
+                )
+            )
+        out += planned_dto
     return out
+
+
+def _unimportable_note(failed: Mapping[str, str]) -> str:
+    """What to add to "no importable provider" when a module of this
+    application did not import: it may be the provider, waiting on a stub that
+    is not generated yet (two modules that import each other's stubs wait on
+    each other)."""
+    if not failed:
+        return ""
+    listed = "; ".join(f"{package}.contracts: {why}" for package, why in failed.items())
+    return (
+        f". A module of this application did not import ({listed}): if it is "
+        "the provider, it imports a stub that is not generated yet, and two "
+        "modules that import each other's stubs wait on each other; remove one "
+        "of the imports, run `sandloom generate`, then add it back"
+    )
 
 
 def _render_shared(

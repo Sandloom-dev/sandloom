@@ -59,7 +59,7 @@ import sys
 import types
 import typing
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -791,12 +791,18 @@ def module_surface(entry: Any) -> dict[str, Any]:
 
 
 def _contract_snapshot(
-    module: str, contracts: Mapping[str, Any], *, release: bool = False
+    module: str,
+    contracts: Mapping[str, Any],
+    *,
+    release: bool = False,
+    drafts: Collection[str] = (),
 ) -> Generated | None:
     """``contracts.snapshot.json`` of an L1 module; a breaking change of a
     released contract (``contract_compat``) is incompatible (SANDLOOM-T004).
-    A contract with no released mark is a draft: it changes freely
-    (ADR-0017); ``release`` marks every contract released."""
+    A contract with no released mark in an existing file is a draft: it
+    changes freely (ADR-0017); a file written fresh records every contract as
+    released; ``release`` marks every contract released, ``drafts`` names the
+    ones written as drafts (``--draft``)."""
     doc = contracts.get(module)
     path = _contract_compat.snapshot_path(module)
     if doc is None or path is None:
@@ -804,7 +810,7 @@ def _contract_snapshot(
     current = path.read_text(encoding="utf-8") if path.is_file() else None
     try:
         marked, released = _contract_compat.marked_snapshot(
-            doc, current, release=release
+            doc, current, release=release, drafts=drafts
         )
     except _release_marks.ReleaseMarkError as exc:
         return Generated(path, current or "", "SANDLOOM-T004", [str(exc)])
@@ -818,7 +824,12 @@ def _contract_snapshot(
 
 
 def _module_snapshots(
-    app: Any, module: str, contracts: Mapping[str, Any], *, release: bool = False
+    app: Any,
+    module: str,
+    contracts: Mapping[str, Any],
+    *,
+    release: bool = False,
+    drafts: Collection[str] = (),
 ) -> list[Generated]:
     """The route and contract snapshots of a module this project owns."""
     out: list[Generated] = []
@@ -832,7 +843,9 @@ def _module_snapshots(
         )
         routes.problems = route_problems(routes.current, routes_doc)
         out.append(routes)
-    snapshot_of_contracts = _contract_snapshot(module, contracts, release=release)
+    snapshot_of_contracts = _contract_snapshot(
+        module, contracts, release=release, drafts=drafts
+    )
     if snapshot_of_contracts is not None:
         out.append(snapshot_of_contracts)
     return out
@@ -963,23 +976,41 @@ def _stem_collisions(facade: Any, shared_dir: Path | None) -> list[Generated]:
     ]
 
 
-def _exported_problems(
-    channel: str, committed: str | None, schema: Mapping[str, Any]
-) -> list[str]:
-    """T005 problems of an installed producer's event against the schema this
-    application exported earlier: compared only when that was released (its
-    mark is not ``0``; a file with no mark is legacy, so released)."""
+def _exported_state(
+    channel: str, committed: str | None
+) -> tuple[dict[str, Any] | None, int, list[str]]:
+    """``(the schema this application exported earlier, its revision, the
+    problems of its mark)``: ``None`` and ``0`` for no file."""
     previous = json.loads(committed) if committed else None
     try:
         mark = _release_marks.exported_mark(previous, where=f"{channel}.json")
     except _release_marks.ReleaseMarkError as exc:
-        return [f"{channel}: {exc}"]
-    if previous is None or not mark:
-        return []
-    return [
-        f"{channel}: {p}"
-        for p in schema_problems(_release_marks.without_mark(previous), schema)
-    ]
+        return previous, 0, [f"{channel}: {exc}"]
+    return previous, mark or 0, []
+
+
+def _installed_event_file(
+    channel: str,
+    file: Generated,
+    schema: Mapping[str, Any],
+    package_mark: int,
+) -> None:
+    """An installed producer's event, as this application exports it. Its
+    events count as published whatever the package marks (ADR-0017): the
+    schema this application exported earlier is always compared (T005), and
+    the mark written never goes below that file's, the package's, or ``1``."""
+    previous, mark, problems = _exported_state(channel, file.current)
+    file.problems += problems
+    if previous is not None and not problems:
+        file.problems += [
+            f"{channel}: {p}"
+            for p in schema_problems(_release_marks.without_mark(previous), schema)
+        ]
+    file.content = _dump(
+        _release_marks.with_mark(
+            schema, max(mark, package_mark, _release_marks.FIRST_REVISION)
+        )
+    )
 
 
 def _event_files(
@@ -989,36 +1020,58 @@ def _event_files(
     *,
     owned: bool,
     release: bool,
+    drafts: Collection[str] = (),
 ) -> tuple[Generated, list[Generated]]:
     """A module's snapshot with the verdict on its events, and the exported
     schema file of each event (none without a shared directory).
 
-    ``doc`` gets its ``released`` map. An event with no mark is a draft: it is
-    rewritten freely, with nothing to compare. An installed package's marks are
-    its own (it ships its snapshot), so ``release`` moves only an owned module's.
-    """
+    ``doc`` gets its ``released`` map. An event that an existing snapshot does
+    not mark is a draft: it is rewritten freely, with nothing to compare; a
+    snapshot written fresh records every event as released, and ``drafts``
+    names the events written as drafts. An installed package's marks are its
+    own (it ships its snapshot): ``release`` and ``drafts`` move only an owned
+    module's, and the events of an installed package are always compared with
+    this application's exported copy (:func:`_installed_event_file`). The
+    returned snapshot of an installed module is never written: it only carries
+    the problems of the package's own marks."""
     committed = path.read_text(encoding="utf-8") if path.is_file() else None
     old_doc = json.loads(committed) if committed else None
     before = (old_doc or {}).get("events") or {}
     problems: list[str] = []
     try:
         released = _release_marks.old_marks(old_doc, before, where=MODULE_SNAPSHOT)
+        marks = (
+            _release_marks.next_marks(
+                released,
+                before,
+                doc["events"],
+                release=release,
+                fresh=old_doc is None,
+                drafts=drafts,
+            )
+            if owned
+            else released
+        )
     except _release_marks.ReleaseMarkError as exc:
         problems.append(str(exc))
-        released = {}
-    marks = (
-        _release_marks.next_marks(released, before, doc["events"], release=release)
-        if owned
-        else released
-    )
+        released = marks = {}
     doc[_release_marks.RELEASED] = marks
-    snapshot = Generated(path, _dump(doc), "SANDLOOM-T005", problems)
+    if owned:
+        snapshot = Generated(path, _dump(doc), "SANDLOOM-T005", problems)
+    else:
+        snapshot = Generated(
+            path,
+            committed or "",
+            "SANDLOOM-T005",
+            [f"{doc['module']}: {p}" for p in problems],
+        )
     exported: list[Generated] = []
     for channel, schema in doc["events"].items():
-        previous = before.get(channel) if channel in released else None
-        snapshot.problems += [
-            f"{channel}: {p}" for p in schema_problems(previous, schema)
-        ]
+        if owned:
+            previous = before.get(channel) if channel in released else None
+            snapshot.problems += [
+                f"{channel}: {p}" for p in schema_problems(previous, schema)
+            ]
         if shared_dir is None:
             continue
         file = Generated(
@@ -1027,7 +1080,7 @@ def _event_files(
             "SANDLOOM-T005",
         )
         if not owned:
-            file.problems += _exported_problems(channel, file.current, schema)
+            _installed_event_file(channel, file, schema, marks.get(channel, 0))
         exported.append(file)
     return snapshot, exported
 
@@ -1042,12 +1095,16 @@ def plan(
     format_dto: Callable[[str, Path], str] | None = None,
     consumed_only: bool = False,
     release: bool = False,
+    drafts: Collection[str] = (),
 ) -> list[Generated]:
     """Every generated file of the app's L1 modules, with its verdict.
 
-    A contract or event with no released mark is a draft: it changes freely.
-    ``release`` (``sandloom release``) marks every contract and event of the
-    modules this project owns released (ADR-0017).
+    A contract or event that an existing snapshot file does not mark released
+    is a draft: it changes freely. A snapshot file written fresh records every
+    entry as released. ``release`` (``sandloom release``) marks every contract
+    and event of the modules this project owns released; ``drafts``
+    (``generate --draft``: contract names, channels, or a module's name for
+    all of its own) are written as drafts instead (ADR-0017).
 
     The application's consumer side (contract stubs, DTO copies, exported
     event schemas) is generated for every composed module into ``shared_dir``
@@ -1083,12 +1140,26 @@ def plan(
             facade.module_settings.records(),
         )
         snapshot, exported = _event_files(
-            doc, directory / MODULE_SNAPSHOT, shared_dir, owned=owned, release=release
+            doc,
+            directory / MODULE_SNAPSHOT,
+            shared_dir,
+            owned=owned,
+            release=release,
+            drafts=_drafted(drafts, entry.name, doc["events"]),
         )
         out += exported
-        if owned:
+        if owned or snapshot.problems:
             out.append(snapshot)
-            out += _module_snapshots(app, entry.name, contracts, release=release)
+        if owned:
+            out += _module_snapshots(
+                app,
+                entry.name,
+                contracts,
+                release=release,
+                drafts=_drafted(
+                    drafts, entry.name, contracts.get(entry.name, {}).get("contracts", {})
+                ),
+            )
         if shared_dir is not None and shared_package is not None:
             out += _contract_files(
                 entry,
@@ -1102,6 +1173,26 @@ def plan(
     if modules is None and shared_dir is not None:
         out += _declared_files(app, shared_dir)
     return out
+
+
+def _drafted(drafts: Collection[str], module: str, names: Iterable[str]) -> set[str]:
+    """The entries among ``names`` (a module's contracts or channels) that
+    ``--draft`` names: each alone, or all of them by the module's name or
+    import path."""
+    if module in drafts or module_name(module) in drafts:
+        return set(names)
+    return set(names) & set(drafts)
+
+
+def unknown_drafts(app: Any, drafts: Collection[str]) -> list[str]:
+    """The ``--draft`` names that are no composed module, contract or event."""
+    known: set[str] = set()
+    snapshots = _contract_compat.module_snapshots(app.state.core)
+    for entry in app.state.app_manifest.modules:
+        known |= {entry.name, module_name(entry.name)}
+        known |= {e.channel for e in entry.events if e.role == "producer"}
+        known |= set(snapshots.get(entry.name, {}).get("contracts", {}))
+    return sorted(set(drafts) - known)
 
 
 def _consumed_union(manifest: Any, source_root: Path | None) -> set[str] | None:
@@ -1201,9 +1292,11 @@ _FIXES = {
     "it, then run `sandloom routes snapshot --write` (the snapshot diff records the "
     "approval)",
     "SANDLOOM-T004": "a breaking change of a released contract is a new major: "
-    "`sandloom generate --new-major <name>` copies it to .v2 beside it",
+    "restore .vN as released, run `sandloom generate --new-major <name>` (it "
+    "copies it to .v(N+1) beside it), then edit the copy",
     "SANDLOOM-T005": "a breaking change of a released event is a new major: "
-    "`sandloom generate --new-major <name>` copies it to .v2 beside it",
+    "restore .vN as released, run `sandloom generate --new-major <name>` (it "
+    "copies it to .v(N+1) beside it), then edit the copy",
     "SANDLOOM-T007": "a breaking contract change is a new version (.v2)",
     "SANDLOOM-T018": "install the provider as a development dependency or commit "
     "its generated copy, and state each consumed contract's methods in "
@@ -1288,12 +1381,26 @@ def apply(
     return 0
 
 
+def _module_directory(rules: Any, short: str) -> Path | None:
+    """The package directory of module ``short`` (the first segment of a
+    contract or channel name): the directory of that name in an application,
+    ``src/sandloom_tenancy`` for ``tenancy`` in a tree of top-level packages."""
+    for directory_name in rules.business_modules():
+        if short in (
+            directory_name,
+            module_name(rules.module_package(directory_name)),
+        ):
+            return Path(rules.modules_path / directory_name)
+    return None
+
+
 def _new_major(rules: Any, name: str) -> int:
     """``--new-major``: copy a released contract or event to its next major in
     the module's source (before the app loads, so the copy is composed)."""
-    directory = rules.modules_path / name.split(".", 1)[0]
-    if not (directory / "__init__.py").is_file():
-        print(f"sandloom generate: no module {name.split('.', 1)[0]!r} for {name}")
+    short = name.split(".", 1)[0]
+    directory = _module_directory(rules, short)
+    if directory is None:
+        print(f"sandloom generate: no module {short!r} for {name}")
         return 2
     try:
         written = _new_major_copy.new_major(directory, name)
@@ -1340,10 +1447,23 @@ def main(argv: list[str] | None = None) -> int:
         help="copy the released contract or event NAME (m.x.v1) to the next "
         "major (m.x.v2) beside it, then generate",
     )
+    parser.add_argument(
+        "--draft",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="write the contract or event NAME, or every one of module NAME, "
+        "as a draft (never compared with a release; ADR-0017): for what you "
+        "know was never released, written into the snapshot files; refused "
+        "for a released one. Repeatable",
+    )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
-    if args.check and (args.release or args.new_major):
-        print("sandloom generate: --release and --new-major write; drop --check")
+    if args.check and (args.release or args.new_major or args.draft):
+        print(
+            "sandloom generate: --release, --draft and --new-major write; "
+            "drop --check"
+        )
         return 2
     rules = load_rules(args.root / "architecture_rules.yml")
     if str(rules.source_root) not in sys.path:
@@ -1386,6 +1506,13 @@ def main(argv: list[str] | None = None) -> int:
     if unknown:
         print(f"sandloom generate: no composed module named {', '.join(unknown)}")
         return 2
+    ghosts = unknown_drafts(app, args.draft)
+    if ghosts:
+        print(
+            "sandloom generate: --draft names no module, contract or event: "
+            + ", ".join(ghosts)
+        )
+        return 2
     consumed_only = not rules.top_level_modules
     files = plan(
         app,
@@ -1396,8 +1523,9 @@ def main(argv: list[str] | None = None) -> int:
         # A named provider can publish its first stub before any caller exists.
         consumed_only=consumed_only and not args.modules,
         release=args.release,
+        drafts=args.draft,
     ) + _consumer_plan(app, rules, planned, args.modules or None)
-    return _inspection_generation.finish(
+    code = _inspection_generation.finish(
         rules=rules,
         app=app,
         selected=files,
@@ -1412,12 +1540,22 @@ def main(argv: list[str] | None = None) -> int:
                 shared_package=rules.shared_dto_package,
                 consumed_only=consumed_only,
                 release=args.release,
+                drafts=args.draft,
             )
             + _consumer_plan(app, rules, planned, None)
         ),
         make_file=Generated,
         apply_files=apply,
     )
+    if code and args.new_major:
+        print(
+            f"sandloom generate: {args.new_major} was copied to "
+            f"{_new_major_copy.next_major_name(args.new_major)} in the source; the "
+            f"generated files are written once {args.new_major} is restored as "
+            "released (the message above says what differs), then run "
+            "`sandloom generate`"
+        )
+    return code
 
 
 __all__ = [

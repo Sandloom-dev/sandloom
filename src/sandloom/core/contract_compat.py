@@ -38,7 +38,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,19 +98,34 @@ def render_snapshot(doc: Mapping[str, Any]) -> str:
 
 
 def marked_snapshot(
-    doc: Mapping[str, Any], current: str | None, *, release: bool = False
+    doc: Mapping[str, Any],
+    current: str | None,
+    *,
+    release: bool = False,
+    drafts: Collection[str] = (),
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """``(the document to write, the committed contracts to compare it with)``
     (ADR-0017). The document carries its ``released`` map, computed from the
-    committed text ``current`` (``None``: no file, so every contract is a
-    draft); ``release`` marks every contract released. Only the committed
-    contracts that were released are compared (T004): a draft changes freely.
+    committed text ``current``. A file written fresh (``None``: none is
+    committed) records every contract as released: a deleted or moved file
+    never loosens what was protected. A contract new to an existing file is a
+    draft; ``drafts`` names the contracts written as drafts, ``release`` marks
+    every contract released. Only the committed contracts that were released
+    are compared (T004): a draft changes freely.
     Raises :class:`~sandloom.core.descriptors.release_marks.ReleaseMarkError`
-    for a committed mark that is not a revision."""
+    for a committed mark that is not a revision, or a released contract named
+    in ``drafts``."""
     committed = json.loads(current) if current else None
     before = (committed or {}).get("contracts", {})
     released = _marks.old_marks(committed, before, where=SNAPSHOT_FILENAME)
-    marks = _marks.next_marks(released, before, doc["contracts"], release=release)
+    marks = _marks.next_marks(
+        released,
+        before,
+        doc["contracts"],
+        release=release,
+        fresh=committed is None,
+        drafts=drafts,
+    )
     return (
         {**doc, _marks.RELEASED: marks},
         _marks.strict_entries(released, before),

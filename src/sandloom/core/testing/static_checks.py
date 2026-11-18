@@ -71,6 +71,7 @@ from sandloom.core.testing.migrations import (
     migration_chains,
     model_tables,
     tables_created_by,
+    tables_ever_created_by,
     uncovered_by_chain,
 )
 
@@ -139,7 +140,12 @@ def chain_problems(core: Any = None, *, skipped: Container[str] = ()) -> list[st
     ``skipped`` (:func:`skipped_chains`): chains whose coverage and ownership
     are not checked (their models changed where no revision can be written).
     No table may be created by two chains, on every database: that reads the
-    revisions only."""
+    revisions only, and counts every table a chain's ``upgrade()`` ever
+    creates, one a later revision drops or renames away included (the order
+    the chains run in decides whether the other chain's create then fails).
+    Ownership ("no loaded model declares it", "belongs to another chain")
+    reads the tables a chain has after its revisions ran
+    (:func:`tables_created_by`)."""
     chains = migration_chains(core)
     problems = [
         problem
@@ -148,15 +154,19 @@ def chain_problems(core: Any = None, *, skipped: Container[str] = ()) -> list[st
         )
     ]
     owners = model_tables(core)
-    seen: dict[str, str] = {}
+    ever: dict[str, str] = {}
     for chain in chains:
-        for table in sorted(tables_created_by(chain)):
-            if table in seen and seen[table] != chain.key:
+        for table in sorted(tables_ever_created_by(chain)):
+            if table in ever and ever[table] != chain.key:
                 problems.append(
-                    f"table {table} is created by two chains, {seen[table]!r} and "
+                    f"table {table} is created by two chains, {ever[table]!r} and "
                     f"{chain.key!r} — a table belongs to the module that "
                     "declares its model; drop it from the other chain (SANDLOOM-T002)"
                 )
+            ever.setdefault(table, chain.key)
+    seen: dict[str, str] = {}
+    for chain in chains:
+        for table in sorted(tables_created_by(chain)):
             seen.setdefault(table, chain.key)
     for table, key in sorted(seen.items()):
         owner = owners.get(table)

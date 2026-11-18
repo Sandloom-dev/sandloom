@@ -47,6 +47,7 @@ def chains(monkeypatch: pytest.MonkeyPatch) -> Any:
         "tags": {"shared_rows", "tags_orphans"},
     }
     monkeypatch.setattr(checks, "tables_created_by", lambda c: created[c.key])
+    monkeypatch.setattr(checks, "tables_ever_created_by", lambda c: created[c.key])
     monkeypatch.setattr(
         checks,
         "model_tables",

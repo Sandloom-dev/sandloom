@@ -20,7 +20,8 @@ Subcommands:
                          exported event schemas) after the compatibility
                          checks (see sandloom.core.cli.generated);
                          `--new-major <name>` copies a released contract or
-                         event to its next major beside it
+                         event to its next major beside it; `--draft <name>`
+                         writes a contract, event or module as a draft
     sandloom release          generate, and mark every contract and event of
                          this project released: from then on a breaking change
                          of one is a new major (ADR-0017)

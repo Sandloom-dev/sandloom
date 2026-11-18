@@ -6,16 +6,24 @@ A snapshot file records which of its entries are *released* with a revision.
 ``released`` map (``{name: revision}``); an application's exported event file
 holds ``x-sandloom-released`` (the revision of its one channel, ``0`` a draft).
 
-- an entry with no mark is a **draft**: rewritten freely, no T004 / T005;
+- an entry that an existing file lists as a draft (no mark, with the
+  ``released`` key present) or that is new to an existing file is a **draft**:
+  rewritten freely, no T004 / T005. A draft is never inferred from a missing
+  file: it is named, by the command that creates it (``sandloom new``'s sample,
+  ``add module``, ``add contract``, ``add event``) or by
+  ``sandloom generate --draft NAME``;
 - a **released** entry keeps the strict rule; a compatible change of it moves
-  its revision by one (computed here, never typed);
-- a file written before the marks existed has no key at all: **legacy**, its
-  entries count as released at revision 1, so an upgrade loosens nothing.
+  its revision by one (computed by ``sandloom generate``; the number is not
+  verified against any history, so a hand edit changes only the number);
+- a snapshot file written fresh (none committed: deleted, moved, never
+  generated) records every current entry as released at revision 1, so a lost
+  file loosens nothing; a file written before the marks existed has no key at
+  all: **legacy**, its entries count as released at revision 1 as well.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 #: The key of the ``{name: revision}`` map in a module's snapshot files.
@@ -30,10 +38,10 @@ class ReleaseMarkError(ValueError):
     """A mark in a committed file is not a revision."""
 
 
-def _revision(value: object, where: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+def _revision(value: object, where: str, *, lowest: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < lowest:
         raise ReleaseMarkError(
-            f"{where}: a revision is a whole number of 1 or more, got {value!r}"
+            f"{where}: a revision is a whole number of {lowest} or more, got {value!r}"
         )
     return value
 
@@ -42,9 +50,10 @@ def old_marks(
     document: Mapping[str, Any] | None, entries: Mapping[str, Any], *, where: str
 ) -> dict[str, int]:
     """The released names of a committed snapshot ``document`` (``None``: no
-    file yet, so nothing is released). ``entries`` are the names the document
+    file is committed, so there is no baseline to compare with: the file is
+    written fresh, :func:`next_marks`). ``entries`` are the names the document
     lists: a document with no ``released`` key is legacy and releases them all
-    at revision 1. An entry the map lists with ``0`` is a draft."""
+    at revision 1. An entry the map lists with ``0`` is refused."""
     if document is None:
         return {}
     if RELEASED not in document:
@@ -52,14 +61,17 @@ def old_marks(
     found = document[RELEASED]
     if not isinstance(found, dict):
         raise ReleaseMarkError(f"{where}: 'released' must be an object of revisions")
-    marks = {str(n): _revision(r, f"{where}: {n}") for n, r in found.items()}
-    zero = [name for name, revision in marks.items() if revision == 0]
+    zero = [
+        str(n)
+        for n, r in found.items()
+        if r == 0 and isinstance(r, int) and not isinstance(r, bool)
+    ]
     if zero:
         raise ReleaseMarkError(
             f"{where}: {', '.join(sorted(zero))} marked released at revision 0; a "
             "draft has no entry in 'released'"
         )
-    return marks
+    return {str(n): _revision(r, f"{where}: {n}", lowest=1) for n, r in found.items()}
 
 
 def next_marks(
@@ -68,16 +80,33 @@ def next_marks(
     after: Mapping[str, Any],
     *,
     release: bool,
+    fresh: bool = False,
+    drafts: Collection[str] = (),
 ) -> dict[str, int]:
     """The marks to write: a released name keeps its mark, one revision up
     when its entry changed (a compatible change: the caller refused a breaking
     one already); a draft becomes released when ``release``. A name that is
-    gone loses its mark."""
+    gone loses its mark.
+
+    ``fresh``: no file is committed, so there is nothing to tell a draft from a
+    release: every current name is recorded as released (a deleted or moved
+    file never loosens what was protected). ``drafts`` are the names written
+    as drafts instead, whatever ``release`` and ``fresh`` say: a draft is only
+    ever named. A name that is released in the committed file cannot be named:
+    :class:`ReleaseMarkError`."""
     marks: dict[str, int] = {}
+    held = sorted(n for n in drafts if n in old)
+    if held:
+        raise ReleaseMarkError(
+            f"{', '.join(held)} is released: a released name is not made a draft "
+            "by `--draft` (a new major, `.v(N+1)`, is the way to change it)"
+        )
     for name, entry in after.items():
         revision = old.get(name)
+        if name in drafts:
+            continue
         if revision is None:
-            if release:
+            if release or fresh:
                 marks[name] = FIRST_REVISION
             continue
         marks[name] = revision + (0 if before.get(name) == entry else 1)
@@ -103,7 +132,7 @@ def exported_mark(schema: Mapping[str, Any] | None, *, where: str) -> int | None
         return None
     if EVENT_MARK not in schema:
         return FIRST_REVISION
-    return _revision(schema[EVENT_MARK], where)
+    return _revision(schema[EVENT_MARK], where, lowest=0)
 
 
 def without_mark(schema: Mapping[str, Any]) -> dict[str, Any]:

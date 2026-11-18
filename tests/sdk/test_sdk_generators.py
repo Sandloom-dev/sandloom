@@ -86,7 +86,10 @@ def _app(tmp_path: Path, *, everything: bool = True) -> Path:
             add.add_task("stats", "purge", where, periodic="0 3 * * *")
             add.add_task("stats", "rollup", where, periodic="*/15 * * * *")
             add.add_task("notes", "reindex", where)
-        code, output = add.run_generate(root)  # what `sandloom add` runs last
+        # What `sandloom add` runs last, naming what it created as drafts.
+        code, output = add.run_generate(
+            root, *add.draft_options(add.own_modules(root))
+        )
         assert code == 0, output
     return root
 
@@ -747,7 +750,7 @@ def _app_with_provider(tmp_path: Path) -> tuple[Path, add.Layout]:
     where = add.layout(root)
     add.add_module("stats", where)
     add.add_contract("stats", "quota", where)
-    code, output = add.run_generate(root)
+    code, output = add.run_generate(root, *add.draft_options(add.own_modules(root)))
     assert code == 0, output
     return root, where
 
@@ -1009,3 +1012,130 @@ def test_new_major_refuses_a_draft_an_unknown_name_and_a_check_run(
     code, output = add.run_generate(root, "--new-major", "stats.quota.v1", "--check")
     assert code == 2 and "drop --check" in output
     assert contracts.read_text() == before
+
+
+def test_a_released_contract_stays_protected_when_its_snapshot_file_is_gone(
+    tmp_path: Path,
+) -> None:
+    """A draft is explicit, never inferred from a missing file: the file written
+    again records the current contract as released, so the next break is T004."""
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    (root / "probe" / "modules" / "stats" / "contracts.snapshot.json").unlink()
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    released = _snapshot(root, "stats", "contracts.snapshot.json")["released"]
+    assert released == {"stats.quota.v1": 1}
+    _edit(root / "probe" / "modules" / "stats" / "contracts.py", _DROP_RECORD, "")
+    code, output = add.run_generate(root)
+    assert code == 1 and "SANDLOOM-T004" in output, output
+
+
+def test_a_released_event_stays_protected_when_its_snapshot_file_is_gone(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    (root / "probe" / "modules" / "notes" / "module.snapshot.json").unlink()
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    released = _snapshot(root, "notes", "module.snapshot.json")["released"]
+    assert released == {"notes.note.archived.v1": 1, "notes.item.created.v1": 1}
+    _edit(root / "probe" / "modules" / "notes" / "events.py", "    reason: str\n", "")
+    code, output = add.run_generate(root)
+    assert code == 1 and "SANDLOOM-T005" in output, output
+
+
+def test_draft_writes_a_named_entry_as_a_draft_in_a_fresh_file(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    (root / "probe" / "modules" / "stats" / "contracts.snapshot.json").unlink()
+    code, output = add.run_generate(root, "--draft", "stats.quota.v1")
+    assert code == 0, output
+    assert _snapshot(root, "stats", "contracts.snapshot.json")["released"] == {}
+    # A draft changes freely, as before.
+    _edit(root / "probe" / "modules" / "stats" / "contracts.py", _DROP_RECORD, "")
+    assert add.run_generate(root)[0] == 0
+
+
+def test_draft_refuses_a_released_entry_and_an_unknown_name_and_a_check_run(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    snapshot = root / "probe" / "modules" / "stats" / "contracts.snapshot.json"
+    before = snapshot.read_text()
+    code, output = add.run_generate(root, "--draft", "stats.quota.v1")
+    assert code != 0 and "stats.quota.v1 is released" in output, output
+    code, output = add.run_generate(root, "--draft", "stats.ghost.v1")
+    assert code == 2 and "names no module, contract or event" in output, output
+    assert "stats.ghost.v1" in output
+    code, output = add.run_generate(root, "--draft", "stats.quota.v1", "--check")
+    assert code == 2 and "drop --check" in output, output
+    assert snapshot.read_text() == before
+
+
+def test_new_major_after_a_refused_break_says_where_the_copy_went(
+    tmp_path: Path,
+) -> None:
+    """The T004 hint names `--new-major`; run against a tree whose contract is
+    already broken it copies the broken declaration, and says that the generated
+    files wait until the old major is restored."""
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    contracts = root / "probe" / "modules" / "stats" / "contracts.py"
+    _edit(contracts, _DROP_RECORD, "")
+    assert add.run_generate(root)[0] == 1
+    code, output = add.run_generate(root, "--new-major", "stats.quota.v1")
+    assert code != 0 and "stats.quota.v2" in output, output
+    assert "restored as released" in output, output
+
+
+def test_a_module_that_imports_only_the_dto_copies_gets_them_written(
+    tmp_path: Path,
+) -> None:
+    """A module imports ``<module>_dto`` before any generate wrote it: the DTO
+    copies are planned from the provider, not refused as an unknown stem."""
+    root, where = _app_with_provider(tmp_path)
+    add.add_module("reports", where)
+    shared = root / "probe" / "shared" / "contracts"
+    dto = next(shared.glob("stats*_dto.py"))
+    dto.unlink()
+    init = root / "probe" / "modules" / "reports" / "__init__.py"
+    init.write_text(
+        f"from probe.shared.contracts.{dto.stem} import *  # noqa: F401,F403\n"
+        + init.read_text(),
+        encoding="utf-8",
+    )
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    assert dto.is_file()
+
+
+def test_two_modules_importing_each_others_stubs_are_told_why(
+    tmp_path: Path,
+) -> None:
+    """Neither provider imports until the other's stub exists: the refusal names
+    that, not only "no importable provider"."""
+    root = _app(tmp_path, everything=False)
+    where = add.layout(root)
+    add.add_module("alpha", where)
+    add.add_module("beta", where)
+    add.add_contract("alpha", "one", where)
+    add.add_contract("beta", "two", where)
+    code, output = add.run_generate(root, *add.draft_options(add.own_modules(root)))
+    assert code == 0, output
+    shared = root / "probe" / "shared" / "contracts"
+    for module, other in (("alpha", "beta_two_v1"), ("beta", "alpha_one_v1")):
+        path = root / "probe" / "modules" / module / "contracts.py"
+        path.write_text(
+            f"from probe.shared.contracts.{other} import *  # noqa: F401,F403\n"
+            + path.read_text(),
+            encoding="utf-8",
+        )
+        (shared / f"{other}.py").unlink()
+    code, output = add.run_generate(root)
+    assert code != 0
+    assert "wait on each other" in output, output

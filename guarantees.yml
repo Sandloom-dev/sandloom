@@ -4113,11 +4113,14 @@ guarantees:
   - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_remote_claims_contract_under_strict
   - src/sandloom/core/tests/test_contract_compat_expectations.py::test_expectations_are_read_at_startup_only
 - id: G-COMPAT-09
-  statement: 'A contract or exported event is a draft until sandloom release marks it released (the released map
-    of contracts.snapshot.json and module.snapshot.json, x-sandloom-released in an exported event file): sandloom
-    generate rewrites a draft whatever the change, with no SANDLOOM-T004 or T005, and compares only released
-    entries, where a compatible change moves the revision by one. A file with no released key counts as released
-    at revision 1 (a snapshot written before the marks), a mark that is not a revision is refused, and
+  statement: 'A contract or exported event is a draft only where a command made it one (sandloom new sample, sandloom
+    add, a new entry in an existing snapshot file, or sandloom generate --draft) until sandloom release marks it
+    released (the released map of contracts.snapshot.json and module.snapshot.json, x-sandloom-released in an
+    exported event file): sandloom generate rewrites a draft whatever the change, with no SANDLOOM-T004 or T005,
+    and compares only released entries, where a change moves the revision by one. A draft is never inferred
+    from absence: a snapshot file written fresh records every entry as released, a file with no released key
+    counts as released at revision 1 (a snapshot written before the marks), the events of an installed package
+    always count as published, a mark that is not a revision is refused, and --draft refuses a released name.
     sandloom generate --new-major copies a released contract or event to the next major beside the old one and
     refuses a draft, an unknown name or a --check run. Nothing reads git, a tag or a remote.'
   sources:
@@ -4135,6 +4138,13 @@ guarantees:
   - tests/sdk/test_sdk_generators.py::test_new_major_copies_a_released_contract_beside_the_old_one
   - tests/sdk/test_sdk_generators.py::test_new_major_copies_a_released_event
   - tests/sdk/test_sdk_generators.py::test_new_major_refuses_a_draft_an_unknown_name_and_a_check_run
+  - src/sandloom/core/tests/test_release_marks.py::test_a_file_written_fresh_records_every_entry_as_released
+  - src/sandloom/core/tests/test_release_marks.py::test_a_released_entry_is_not_made_a_draft_by_naming_it
+  - src/sandloom/core/tests/test_release_marks.py::test_an_installed_producers_break_is_refused_whatever_the_package_marks
+  - tests/sdk/test_sdk_generators.py::test_a_released_contract_stays_protected_when_its_snapshot_file_is_gone
+  - tests/sdk/test_sdk_generators.py::test_a_released_event_stays_protected_when_its_snapshot_file_is_gone
+  - tests/sdk/test_sdk_generators.py::test_draft_writes_a_named_entry_as_a_draft_in_a_fresh_file
+  - tests/sdk/test_sdk_generators.py::test_draft_refuses_a_released_entry_and_an_unknown_name_and_a_check_run
 - id: G-RPC-01
   statement: 'The request key K_req is HKDF-SHA256 over the X25519 agreement of caller and provider with
     a role-ordered, direction-labelled info naming both services and kids: both sides derive the same

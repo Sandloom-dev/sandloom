@@ -173,7 +173,12 @@ no broker.
 incompatible change from the first snapshot on. A contract or event written a
 minute ago could not be reshaped without a new `.vN`. They now refuse the
 change only for one marked released ([ADR-0017](../adr/0017-released-marks.md)).
-An unmarked one is a draft that `sandloom generate` rewrites freely.
+A draft is something a command created as one: the sample of `sandloom new`, what
+`sandloom add module`, `contract` and `event` create, a new entry in a snapshot
+file that exists, or a name you pass to `sandloom generate --draft`.
+`sandloom generate` rewrites a draft freely. A draft is never inferred from a
+missing file: a snapshot file that does not exist is written with every current
+entry released.
 
 What to do:
 
@@ -183,23 +188,34 @@ What to do:
    `module.snapshot.json`, and `x-sandloom-released` to each exported event
    file. `sandloom test` reports those files as stale until it runs. Commit the
    result.
-2. In a new project, or for a contract or event you add later, run
-   `uv run sandloom release` when its shape is published. It marks everything the
-   project declares as released and writes the snapshots. It reads nothing from
-   git.
-3. A breaking change to a released contract or event is a new major.
-   `uv run sandloom generate --new-major <name>` copies it to `.v2` beside the
-   old one. It refuses a draft, an unknown name and a `--check` run.
+2. When a contract or event you created is published, run
+   `uv run sandloom release`. It marks everything the project declares as
+   released and writes the snapshots. It reads nothing from git. A name that was
+   never published but sits in a released file is made a draft with
+   `uv run sandloom generate --draft <name>` (a contract, an event, or a module
+   for all of its own); the command refuses a name that is released.
+3. A breaking change to a released contract or event is a new major. Restore the
+   released `.vN` declaration first, run
+   `uv run sandloom generate --new-major <name>` to copy it to `.v2` beside the
+   old one, then edit the copy. The command refuses a draft, an unknown name and
+   a `--check` run. A contract copy reuses the old major's DTO classes: give it
+   its own before the two diverge.
+
+An installed module package's events always count as published in your
+application: the exported copy is compared on every generate whatever the
+package marks.
 
 `sandloom docs <name>` prints `release: draft` or `release: released, revision N`
-for a contract or event. The revision rises by one with each compatible change of
-a released entry.
+for a contract or event. The revision rises by one with each change `generate`
+sees in a released entry; it is not verified against any history.
 
 Two nearby changes ship with it. An application's consumer stub is written
 before the consumer's first use (`uv run sandloom add contract-use <module>
 <contract>` declares the use and writes it). `SANDLOOM-T002` replays the
-migration chain, so a table a later revision drops no longer counts as created,
-and `SANDLOOM-T012` names the unique key that already covers the plain index.
+migration chain, so a table a later revision drops no longer counts as created
+(a table created by two chains is still reported, whichever chain later drops
+it), and `SANDLOOM-T012` names the unique key that already covers the plain
+index.
 
 ## Upgrading to 0.7.0a15: the volatile event bus driver is `broadcast`
 

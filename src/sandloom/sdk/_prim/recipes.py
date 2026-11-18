@@ -711,7 +711,8 @@ org-gate`).''',
 renamed or retyped field, a new required field or a changed meaning is
 breaking: once the event is released (`sandloom release`; a draft changes
 freely) `sandloom generate` refuses it on the same `.vN` (SANDLOOM-T005).
-`sandloom generate --new-major <channel>` copies the released class to `.v2`. Roll to `.v2`:
+With the released class restored, `sandloom generate --new-major <channel>` copies it to
+`.v2`; edit the copy. Roll to `.v2`:
 
 1. Declare v2 next to v1 and publish both in one unit
    (`publish_event_versions`: every version is checked against its schema,

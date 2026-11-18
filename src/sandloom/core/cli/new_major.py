@@ -7,6 +7,11 @@ module's source (a ``@contract("m.x.v1")`` class, an ``Event`` class with
 ``channel="m.x.v1"``) is copied under the next major, with the class renamed,
 and left to be edited. The old declaration stays untouched, so both are
 served. Nothing is read from git: the snapshot files say what is released.
+
+The copy names the same DTO classes as the original, so a DTO the new major
+changes is copied by hand first (an edit of a shared DTO also changes ``.vN``,
+which is refused, SANDLOOM-T004). The declaration is copied as the source
+holds it: restore ``.vN`` as released before copying, then edit the copy.
 """
 
 from __future__ import annotations
@@ -115,6 +120,18 @@ def _snapshot_state(module_dir: Path, name: str) -> tuple[str, bool] | None:
     return None
 
 
+def next_major_name(name: str) -> str:
+    """``m.x.v2`` for ``m.x.v1``; :class:`NewMajorError` for a name that has no
+    major."""
+    match = _NAME.fullmatch(name)
+    if match is None:
+        raise NewMajorError(
+            f"{name!r} is not a versioned contract or event name such as "
+            "tenancy.membership.v1"
+        )
+    return f"{match['base']}.v{int(match['major']) + 1}"
+
+
 def _class_of(old: str, following: str) -> str:
     """``Quota`` or ``QuotaV1`` for ``m.quota.v2``: ``QuotaV2``."""
     return re.sub(r"V\d+$", "", old) + "V" + following.rsplit(".v", 1)[1]
@@ -133,13 +150,7 @@ def new_major(module_dir: Path, name: str) -> list[Path]:
     file that declares it; returns the files written. Raises
     :class:`NewMajorError` for a draft (edit it), an unknown name, an existing
     next major or a declaration that is not in exactly one place."""
-    match = _NAME.fullmatch(name)
-    if match is None:
-        raise NewMajorError(
-            f"{name!r} is not a versioned contract or event name such as "
-            "tenancy.membership.v1"
-        )
-    following = f"{match['base']}.v{int(match['major']) + 1}"
+    next_name = next_major_name(name)
     state = _snapshot_state(module_dir, name)
     if state is None:
         raise NewMajorError(
@@ -152,11 +163,11 @@ def new_major(module_dir: Path, name: str) -> list[Path]:
             f"{name} is a draft: edit it in place, nothing is released to protect "
             "(`sandloom release` marks it released)"
         )
-    if _snapshot_state(module_dir, following) is not None or _sites(
-        module_dir, following
+    if _snapshot_state(module_dir, next_name) is not None or _sites(
+        module_dir, next_name
     ):
         raise NewMajorError(
-            f"{following} exists already: edit it, it is the next major"
+            f"{next_name} exists already: edit it, it is the next major"
         )
     sites = [s for s in _sites(module_dir, name) if s.kind == kind]
     if len(sites) != 1:
@@ -164,13 +175,13 @@ def new_major(module_dir: Path, name: str) -> list[Path]:
         raise NewMajorError(
             f"{name} must be declared by one module-level class to be copied; "
             + (f"found {where}" if sites else "none was found in the source")
-            + f": write {following} by hand"
+            + f": write {next_name} by hand"
         )
     [site] = sites
     source = site.path.read_text(encoding="utf-8")
-    copy = _renamed(source, site.node, name, following)
+    copy = _renamed(source, site.node, name, next_name)
     taken = {n.name for n in ast.parse(source).body if isinstance(n, ast.ClassDef)}
-    new_class = _class_of(site.node.name, following)
+    new_class = _class_of(site.node.name, next_name)
     if new_class in taken:
         raise NewMajorError(
             f"{site.path.name} already has a class {new_class}: rename it, then repeat"
@@ -182,4 +193,4 @@ def new_major(module_dir: Path, name: str) -> list[Path]:
     return [site.path]
 
 
-__all__ = ["NewMajorError", "new_major"]
+__all__ = ["NewMajorError", "new_major", "next_major_name"]

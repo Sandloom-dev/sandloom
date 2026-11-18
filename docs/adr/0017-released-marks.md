@@ -43,15 +43,35 @@ Each snapshot file records which of its entries are released, with a revision:
 | `<module>/module.snapshot.json` | `released` | `{event channel: revision}` |
 | `<shared>/events/<channel>.json` (an application) | `x-sandloom-released` | the revision of that channel; `0` is a draft |
 
-- **An entry with no mark is a draft.** `sandloom generate` rewrites a draft freely: no T004, no
-  T005. Rewriting it moves no revision.
-- **A released entry keeps today's checks.** A breaking change fails as before, and the fix names
-  `sandloom generate --new-major <name>`.
+- **A draft is explicit, never inferred from absence.** Nothing that is protected becomes
+  unprotected because a file is missing, moved, renamed or foreign. A draft exists only where a
+  command created it (see "Where a draft comes from" below).
+- **A draft is rewritten freely** by `sandloom generate`: no T004, no T005. Rewriting it moves no
+  revision.
+- **A released entry keeps today's checks.** A breaking change fails as before. The fix is in this
+  order: restore the released `.vN` declaration, run `sandloom generate --new-major <name>`, then
+  edit the copy.
 - **The revision is computed, never typed.** A release writes revision 1. A later `sandloom
-  generate` that finds a compatible change of a released entry (an added method or optional field)
-  writes revision N+1. The revision is shown by `sandloom docs <name>`; it counts changes inside
-  one major and does not replace the major.
-- **A name added after a release is a draft** until the next release.
+  generate` that finds a change of a released entry (an added method or optional field) writes
+  revision N+1. The revision is shown by `sandloom docs <name>`; it counts the changes `generate`
+  saw inside one major and does not replace the major. It is not verified against any history: the
+  snapshot file is the only record, so a checkout that regenerates from an older file reaches an
+  older number.
+- **A name added to a snapshot file that exists is a draft** until the next release.
+
+Where a draft comes from:
+
+| source | what is a draft |
+|---|---|
+| `sandloom new` | the sample module (its contracts and events) |
+| `sandloom add module` / `contract` / `event` (and `saga`, `projection`, which declare contracts and events) | what the command created |
+| a new entry in a snapshot file that exists | that entry, until the next release |
+| `sandloom generate --draft <name>` | the named contract, event or module's entries; refused for a name that is released, and for a name that is none of them |
+
+**A snapshot file written fresh records every current entry as released** (revision 1): a deleted
+file, a renamed module directory or a module copied in from elsewhere has no committed record to
+tell a draft from a release, and the safe reading is the strict one. `--draft` is the way back for
+a project that really wants a draft; the generate commands above pass it for what they create.
 
 ### 3. `sandloom release`
 
@@ -67,8 +87,16 @@ For a released contract or event, `--new-major` copies its declaration in the mo
 the next major beside the old one: a contract class `@contract("m.x.v1")` gets a copy named for
 `m.x.v2`, an event class `channel="m.x.v1"` a copy for `m.x.v2`. The old declaration stays, so both
 are served. The copy is a draft. The command refuses a name that is a draft (edit it, there is
-nothing to protect), a name that does not exist, a channel whose next major exists, and a
-declaration it cannot find in one place of the source.
+nothing to protect), a name that does not exist, a channel whose next major exists, a declaration
+it cannot find in one place of the source, and a run with `--check` (as `--release` and `--draft`,
+it writes).
+
+The order matters when a breaking edit was already made to the released declaration: `--new-major`
+copies the declaration as it is on disk, so the copy would carry the edit. Restore the released
+`.vN` first (its snapshot file holds the released form), run `--new-major`, then edit the copy. A
+`--new-major` run on a tree whose released entry is still broken copies the broken declaration and
+says so: the generated files are written once the name is restored as released. A contract copy
+reuses the DTO classes of the old major; give the copy its own DTO before it diverges.
 
 ### 5. No git, tag or remote dependency
 
@@ -80,12 +108,20 @@ a remote.
 - **A snapshot file written before this ADR has no `released` key.** Its entries are treated as
   released at revision 1 on the next `sandloom generate`, which writes the key. Nothing that was
   protected is loosened by upgrading. A name the old file lacks is a draft.
-- **A file with the key means exactly what it says.** A missing file is new: it is written with an
-  empty `released` map.
+- **A file with the key means exactly what it says.** A missing file is not new: it is written
+  with every current entry released (see "Where a draft comes from").
 - **The snapshots in this repository** (the kernel's modules, the batteries, the packages and the
-  examples) were migrated this way, so they are released.
-- **A new project from `sandloom new`** starts with its sample module as a draft: its snapshot
-  files carry an empty `released` map. This is the only change in the scaffold's output.
+  examples) were migrated this way, so they are released. `src/sandloom_admin/module.snapshot.json`
+  has no events and was written with an empty `released` map by a generate that composes the
+  console.
+- **A new project from `sandloom new`** starts with its sample module as a draft: the scaffold
+  names it with `--draft` when it writes the generated files, so its snapshot files carry an empty
+  `released` map. The scaffold's own files, and so its manifest, are unchanged: the snapshots are
+  written by that generate, not by the scaffold.
+- **An installed module package's events always count as published.** The package ships its
+  snapshot; its marks (draft or not) do not make its events drafts in an application, and the
+  exported copy in the application is compared on every generate (T005). A package mark that is not
+  a revision is reported, not ignored.
 
 ### 7. Where the rule lives
 
@@ -103,6 +139,7 @@ T005 say draft against released.
 | A draft is a separate flag in the source (`@contract(..., draft=True)`) | the mark would live apart from the baseline it governs, and a forgotten flag silently removes a check |
 | Everything released from the first commit (the previous rule) | the friction this ADR removes: a project shaping its first module cannot change it |
 | Treat files with no `released` key as drafts | loosens every existing project on upgrade with no warning |
+| Treat a missing snapshot file as all drafts (the first revision of this ADR) | a deleted, moved or renamed file silently unprotects what a release protected; main refused that break |
 
 ## Consequences
 
@@ -110,8 +147,10 @@ T005 say draft against released.
   release`, and gets today's guarantees from then on.
 - Two writers of `contracts.snapshot.json` exist (`generate` and `contracts snapshot --write`);
   both keep the marks through the same function.
-- A revision is a count of compatible changes seen by `generate`, not a content hash. Two checkouts
-  that generate the same change independently reach the same number, and reverting a change does
-  not lower it.
+- A revision is a count of changes seen by `generate`, not a content hash. Two checkouts that
+  generate the same change independently reach the same number, and reverting a change does not
+  lower it. It is not recomputed from anything, so it is not a proof of what the entry held.
+- A hand-made snapshot file for a module that is new to a project is released unless the project
+  passes `--draft`; the creating commands do so.
 - The change is behavioural for new projects only; for existing ones the first `generate` after
   the upgrade adds the key to each snapshot (see the upgrade note).

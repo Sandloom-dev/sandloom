@@ -40,7 +40,7 @@ import json
 import keyword
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -671,6 +671,14 @@ def _class_block(
     return "\n".join(lines) + "\n"
 
 
+def event_channel(module: str, name: str) -> str:
+    """The channel ``sandloom add event <module> <Name>`` declares."""
+    channel = f"{module}.{_snake(name).replace('_', '.', 1)}.v1"
+    if channel.count(".") < 2:
+        channel = f"{module}.{_snake(name)}.v1"
+    return channel
+
+
 def add_event(module: str, name: str, where: Layout, fields: list[str]) -> list[Path]:
     """``sandloom add event <m> <Name>``: append a producer class to ``events.py``."""
     directory = _require_module(where, module)
@@ -681,9 +689,7 @@ def add_event(module: str, name: str, where: Layout, fields: list[str]) -> list[
     ]
     if not any(f[0] == "tenant_id" for f in parsed):
         parsed.append(("tenant_id", "UUID", "from uuid import UUID"))
-    channel = f"{module}.{_snake(name).replace('_', '.', 1)}.v1"
-    if channel.count(".") < 2:
-        channel = f"{module}.{_snake(name)}.v1"
+    channel = event_channel(module, name)
     path = directory / "events.py"
     needed = sorted(
         {imp for _, _, imp in parsed if imp} | {"from sandloom.sdk import Event"}
@@ -891,6 +897,39 @@ load_project_test_env(root)
 from sandloom.core.cli.generated import main
 sys.exit(main(["--root", str(root), *sys.argv[2:]]))
 """
+
+
+def own_modules(root: Path) -> list[str]:
+    """The names of the modules under the project's modules directory."""
+    try:
+        return load_rules(root / "architecture_rules.yml").business_modules()
+    except ManifestError as exc:
+        raise GeneratorError(str(exc)) from exc
+
+
+def draft_options(names: Iterable[str]) -> list[str]:
+    """``--draft NAME`` for each name: what the creating commands pass to
+    ``sandloom generate`` so what they just created is written as a draft
+    (a snapshot written fresh would record it as released, ADR-0017)."""
+    return [option for name in names for option in ("--draft", name)]
+
+
+def created_names(args: argparse.Namespace) -> list[str]:
+    """The module, contracts and events ``sandloom add <what>`` created."""
+    if args.what == "module":
+        return [args.module]
+    if args.what == "event":
+        return [event_channel(args.module, args.name)]
+    if args.what == "contract":
+        return [f"{args.module}.{args.name}.v1"]
+    if args.what == "saga":
+        return [f"{args.module}.{args.name}_ledger.v1"]
+    if args.what == "projection":
+        return [
+            f"{args.module}.{args.name}.saved.v1",
+            f"{args.module}.{args.name}.deleted.v1",
+        ]
+    return []
 
 
 def run_generate(root: Path, *options: str) -> tuple[int, str]:
@@ -1893,7 +1932,7 @@ def _generate_and_report(args: argparse.Namespace) -> int:
         print("\nAn existing file was kept; merge the *.new file by hand.")
     if note:
         print(f"\n{note}")
-    code, output = run_generate(args.root)
+    code, output = run_generate(args.root, *draft_options(created_names(args)))
     print(output.rstrip())
     if code != 0:
         print(
@@ -1919,8 +1958,11 @@ __all__ = [
     "add_saga",
     "add_skills",
     "add_task",
+    "draft_options",
+    "event_channel",
     "layout",
     "main",
+    "own_modules",
     "parse_fields",
     "run_generate",
 ]

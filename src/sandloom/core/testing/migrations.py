@@ -213,10 +213,7 @@ def tables_created_by(chain: MigrationChain) -> set[str]:
     created and dropped again is not the chain's: the advice of SANDLOOM-T002
     ("add a revision that drops it") clears the problem.
     """
-    trees = {
-        revision: ast.parse(revision.read_text(encoding="utf-8"))
-        for revision in sorted(chain.versions.glob("*.py"))
-    }
+    trees = _revision_trees(chain)
     found: set[str] = set()
     for revision in _revision_order(trees):
         for action, name, new_name in _table_ops(trees[revision]):
@@ -228,6 +225,30 @@ def tables_created_by(chain: MigrationChain) -> set[str]:
                 found.discard(name)
                 found.add(str(new_name))
     return found
+
+
+def tables_ever_created_by(chain: MigrationChain) -> set[str]:
+    """Every table any revision's ``upgrade()`` of ``chain`` creates, or renames
+    to, whether a later revision drops or renames it again: the tables a fresh
+    database gets from this chain at some point. Two chains may share none
+    (SANDLOOM-T002), moved away or not: a chain that creates and drops a table
+    still creates it, and the order the chains run in decides whether the
+    other chain's create fails."""
+    ever: set[str] = set()
+    for tree in _revision_trees(chain).values():
+        for action, name, new_name in _table_ops(tree, every_op=True):
+            if action == "create":
+                ever.add(name)
+            elif action == "rename":
+                ever.add(str(new_name))
+    return ever
+
+
+def _revision_trees(chain: MigrationChain) -> dict[Path, ast.Module]:
+    return {
+        revision: ast.parse(revision.read_text(encoding="utf-8"))
+        for revision in sorted(chain.versions.glob("*.py"))
+    }
 
 
 def _string_constants(tree: ast.AST) -> dict[str, str]:
@@ -278,37 +299,53 @@ def _revision_order(trees: dict[Path, ast.Module]) -> list[Path]:
         down = values.get("down_revision")
         if isinstance(down, str):
             parents[path] = [down]
-        elif isinstance(down, tuple):  # a merge revision
+        elif isinstance(down, tuple | list):  # a merge revision
             parents[path] = [d for d in down if isinstance(d, str)]
         else:
             parents[path] = []
     ordered: list[Path] = []
     seen: set[Path] = set()
-
-    def visit(path: Path) -> None:
-        if path in seen:
-            return
-        seen.add(path)
-        for parent in parents[path]:
-            if parent in ids:
-                visit(ids[parent])
-        ordered.append(path)
-
-    for path in trees:
-        visit(path)
+    # Iterative post-order: a linear chain of thousands of revisions must not
+    # exhaust the interpreter's recursion limit.
+    for root in trees:
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(parents[root]))]
+        while stack:
+            path, pending = stack[-1]
+            for parent in pending:
+                if parent in ids and ids[parent] not in seen:
+                    seen.add(ids[parent])
+                    stack.append((ids[parent], iter(parents[ids[parent]])))
+                    break
+            else:
+                stack.pop()
+                ordered.append(path)
     return ordered
 
 
-def _table_ops(tree: ast.Module) -> list[tuple[str, str, str | None]]:
+def _table_ops(
+    tree: ast.Module, *, every_op: bool = False
+) -> list[tuple[str, str, str | None]]:
     """``(action, table, new name)`` of the ``op.create_table`` /
     ``drop_table`` / ``rename_table`` calls of a revision, in source order,
-    outside ``downgrade()``."""
+    outside ``downgrade()``. A drop or rename counts only as an unconditional
+    top-level statement of ``upgrade()`` (a ``drop_table`` under an ``if`` may
+    not run), unless ``every_op``; a create counts wherever it is."""
     constants = _string_constants(tree)
     skipped = {
         id(inner)
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef) and node.name == "downgrade"
         for inner in ast.walk(node)
+    }
+    unconditional = {
+        id(statement.value)
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
+        for statement in node.body
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
     }
 
     def text(node: ast.expr | None) -> str | None:
@@ -323,7 +360,12 @@ def _table_ops(tree: ast.Module) -> list[tuple[str, str, str | None]]:
         key=lambda n: (n.lineno, n.col_offset),
     )
     ops = (_table_op(call, text) for call in calls)
-    return [op for op in ops if op is not None]
+    return [
+        op
+        for call, op in zip(calls, ops, strict=True)
+        if op is not None
+        and (every_op or op[0] == "create" or id(call) in unconditional)
+    ]
 
 
 def _table_op(
