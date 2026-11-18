@@ -682,6 +682,42 @@ def test_a_rewrite_that_failed_is_repeated_by_the_next_up_on_the_same_server(
     assert done is not None and commands.REWRITE_PENDING not in done.external
 
 
+def test_an_up_interrupted_before_its_own_checkout_is_written_stays_pending(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """Every other checkout was written, then this checkout's own write failed:
+    the marker stays, so the next `dev up` (same server, no --kv-url) writes the
+    blocks again and only then drops it."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"first": (3, 4)}
+    )
+    real = commands.write_checkout_files
+
+    def write(ctx: commands.Context, state: Any, row: CheckoutRow) -> list[str]:
+        if row.path == str(root):
+            raise commands.DevError(f"{row.path}/.env: interrupted")
+        return real(ctx, state, row)
+
+    monkeypatch.setattr(commands, "write_checkout_files", write)
+    ctx = _ctx(root, environ)
+    with pytest.raises(commands.DevError, match="interrupted"):
+        commands.up(ctx, commands.UpOptions(kv_url="redis://127.0.0.1:6391"))
+    saved = load_state(ctx.state_dir)
+    assert saved is not None
+    assert saved.external["kv_url"] == "redis://127.0.0.1:6391"
+    assert saved.external[commands.REWRITE_PENDING]
+    assert "6391" in (others["first"] / ".env").read_text(encoding="utf-8")
+    assert "6391" not in (root / ".env").read_text(encoding="utf-8")
+    monkeypatch.setattr(commands, "write_checkout_files", real)
+    assert commands.up(_ctx(root, environ), commands.UpOptions()) == 0
+    assert "6391" in (root / ".env").read_text(encoding="utf-8")
+    done = load_state(ctx.state_dir)
+    assert done is not None and commands.REWRITE_PENDING not in done.external
+
+
 def test_reset_and_prune_name_the_keyed_server_before_dropping_a_database(
     tmp_path: Path,
     environ: dict[str, str],

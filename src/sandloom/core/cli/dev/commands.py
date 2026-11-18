@@ -1106,11 +1106,12 @@ def up_external(ctx: Context, options: UpOptions) -> int:
         if changed or rewrite:
             state.external[REWRITE_PENDING] = "1"
         save_state(ctx.state_dir, state)
-        if (changed or rewrite) and _rewrite_other_checkouts(
+        # The marker stays until this checkout's files are written too: an `up`
+        # interrupted before that leaves it, so the next `up` (from any
+        # checkout) writes every block again.
+        others_written = (changed or rewrite) and _rewrite_other_checkouts(
             ctx, state, moved=len(moved), changed=changed
-        ):
-            del state.external[REWRITE_PENDING]
-            save_state(ctx.state_dir, state)
+        )
         pg = ctx.postgres(state)
         with ctx.checkout_lock(ctx.root):
             row = checkout_row(ctx, state)
@@ -1126,6 +1127,8 @@ def up_external(ctx: Context, options: UpOptions) -> int:
             if created:
                 ctx.say(f"created the database {row.database}")
             notes = write_checkout_files(ctx, state, row)
+            if others_written:
+                del state.external[REWRITE_PENDING]
             ensure_app_port(ctx, state)
             row.last_up = time.time()
             save_state(ctx.state_dir, state)
