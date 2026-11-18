@@ -4,24 +4,33 @@ to, and the next major's name (ADR-0017)."""
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.cli import generated
 from sandloom.core.cli.new_major import NewMajorError, next_major_name
 
-REPOSITORY = Path(__file__).resolve().parents[4]
 
-
-def test_a_module_of_a_tree_of_top_level_packages_resolves_to_its_package() -> None:
-    """In this repository ``tenancy`` is ``src/sandloom_tenancy``, not a
-    ``src/tenancy`` that does not exist."""
-    rules = load_rules(REPOSITORY / "architecture_rules.yml")
-    found = generated._module_directory(rules, "tenancy")
-    assert found == REPOSITORY / "src" / "sandloom_tenancy"
-    assert found is not None and found.is_dir()
-    assert generated._module_directory(rules, "sandloom_tenancy") == found
+def test_a_module_of_a_tree_of_top_level_packages_resolves_to_its_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In a tree of top-level packages the module ``widgets`` is the directory
+    ``src/acme_widgets`` (its package's entry-point name is ``widgets``), not a
+    ``src/widgets`` that does not exist."""
+    rules = SimpleNamespace(
+        modules_path=tmp_path / "src",
+        business_modules=lambda: ["acme_widgets", "acme_gadgets"],
+        module_package=lambda directory: directory,
+    )
+    names = {"acme_widgets": "widgets", "acme_gadgets": "gadgets"}
+    monkeypatch.setattr(generated, "module_name", lambda package: names[package])
+    found = generated._module_directory(rules, "widgets")
+    assert found == tmp_path / "src" / "acme_widgets"
+    assert generated._module_directory(rules, "acme_widgets") == found
+    assert generated._module_directory(rules, "gadgets") == (
+        tmp_path / "src" / "acme_gadgets"
+    )
     assert generated._module_directory(rules, "no_such_module") is None
 
 
