@@ -87,7 +87,7 @@ _PENDING_EMAILS: set["asyncio.Task[None]"] = set()
 #: The routes the links of the e-mails stand for when no frontend serves them
 #: (the router's own paths: ``tests/services/test_dev_api_step.py`` compares them).
 VERIFY_EMAIL_API_PATH = "/auth/verify-email"
-RESET_PASSWORD_API_PATH = "/auth/reset-password"
+RESET_API_PATH = "/auth/reset-password"
 
 
 def _dev_api_step(path: str, body: dict[str, str]) -> str | None:
@@ -694,7 +694,7 @@ class AuthService:
                     to_email=to_email, full_name=full_name, reset_url=reset_url
                 ),
                 dev_step=_dev_api_step(
-                    RESET_PASSWORD_API_PATH,
+                    RESET_API_PATH,
                     {"token": token, "new_password": "<the new password>"},
                 ),
             )

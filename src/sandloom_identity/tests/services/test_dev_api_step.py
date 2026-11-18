@@ -43,7 +43,7 @@ async def _commit(ambient_uow: Any) -> None:
 def test_the_paths_are_the_routes_of_the_auth_router() -> None:
     paths = {route.path for route in auth_router.routes}  # type: ignore[attr-defined]
     assert auth_mod.VERIFY_EMAIL_API_PATH in paths
-    assert auth_mod.RESET_PASSWORD_API_PATH in paths
+    assert auth_mod.RESET_API_PATH in paths
 
 
 @pytest.mark.asyncio

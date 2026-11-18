@@ -46,8 +46,7 @@ class OrganizationCreateIn(BaseModel):
     def _name_yields_a_slug(self) -> Self:
         if self.slug is None and derive_slug(self.name) is None:
             raise ValueError(
-                "the name has no letters or digits to derive a slug from: "
-                "pass slug"
+                "the name has no letters or digits to derive a slug from: pass slug"
             )
         return self
 

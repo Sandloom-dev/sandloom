@@ -70,7 +70,9 @@ async def test_a_taken_derived_slug_is_409_and_says_to_pass_slug(
     _, headers_a = user_a
     _, headers_b = user_b
     name = f"Twin {uuid.uuid4().hex[:8]}"
-    first = await async_client.post("/api/v1/orgs", json={"name": name}, headers=headers_a)
+    first = await async_client.post(
+        "/api/v1/orgs", json={"name": name}, headers=headers_a
+    )
     assert first.status_code == 201, first.text
 
     second = await async_client.post(
@@ -98,5 +100,7 @@ async def test_a_name_without_letters_or_digits_is_422(
     async_client: AsyncClient, user_a: Any
 ) -> None:
     _, headers = user_a
-    resp = await async_client.post("/api/v1/orgs", json={"name": "!!!"}, headers=headers)
+    resp = await async_client.post(
+        "/api/v1/orgs", json={"name": "!!!"}, headers=headers
+    )
     assert resp.status_code == 422, resp.text

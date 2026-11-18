@@ -22,7 +22,6 @@ from sandloom.core.auth.bearer import bearer_claims, bearer_token_and_claims
 from sandloom.core.auth.verification import ensure_token_not_revoked
 from sandloom.core.tenant_context import _current_tenant
 
-
 #: ``code`` of the 400 a request without a resolvable tenant gets.
 TENANT_REQUIRED = "tenant_required"
 #: ``code`` of the 403 for a selected tenant the access token does not list
