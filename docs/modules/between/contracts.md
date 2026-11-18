@@ -262,11 +262,11 @@ itself: `async with contract_read_scope(): ...` (`sandloom.sdk.contracts`).
 `contracts.snapshot.json` and the declared surface (`contracts`, `consumes`)
 to `module.snapshot.json`. `sandloom release` marks every contract released
 (`released` in `contracts.snapshot.json`). A contract is a draft only where a
-command made it one: the sample of `sandloom new`, a contract `sandloom add
-contract` creates, a contract added to a `contracts.snapshot.json` that exists,
-or one you name with `sandloom generate --draft <contract>`. `sandloom generate`
-rewrites a draft whatever the change. A snapshot file that does not exist is
-written with every contract released.
+command made it one. That is the sample of `sandloom new`, a contract
+`sandloom add contract` creates, a contract added to a `contracts.snapshot.json`
+that exists, or one you name with `sandloom generate --draft <contract>`.
+`sandloom generate` rewrites a draft whatever the change. A snapshot file that
+does not exist is written with every contract released.
 
 A released contract is compared first. A breaking change fails and nothing is
 written ([SANDLOOM-T004](../../reference/error-codes.md#sandloom-t004)). That
@@ -277,8 +277,8 @@ prints. `sandloom test` only checks.
 
 A breaking change is a new contract version, `x.y.v2`, provided alongside `.v1`
 until no caller uses `.v1`. Restore the released `.v1` class, run
-`sandloom generate --new-major x.y.v1` to copy it to `.v2`, then edit the copy;
-the copy reuses the DTO classes of `.v1`, so give it its own before the two
+`sandloom generate --new-major x.y.v1` to copy it to `.v2`, then edit the copy.
+The copy reuses the DTO classes of `.v1`, so give it its own before the two
 diverge. A snapshot written before the marks counts as released
 ([ADR-0017](../../adr/0017-released-marks.md)).
 

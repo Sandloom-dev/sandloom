@@ -1157,7 +1157,9 @@ def plan(
                 contracts,
                 release=release,
                 drafts=_drafted(
-                    drafts, entry.name, contracts.get(entry.name, {}).get("contracts", {})
+                    drafts,
+                    entry.name,
+                    contracts.get(entry.name, {}).get("contracts", {}),
                 ),
             )
         if shared_dir is not None and shared_package is not None:
@@ -1422,6 +1424,31 @@ def _unknown_modules(app: Any, names: list[str]) -> list[str]:
     return sorted(set(names) - known)
 
 
+def _unknown_names(app: Any, modules: list[str], drafts: list[str]) -> str | None:
+    """Why the names given to the run cannot be served, else ``None``."""
+    unknown = _unknown_modules(app, modules)
+    if unknown:
+        return f"no composed module named {', '.join(unknown)}"
+    ghosts = unknown_drafts(app, drafts)
+    if ghosts:
+        return f"--draft names no module, contract or event: {', '.join(ghosts)}"
+    return None
+
+
+def _after_new_major(code: int, name: str | None) -> int:
+    """``--new-major`` copied ``name`` before the checks ran: when they refuse,
+    say that the copy stays in the source and what comes next."""
+    if code and name:
+        print(
+            f"sandloom generate: {name} was copied to "
+            f"{_new_major_copy.next_major_name(name)} in the source; the "
+            f"generated files are written once {name} is restored as "
+            "released (the message above says what differs), then run "
+            "`sandloom generate`"
+        )
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     """``sandloom generate [module ...]`` (writes) and the ``generated files``
     step of ``sandloom test`` (``--check``: never writes)."""
@@ -1461,8 +1488,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.check and (args.release or args.new_major or args.draft):
         print(
-            "sandloom generate: --release, --draft and --new-major write; "
-            "drop --check"
+            "sandloom generate: --release, --draft and --new-major write; drop --check"
         )
         return 2
     rules = load_rules(args.root / "architecture_rules.yml")
@@ -1502,16 +1528,9 @@ def main(argv: list[str] | None = None) -> int:
         # configuration to fix, not a crash.
         print(f"sandloom generate: the composition cannot be built: {exc}")
         return 2
-    unknown = _unknown_modules(app, args.modules)
-    if unknown:
-        print(f"sandloom generate: no composed module named {', '.join(unknown)}")
-        return 2
-    ghosts = unknown_drafts(app, args.draft)
-    if ghosts:
-        print(
-            "sandloom generate: --draft names no module, contract or event: "
-            + ", ".join(ghosts)
-        )
+    refusal = _unknown_names(app, args.modules, args.draft)
+    if refusal:
+        print(f"sandloom generate: {refusal}")
         return 2
     consumed_only = not rules.top_level_modules
     files = plan(
@@ -1547,15 +1566,7 @@ def main(argv: list[str] | None = None) -> int:
         make_file=Generated,
         apply_files=apply,
     )
-    if code and args.new_major:
-        print(
-            f"sandloom generate: {args.new_major} was copied to "
-            f"{_new_major_copy.next_major_name(args.new_major)} in the source; the "
-            f"generated files are written once {args.new_major} is restored as "
-            "released (the message above says what differs), then run "
-            "`sandloom generate`"
-        )
-    return code
+    return _after_new_major(code, args.new_major)
 
 
 __all__ = [

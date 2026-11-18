@@ -87,9 +87,7 @@ def _app(tmp_path: Path, *, everything: bool = True) -> Path:
             add.add_task("stats", "rollup", where, periodic="*/15 * * * *")
             add.add_task("notes", "reindex", where)
         # What `sandloom add` runs last, naming what it created as drafts.
-        code, output = add.run_generate(
-            root, *add.draft_options(add.own_modules(root))
-        )
+        code, output = add.run_generate(root, *add.draft_options(add.own_modules(root)))
         assert code == 0, output
     return root
 

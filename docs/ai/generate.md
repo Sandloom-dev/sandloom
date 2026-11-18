@@ -61,8 +61,8 @@ Generation compares every file with the committed version before writing. An
 incompatible change fails and writes nothing. Incompatible changes include a
 removed contract method and an event field changed on the same `.vN`. Both
 apply once the contract or event is released. What `sandloom new` and
-`sandloom add` create is a draft until `uv run sandloom release`, and a draft is
-rewritten freely; a snapshot file that is written fresh records every entry as
+`sandloom add` create is a draft until `uv run sandloom release`. A draft is
+rewritten freely. A snapshot file written fresh records every entry as
 released, and a draft is made only by name with `sandloom generate --draft`. A route
 that lost its authentication and a DTO the generator cannot copy fail too. A weaker route policy is approved only by
 `sandloom routes snapshot --write`.

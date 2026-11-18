@@ -284,17 +284,13 @@ def test_a_new_snapshot_file_records_every_contract_as_released() -> None:
 
 def test_a_contract_new_to_an_existing_snapshot_is_a_draft() -> None:
     doc = {"format": 1, "module": "m", "contracts": _entries("m.a.v1", "m.b.v1")}
-    committed = json.dumps(
-        {"contracts": _entries("m.a.v1"), "released": {"m.a.v1": 1}}
-    )
+    committed = json.dumps({"contracts": _entries("m.a.v1"), "released": {"m.a.v1": 1}})
     marked, _ = contract_compat.marked_snapshot(doc, committed)
     assert marked["released"] == {"m.a.v1": 1}
 
 
 def test_naming_a_released_contract_as_a_draft_is_refused() -> None:
     doc = {"format": 1, "module": "m", "contracts": _entries("m.a.v1")}
-    committed = json.dumps(
-        {"contracts": _entries("m.a.v1"), "released": {"m.a.v1": 1}}
-    )
+    committed = json.dumps({"contracts": _entries("m.a.v1"), "released": {"m.a.v1": 1}})
     with pytest.raises(marks.ReleaseMarkError, match="released"):
         contract_compat.marked_snapshot(doc, committed, drafts={"m.a.v1"})

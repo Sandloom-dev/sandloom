@@ -43,6 +43,7 @@ formatter (decision 6). Kernel contract families (``<m>.claims.v1``,
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 import importlib.util
 import json
@@ -1003,51 +1004,10 @@ def plan_shared(
     if not stems_at and not names_at and not dto_at:
         return out  # nothing to write: no provider is imported
     providers = importable_providers(source_root, modules)
-    stems = _stems(providers, ())
-    wanted: dict[str, str] = {}
-    unimportable = ""
-    for package, stem, where in stems_at:
-        found = stems.get(stem, [])
-        if len(found) == 1:
-            wanted.setdefault(found[0], where)
-            continue
-        if not found and not unimportable:
-            unimportable = _unimportable_note(failed_imports(modules))
-        problem = (
-            f"{where}: {collision_problem(stem, found)}"
-            if found
-            else (
-                f"{where}: {package} imports {prefix}.{stem}, which is not "
-                "generated and no importable provider declares a contract with "
-                "that stub name: check the contract's name, install the "
-                "provider's package, or drop the import" + unimportable
-            )
-        )
-        out.append(Planned(contracts_dir / f"{stem}.py", "", CODE, [problem]))
-    dto_stems = {
-        _dto_copies.dto_module_stem(module_name(p.package)): p.package
-        for p in providers.values()
-    }
-    dto_packages: dict[str, str] = {}
-    for package, stem, where in dto_at:
-        provider_package = dto_stems.get(stem)
-        if provider_package is None:
-            out.append(
-                Planned(
-                    contracts_dir / f"{stem}.py",
-                    "",
-                    CODE,
-                    [
-                        f"{where}: {package} imports {prefix}.{stem}, which is "
-                        "not generated and no importable provider has DTO copies "
-                        "under that name: check the module's name, install the "
-                        "provider's package, or drop the import"
-                        + _unimportable_note(failed_imports(modules))
-                    ],
-                )
-            )
-            continue
-        dto_packages.setdefault(provider_package, stem)
+    wanted, dto_packages, refused = _resolve_imports(
+        stems_at, dto_at, providers, modules, prefix, contracts_dir
+    )
+    out += refused
     for name, where in names_at:
         if name in providers:  # a provider not importable here may be remote
             wanted.setdefault(name, where)
@@ -1078,7 +1038,7 @@ def plan_shared(
             package, [], group, stubs, contracts_dir, shared_package, shared_packages
         )
         if not planned_dto:
-            out.append(
+            planned_dto = [
                 Planned(
                     contracts_dir / f"{stem}.py",
                     "",
@@ -1090,9 +1050,61 @@ def plan_shared(
                         "(`sandloom generate` on the provider says which)"
                     ],
                 )
-            )
+            ]
         out += planned_dto
     return out
+
+
+def _resolve_imports(
+    stems_at: list[tuple[str, str, str]],
+    dto_at: list[tuple[str, str, str]],
+    providers: Mapping[str, Provider],
+    modules: Mapping[str, Path],
+    prefix: str,
+    contracts_dir: Path,
+) -> tuple[dict[str, str], dict[str, str], list[Planned]]:
+    """Map each imported, not yet generated stem to the contract (or, for a
+    ``<module>_dto`` stem, the provider package) that stands for it:
+    ``(contract -> where, provider package -> stem, problems)``. A stem no
+    importable provider answers to, or that several do, is a problem."""
+    stems = _stems(providers, ())
+    wanted: dict[str, str] = {}
+    problems: list[Planned] = []
+    unimportable = functools.cache(lambda: _unimportable_note(failed_imports(modules)))
+    for package, stem, where in stems_at:
+        found = stems.get(stem, [])
+        if len(found) == 1:
+            wanted.setdefault(found[0], where)
+            continue
+        problem = (
+            f"{where}: {collision_problem(stem, found)}"
+            if found
+            else (
+                f"{where}: {package} imports {prefix}.{stem}, which is not "
+                "generated and no importable provider declares a contract with "
+                "that stub name: check the contract's name, install the "
+                "provider's package, or drop the import" + unimportable()
+            )
+        )
+        problems.append(Planned(contracts_dir / f"{stem}.py", "", CODE, [problem]))
+    dto_stems = {
+        _dto_copies.dto_module_stem(module_name(p.package)): p.package
+        for p in providers.values()
+    }
+    dto_packages: dict[str, str] = {}
+    for package, stem, where in dto_at:
+        provider_package = dto_stems.get(stem)
+        if provider_package is None:
+            message = (
+                f"{where}: {package} imports {prefix}.{stem}, which is not "
+                "generated and no importable provider has DTO copies under that "
+                "name: check the module's name, install the provider's package, "
+                "or drop the import" + unimportable()
+            )
+            problems.append(Planned(contracts_dir / f"{stem}.py", "", CODE, [message]))
+            continue
+        dto_packages.setdefault(provider_package, stem)
+    return wanted, dto_packages, problems
 
 
 def _unimportable_note(failed: Mapping[str, str]) -> str:

@@ -1565,9 +1565,7 @@ def write_generated_files(root: Path) -> str | None:
         return f"run `uv sync` to install the app dependencies: {', '.join(missing)}"
     # The fresh app's own modules (the sample) are drafts, named explicitly: a
     # snapshot written fresh would record them as released (ADR-0017).
-    code, output = _add.run_generate(
-        root, *_add.draft_options(_add.own_modules(root))
-    )
+    code, output = _add.run_generate(root, *_add.draft_options(_add.own_modules(root)))
     if code == 0:
         return None
     lines = output.strip().splitlines()

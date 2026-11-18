@@ -1955,6 +1955,7 @@
         "src/sandloom/core/tests/test_module_settings.py",
         "src/sandloom/core/tests/test_module_subset.py",
         "src/sandloom/core/tests/test_nesting_policy.py",
+        "src/sandloom/core/tests/test_new_major_resolution.py",
         "src/sandloom/core/tests/test_non_ascii_header_compare.py",
         "src/sandloom/core/tests/test_notifications.py",
         "src/sandloom/core/tests/test_objectstore_replacement.py",
