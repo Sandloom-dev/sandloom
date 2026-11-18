@@ -25,7 +25,7 @@ kit is `EventTransportConformance`; the Streams driver in `sandloom-redis`
 (`sandloom_redis/eventbus/`) passes it.
 
 !!! note "Version"
-    This guide targets `sandloom==0.7.0a14`. <!-- sandloom-release -->
+    This guide targets `sandloom==0.7.0a15`. <!-- sandloom-release -->
     [`sandloom.driverkit`](driverkit.md) is included in this release.
 
 ## Prerequisites
@@ -185,7 +185,7 @@ The entry-point name is `<capability>.<driver>`, and its value is your class:
 [project]
 name = "sandloom-notify-file"
 version = "0.1.0"
-dependencies = ["sandloom>=0.7.0a14,<0.8"]
+dependencies = ["sandloom>=0.7.0a15,<0.8"]
 
 [project.entry-points."sandloom.drivers"]
 "notification.file" = "sandloom_notify_file.driver:FileNotifier"
