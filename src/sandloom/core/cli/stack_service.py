@@ -55,6 +55,10 @@ class StackChoice:
     extras: tuple[str, ...]
     #: The driver the stack's package registers its :class:`StackService` under.
     driver: str
+    #: The import names of the packages the stack's extras install: an app
+    #: cannot take them as its own name, whether or not they are installed
+    #: where ``sandloom new`` runs (a bare kernel has none of them).
+    imports: tuple[str, ...] = ()
 
 
 #: The stacks ``sandloom new`` offers: only ``standard``. A lean one on the
@@ -72,6 +76,7 @@ STACKS: tuple[StackChoice, ...] = (
         ),
         extras=("redis", "celery"),
         driver=STANDARD_DRIVER,
+        imports=("redis", "hiredis", "celery", "kombu"),
     ),
 )
 DEFAULT_STACK = STACKS[0].name

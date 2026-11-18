@@ -1298,10 +1298,16 @@ _STDLIB_EXTRAS = frozenset(
 def _installed_import_names() -> dict[str, str]:
     """``{top-level import name: distribution}`` of what is installed here
     (the framework and its dependencies: the app installs the same), plus
-    the bundled modules' packages."""
+    the bundled modules' packages and what each stack's extras install (a bare
+    kernel has none of them installed, the app does)."""
     found: dict[str, str] = {
         "sandloom": "sandloom",
         **{f"sandloom_{name}": f"sandloom-{name}" for name in _BUNDLED},
+        **{
+            name: f"sandloom[{','.join(stack.extras)}]"
+            for stack in _stack.STACKS
+            for name in stack.imports
+        },
     }
     for name, dists in importlib.metadata.packages_distributions().items():
         if name.isidentifier():
@@ -1473,7 +1479,9 @@ def generate_project(
         "AGENTS.md": _AGENTS_HEADER.substitute(
             ctx, skill_dirs=", ".join(f"`{d}`" for d in _skills.skill_dirs(agents))
         ),
-        "pyproject.toml": _PYPROJECT.substitute(ctx) + source_config,
+        "pyproject.toml": _PYPROJECT.substitute(ctx)
+        + source_config
+        + _stack_files.recording(chosen.name),
         "README.md": _README.substitute(ctx),
         ".gitignore": _GITIGNORE,
         ".env": _ENV_EXAMPLE.substitute(local_env_ctx),

@@ -336,17 +336,14 @@ class DocumentationSiteTests(unittest.TestCase):
         if quickstart is None:
             self.fail("README has no readme:quickstart block")
         commands = quickstart.group(1)
-        # A bare kernel is enough to run `sandloom new`: the app's own
-        # environment fetches the stack package, and `add stack` completes the
-        # stack's files once `uv sync` has installed it.
+        # A bare kernel is enough to run `sandloom new`: it installs the stack
+        # package in the app and writes the stack's files itself, so the
+        # quickstart has no `add stack` step; that command is the recovery
+        # `new` prints when a step failed, and the README says so.
         self.assertRegex(commands, r'uvx --from "sandloom==[^"]+" sandloom new')
-        self.assertLess(
-            commands.index("uv sync"), commands.index("uv run sandloom add stack")
-        )
-        self.assertLess(
-            commands.index("uv run sandloom add stack"),
-            commands.index("docker compose"),
-        )
+        self.assertNotIn("add stack", commands)
+        self.assertIn("Fix it and continue with:", readme)
+        self.assertIn("uv run sandloom add stack", readme)
         self.assertNotIn("--framework-source path", commands)
         self.assertNotIn("git clone", commands)
         self.assertIn("uv run sandloom test", readme)

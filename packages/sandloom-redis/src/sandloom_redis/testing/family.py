@@ -42,6 +42,13 @@ class _RedisClientSource(Protocol):
     async def redis_client(self) -> object: ...
 
 
+def _index(path: str) -> int | str:
+    """The database index a URL path names (no path: 0); a path that is not a
+    number is kept as text, so it matches only itself."""
+    raw = path.strip("/") or "0"
+    return int(raw) if raw.isdigit() else raw
+
+
 class RedisFamily:
     """The Redis hooks of the harness (see ``HarnessFamily``)."""
 
@@ -147,12 +154,13 @@ class RedisFamily:
 
     def same_database(self, stated: str, base: str) -> bool:
         """Same scheme, authority, query and database index (a URL without a path
-        is database 0)."""
+        is database 0; ``/00`` and ``/0`` are the same index, as ``slot_bases``
+        reads them)."""
         a, b = split_url(stated), split_url(base)
-        return (a.scheme, a.netloc, a.path.strip("/") or "0", a.query) == (
+        return (a.scheme, a.netloc, _index(a.path), a.query) == (
             b.scheme,
             b.netloc,
-            b.path.strip("/") or "0",
+            _index(b.path),
             b.query,
         )
 

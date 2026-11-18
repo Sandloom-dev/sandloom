@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
 import threading
 import uuid
@@ -536,6 +537,149 @@ def test_naming_another_keyed_server_rechecks_the_indexes_of_every_row(
     assert commands.up(_ctx(root, environ), other) == 0
     last = load_state(_ctx(root, environ).state_dir)
     assert last is not None and last.checkouts[str(root)].indexes == moved
+
+
+def _external_up_with_rows(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    pairs: dict[str, tuple[int, int]],
+) -> tuple[Path, dict[str, Path]]:
+    """``dev up --services external`` on the server at :6390, then one more
+    checkout per name in ``pairs`` (a directory with a managed ``.env`` block,
+    a row on that pair, which was never checked on any server)."""
+    monkeypatch.setattr(commands._services, "pg_ready", lambda pg: None)
+    monkeypatch.setattr(commands._services, "ensure_database", lambda pg, n: False)
+    monkeypatch.setattr(commands._services, "has_tables", lambda pg, n: True)
+    monkeypatch.setattr(commands, "_claim_external", lambda *a, **k: None)
+    root = _app(tmp_path, "shop")
+    ctx = _ctx(root, environ)
+    options = commands.UpOptions(
+        services="external",
+        database_url="postgresql://me@127.0.0.1:5432/postgres",
+        kv_url="redis://127.0.0.1:6390",
+    )
+    assert commands.up(ctx, options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    others: dict[str, Path] = {}
+    for name, (cache, broker) in pairs.items():
+        checkout = tmp_path / name
+        checkout.mkdir()
+        (checkout / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block("Redis"))
+        state.checkouts[str(checkout)] = CheckoutRow(
+            path=str(checkout),
+            database=f"shop_{name}",
+            cache_index=cache,
+            broker_index=broker,
+            test_database=f"shop_{name}_test",
+        )
+        others[name] = checkout
+    save_state(ctx.state_dir, state)
+    return root, others
+
+
+def test_going_external_docker_external_rechecks_the_rows_of_the_docker_period(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """A switch to Docker keeps the recorded server, and a checkout that runs
+    `dev up` meanwhile gets indexes nobody checked on the person's server.
+    Naming no `--kv-url` on the way back reuses that record: the rows are
+    still checked again (the rows were not checked on it), so `reset` and
+    `prune` never flush the person's own keys."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"wt": (3, 4)}
+    )
+    ctx = _ctx(root, environ)
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    state.services = "docker"  # `dev up --services docker`: `external` is kept
+    save_state(ctx.state_dir, state)
+    fake_stack.keys = {3: {"theirs": "a"}, 4: {"theirs": "b"}}  # on their server
+    assert commands.up(_ctx(root, environ), commands.UpOptions(services="external")) == 0
+    after = load_state(ctx.state_dir)
+    assert after is not None
+    row = after.checkouts[str(others["wt"])]
+    assert not set(row.indexes) & {3, 4}
+    assert (
+        f"/{row.cache_index}" in (others["wt"] / ".env").read_text(encoding="utf-8")
+    )
+    # The worktree is gone and `prune` flushes the pair of its row.
+    monkeypatch.setattr(
+        commands._services, "database_mark", lambda pg, name: commands.dev_mark(row)
+    )
+    monkeypatch.setattr(commands._services, "drop_database", lambda pg, name: None)
+    monkeypatch.setattr(commands, "_prune_test_databases", lambda c, s: [])
+    shutil.rmtree(others["wt"])
+    assert commands.prune(_ctx(root, environ)) == 0
+    assert fake_stack.keys[3] == {"theirs": "a"}
+    assert fake_stack.keys[4] == {"theirs": "b"}
+
+
+def test_a_changed_keyed_server_rewrites_the_blocks_of_every_other_checkout(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """A row whose pair is empty on the new server keeps its indexes but its
+    `.env` block still names the old server: every other checkout is written."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"free": (3, 4), "held": (5, 6)}
+    )
+    fake_stack.keys = {5: {"theirs": "a"}}  # only `held` meets keys there
+    ctx = _ctx(root, environ)
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6391")
+    assert commands.up(ctx, again) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert state.checkouts[str(others["free"])].indexes == (3, 4)
+    assert state.checkouts[str(others["held"])].indexes != (5, 6)
+    for name in others:
+        assert "127.0.0.1:6391" in (others[name] / ".env").read_text(encoding="utf-8")
+    warning = ctx.err.getvalue()  # type: ignore[attr-defined]
+    assert "1 checkout(s) held keys" in warning and "restart" in warning
+    assert commands.REWRITE_PENDING not in state.external
+
+
+def test_a_rewrite_that_failed_is_repeated_by_the_next_up_on_the_same_server(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The state names the new server before any other checkout is written;
+    one that could not be written is named, kept pending, and written by the
+    next `dev up`, which finds the recorded server unchanged."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"first": (3, 4), "broken": (5, 6)}
+    )
+    real = commands.write_checkout_files
+
+    def write(ctx: commands.Context, state: Any, row: CheckoutRow) -> list[str]:
+        if row.path == str(others["broken"]):
+            raise commands.DevError(f"{row.path}/.env: bad INFRA")
+        return real(ctx, state, row)
+
+    monkeypatch.setattr(commands, "write_checkout_files", write)
+    ctx = _ctx(root, environ)
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6391")
+    assert commands.up(ctx, again) == 0
+    saved = load_state(ctx.state_dir)
+    assert saved is not None
+    assert saved.external["kv_url"] == "redis://127.0.0.1:6391"
+    assert saved.external[commands.REWRITE_PENDING]
+    assert "bad INFRA" in ctx.err.getvalue()  # type: ignore[attr-defined]
+    assert "6391" in (others["first"] / ".env").read_text(encoding="utf-8")
+    assert "6391" not in (others["broken"] / ".env").read_text(encoding="utf-8")
+    monkeypatch.setattr(commands, "write_checkout_files", real)
+    assert commands.up(_ctx(root, environ), commands.UpOptions()) == 0
+    assert "6391" in (others["broken"] / ".env").read_text(encoding="utf-8")
+    done = load_state(ctx.state_dir)
+    assert done is not None and commands.REWRITE_PENDING not in done.external
 
 
 def test_reset_and_prune_name_the_keyed_server_before_dropping_a_database(

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import sandloom.core.cli.dev.envfile as _envfile
@@ -127,6 +128,40 @@ def pending(root: Path) -> list[str]:
         if (root / rel).is_file()
         and _TOKEN.search((root / rel).read_text(encoding="utf-8"))
     ]
+
+
+def refusal(root: Path) -> str | None:
+    """Why a command that reads the app's files cannot run yet, or ``None``: some
+    still carry a token (``sandloom new`` ran without the stack's package and
+    ``sandloom add stack`` has not run)."""
+    left = pending(root)
+    if not left:
+        return None
+    return (
+        f"the stack's files are not written yet ({', '.join(left)}): run "
+        "`uv run sandloom add stack` first"
+    )
+
+
+def recording(name: str) -> str:
+    """The lines of ``pyproject.toml`` that record the app's stack, for
+    ``sandloom add stack``. The default stack is not recorded: the files of a
+    standard app stay what they were."""
+    if name == _stack.DEFAULT_STACK:
+        return ""
+    return f'\n[tool.sandloom]\nstack = "{name}"\n'
+
+
+def recorded(root: Path) -> str:
+    """The name of the stack the app at ``root`` was made with (the default
+    where ``pyproject.toml`` records none)."""
+    try:
+        data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise _stack.StackServiceError(f"{root / 'pyproject.toml'}: {exc}") from exc
+    table = data.get("tool", {}).get("sandloom", {})
+    name = table.get("stack", _stack.DEFAULT_STACK)
+    return _stack.stack_choice(str(name)).name
 
 
 def complete(root: Path, stack: _stack.StackService) -> list[Path]:

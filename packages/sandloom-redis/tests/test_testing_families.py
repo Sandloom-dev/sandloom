@@ -119,6 +119,10 @@ def test_the_family_owns_the_redis_urls_only(url: str, owned: bool) -> None:
     [
         ("redis://h:6380/0", "redis://h:6380", True),  # no path is database 0
         ("redis://h:6380/0/", "redis://h:6380/", True),
+        ("redis://h:6380/00", "redis://h:6380/0", True),  # same index, as slot_bases
+        ("redis://h:6380/01", "redis://h:6380/1", True),
+        ("redis://h:6380/x", "redis://h:6380/x", True),
+        ("redis://h:6380/x", "redis://h:6380/0", False),
         ("redis://h:6380/1", "redis://h:6380/2", False),
         ("redis://h:6380/1", "redis://other:6380/1", False),
         ("redis://h:6380/1", "rediss://h:6380/1", False),

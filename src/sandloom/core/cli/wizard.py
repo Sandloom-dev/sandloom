@@ -383,7 +383,13 @@ def repeat_command(version: str, plan: Plan, *, cwd: Path) -> list[str]:
     """The argv that makes the same app with no question, pinned to this
     version like the docs: ``uvx --from "sandloom==<v>" sandloom new … --yes``.
     It never carries the administrator's email or a password."""
-    extra = "[standard]" if plan.batteries else ""
+    extra = ""
+    if plan.batteries:
+        extra = "[standard]"
+    elif plan.services == EXTERNAL:
+        # Your own servers are checked at once, with the stack's package: the
+        # bare kernel the line runs in does not have it.
+        extra = f"[{','.join(_stack.stack_choice(plan.stack).extras)}]"
     argv = ["uvx", "--from", f"sandloom{extra}=={version}", "sandloom", "new", plan.app]
     if plan.parent.resolve() != cwd.resolve():
         argv += ["--dir", str(plan.parent)]

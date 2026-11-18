@@ -148,6 +148,26 @@ def _cmd_new(argv: list[str]) -> int:
 _CONNECTING_COMMANDS = _CONFIGURED_COMMANDS | {"migrate", "doctor"}
 
 
+#: Commands that read the files of the app whose stack lines ``sandloom new``
+#: may have left as tokens (a bare kernel): they say what to run instead of
+#: failing on a compose file or an ``INFRA`` that does not parse.
+_NEEDS_STACK_FILES = frozenset({"check", "generate", "test"})
+
+
+def _refuse_unfinished_stack(command: str | None, rest: list[str]) -> None:
+    """One line and exit 1 when ``command`` runs in an app whose stack files
+    still carry a token (``sandloom add stack`` has not run)."""
+    reads_files = command in _NEEDS_STACK_FILES or (
+        command == "dev" and rest[:1] == ["up"]
+    )
+    if not reads_files or {"-h", "--help"} & set(rest):
+        return
+    problem = _static_import("sandloom.core.cli.stack_files").refusal(Path.cwd())
+    if problem is not None:
+        print(f"sandloom {command}: {problem}", file=sys.stderr)
+        raise SystemExit(1)
+
+
 def main() -> None:
     """The ``sandloom`` entry point: a connection failure is one line."""
     errors = _static_import("sandloom.core.cli.dev.errors")
@@ -252,6 +272,7 @@ def _main() -> None:  # noqa: C901
     sub.add_parser("version", help="print the framework version")
 
     args, rest = parser.parse_known_args()
+    _refuse_unfinished_stack(args.command, rest)
     if args.command in _CONNECTING_COMMANDS:
         errors = _static_import("sandloom.core.cli.dev.errors")
         errors.warn_env_drift(Path.cwd(), errors.environment())

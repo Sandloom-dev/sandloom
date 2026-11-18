@@ -1652,10 +1652,12 @@ def add_skills(
 def add_stack(root: Path) -> int:
     """``sandloom add stack``: fill the tokens ``sandloom new`` left in the app's
     files (it ran without the stack's package) from the package installed in
-    this environment. One line and a status; nothing changes when the app is
-    complete."""
+    this environment: the stack the app records (``[tool.sandloom] stack``, the
+    default one where none is). One line and a status; nothing changes when
+    the app is complete."""
     try:
-        written = _stack_files.complete(root, _stack.load())
+        driver = _stack.stack_choice(_stack_files.recorded(root)).driver
+        written = _stack_files.complete(root, _stack.load(driver))
     except (_stack.StackServiceError, OSError) as exc:
         print(f"sandloom add stack: {exc}", file=sys.stderr)
         return 1

@@ -11,14 +11,17 @@ on a stand-in stack whose every member is a marker; the real package's output:
 
 from __future__ import annotations
 
+import importlib.metadata
 import io
 import json
+import sys
 from pathlib import Path
 from typing import Any
 from unittest import mock
 
 import pytest
 
+import sandloom
 from sandloom.core.cli import add as _add
 from sandloom.core.cli import project, stack_files, stack_service, ui, wizard
 from sandloom.core.tests._fake_stack import FakeStack, install_fake_stack
@@ -389,3 +392,102 @@ def test_one_stack_is_told_not_asked() -> None:
     prompter = wizard.Prompter(out=out, style=ui.Style(symbols=ui.UNICODE), read=never)
     assert wizard.ask_stack(prompter) == "standard"
     assert "PostgreSQL and Redis" in out.getvalue()
+
+
+# ------------------------------------------- commands that read unfinished files
+
+
+def _bare_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **kw: Any) -> Path:
+    def missing(driver: str) -> Any:
+        raise stack_service.StackNotInstalled(driver)
+
+    monkeypatch.setattr(stack_service, "_discover", missing)
+    project.generate_project("shop", tmp_path, **kw)
+    return tmp_path / "shop"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["check"], ["generate"], ["test"], ["dev", "up"]],
+    ids=["check", "generate", "test", "dev-up"],
+)
+def test_a_command_that_reads_the_files_says_to_run_add_stack(
+    argv: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _bare_app(tmp_path, monkeypatch)
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(sys, "argv", ["sandloom", *argv])
+    with pytest.raises(SystemExit) as stopped:
+        sandloom._main()
+    assert stopped.value.code == 1
+    err = capsys.readouterr().err
+    assert len(err.strip().splitlines()) == 1
+    assert err.startswith(f"sandloom {argv[0]}: the stack's files are not written")
+    assert "uv run sandloom add stack" in err and ".env.test" in err
+
+
+def test_no_refusal_once_the_files_are_complete_or_for_other_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _bare_app(tmp_path, monkeypatch)
+    assert stack_files.refusal(root) is not None
+    sandloom._refuse_unfinished_stack("version", [])
+    sandloom._refuse_unfinished_stack("dev", ["down"])
+    monkeypatch.chdir(root)
+    sandloom._refuse_unfinished_stack("check", ["--help"])
+    monkeypatch.setattr(stack_service, "_discover", lambda driver: FakeStack())
+    assert _add.main(["--root", str(root), "stack"]) == 0
+    assert stack_files.refusal(root) is None
+    sandloom._refuse_unfinished_stack("check", [])
+
+
+# ------------------------------------------------- the app records its stack
+
+
+def test_a_stack_other_than_the_default_is_recorded_and_add_stack_reads_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _two_stacks(monkeypatch)
+    lean = _bare_app(tmp_path / "lean", monkeypatch, stack="lean")
+    standard = _bare_app(tmp_path / "standard", monkeypatch)
+    assert stack_files.recorded(lean) == "lean"
+    assert stack_files.recorded(standard) == "standard"
+    # The standard app's bytes do not change: nothing is recorded for it.
+    assert "tool.sandloom" not in (standard / "pyproject.toml").read_text()
+    asked: list[str] = []
+
+    def discover(driver: str) -> FakeStack:
+        asked.append(driver)
+        return FakeStack()
+
+    monkeypatch.setattr(stack_service, "_discover", discover)
+    assert _add.main(["--root", str(lean), "stack"]) == 0
+    assert _add.main(["--root", str(standard), "stack"]) == 0
+    assert asked == ["memory", "redis"]
+
+
+def test_a_recorded_stack_the_kernel_does_not_know_is_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _bare_app(tmp_path, monkeypatch)
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text() + '\n[tool.sandloom]\nstack = "gone"\n', encoding="utf-8"
+    )
+    assert _add.main(["--root", str(root), "stack"]) == 1
+    err = capsys.readouterr().err
+    assert "unknown stack 'gone'" in err and len(err.strip().splitlines()) == 1
+
+
+def test_the_import_names_of_the_stack_are_not_app_names_on_a_bare_kernel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing of the stack is installed where ``sandloom new`` runs, so the
+    installed packages cannot say that ``redis`` is taken; the stack list does."""
+    monkeypatch.setattr(importlib.metadata, "packages_distributions", lambda: {})
+    problem = project.app_name_problem("redis")
+    assert problem is not None and "redis" in problem
+    assert project.app_name_problem("shop") is None

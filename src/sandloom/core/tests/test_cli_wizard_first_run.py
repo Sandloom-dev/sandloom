@@ -415,6 +415,13 @@ def test_the_repeat_command_carries_external_services() -> None:
     assert argv[argv.index("--services") + 1] == "external"
     args = wizard.parser().parse_args(argv[5:])
     assert wizard.plan_from_args(args, cwd=Path("/w")) == plan
+    # Your own servers are checked at once with the stack's package: the line
+    # installs it (the bare kernel has none); Docker's line stays bare.
+    assert argv[2] == "sandloom[redis,celery]==1.0.0"
+    docker = wizard.Plan(app="desk", parent=Path("/w"), agents=["claude"])
+    assert wizard.repeat_command("1.0.0", docker, cwd=Path("/w"))[2] == (
+        "sandloom==1.0.0"
+    )
 
 
 def test_a_database_password_is_not_printed_in_the_repeat_line() -> None:

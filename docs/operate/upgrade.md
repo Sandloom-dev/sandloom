@@ -249,7 +249,13 @@ for byte the same on both paths.
 
 Without `uv`, or when a step fails (no network), `sandloom new` prints the commands to run
 later. It prints no traceback and leaves the marked files as they are. `--services external`
-(your own servers) needs the package while `sandloom new` runs.
+(your own servers) needs the package while `sandloom new` runs. The repeat command it prints for
+that choice installs the stack's extras (`sandloom[redis,celery]`).
+
+Until `sandloom add stack` has run, `sandloom check`, `generate`, `test` and `dev up` stop with
+one line that names it, because the marked files do not parse. An app records its stack in
+`[tool.sandloom] stack` of `pyproject.toml` only when it is not the default one, and
+`sandloom add stack` reads it from there.
 
 The `redis` and `celery` extras of `sandloom` name the driver packages alone now:
 `sandloom-redis[hiredis]` and `sandloom-celery`, which require the client libraries with their

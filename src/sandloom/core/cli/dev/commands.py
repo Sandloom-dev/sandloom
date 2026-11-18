@@ -1010,40 +1010,66 @@ def _owned_external(ctx: Context, state: State, row: CheckoutRow) -> bool:
     return _services.database_mark(ctx.postgres(state), row.database) == dev_mark(row)
 
 
-def _recheck_indexes_on_new_server(
-    ctx: Context, state: State, previous: str | None
-) -> None:
+#: Key of ``State.external`` while the other checkouts' files still have to be
+#: written for the keyed server the state names (saved before the first write,
+#: dropped after the last: a run that stopped in between repeats the writes).
+REWRITE_PENDING = "rewrite_pending"
+
+
+def _same_keyed_server(ctx: Context, state: State, previous: str | None) -> bool:
+    """Whether the state's keyed server is the one ``previous`` names: ``None``
+    (a state that was not external: Docker mode hands indexes out unchecked)
+    and an unreadable record name no server."""
+    if not previous:
+        return False
+    try:
+        return stack_service().parse(previous).address == ctx.keyed(state).address
+    except ValueError:
+        return False
+
+
+def _recheck_indexes_on_new_server(ctx: Context, state: State) -> list[str]:
     """Rows keep the indexes checked empty on the keyed server of their time:
     when ``up`` names another one (a recovery of an earlier build's state, a
     moved server) every row's pair is checked again there, and a pair that
-    holds keys is replaced (``reset`` and ``prune`` flush it). The same server
-    keeps every allocation."""
-    if not state.checkouts:
-        return
+    holds keys is replaced (``reset`` and ``prune`` flush it). Returns the
+    paths of the rows that moved."""
     stack = stack_service()
     server = ctx.keyed(state)
-    if previous:
-        try:
-            if stack.parse(previous).address == server.address:
-                return
-        except ValueError:
-            pass  # an unreadable record names no server: check again
     moved: list[str] = []
     for path, row in state.checkouts.items():
         if len(stack.empty_indexes(server, list(row.indexes))) == len(row.indexes):
             continue
         row.cache_index, row.broker_index = _external_indexes(ctx, state, path)
         moved.append(path)
-    elsewhere = [p for p in moved if p != str(ctx.root) and Path(p).is_dir()]
+    return moved
+
+
+def _rewrite_other_checkouts(
+    ctx: Context, state: State, *, moved: int, changed: bool
+) -> bool:
+    """After the state is saved: write the ``.env`` block and
+    ``.env.test.local`` of every other existing checkout from it (their files
+    still name the earlier server or indexes). A checkout that cannot be
+    written is named and left for the next ``dev up``; ``True`` when all were."""
+    elsewhere = [p for p in state.checkouts if p != str(ctx.root) and Path(p).is_dir()]
+    failed: list[str] = []
     with _checkout_locks(ctx, elsewhere):
         for path in elsewhere:
-            write_checkout_files(ctx, state, state.checkouts[path])
-    if moved:
+            try:
+                write_checkout_files(ctx, state, state.checkouts[path])
+            except DevError as exc:
+                failed.append(str(exc))
+    if changed:
         ctx.warn(
-            f"the keyed server is now {server.address}: the database indexes of "
-            f"{len(moved)} checkout(s) hold keys there, so they were given free ones"
-            + (" (their .env blocks were rewritten)" if elsewhere else "")
+            f"the keyed server is now {ctx.keyed(state).address}: "
+            f"{moved} checkout(s) held keys on their indexes there and were given "
+            f"free ones; the .env blocks of {len(elsewhere) - len(failed)} other "
+            "checkout(s) were rewritten, restart their running app servers"
         )
+    for reason in failed:
+        ctx.warn(f"{reason} (left for the next `dev up`)")
+    return not failed
 
 
 def up_external(ctx: Context, options: UpOptions) -> int:
@@ -1067,11 +1093,25 @@ def up_external(ctx: Context, options: UpOptions) -> int:
         if problem is not None:
             raise DevError(problem)
         known = _known_external(ctx, state, database)
-        previous_keyed = state.external.get("kv_url")
+        # Only an external state's rows were checked on its server: Docker mode
+        # keeps `external` but hands indexes out unchecked.
+        previous_keyed = state.external.get("kv_url") if state.is_external else None
+        rewrite = bool(state.external.get(REWRITE_PENDING))
         state.services = EXTERNAL
         state.external = {"database_url": database, "kv_url": keyed}
-        _recheck_indexes_on_new_server(ctx, state, previous_keyed)
+        changed = bool(state.checkouts) and not _same_keyed_server(
+            ctx, state, previous_keyed
+        )
+        moved = _recheck_indexes_on_new_server(ctx, state) if changed else []
+        if changed or rewrite:
+            state.external[REWRITE_PENDING] = "1"
         save_state(ctx.state_dir, state)
+        if changed or rewrite:
+            if _rewrite_other_checkouts(
+                ctx, state, moved=len(moved), changed=changed
+            ):
+                del state.external[REWRITE_PENDING]
+                save_state(ctx.state_dir, state)
         pg = ctx.postgres(state)
         with ctx.checkout_lock(ctx.root):
             row = checkout_row(ctx, state)
