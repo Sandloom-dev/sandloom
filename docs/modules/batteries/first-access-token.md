@@ -16,7 +16,7 @@ inbox to complete the flow; no external email account is needed.
 Create an application with identity and tenancy:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a15" sandloom new myapp --with identity,tenancy --module notes
+uvx --from "sandloom[standard]==0.7.0a16" sandloom new myapp --with identity,tenancy --module notes
 ```
 
 The `tenant_not_authorized` code, the tenant error texts and the printed
