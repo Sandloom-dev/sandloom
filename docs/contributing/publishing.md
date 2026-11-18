@@ -140,8 +140,8 @@ Unreleased changes live as fragments in `changelog.d/`. In the same release
 preparation PR, fold them into the new changelog section:
 
 ```bash
-python3 tools/packaging/changelog_fragments.py --fold 0.7.0a14
-python3 tools/packaging/changelog_fragments.py --fold 0.7.0a14 --package sandloom-redis
+python3 tools/packaging/changelog_fragments.py --fold 0.7.0a16
+python3 tools/packaging/changelog_fragments.py --fold 0.7.0a16 --package sandloom-redis
 ```
 
 The first folds the root `CHANGELOG.md`, the notes of a coordinated release. The
