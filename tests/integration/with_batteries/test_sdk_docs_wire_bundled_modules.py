@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from sandloom.sdk._prim import docs_wire
 from sandloom.sdk._prim.docs import docs_main
 from sandloom.sdk._prim.docs_wire import contract_stubs, event_schemas
 
@@ -30,6 +31,7 @@ def test_a_contract_prints_each_method_with_its_semantics(
         "import BILLING_CREDITS_V1" in by_name
     )
     assert "provider: sandloom_billing" in by_name
+    assert "release: released, revision 1" in by_name  # the bundled snapshots
     assert (
         "await client.spend(tenant_type: str, tenant_id: UUID, amount: int" in by_name
     )
@@ -37,11 +39,24 @@ def test_a_contract_prints_each_method_with_its_semantics(
         assert semantics in by_name, semantics
 
 
+def test_a_contract_inside_an_app_prints_the_apps_shared_import_path(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(docs_wire, "_app_shared", lambda: "myapp.shared")
+    text = _out(capsys, "billing.credits.v1")
+    assert (
+        "from myapp.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1"
+        in text
+    )
+    assert "<your_module>" not in text
+
+
 def test_an_event_prints_its_fields_and_the_producers_notes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     text = _out(capsys, "tenancy.member_added.v2")
     assert "tenant_id" in text and "version" in text
+    assert "release: released, revision 1" in text
     assert "also on tenancy.member_added.v1" in text
     assert "tenant_from='tenant_id'" in text and "version_field='version'" in text
     assert 'class MemberAdded(Event, channel="tenancy.member_added.v2")' in text

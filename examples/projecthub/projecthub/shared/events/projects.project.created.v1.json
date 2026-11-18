@@ -32,5 +32,6 @@
     "version"
   ],
   "title": "ProjectCreated",
-  "type": "object"
+  "type": "object",
+  "x-sandloom-released": 1
 }

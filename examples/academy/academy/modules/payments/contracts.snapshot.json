@@ -121,5 +121,8 @@
     }
   },
   "format": 1,
-  "module": "academy.modules.payments"
+  "module": "academy.modules.payments",
+  "released": {
+    "payments.charges.v1": 1
+  }
 }

@@ -360,5 +360,10 @@
     }
   },
   "format": 1,
-  "module": "sandloom_tenancy"
+  "module": "sandloom_tenancy",
+  "released": {
+    "tenancy.claims.v1": 1,
+    "tenancy.membership.v1": 1,
+    "tenancy.security.v1": 1
+  }
 }

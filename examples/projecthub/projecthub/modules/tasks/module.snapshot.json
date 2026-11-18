@@ -115,5 +115,9 @@
   "format": 1,
   "module": "projecthub.modules.tasks",
   "projections": [],
+  "released": {
+    "tasks.task.created.v1": 1,
+    "tasks.task.updated.v1": 1
+  },
   "sagas": []
 }

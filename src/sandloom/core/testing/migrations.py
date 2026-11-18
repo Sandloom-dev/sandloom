@@ -32,7 +32,7 @@ import os
 import re
 import unittest
 import uuid
-from collections.abc import Container, Iterator
+from collections.abc import Callable, Container, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -202,16 +202,53 @@ def migration_chains(core: Any = None) -> list[MigrationChain]:
 
 
 def tables_created_by(chain: MigrationChain) -> set[str]:
-    """Tables a chain's revisions create (``op.create_table(<name>, ...)``).
+    """Tables a chain has after its revisions' ``upgrade()`` ran in order.
 
-    Read from the revisions' syntax tree: the name is a string literal, the
+    Replayed statically (no database) from the revisions' syntax trees, in
+    ``down_revision`` order: ``op.create_table`` adds a table,
+    ``op.drop_table`` removes it, ``op.rename_table`` renames it; a
+    ``downgrade()`` is not read. The name is a string literal, the
     ``table_name=`` keyword, or a constant assigned a string literal in the
-    revision (``_TABLE = "x"``; ``op.create_table(_TABLE, ...)``).
+    revision (``_TABLE = "x"``; ``op.create_table(_TABLE, ...)``). A table
+    created and dropped again is not the chain's: the advice of SANDLOOM-T002
+    ("add a revision that drops it") clears the problem.
     """
+    trees = _revision_trees(chain)
     found: set[str] = set()
-    for revision in chain.versions.glob("*.py"):
-        found |= _created_tables(revision.read_text(encoding="utf-8"))
+    for revision in _revision_order(trees):
+        for action, name, new_name in _table_ops(trees[revision]):
+            if action == "create":
+                found.add(name)
+            elif action == "drop":
+                found.discard(name)
+            elif name in found:  # rename
+                found.discard(name)
+                found.add(str(new_name))
     return found
+
+
+def tables_ever_created_by(chain: MigrationChain) -> set[str]:
+    """Every table any revision's ``upgrade()`` of ``chain`` creates, or renames
+    to, whether a later revision drops or renames it again: the tables a fresh
+    database gets from this chain at some point. Two chains may share none
+    (SANDLOOM-T002), moved away or not: a chain that creates and drops a table
+    still creates it, and the order the chains run in decides whether the
+    other chain's create fails."""
+    ever: set[str] = set()
+    for tree in _revision_trees(chain).values():
+        for action, name, new_name in _table_ops(tree, every_op=True):
+            if action == "create":
+                ever.add(name)
+            elif action == "rename":
+                ever.add(str(new_name))
+    return ever
+
+
+def _revision_trees(chain: MigrationChain) -> dict[Path, ast.Module]:
+    return {
+        revision: ast.parse(revision.read_text(encoding="utf-8"))
+        for revision in sorted(chain.versions.glob("*.py"))
+    }
 
 
 def _string_constants(tree: ast.AST) -> dict[str, str]:
@@ -232,33 +269,131 @@ def _string_constants(tree: ast.AST) -> dict[str, str]:
     return constants
 
 
-def _created_tables(source: str, *, upgrade_only: bool = False) -> set[str]:
-    tree = ast.parse(source)
+def _revision_values(tree: ast.Module) -> dict[str, object]:
+    """The literal ``revision`` and ``down_revision`` of a revision file."""
+    values: dict[str, object] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names = [node.target.id]
+        else:
+            continue
+        for name in names:
+            if name in ("revision", "down_revision") and node.value is not None:
+                with suppress(ValueError):
+                    values[name] = ast.literal_eval(node.value)
+    return values
+
+
+def _revision_order(trees: dict[Path, ast.Module]) -> list[Path]:
+    """The revision files parents first (``down_revision``); a file without a
+    ``revision`` id has no parents and keeps its name order."""
+    ids: dict[str, Path] = {}
+    parents: dict[Path, list[str]] = {}
+    for path, tree in trees.items():
+        values = _revision_values(tree)
+        revision = values.get("revision")
+        if isinstance(revision, str):
+            ids[revision] = path
+        down = values.get("down_revision")
+        if isinstance(down, str):
+            parents[path] = [down]
+        elif isinstance(down, tuple | list):  # a merge revision
+            parents[path] = [d for d in down if isinstance(d, str)]
+        else:
+            parents[path] = []
+    ordered: list[Path] = []
+    seen: set[Path] = set()
+    # Iterative post-order: a linear chain of thousands of revisions must not
+    # exhaust the interpreter's recursion limit.
+    for root in trees:
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(parents[root]))]
+        while stack:
+            path, pending = stack[-1]
+            for parent in pending:
+                if parent in ids and ids[parent] not in seen:
+                    seen.add(ids[parent])
+                    stack.append((ids[parent], iter(parents[ids[parent]])))
+                    break
+            else:
+                stack.pop()
+                ordered.append(path)
+    return ordered
+
+
+def _table_ops(
+    tree: ast.Module, *, every_op: bool = False
+) -> list[tuple[str, str, str | None]]:
+    """``(action, table, new name)`` of the ``op.create_table`` /
+    ``drop_table`` / ``rename_table`` calls of a revision, in source order,
+    outside ``downgrade()``. A drop or rename counts only as an unconditional
+    top-level statement of ``upgrade()`` (a ``drop_table`` under an ``if`` may
+    not run), unless ``every_op``; a create counts wherever it is."""
     constants = _string_constants(tree)
-    found: set[str] = set()
-    roots: list[ast.AST] = [tree]
-    if upgrade_only:  # not the tables a downgrade() re-creates
-        roots = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
-        ]
-    for node in (n for root in roots for n in ast.walk(root)):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-        if name != "create_table":
-            continue
-        arg: ast.expr | None = node.args[0] if node.args else None
-        for keyword in node.keywords:
-            if keyword.arg in ("table_name", "name"):
-                arg = keyword.value
-        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-            found.add(arg.value)
-        elif isinstance(arg, ast.Name) and arg.id in constants:
-            found.add(constants[arg.id])
-    return found
+    skipped = {
+        id(inner)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "downgrade"
+        for inner in ast.walk(node)
+    }
+    unconditional = {
+        id(statement.value)
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
+        for statement in node.body
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
+    }
+
+    def text(node: ast.expr | None) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return constants.get(node.id)
+        return None
+
+    calls = sorted(
+        (n for n in ast.walk(tree) if isinstance(n, ast.Call) and id(n) not in skipped),
+        key=lambda n: (n.lineno, n.col_offset),
+    )
+    ops = (_table_op(call, text) for call in calls)
+    return [
+        op
+        for call, op in zip(calls, ops, strict=True)
+        if op is not None
+        and (every_op or op[0] == "create" or id(call) in unconditional)
+    ]
+
+
+def _table_op(
+    call: ast.Call, text: Callable[[ast.expr | None], str | None]
+) -> tuple[str, str, str | None] | None:
+    """``(action, table, new name)`` of one ``op.*_table`` call, else ``None``."""
+    func = call.func
+    name = (
+        func.attr
+        if isinstance(func, ast.Attribute)
+        else func.id
+        if isinstance(func, ast.Name)
+        else ""
+    )
+    keywords = {k.arg: k.value for k in call.keywords}
+    first = call.args[0] if call.args else None
+    second = call.args[1] if len(call.args) > 1 else None
+    if name == "create_table":
+        table = text(keywords.get("table_name") or keywords.get("name") or first)
+        return ("create", table, None) if table else None
+    if name == "drop_table":
+        table = text(keywords.get("table_name") or first)
+        return ("drop", table, None) if table else None
+    if name == "rename_table":
+        old = text(keywords.get("old_table_name") or first)
+        new = text(keywords.get("new_table_name") or second)
+        return ("rename", old, new) if old and new else None
+    return None
 
 
 def model_tables(core: Any = None) -> dict[str, MigrationChain]:
@@ -401,15 +536,12 @@ def _upgrade(url: str, chain: MigrationChain) -> None:
 
 def _owned_tables(chain: MigrationChain, core: Any) -> frozenset[str]:
     """The tables ``chain`` answers for: those its models declare and those
-    its revisions' ``upgrade()`` creates (a table dropped from the models but
-    not from the chain is reported, not ignored; a table a ``downgrade()``
-    re-creates, after it moved to another module, is not this chain's)."""
+    its revisions' ``upgrade()`` leaves (:func:`tables_created_by`; a table
+    dropped from the models but not from the chain is reported, not ignored; a
+    table a ``downgrade()`` re-creates, after it moved to another module, is
+    not this chain's)."""
     declared = {t for t, c in model_tables(core).items() if c.key == chain.key}
-    upgraded: set[str] = set()
-    for revision in chain.versions.glob("*.py"):
-        source = revision.read_text(encoding="utf-8")
-        upgraded |= _created_tables(source, upgrade_only=True)
-    return frozenset(declared | upgraded)
+    return frozenset(declared | tables_created_by(chain))
 
 
 _NEEDS_POSTGRESQL = (

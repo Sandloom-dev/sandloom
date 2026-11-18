@@ -15,7 +15,8 @@ already committed (`module.snapshot.json`, and the exported file in the
 shared DTO package).
 
 **Do not use it** for a new event: [add one](add-event.md). A channel that
-has never been committed can still change freely.
+has not been released (a draft, see [Released and draft](#released-and-draft))
+changes freely.
 
 ## Prerequisites
 
@@ -29,8 +30,8 @@ has never been committed can still change freely.
 
 The `.vN` suffix is the channel's major schema version. `sandloom generate`
 compares the producer's schema with the committed snapshot before it writes
-anything, and `sandloom test` (which never writes) makes the same check. Exactly one change is accepted on the
-same `.vN`:
+anything. `sandloom test` never writes and makes the same check. Both compare
+released channels only. Exactly one change is accepted on a released `.vN`:
 
 - **Compatible: add an optional field.** Stay on `.v1`. Consumers must
   treat a missing value as "unknown", because events from producers that
@@ -47,6 +48,25 @@ same `.vN`:
 - **Breaking: everything else.** A removed, renamed or retyped field, a new
   required field, a field that became optional, or a changed meaning. This
   fails with SANDLOOM-T005; publish a new channel `.v2` (steps 2 to 6).
+  Restore the released `.v1` class, run
+  `sandloom generate --new-major notes.note.archived.v1` to copy it to `.v2`
+  beside the old one, then edit the copy.
+
+#### Released and draft
+
+`sandloom release` marks every contract and event the project declares as
+released. A channel is a draft only where a command made it one. That is the
+sample of `sandloom new`, a channel `sandloom add event` creates, a channel added
+to a `module.snapshot.json` that exists, or one you name with
+`sandloom generate --draft <channel>`. `sandloom generate` rewrites a draft
+whatever the change: no SANDLOOM-T005, no new `.vN`. It compares a released
+channel as described above, and a change moves its revision
+(`sandloom docs <channel>` prints `release: released, revision N`). A
+`module.snapshot.json` that does not exist is written with every channel
+released, so deleting it never unprotects a release. Snapshots written before
+the marks count as released: the first `sandloom generate` adds the marks. The
+events of an installed package always count as published. The decision is
+[ADR-0017](../../adr/0017-released-marks.md).
 
 ### 2. Declare v2 next to v1
 

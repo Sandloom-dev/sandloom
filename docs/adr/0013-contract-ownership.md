@@ -86,7 +86,11 @@ generated yet still generates (contracts PoC, surprise 1). `generate --check` fa
 planned set and the composed `consumes` differ. An import of `<module>._generated.contracts.<stem>`
 with no `consumes` entry is refused (a stub imported for nothing); a `consumes` entry whose
 contract is never used is reported. Every writer of generated files follows the rule:
-`sandloom generate`, `sandloom add contract`, `sandloom add module`, the deploy scaffold.
+`sandloom generate`, `sandloom add contract`, `sandloom add contract-use`, `sandloom add module`,
+the deploy scaffold. (Amended 2026-11-18: the static pre-composition plan covers an application
+too: the imports of `<app>.shared.contracts.*` and the `consumes` entries found by AST get their
+stubs from importable providers before the app loads, and `sandloom add contract-use <m>
+<contract>` declares `consumes=` and writes the stub at once.)
 
 Applications switch to the same rule: `<app>.shared` holds copies for the union of the app's
 modules' `consumes`, not for every composed provider (fewer files; adversarial B-2). This is a

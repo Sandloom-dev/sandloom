@@ -33,5 +33,6 @@
     "actor_id"
   ],
   "title": "TicketStatusChanged",
-  "type": "object"
+  "type": "object",
+  "x-sandloom-released": 1
 }

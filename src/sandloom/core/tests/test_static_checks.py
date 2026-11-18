@@ -47,6 +47,7 @@ def chains(monkeypatch: pytest.MonkeyPatch) -> Any:
         "tags": {"shared_rows", "tags_orphans"},
     }
     monkeypatch.setattr(checks, "tables_created_by", lambda c: created[c.key])
+    monkeypatch.setattr(checks, "tables_ever_created_by", lambda c: created[c.key])
     monkeypatch.setattr(
         checks,
         "model_tables",
@@ -145,6 +146,9 @@ def test_an_unmarked_redundant_index_is_reported() -> None:
     """With no ``known`` names and no marker the index is a T012 problem."""
     [problem] = checks.redundant_index_problems(_redundant_metadata())
     assert "t.ix_t_a" in problem and "SANDLOOM-T012" in problem
+    # It names the unique key that already covers the index and the fix.
+    assert "already covered by unique key uq_t_a_b (a, b)" in problem
+    assert "remove `index=True`" in problem
 
 
 def test_an_index_its_module_marks_with_a_reason_is_not_reported() -> None:

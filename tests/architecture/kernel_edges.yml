@@ -998,7 +998,7 @@ loader_call_sites:
   - {path: sandloom/core/testing/settings_gate.py, symbol: _declaration, row: A13, reason: "the settings gate imports each module of the app to read its declared settings (ADR-0015 decision 7)"}
   - {path: sandloom/core/testing/settings_gate.py, symbol: _resolvable, row: A13, reason: "the settings gate asks whether a SANDLOOM_MODULES entry names an importable package, without importing it"}
   - {path: sandloom/core/config/module_settings.py, symbol: declared_model, row: A13, reason: "a refused flat risk id imports the installed modules to name the namespaced replacement (ADR-0015 decision 4)"}
-  - {path: sandloom/core/cli/consumer_copies.py, symbol: _contracts_of, row: A13, reason: "sandloom generate imports each provider's contracts module, never composed, to render a consumer's copies (ADR-0013, KB-20)"}
+  - {path: sandloom/core/cli/consumer_copies.py, symbol: _contracts_module, row: A13, reason: "sandloom generate imports each provider's contracts module, never composed, to render a consumer's copies (ADR-0013, KB-20)"}
   - {path: sandloom/core/cli/extract.py, symbol: module_tables, row: A14, reason: "sandloom migrate extract-module imports <pkg>.models"}
   - {path: sandloom/core/testing/migrations.py, symbol: model_tables, row: A15, reason: "the test harness imports <module>.models and the kernel's models"}
   - {path: sandloom/core/testing/migrations.py, symbol: _migrations_dir, row: A15, reason: "the test harness locates a module's migration chain"}

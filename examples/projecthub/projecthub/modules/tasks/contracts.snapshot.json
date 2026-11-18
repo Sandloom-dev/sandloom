@@ -35,5 +35,8 @@
     }
   },
   "format": 1,
-  "module": "projecthub.modules.tasks"
+  "module": "projecthub.modules.tasks",
+  "released": {
+    "tasks.read.v1": 1
+  }
 }

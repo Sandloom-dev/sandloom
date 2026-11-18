@@ -27,5 +27,6 @@
   "format": 1,
   "module": "tasklist.modules.stats",
   "projections": [],
+  "released": {},
   "sagas": []
 }

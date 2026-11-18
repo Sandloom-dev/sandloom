@@ -20,7 +20,7 @@ from sandloom.core.migrations.schema_compare import (
 )
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.testing.migrations import (
-    _created_tables,
+    MigrationChain,
     _find_chain,
     _owned_tables,
     assert_migrations_match_models,
@@ -28,6 +28,7 @@ from sandloom.core.testing.migrations import (
     migration_drift,
     run_sql,
     runs_no_chains,
+    tables_created_by,
     temporary_database,
     upgrade_core_chain,
 )
@@ -314,11 +315,13 @@ def test_without_a_database_url_the_reason_is_named(
         migration_drift("core")
 
 
-def test_a_table_a_downgrade_recreates_is_not_owned() -> None:
-    source = (
+def test_a_table_a_downgrade_recreates_is_not_owned(tmp_path: Any) -> None:
+    versions = tmp_path / "versions"
+    versions.mkdir()
+    (versions / "0001.py").write_text(
         "def upgrade():\n    op.create_table('kept', sa.Column('id'))\n"
         "    op.drop_table('moved')\n"
         "def downgrade():\n    op.create_table('moved', sa.Column('id'))\n"
     )
-    assert _created_tables(source, upgrade_only=True) == {"kept"}
-    assert _created_tables(source) == {"kept", "moved"}
+    chain = MigrationChain("c", "app.c", tmp_path, "alembic_version_c")
+    assert tables_created_by(chain) == {"kept"}

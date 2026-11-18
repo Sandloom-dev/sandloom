@@ -7,6 +7,7 @@
   "format": 1,
   "module": "sandloom_admin",
   "projections": [],
+  "released": {},
   "sagas": [],
   "settings": {
     "ADMIN_CONSOLE_DIST": {

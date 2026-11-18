@@ -31,6 +31,16 @@ from pathlib import Path
 from typing import Any
 
 from sandloom.core.descriptors.module_names import installed_modules
+from sandloom.core.descriptors.release_marks import (
+    EVENT_MARK,
+    ReleaseMarkError,
+    exported_mark,
+    label,
+    old_marks,
+)
+
+#: The kernel's own ``shared`` package: holds no stub, so it is no application's.
+_KERNEL_SHARED = "sandloom.shared"
 
 
 def _app_shared() -> str | None:
@@ -45,7 +55,9 @@ def _app_shared() -> str | None:
         found = importlib.util.find_spec(package)
     except (ImportError, ValueError):
         return None
-    return package if found is not None else None
+    if found is None or package == _KERNEL_SHARED:  # the framework checkout
+        return None
+    return package
 
 
 def _package_dir(package: str) -> Path | None:
@@ -112,12 +124,12 @@ def contract_stubs() -> dict[str, _Stub]:
             name = entry.get("name") if isinstance(entry, dict) else None
             if isinstance(name, str) and name not in found:
                 stem, ref = _ref_of(name)
-                found[name] = _Stub(
-                    name,
-                    f"<your_module>._generated.contracts.{stem}",
-                    ref,
-                    provider=package,
+                # An application imports the stub from its shared package, a
+                # module distribution from its own ``_generated`` one.
+                home = (
+                    f"{app}.contracts" if app else "<your_module>._generated.contracts"
                 )
+                found[name] = _Stub(name, f"{home}.{stem}", ref, provider=package)
     return dict(sorted(found.items()))
 
 
@@ -219,11 +231,47 @@ def _stub_methods(stub: _Stub) -> tuple[str | None, list[Method]]:
     return ast.get_docstring(protocol), methods
 
 
+def _contract_release(stub: _Stub) -> int | None:
+    """The released revision of the contract (``0``: a draft) from its
+    provider's ``contracts.snapshot.json``; ``None`` when no snapshot says."""
+    packages = (
+        [stub.provider]
+        if stub.provider
+        else [
+            package
+            for package, doc in _snapshots()
+            if any(
+                isinstance(entry, dict) and entry.get("name") == stub.name
+                for entry in doc.get("contracts") or []
+            )
+        ]
+    )
+    for package in packages:
+        directory = _package_dir(package)
+        if directory is None:
+            continue
+        try:
+            doc = json.loads((directory / "contracts.snapshot.json").read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        contracts = doc.get("contracts") if isinstance(doc, dict) else None
+        if not isinstance(contracts, dict) or stub.name not in contracts:
+            continue
+        try:
+            return old_marks(doc, contracts, where=package).get(stub.name, 0)
+        except ReleaseMarkError:
+            return None
+    return None
+
+
 def describe_contract(stub: _Stub) -> str:
     """The ``sandloom docs <contract>`` text: the import, then every method's
     signature and docstring, from the application stub's source or the
     provider's class."""
     out = [f"{stub.name} (contract)"]
+    revision = _contract_release(stub)
+    if revision is not None:
+        out.append(f"  release: {label(revision)}")
     if stub.provider is None:
         class_doc, methods = _stub_methods(stub)
         out.append(f"  from {stub.module} import {stub.ref}")
@@ -289,9 +337,17 @@ def event_schemas() -> dict[str, tuple[dict[str, Any], str]]:
                 continue
             found.setdefault(path.stem, (schema, str(path)))
     for package, doc in _snapshots():
-        for channel, schema in sorted((doc.get("events") or {}).items()):
+        events = doc.get("events") or {}
+        try:
+            released = old_marks(doc, events, where=package)
+        except ReleaseMarkError:
+            released = {}
+        for channel, schema in sorted(events.items()):
             if isinstance(schema, dict):
-                found.setdefault(channel, (schema, f"{package} module.snapshot.json"))
+                # The producer's mark travels with its schema, as in an
+                # application's exported file.
+                marked = {**schema, EVENT_MARK: released.get(channel, 0)}
+                found.setdefault(channel, (marked, f"{package} module.snapshot.json"))
     return dict(sorted(found.items()))
 
 
@@ -347,6 +403,10 @@ def describe_event(channel: str, schema: dict[str, Any], source: str) -> str:
     out = [
         f"{channel} (event) — producer {schema.get('title', '?')}; schema {source}",
     ]
+    try:
+        out.append(f"  release: {label(exported_mark(schema, where=channel))}")
+    except ReleaseMarkError:
+        out.append("  release: unknown (the mark in the file is not a revision)")
     if schema.get("description"):
         out += ["", textwrap.indent(str(schema["description"]), "  ")]
     out += ["", "  fields (wire names; required first):"]

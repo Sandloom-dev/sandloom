@@ -103,7 +103,9 @@ during a migration window.
 Sync service contracts (`@contract("name.vN")`, called through
 `Contract(REF)`) carry the same major version in their name. A breaking
 change to a contract's method signatures is a new `vN+1` contract; the old
-one is kept until consumers migrate.
+one is kept until consumers migrate. The rule applies from the release of the
+contract or event (`sandloom release`): a draft changes freely
+([ADR-0017](../adr/0017-released-marks.md)).
 
 ## Configuration
 

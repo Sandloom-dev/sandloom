@@ -2193,6 +2193,12 @@ each table and index literally (or a table through a module-level string
 constant), as `sandloom migrate new` writes it; a name built at runtime, such as
 an f-string in a loop, is not recognised.
 
+The revisions are replayed in `down_revision` order, without a database: a
+`create_table` adds a table, a `drop_table` removes it and a `rename_table`
+renames it (a `downgrade()` is not read). A table the chain created and a later
+revision drops is no longer the chain's, so a revision that drops a table no
+model declares clears the problem.
+
 On a test database that takes its schema from the models (SQLite) coverage
 and ownership skip, with the reason: no chain runs there and no revision can
 be written. `sandloom migrate upgrade-all` and `upgrade-core` run the coverage
@@ -2211,13 +2217,36 @@ Slug: `contract-snapshot` · kind: test · status: active
 **What happened and why it matters**
 
 Each module commits contracts.snapshot.json: the describe document of every
-sync contract it provides. `sandloom generate` writes it after comparing it
-with the committed one (a breaking change fails and nothing is written);
-`sandloom test` only checks. Callers compare a bound provider's live describe
-with it (rolling upgrades); `sandloom contracts check --against <snapshot>`
-reports breaking changes.
+sync contract it provides, and a `released` map (`{contract: revision}`).
+`sandloom generate` writes it after comparing it with the committed one;
+`sandloom test` only checks.
 
-**Fix:** run `sandloom generate` and review the diff; a breaking change is a new contract version (.v2), not an edit of .v1
+A contract in the `released` map is released: a breaking change of it fails
+and nothing is written. Fix it with a new major beside the old one, in this
+order: restore `m.x.v1` as released (the committed contracts.snapshot.json
+shows what it was), run `sandloom generate --new-major m.x.v1` (it copies the
+declaration to `m.x.v2`, in the file that declares it; the copy names the
+same DTO classes, so copy a DTO the new major changes), then edit the copy. A
+compatible change (an added method, an added optional parameter) is written
+and moves the contract's revision up by one; `sandloom generate` computes the
+number and nothing verifies it, so a hand edit changes only the number.
+
+A contract the `released` map does not list is a draft: `sandloom generate`
+rewrites it freely, no T004. A draft is never inferred from a missing file: a
+contracts.snapshot.json written fresh (deleted, moved, never generated)
+records every contract as released, so a lost file loosens nothing. Drafts
+come from the commands that create them (`sandloom new`'s sample, `add
+module`, `add contract`), from a contract added to an existing snapshot, and
+from `sandloom generate --draft <contract or module>`, which writes the name
+as a draft (visible in the diff) and refuses one that is released.
+`sandloom release` marks every current contract and event of the project
+released. A snapshot written before the marks existed has no `released` key:
+its contracts count as released. `sandloom docs <contract>` shows the state.
+
+Callers compare a bound provider's live describe with it (rolling upgrades);
+`sandloom contracts check --against <snapshot>` reports breaking changes.
+
+**Fix:** run `sandloom generate` and review the diff; a breaking change of a released contract is a new major: restore `.vN` as released, run `sandloom generate --new-major <name>` (it copies the declaration to .v(N+1) beside it), then edit the copy
 
 ### SANDLOOM-T003
 
@@ -2241,9 +2270,9 @@ Slug: `event-schema-compat` · kind: test · status: active
 
 **What happened and why it matters**
 
-Compatibility is checked against the committed snapshot before `sandloom generate` writes anything, and by `sandloom test` (spec §5.2, §5.8), at every depth and in both directions (producers and consumers of one .vN deploy independently: a new reader accepts what an old producer sends, an old reader what a new producer sends). Any changed validation constraint is breaking: a narrowed one (a raised minimum, a new pattern) rejects an old producer's payload, a loosened one (a longer maxLength, a removed bound) a new producer's; so is a removed field, open model or not.
+Only a released event is checked: module.snapshot.json lists the released channels in its `released` map (`{channel: revision}`), and an application's exported shared/events/&lt;channel>.json carries `x-sandloom-released` (`0`: a draft). An event an existing snapshot does not mark is a draft: `sandloom generate` rewrites it freely, no T005. A draft is never inferred from a missing file: a module.snapshot.json written fresh (deleted, moved, never generated) records every event as released. Drafts come from the commands that create them (`sandloom new`'s sample, `add module`, `add event`), from an event added to an existing snapshot, and from `sandloom generate --draft <channel or module>` (written into the file, refused for a released one); `sandloom release` marks every contract and event of the project released. A snapshot written before the marks has no `released` key, so its events count as released. The events of an installed package always count as published: this application's exported copy of them is compared whatever the package marks, and a mark of the package that is not a revision is reported. A compatible change of a released event moves its revision up by one; `sandloom generate` computes the number. Compatibility is checked against the committed snapshot before `sandloom generate` writes anything, and by `sandloom test` (spec §5.2, §5.8), at every depth and in both directions (producers and consumers of one .vN deploy independently: a new reader accepts what an old producer sends, an old reader what a new producer sends). Any changed validation constraint is breaking: a narrowed one (a raised minimum, a new pattern) rejects an old producer's payload, a loosened one (a longer maxLength, a removed bound) a new producer's; so is a removed field, open model or not.
 
-**Fix:** add only optional fields to a published channel; anything else is a new version (.v2, see the event-versioning guide)
+**Fix:** add only optional fields to a released channel; anything else is a new major: restore `.vN` as released, run `sandloom generate --new-major <name>` (it copies the class to .v(N+1) beside it), then edit the copy (see the event-versioning guide)
 
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
@@ -2344,7 +2373,7 @@ A unique index on (a, b) serves every lookup a plain index on (a) would, so
 the plain one is pure write cost. sandloom test's static `schema & deploy` step
 reports it (sandloom.core.testing.static_checks), with no database.
 
-**Fix:** drop `index=True` / the Index from the model and add a revision that drops it (`sandloom migrate new <module> "<message>"`); the TenantScoped tenant_id index is dropped for you when a unique key leads with tenant_id, so keep per-tenant keys tenant-first
+**Fix:** remove `index=True` / the Index from the model (the message names the unique key that already covers it) and add a revision that drops it (`sandloom migrate new <module> "<message>"`); the TenantScoped tenant_id index is dropped for you when a unique key leads with tenant_id, so keep per-tenant keys tenant-first
 
 ### SANDLOOM-T013
 

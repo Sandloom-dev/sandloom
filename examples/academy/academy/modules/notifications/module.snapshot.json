@@ -15,5 +15,6 @@
   "format": 1,
   "module": "academy.modules.notifications",
   "projections": [],
+  "released": {},
   "sagas": []
 }

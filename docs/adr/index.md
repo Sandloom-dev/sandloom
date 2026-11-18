@@ -23,3 +23,4 @@ ADRs are kept for history and marked accordingly.
 | [0014](0014-claims-trust-and-authorization-portability.md) | Claims trust assigned by the application; domain authorization atoms generated from contracts (amends 0009, 0010) | Accepted |
 | [0015](0015-module-settings.md) | Modules declare their own settings; the kernel validates them from one read (amends 0006, 0010) | Accepted |
 | [0016](0016-kernel-ports-and-driver-packages.md) | Kernel ports and driver packages: three doors, a kernel-facing capability set, one error model, driver tiers, Redis and Celery out of the kernel (amends 0011) | Accepted |
+| [0017](0017-released-marks.md) | Released marks for contracts and events: a draft changes freely, a released one keeps the strict rule, `sandloom release`, `--new-major` (amends 0010, 0013) | Accepted |

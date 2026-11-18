@@ -121,6 +121,14 @@ methods); a breaking change is a new contract, `stats.quota.v2`.
 
 ### 5. Call it from another module
 
+In the calling module, `sandloom add contract-use <module> <contract>` declares
+the contract in `define_module(consumes=[...])` and writes the stub at once, so
+the import below resolves before any `sandloom generate`:
+
+```bash
+sandloom add contract-use tasks stats.quota.v1
+```
+
 Declare the caller once, at module level, with the generated reference.
 `define_module` adds it to the module's `consumes`, and startup fails if the
 contract is neither provided in the process nor bound to a remote service
@@ -180,7 +188,9 @@ sandloom test tasks
 ```
 
 `sandloom generate` also writes `contracts.snapshot.json` for the provider;
-commit it with the stub and the DTO copy.
+commit it with the stub and the DTO copy. The contract is a draft until
+`sandloom release` marks it released; only then is an incompatible change
+refused (SANDLOOM-T004).
 
 ## Errors you may hit
 

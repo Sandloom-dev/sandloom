@@ -667,6 +667,20 @@
   "format": 1,
   "module": "sandloom_tenancy",
   "projections": [],
+  "released": {
+    "tenancy.invitation_accepted.v1": 1,
+    "tenancy.invitation_created.v1": 1,
+    "tenancy.invitation_revoked.v1": 1,
+    "tenancy.member_added.v1": 1,
+    "tenancy.member_added.v2": 1,
+    "tenancy.member_removed.v1": 1,
+    "tenancy.member_removed.v2": 1,
+    "tenancy.member_role_changed.v1": 1,
+    "tenancy.member_role_changed.v2": 1,
+    "tenancy.organization_created.v1": 1,
+    "tenancy.organization_deleted.v1": 1,
+    "tenancy.organization_updated.v1": 1
+  },
   "sagas": [],
   "settings": {
     "TENANT_CLAIMS_MAX_ORGANIZATIONS": {

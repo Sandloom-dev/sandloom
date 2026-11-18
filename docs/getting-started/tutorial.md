@@ -206,8 +206,8 @@ uv run sandloom generate stats
 
 We declare the final shape before its first generation. `sandloom add contract`
 is useful for a generic scaffold, but it immediately snapshots its example
-methods; removing those methods afterwards is a breaking change, even before
-publication. Once callers use a contract, preserve its methods or introduce a
+methods as a draft: until you run `sandloom release`, `sandloom generate`
+rewrites them freely. Once a contract is released and callers use it, preserve its methods or introduce a
 new version ([contract evolution](../modules/between/contracts.md)). Keep the generated
 files; `sandloom test` checks them without writing them.
 

@@ -12,7 +12,10 @@ paths:
   public `async def` methods are reads; `@command(idempotency_key="<arg>")`
   marks a command. Helpers are `_private`. SANDLOOM-B018 refuses anything else.
   `sandloom add contract <m> <name>` writes the provider, its DTO in
-  `schemas.py`, then runs `sandloom generate` (stub and DTO copy).
+  `schemas.py`, then runs `sandloom generate` (stub and DTO copy). A caller
+  runs `sandloom add contract-use <m> <contract>` (declares `consumes=`, writes
+  the stub at once); `sandloom generate` also writes the stub of an import
+  found in the source before it loads the app.
 - **Session.** Inside a method, `db()` is the provider unit's session. A
   method never takes a session parameter.
 - **Signatures.** Every parameter and the return use wire types: JSON

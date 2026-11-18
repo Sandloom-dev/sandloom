@@ -44,5 +44,6 @@
     "invitation_id"
   ],
   "title": "InvitationAccepted",
-  "type": "object"
+  "type": "object",
+  "x-sandloom-released": 1
 }

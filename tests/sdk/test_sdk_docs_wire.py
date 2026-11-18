@@ -62,6 +62,46 @@ def test_an_app_shared_package_is_read_too(
     event = _out(capsys, "notes.note.created.v1")
     assert "note_id  UUID  required" in event
     assert "no tenant_id field" in event
+    # An exported file written before the marks counts as released (ADR-0017).
+    assert "release: released, revision 1" in event
+
+
+def test_a_contract_release_is_read_from_the_providers_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(docs_wire, "_package_dir", lambda _package: tmp_path)
+    stub = docs_wire._Stub("m.a.v1", "x", "M_A_V1", provider="provider_pkg")
+    snapshot = tmp_path / "contracts.snapshot.json"
+    assert docs_wire._contract_release(stub) is None  # no snapshot
+    body = {"m.a.v1": {"methods": {}}}
+    for document, expected in (
+        ({"contracts": body}, 1),  # written before the marks: released
+        ({"contracts": body, "released": {}}, 0),  # a draft
+        ({"contracts": body, "released": {"m.a.v1": 4}}, 4),
+        ({"contracts": body, "released": {"m.a.v1": "x"}}, None),  # malformed
+        ({"contracts": {}, "released": {}}, None),  # not listed
+    ):
+        snapshot.write_text(json.dumps(document))
+        assert docs_wire._contract_release(stub) == expected, document
+
+
+def test_an_exported_event_shows_its_release_mark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app = tmp_path / "markapp"
+    (app / "shared" / "events").mkdir(parents=True)
+    (app / "__init__.py").write_text("")
+    (app / "shared" / "__init__.py").write_text("")
+    for channel, mark in (("a.draft.v1", 0), ("a.out.v1", 3), ("a.bad.v1", "x")):
+        (app / "shared" / "events" / f"{channel}.json").write_text(
+            json.dumps({"title": "E", "properties": {}, "x-sandloom-released": mark})
+        )
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "markapp"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert "release: draft" in _out(capsys, "a.draft.v1")
+    assert "release: released, revision 3" in _out(capsys, "a.out.v1")
+    assert "release: unknown" in _out(capsys, "a.bad.v1")
 
 
 def test_every_bundled_contract_method_states_its_semantics() -> None:

@@ -5,6 +5,8 @@
     <m>/events.py
     sandloom add contract <m> <name>              a provider in <m>/contracts.py and
     its DTO in <m>/schemas.py
+    sandloom add contract-use <m> <contract>      declare that <m> consumes a contract
+    and write its stub before the code imports it
     sandloom add consumer <m> <channel> [--field n:type ...]   a view and an @on handler
     sandloom add saga <m> <name>                  a saga with a typed command step
     sandloom add projection <m> <name>            a projection, its row model and
@@ -38,7 +40,7 @@ import json
 import keyword
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -669,6 +671,14 @@ def _class_block(
     return "\n".join(lines) + "\n"
 
 
+def event_channel(module: str, name: str) -> str:
+    """The channel ``sandloom add event <module> <Name>`` declares."""
+    channel = f"{module}.{_snake(name).replace('_', '.', 1)}.v1"
+    if channel.count(".") < 2:
+        channel = f"{module}.{_snake(name)}.v1"
+    return channel
+
+
 def add_event(module: str, name: str, where: Layout, fields: list[str]) -> list[Path]:
     """``sandloom add event <m> <Name>``: append a producer class to ``events.py``."""
     directory = _require_module(where, module)
@@ -679,9 +689,7 @@ def add_event(module: str, name: str, where: Layout, fields: list[str]) -> list[
     ]
     if not any(f[0] == "tenant_id" for f in parsed):
         parsed.append(("tenant_id", "UUID", "from uuid import UUID"))
-    channel = f"{module}.{_snake(name).replace('_', '.', 1)}.v1"
-    if channel.count(".") < 2:
-        channel = f"{module}.{_snake(name)}.v1"
+    channel = event_channel(module, name)
     path = directory / "events.py"
     needed = sorted(
         {imp for _, _, imp in parsed if imp} | {"from sandloom.sdk import Event"}
@@ -887,20 +895,180 @@ from sandloom.core.cli.run_tests import load_project_test_env
 root = Path(sys.argv[1])
 load_project_test_env(root)
 from sandloom.core.cli.generated import main
-sys.exit(main(["--root", str(root)]))
+sys.exit(main(["--root", str(root), *sys.argv[2:]]))
 """
 
 
-def run_generate(root: Path) -> tuple[int, str]:
-    """``sandloom generate`` for the project at ``root``, in a child process
-    of this interpreter (a fresh import of the project's files); returns
-    ``(exit code, output)``."""
+def own_modules(root: Path) -> list[str]:
+    """The names of the modules under the project's modules directory."""
+    try:
+        return load_rules(root / "architecture_rules.yml").business_modules()
+    except ManifestError as exc:
+        raise GeneratorError(str(exc)) from exc
+
+
+def draft_options(names: Iterable[str]) -> list[str]:
+    """``--draft NAME`` for each name: what the creating commands pass to
+    ``sandloom generate`` so what they just created is written as a draft
+    (a snapshot written fresh would record it as released, ADR-0017)."""
+    return [option for name in names for option in ("--draft", name)]
+
+
+def created_names(args: argparse.Namespace) -> list[str]:
+    """The module, contracts and events ``sandloom add <what>`` created."""
+    if args.what == "module":
+        return [args.module]
+    if args.what == "event":
+        return [event_channel(args.module, args.name)]
+    if args.what == "contract":
+        return [f"{args.module}.{args.name}.v1"]
+    if args.what == "saga":
+        return [f"{args.module}.{args.name}_ledger.v1"]
+    if args.what == "projection":
+        return [
+            f"{args.module}.{args.name}.saved.v1",
+            f"{args.module}.{args.name}.deleted.v1",
+        ]
+    return []
+
+
+def run_generate(root: Path, *options: str) -> tuple[int, str]:
+    """``sandloom generate [options]`` for the project at ``root``, in a child
+    process of this interpreter (a fresh import of the project's files);
+    returns ``(exit code, output)``."""
     proc = _tool_process.run_tool(
-        [sys.executable, "-c", _GENERATE, str(root.resolve())],
+        [sys.executable, "-c", _GENERATE, str(root.resolve()), *options],
         cwd=root,
         capture=True,
     )
     return proc.returncode, proc.stdout or ""
+
+
+# --------------------------------------------------------------------------- #
+# sandloom add contract-use
+# --------------------------------------------------------------------------- #
+
+_REQUIREMENT_IMPORT = (
+    "from sandloom.sdk.module import ContractRequirement  # sandloom: advanced contract"
+)
+
+
+def _requirement_name(item: ast.expr) -> str | None:
+    """The contract a ``consumes=`` entry names (a string, or the first
+    argument of ``ContractRequirement(...)``)."""
+    if isinstance(item, ast.Call) and item.args:
+        item = item.args[0]
+    if isinstance(item, ast.Constant) and isinstance(item.value, str):
+        return item.value
+    return None
+
+
+def _declare_consumes(init: Path, contract: str) -> tuple[list[Path], str | None]:
+    """Declare ``contract`` in the module's ``define_module(consumes=[...])``.
+    A call it cannot rewrite safely (comments inside it, a computed list) is
+    left alone and the note says what to write; an entry already there is kept."""
+    manual = (
+        f"declare it in {init.parent.name}/__init__.py: define_module(..., "
+        f'consumes=[ContractRequirement("{contract}")])'
+    )
+    site = _define_module_site(init)
+    if site is None:
+        return [], manual
+    source, tree, statement, call = site
+    entries: list[str] = []
+    consumes = next((k for k in call.keywords if k.arg == "consumes"), None)
+    if consumes is not None:
+        if not isinstance(consumes.value, ast.List | ast.Tuple):
+            return [], manual
+        for item in consumes.value.elts:
+            segment = ast.get_source_segment(source, item)
+            if segment is None:
+                return [], manual
+            if _requirement_name(item) == contract:
+                return [], None  # declared already
+            entries.append(segment)
+    entries.append(f'ContractRequirement("{contract}")')
+    source = _with_keyword(source, statement, call, "consumes", entries)
+    source = _import_requirement(
+        source, tree, "ContractRequirement", _REQUIREMENT_IMPORT
+    )
+    init.write_text(source, encoding="utf-8")
+    return [init], None
+
+
+def add_contract_use(
+    module: str, contract: str, where: Layout
+) -> tuple[list[Path], str | None]:
+    """``sandloom add contract-use <m> <contract>``: ``<m>`` consumes
+    ``contract`` (a name such as ``tenancy.membership.v1``). Declares it in
+    ``define_module(consumes=[ContractRequirement(...)])`` and writes the stub
+    (and the DTO copies it names) from the importable provider at once, so the
+    module's code can import it before any ``sandloom generate`` ran."""
+    directory = _require_module(where, module)
+    if not _CHANNEL.fullmatch(contract):
+        raise GeneratorError(
+            f"not a versioned contract name such as tenancy.membership.v1: {contract!r}"
+        )
+    package = where.dotted(module)
+    consumer = importlib.import_module("sandloom.core.cli.consumer_copies")
+    if consumer.is_kernel_family(contract):
+        raise GeneratorError(
+            f"{contract} is a kernel contract family: its shape is fixed by the "
+            "kernel and it gets no stub; consume it with "
+            "ContractRequirement alone"
+        )
+    modules = {
+        where.dotted(d.name): d
+        for d in sorted(where.modules_dir.iterdir())
+        if (d / "__init__.py").is_file() and not d.name.startswith(("_", "."))
+    }
+    if str(where.source_root) in sys.path:
+        sys.path.remove(str(where.source_root))
+    sys.path.insert(0, str(where.source_root))
+    importlib.invalidate_caches()
+    provider = consumer.importable_providers(where.source_root, modules).get(contract)
+    if provider is None:
+        raise GeneratorError(
+            f"no importable provider declares {contract}: install the module that "
+            "provides it (it is listed by `sandloom docs contracts`), or check the "
+            "name; the file was not changed"
+        )
+    if provider.package == package:
+        raise GeneratorError(f"{module} provides {contract} itself: nothing to consume")
+    created, note = _declare_consumes(directory / "__init__.py", contract)
+    generated = _stubs()
+    if where.shared_dir is not None and where.shared_package is not None:
+        planned = consumer.plan_shared(
+            modules,
+            where.source_root,
+            generated.STUBS,
+            where.shared_dir,
+            where.shared_package,
+            (
+                importlib.import_module("sandloom.core.cli.dto_copies").KERNEL_SHARED,
+                where.shared_package,
+            ),
+            extra=[contract],
+        )
+    else:  # a tree of module packages: the module's own _generated/ home
+        planned, _names = consumer.plan_static(
+            {package: directory}, where.source_root, generated.STUBS
+        )
+    files = [
+        generated.Generated(f.path, f.content, f.code, f.problems) for f in planned
+    ]
+    declared = bool(created)
+    created += [f.path for f in files if f.stale and not f.problems]
+    if generated.apply(files, write=True, shared_dir=where.shared_dir) != 0:
+        raise GeneratorError(
+            f"the stub of {contract} was not written (see above); "
+            + (
+                f"the declaration is in {directory.name}/__init__.py"
+                if declared
+                else "no file was changed"
+            )
+        )
+    return created, note
 
 
 # --------------------------------------------------------------------------- #
@@ -1459,8 +1627,31 @@ def _declare_taskqueue(init: Path, *, periodic: bool) -> tuple[list[Path], str |
         f"declare the task queue in {init.parent.name}/__init__.py: "
         f"define_module(..., capabilities=[{wanted.strip('[]')}]) (SANDLOOM-C033)"
     )
-    if not init.is_file():
+    site = _define_module_site(init)
+    if site is None:
         return [], manual
+    source, tree, statement, call = site
+    entries = _taskqueue_entries(source, call, periodic)
+    if entries is None:
+        has_periodic = "periodic" in (ast.get_source_segment(source, statement) or "")
+        return [], (None if has_periodic or not periodic else manual)
+    source = _with_keyword(source, statement, call, "capabilities", entries)
+    if periodic:
+        source = _import_requirement(
+            source, tree, "CapabilityRequirement", _CAPABILITY_IMPORT
+        )
+    init.write_text(source, encoding="utf-8")
+    return [init], None
+
+
+def _define_module_site(
+    init: Path,
+) -> tuple[str, ast.Module, ast.Assign, ast.Call] | None:
+    """The source of ``init``, its tree and its one ``x = define_module(...)``
+    statement; ``None`` where a rewrite is not safe (no file, not exactly one
+    call, comments inside it)."""
+    if not init.is_file():
+        return None
     source = init.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source)
@@ -1475,24 +1666,32 @@ def _declare_taskqueue(init: Path, *, periodic: bool) -> tuple[list[Path], str |
         and node.value.func.id == "define_module"
     ]
     if len(found) != 1:
-        return [], manual
+        return None
     statement, call = found[0]
     text = ast.get_source_segment(source, statement)
     if text is None or "#" in text or call.end_lineno is None:
-        return [], manual
-    entries = _taskqueue_entries(source, call, periodic)
-    if entries is None:
-        has_periodic = "periodic" in text
-        return [], (None if has_periodic or not periodic else manual)
+        return None
+    return source, tree, statement, call
+
+
+def _with_keyword(
+    source: str,
+    statement: ast.Assign,
+    call: ast.Call,
+    keyword: str,
+    entries: list[str],
+) -> str:
+    """``source`` with the ``define_module`` statement's ``keyword=[entries]``
+    set (the other arguments as written), laid out as ruff format does."""
     args = [ast.get_source_segment(source, a) or "" for a in call.args]
     args += [
         f"{k.arg}={ast.get_source_segment(source, k.value)}"
         if k.arg
         else f"**{ast.get_source_segment(source, k.value)}"
         for k in call.keywords
-        if k.arg != "capabilities"
+        if k.arg != keyword
     ]
-    args.append(f"capabilities=[{', '.join(entries)}]")
+    args.append(f"{keyword}=[{', '.join(entries)}]")
     targets = " = ".join(
         ast.get_source_segment(source, t) or "" for t in statement.targets
     )
@@ -1500,23 +1699,19 @@ def _declare_taskqueue(init: Path, *, periodic: bool) -> tuple[list[Path], str |
     lines = source.split("\n")
     start, end = statement.lineno - 1, statement.end_lineno or statement.lineno
     lines[start:end] = rewritten.split("\n")
-    source = "\n".join(lines)
-    if periodic:
-        source = _import_capability_requirement(source, tree)
-    init.write_text(source, encoding="utf-8")
-    return [init], None
+    return "\n".join(lines)
 
 
-def _import_capability_requirement(source: str, tree: ast.Module) -> str:
-    """``source`` importing ``CapabilityRequirement`` from ``sandloom.sdk.module``
-    (lines before the rewritten ``define_module`` are those of ``tree``), in
-    the place isort keeps it: merged into an existing one-line import of that
-    module, else among the ``sandloom`` imports in order."""
+def _import_requirement(source: str, tree: ast.Module, name: str, line: str) -> str:
+    """``source`` importing ``name`` (``CapabilityRequirement`` or
+    ``ContractRequirement``; ``line`` is its whole import line) from
+    ``sandloom.sdk.module`` (lines before the rewritten ``define_module`` are
+    those of ``tree``), in the place isort keeps it: merged into an existing
+    one-line import of that module, else among the ``sandloom`` imports in
+    order."""
     imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.level == 0]
     if any(
-        (alias.asname or alias.name) == "CapabilityRequirement"
-        for node in imports
-        for alias in node.names
+        (alias.asname or alias.name) == name for node in imports for alias in node.names
     ):
         return source
     lines = source.split("\n")
@@ -1526,7 +1721,7 @@ def _import_capability_requirement(source: str, tree: ast.Module) -> str:
             if any(a.asname for a in node.names):
                 break  # an aliased import: a separate line keeps it readable
             comment = lines[node.lineno - 1].partition("#")[2]
-            names = sorted({*(a.name for a in node.names), "CapabilityRequirement"})
+            names = sorted({*(a.name for a in node.names), name})
             new = f"from {module} import {', '.join(names)}"
             new += f"  #{comment}" if comment else ""
             lines[node.lineno - 1] = new
@@ -1542,7 +1737,7 @@ def _import_capability_requirement(source: str, tree: ast.Module) -> str:
             n for n in tree.body if isinstance(n, ast.Import | ast.ImportFrom)
         ]
         at = (everything[-1].end_lineno or 0) if everything else 0
-    lines[at:at] = [_CAPABILITY_IMPORT]
+    lines[at:at] = [line]
     return "\n".join(lines)
 
 
@@ -1565,6 +1760,13 @@ def _parser() -> argparse.ArgumentParser:
     contract = sub.add_parser("contract")
     contract.add_argument("module")
     contract.add_argument("name")
+    use = sub.add_parser(
+        "contract-use",
+        help="declare that a module consumes a contract and write its stub "
+        "before the module's code imports it",
+    )
+    use.add_argument("module")
+    use.add_argument("contract", help="a versioned name, e.g. tenancy.membership.v1")
     consumer = sub.add_parser("consumer")
     consumer.add_argument("module")
     consumer.add_argument("channel")
@@ -1689,6 +1891,8 @@ def _run(args: argparse.Namespace) -> tuple[list[Path], str | None]:
         return add_event(args.module, args.name, where, args.field), None
     if args.what == "contract":
         return add_contract(args.module, args.name, where), None
+    if args.what == "contract-use":
+        return add_contract_use(args.module, args.contract, where)
     if args.what == "consumer":
         return add_consumer(args.module, args.channel, where, args.field), None
     if args.what == "saga":
@@ -1728,7 +1932,7 @@ def _generate_and_report(args: argparse.Namespace) -> int:
         print("\nAn existing file was kept; merge the *.new file by hand.")
     if note:
         print(f"\n{note}")
-    code, output = run_generate(args.root)
+    code, output = run_generate(args.root, *draft_options(created_names(args)))
     print(output.rstrip())
     if code != 0:
         print(
@@ -1747,14 +1951,18 @@ __all__ = [
     "Layout",
     "add_consumer",
     "add_contract",
+    "add_contract_use",
     "add_event",
     "add_module",
     "add_projection",
     "add_saga",
     "add_skills",
     "add_task",
+    "draft_options",
+    "event_channel",
     "layout",
     "main",
+    "own_modules",
     "parse_fields",
     "run_generate",
 ]

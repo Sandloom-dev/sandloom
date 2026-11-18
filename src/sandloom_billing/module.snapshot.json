@@ -421,6 +421,15 @@
   "format": 1,
   "module": "sandloom_billing",
   "projections": [],
+  "released": {
+    "billing.credits.added.v1": 1,
+    "billing.credits.restored.v1": 1,
+    "billing.credits.reversed.v1": 1,
+    "billing.credits.spent.v1": 1,
+    "billing.subscription.canceled.v1": 1,
+    "billing.subscription.created.v1": 1,
+    "billing.subscription.updated.v1": 1
+  },
   "sagas": [],
   "settings": {
     "BILLING_DENY_ON_PAST_DUE": {

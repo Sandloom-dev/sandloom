@@ -1388,6 +1388,23 @@
   },
   "module": "sandloom_identity",
   "projections": [],
+  "released": {
+    "identity.sso_linked.v1": 1,
+    "identity.sso_unlinked.v1": 1,
+    "identity.twofa_backup_codes_regenerated.v1": 1,
+    "identity.twofa_disabled.v1": 1,
+    "identity.twofa_enabled.v1": 1,
+    "identity.user_deleted.v1": 1,
+    "identity.user_email_confirmed.v1": 1,
+    "identity.user_logged_in.v1": 1,
+    "identity.user_logged_out.v1": 1,
+    "identity.user_password_reset.v1": 1,
+    "identity.user_registered.v1": 1,
+    "identity.user_role_assigned.v1": 1,
+    "identity.user_role_revoked.v1": 1,
+    "identity.user_sessions_revoked.v1": 1,
+    "identity.user_updated.v1": 1
+  },
   "sagas": [],
   "settings": {
     "GITHUB_CLIENT_ID": {

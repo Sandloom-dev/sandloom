@@ -100,7 +100,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`SpawnedServerError`](#spawnedservererror) | exception | The spawned server exited, or its port is answered by another process. |
 | [`split_env`](#split_env) | function | Environment overlays for test processes with pinned RPC and EdDSA JWTs. |
 | [`stop_revocation_listener`](#stop_revocation_listener) | async function | Drop every per-process copy of a subject's state (test teardown). |
-| [`tables_created_by`](#tables_created_by) | function | Tables a chain's revisions create (`op.create_table(<name>, ...)`). |
+| [`tables_created_by`](#tables_created_by) | function | Tables a chain has after its revisions' `upgrade()` ran in order. |
 | [`temporary_database`](#temporary_database) | function | Create an empty database on the test server; yield its sync URL. |
 | [`TestResourceOwnershipError`](#testresourceownershiperror) | exception | The test database / keyed index belongs to another run. |
 | [`UNIQUE`](#unique) | constant |  |
@@ -1839,11 +1839,16 @@ returns at once.
 def tables_created_by(chain: MigrationChain) -> set[str]
 ```
 
-Tables a chain's revisions create (`op.create_table(<name>, ...)`).
+Tables a chain has after its revisions' `upgrade()` ran in order.
 
-Read from the revisions' syntax tree: the name is a string literal, the
+Replayed statically (no database) from the revisions' syntax trees, in
+`down_revision` order: `op.create_table` adds a table,
+`op.drop_table` removes it, `op.rename_table` renames it; a
+`downgrade()` is not read. The name is a string literal, the
 `table_name=` keyword, or a constant assigned a string literal in the
-revision (`_TABLE = "x"`; `op.create_table(_TABLE, ...)`).
+revision (`_TABLE = "x"`; `op.create_table(_TABLE, ...)`). A table
+created and dropped again is not the chain's: the advice of SANDLOOM-T002
+("add a revision that drops it") clears the problem.
 
 ### `temporary_database`
 

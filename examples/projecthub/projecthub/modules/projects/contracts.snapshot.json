@@ -68,5 +68,8 @@
     }
   },
   "format": 1,
-  "module": "projecthub.modules.projects"
+  "module": "projecthub.modules.projects",
+  "released": {
+    "projects.read.v1": 1
+  }
 }

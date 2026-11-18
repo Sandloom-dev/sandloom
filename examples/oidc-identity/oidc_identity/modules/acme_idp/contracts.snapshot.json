@@ -334,5 +334,9 @@
     }
   },
   "format": 1,
-  "module": "oidc_identity.modules.acme_idp"
+  "module": "oidc_identity.modules.acme_idp",
+  "released": {
+    "acme_idp.claims.v1": 1,
+    "acme_idp.security.v1": 1
+  }
 }

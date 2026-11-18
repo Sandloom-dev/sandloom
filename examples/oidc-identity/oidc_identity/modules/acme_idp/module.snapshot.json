@@ -33,6 +33,7 @@
   },
   "module": "oidc_identity.modules.acme_idp",
   "projections": [],
+  "released": {},
   "sagas": [],
   "settings": {
     "ACME_IDP_ADMIN_GROUP": {

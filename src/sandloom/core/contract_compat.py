@@ -38,7 +38,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +46,7 @@ from typing import Any
 
 import sandloom.core.descriptors.generated_provenance as _provenance
 import sandloom.core.descriptors.module_names as _module_names
+import sandloom.core.descriptors.release_marks as _marks
 import sandloom.core.module_api as _module_api
 from sandloom.core.contracts.compatibility import (
     CompatReport as CompatReport,
@@ -94,6 +95,41 @@ def module_snapshots(core: Any) -> dict[str, dict[str, Any]]:
 def render_snapshot(doc: Mapping[str, Any]) -> str:
     """Canonical text of a snapshot document (stable diffs)."""
     return json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+def marked_snapshot(
+    doc: Mapping[str, Any],
+    current: str | None,
+    *,
+    release: bool = False,
+    drafts: Collection[str] = (),
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``(the document to write, the committed contracts to compare it with)``
+    (ADR-0017). The document carries its ``released`` map, computed from the
+    committed text ``current``. A file written fresh (``None``: none is
+    committed) records every contract as released: a deleted or moved file
+    never loosens what was protected. A contract new to an existing file is a
+    draft; ``drafts`` names the contracts written as drafts, ``release`` marks
+    every contract released. Only the committed contracts that were released
+    are compared (T004): a draft changes freely.
+    Raises :class:`~sandloom.core.descriptors.release_marks.ReleaseMarkError`
+    for a committed mark that is not a revision, or a released contract named
+    in ``drafts``."""
+    committed = json.loads(current) if current else None
+    before = (committed or {}).get("contracts", {})
+    released = _marks.old_marks(committed, before, where=SNAPSHOT_FILENAME)
+    marks = _marks.next_marks(
+        released,
+        before,
+        doc["contracts"],
+        release=release,
+        fresh=committed is None,
+        drafts=drafts,
+    )
+    return (
+        {**doc, _marks.RELEASED: marks},
+        _marks.strict_entries(released, before),
+    )
 
 
 def module_package_dir(module: str) -> Path | None:

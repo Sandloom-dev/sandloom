@@ -329,12 +329,19 @@ billing.credits.v1`). The stubs import from
 `<app>.shared.contracts.<name>` in an application and from
 `<module>._generated.contracts.<name>` in a module distribution
 (`sandloom generate` writes them from the provider, with the copies of its DTOs
-the stub names: never edit one; a contract you never released may change
-freely: delete its stub and run `sandloom generate`).
+the stub names: never edit one; to refresh a stub after the provider changed,
+delete it and run `sandloom generate`).
 
-Generate the provider's contract stub before writing the consumer:
+Declare the consumed contract and write its stub before the consumer's code
+imports it:
 
-    uv run sandloom generate billing
+    uv run sandloom add contract-use <module> billing.credits.v1
+
+It adds `ContractRequirement("billing.credits.v1")` to
+`define_module(consumes=[...])` and writes the stub at once. A module that
+already imports a stub nobody has generated needs no command: `sandloom
+generate` writes the missing stub from the installed provider before it loads
+the app.
 
 Declare the caller at module level: `define_module` adds it to the module's
 `consumes`, and startup fails when a required provider is missing
@@ -702,7 +709,10 @@ org-gate`).''',
         "roll your own event to v2: dual publish, move consumers, retire v1",
         '''An optional new field stays in `.v1` (`sandloom generate` accepts it). A removed,
 renamed or retyped field, a new required field or a changed meaning is
-breaking: on the same `.vN` `sandloom generate` refuses it (SANDLOOM-T005). Roll to `.v2`:
+breaking: once the event is released (`sandloom release`; a draft changes
+freely) `sandloom generate` refuses it on the same `.vN` (SANDLOOM-T005).
+With the released class restored, `sandloom generate --new-major <channel>` copies it to
+`.v2`; edit the copy. Roll to `.v2`:
 
 1. Declare v2 next to v1 and publish both in one unit
    (`publish_event_versions`: every version is checked against its schema,
