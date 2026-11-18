@@ -106,9 +106,9 @@ With the access token authorized, execute **POST `/api/v1/orgs`**:
 
 The response is `201` and contains the organization's `id`. The creator becomes
 its owner. `slug` is optional: without it, the slug is derived from the name
-(`my-workspace` here). The access token you already hold was minted before this
-membership existed, so its `tenant_ids` claim does not include the new
-organization yet, so refresh it as below.
+(`my-workspace` here). Your access token was minted before this membership
+existed. Its `tenant_ids` claim does not list the new organization yet, so
+refresh it as below.
 
 Execute **POST `/auth/refresh`** with your current refresh token:
 
@@ -133,11 +133,10 @@ curl --fail-with-body http://127.0.0.1:8000/api/v1/notes/items \
   -H "X-Tenant-Id: $ORG_ID"
 ```
 
-The new organization's item list returns `200` with `[]`. Using the old access
-token with that `X-Tenant-Id` returns `403 tenant_not_authorized`, whose
-`detail` says to refresh the access token or log in again; this does not mean
-organization creation failed. Accepting an invitation requires the same
-refresh. Refresh tokens rotate, so subsequent refreshes use the newest one.
+The new organization's item list returns `200` with `[]`. The old access token
+with that `X-Tenant-Id` returns `403 tenant_not_authorized`. Its `detail` says
+to refresh the access token or log in again. This does not mean organization
+creation failed. Accepting an invitation requires the same refresh. Refresh tokens rotate, so subsequent refreshes use the newest one.
 
 Stop the inbox when finished:
 

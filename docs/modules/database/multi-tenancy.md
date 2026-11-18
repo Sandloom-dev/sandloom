@@ -46,20 +46,24 @@ written `reason` (stale entries fail too).
 `required` when the module declares a `TenantScoped` model, else `none`. A
 `tenant=` of `"required"`, `"optional"` or `"none"` on the router or the route
 overrides it. A signed `tenant_id` / `org_id` access-token claim binds directly.
+
 `X-Tenant-Id` is only a selector: the requested id must also be in the token's
 signed `tenant_ids` allowlist, otherwise the request is rejected with
 `403 tenant_not_authorized`. Its `detail` names the header the route reads
-(`TenantScope(header=...)`, default `X-Tenant-Id`) and says that the user may
-have joined or created the organization after the token was issued: refresh the
-access token or log in again. A missing tenant answers `400 tenant_required`; its
-`detail` names the header and says the value is an organization id that the
-access token lists. Both bodies carry the `code`; the HTTP statuses are
-unchanged. The `detail` text is part of the API: a client branches on `code`
-(see [Upgrading to 0.7.0a16](../../operate/upgrade.md#upgrading-to-070a16-tenant-selection-errors-carry-a-code-and-say-what-to-do)).
-The same `400` answers a `MissingTenantError` that reaches the request boundary
-([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)); there no route
-is at hand, so the text says "the tenant header". The binding
-scopes data only and never chooses a billing account
+(`TenantScope(header=...)`, default `X-Tenant-Id`). It tells the user to
+refresh the access token or log in again when the organization was joined or
+created after the token was issued.
+
+A missing tenant answers `400 tenant_required`. Its `detail` names the header
+and says the value is an organization id that the access token lists. Both
+bodies carry the `code` and the HTTP statuses are unchanged. The `detail` text
+is part of the API. A client branches on `code`. See
+[Upgrading to 0.7.0a16](../../operate/upgrade.md#upgrading-to-070a16-tenant-selection-errors-carry-a-code).
+A `MissingTenantError` that reaches the request boundary answers the same `400`
+([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)). No route is at
+hand there, so its text says "the tenant header".
+
+The binding scopes data only and never chooses a billing account
 ([Authorization](../http/authorization.md#billing-subjects-of-is-required)).
 
 ```python

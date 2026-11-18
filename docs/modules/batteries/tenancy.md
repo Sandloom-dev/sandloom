@@ -99,29 +99,28 @@ the required role gets `403`.
   organization from the `X-Tenant-Id` header (or the header the route's
   `TenantScope(header=...)` names). The value is an organization id that the
   access token's `tenant_ids` lists. A token that lists exactly one organization
-  selects it without the header; a token that lists several needs the header
+  selects it without the header. A token that lists several needs the header
   (`400` otherwise). No header and no organization to select is `400
-  tenant_required`; an organization the token does not list is `403
+  tenant_required`. An organization the token does not list is `403
   tenant_not_authorized`. Both answers say in `detail` what to do.
 - **New memberships need a fresh access token.** After creating or joining an
-  organization, refresh the access token so it lists the organization: call
+  organization, refresh the access token so it lists the organization. Call
   `POST /auth/refresh` with your refresh token and replace **both** stored
-  tokens with the returned pair. Existing access tokens retain their earlier
-  `tenant_ids` claim, so selecting the new organization with `X-Tenant-Id` on a
-  tenant-scoped application route returns `403 tenant_not_authorized` (the
-  `detail` says to refresh the access token or log in again) even though the
-  membership exists. Nothing revokes the old token: it keeps working for every
-  other request. Tenancy's own membership endpoints check membership live and do
-  not all require refreshed claims. Logging in again also mints current claims.
-  See the
+  tokens with the returned pair. An older access token keeps its earlier
+  `tenant_ids` claim. Selecting the new organization with `X-Tenant-Id` on a
+  tenant-scoped application route then returns `403 tenant_not_authorized`, even
+  though the membership exists. The `detail` says to refresh or log in again.
+  Nothing revokes the old token: it keeps working for every other request.
+  Tenancy's own `GET /api/v1/orgs/{org_id}` checks membership live. Logging in
+  again also mints current claims. See the
   [first access-token walkthrough](first-access-token.md#refresh-after-creating-an-organization).
-- **Creating an organization** — `POST /api/v1/orgs` takes `name` and an
-  optional `slug`. Without `slug` it is derived from the name: lowercase, every
-  run of characters outside `a-z0-9` becomes one `-`, leading and trailing `-`
-  trimmed (`{"name": "Acme Robotics, Inc."}` gets `acme-robotics-inc`). A
-  derived slug that is taken is `409` asking for an explicit `slug`; a name with
-  no letters or digits to derive from is `422`; an explicit slug that is taken is
-  `409` too.
+- **Creating an organization.** `POST /api/v1/orgs` takes `name` and an
+  optional `slug`. Without `slug` it is derived from the name. The slug is
+  lowercase and every run of characters outside `a-z0-9` becomes one `-`.
+  Leading and trailing `-` are trimmed (`{"name": "Acme Robotics, Inc."}` gets
+  `acme-robotics-inc`). If the derived slug is taken, the answer is `409` asking
+  for an explicit `slug`. A name with no letters or digits to derive from is
+  `422`. A taken explicit slug is `409` too.
 - **`PATCH /api/v1/orgs/{org_id}`** accepts only `name`; any other field
   (including `is_active`) is rejected with `422`. Deactivation is the owner-only
   `DELETE`, which soft-deletes the org, publishes

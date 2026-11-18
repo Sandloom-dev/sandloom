@@ -167,7 +167,7 @@ infrastructure registry from the settings and asks the driver's host. It needs t
 `DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
 
-## Upgrading to 0.7.0a16: tenant selection errors carry a code and say what to do
+## Upgrading to 0.7.0a16: tenant selection errors carry a code
 
 Two answers of `TenantScope` have new `detail` text and a stable `code`. The
 HTTP statuses are unchanged. The `detail` text is part of the API: a client

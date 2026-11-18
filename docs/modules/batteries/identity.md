@@ -97,14 +97,13 @@ imports identity. It writes the code string in its policy, such as
   password account whose email is not verified. Completing a password reset
   also verifies the address, and lifts the sign-in lock of the address the
   reset came from.
-- **No frontend in dev** — the links in the verification and password reset
-  e-mails point at `FRONTEND_URL`. With `NOTIFIER_LOG_LINKS=true` (never in
-  production: the setting is refused there without an accepted risk) the API
-  prints the same step as the request that completes it, on stderr, after the
-  change commits: `[dev only] no frontend? POST /auth/verify-email {"token":
-  "..."}`, and for a reset `POST /auth/reset-password {"token": "...",
-  "new_password": "<the new password>"}`. No setting verifies an account
-  without the token.
+- **No frontend in dev.** The links in the verification and password reset
+  e-mails point at `FRONTEND_URL`. With `NOTIFIER_LOG_LINKS=true` the API also
+  prints the request that completes the step, on stderr, after the change
+  commits: `[dev only] no frontend? POST /auth/verify-email {"token": "..."}`,
+  and for a reset `POST /auth/reset-password {"token": "...", "new_password":
+  "<the new password>"}`. Production refuses the setting without an accepted
+  risk. No setting verifies an account without the token.
 - **Login errors** — wrong credentials `401`; 2FA enabled but no `otp` → `401`
   with header `X-2FA-Required: true`; inactive account `401`.
 - **Lockout (two tiers, no lockout DoS)** — on `POST /auth/login`, 5 failed
