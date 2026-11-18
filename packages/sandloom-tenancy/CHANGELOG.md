@@ -7,6 +7,12 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a16] — 2026-11-18
+
+### Changed
+
+- **`POST /api/v1/orgs` derives `slug` from `name`** (tenant-select-and-dev-verify). `slug` is optional; a derived slug that is taken answers `409` asking for `slug`, and a name that yields fewer than two ASCII `a-z0-9` characters answers `422` asking for an explicit `slug`.
+
 ## [0.7.0a12]
 
 - Keep the existing `tenancy.membership.v1` wire schema in the coordinated

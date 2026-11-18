@@ -1,6 +1,6 @@
 [project]
 name = "sandloom"
-version = "0.7.0a15"
+version = "0.7.0a16"
 classifiers = ["Development Status :: 3 - Alpha"]
 description = "Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure."
 readme = "README.md"
@@ -72,31 +72,31 @@ postgres = [
 # docs/contributing/dependencies.md is measured on. The client's bound is the
 # package's own (one place).
 redis = [
-    "sandloom-redis[hiredis]>=0.7.0a15,<0.8",
+    "sandloom-redis[hiredis]>=0.7.0a16,<0.8",
 ]
 # The package of the Celery taskqueue driver and its worker host
 # (sandloom-celery), which requires the Celery client the worker tooling uses
 # (one place for its bound).
 celery = [
-    "sandloom-celery>=0.7.0a15,<0.8",
+    "sandloom-celery>=0.7.0a16,<0.8",
 ]
 # The batteries-included set: the standard composition root
 # (sandloom_standard.main), the three standard modules, PostgreSQL, Redis and
 # Celery.
 standard = [
     "sandloom[postgres,redis,celery]",
-    "sandloom-redis>=0.7.0a15,<0.8",
-    "sandloom-celery>=0.7.0a15,<0.8",
-    "sandloom-standard>=0.7.0a15,<0.8",
-    "sandloom-identity>=0.7.0a15,<0.8",
-    "sandloom-tenancy>=0.7.0a15,<0.8",
-    "sandloom-billing>=0.7.0a15,<0.8",
+    "sandloom-redis>=0.7.0a16,<0.8",
+    "sandloom-celery>=0.7.0a16,<0.8",
+    "sandloom-standard>=0.7.0a16,<0.8",
+    "sandloom-identity>=0.7.0a16,<0.8",
+    "sandloom-tenancy>=0.7.0a16,<0.8",
+    "sandloom-billing>=0.7.0a16,<0.8",
 ]
 # The console serves no task queue: PostgreSQL and the Redis drivers only.
 admin = [
     "sandloom[postgres,redis]",
-    "sandloom-admin>=0.7.0a15,<0.8",
-    "sandloom-identity>=0.7.0a15,<0.8",
+    "sandloom-admin>=0.7.0a16,<0.8",
+    "sandloom-identity>=0.7.0a16,<0.8",
 ]
 # C-accelerated dependencies of the kernel itself. It names no Redis client:
 # the hiredis parser of the Redis client is in the `redis` extra.

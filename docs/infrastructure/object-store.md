@@ -43,11 +43,11 @@ Production requires `local_storage_in_prod` in `SANDLOOM_ACCEPTED_RISKS`.
 
 ### `s3`
 
-This driver requires Sandloom 0.7.0a15 or later in the 0.7 series. <!-- sandloom-release -->
+This driver requires Sandloom 0.7.0a16 or later in the 0.7 series. <!-- sandloom-release -->
 Add the driver to your application.
 
 ```sh
-uv add "sandloom-s3==0.7.0a15"
+uv add "sandloom-s3==0.7.0a16"
 ```
 
 For an existing AWS S3 general-purpose bucket, set the `INFRA` environment
