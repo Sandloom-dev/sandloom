@@ -182,8 +182,8 @@ the API: a client that compared it with the old sentences must compare the
 | `403` | `tenant does not match the configured tenant` or `token tenant does not match the configured tenant` (`TENANCY_MODE=single`), `null` | `tenant_mismatch`; the `detail` is unchanged |
 
 The same `400 tenant_required` answers a `MissingTenantError` that reaches the
-request boundary. The route bound no tenant there, which only a fix on the
-server changes, so its `detail` names no header: it says the route needs a
+request boundary. The route bound no tenant there. Only a fix on the server
+changes that, so its `detail` names no header: it says the route needs a
 tenant scope.
 
 After creating or joining an organization, a client still refreshes its access

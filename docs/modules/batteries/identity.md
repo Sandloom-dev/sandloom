@@ -99,14 +99,14 @@ imports identity. It writes the code string in its policy, such as
   reset came from.
 - **No frontend in dev.** The links in the verification and password reset
   e-mails point at `FRONTEND_URL`. With `NOTIFIER_LOG_LINKS=true` and the `log`
-  notifier driver the API also prints the request that completes the step, on
-  stderr, after the change commits: `[dev only] no frontend? POST
-  /auth/verify-email {"token": "..."}`, and for a reset `POST
+  notifier driver the API also prints the request that completes the step. It
+  goes to stderr after the change commits: `[dev only] no frontend? POST
+  /auth/verify-email {"token": "..."}`. A reset prints `POST
   /auth/reset-password {"token": "...", "new_password": "<the new password>"}`.
-  It prints nothing when the mail goes through another driver (`smtp`, a
-  plugin) or a custom `email_sender`: a real mail goes out, and the token must
-  not also reach the logs. Production refuses the setting without an accepted
-  risk. No setting verifies an account without the token.
+  Another driver, such as `smtp`, or a custom `email_sender` prints nothing. A
+  real mail goes out there, and the token must not also reach the logs.
+  Production refuses the setting without an accepted risk. No setting verifies
+  an account without the token.
 - **Login errors** — wrong credentials `401`; 2FA enabled but no `otp` → `401`
   with header `X-2FA-Required: true`; inactive account `401`.
 - **Lockout (two tiers, no lockout DoS)** — on `POST /auth/login`, 5 failed

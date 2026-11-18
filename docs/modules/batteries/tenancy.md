@@ -110,12 +110,11 @@ the required role gets `403`.
        `400`.
 
   No header and nothing to select is `400 tenant_required`. Both answers say in
-  `detail` what to do. A token whose grant the claim policy removed answers
-  `401 token_policy_outdated` (refresh the token) or `503
-  claims_policy_mismatch` (issuer and verifier disagree) before any of these
-  `400` or `403` answers. With `TENANCY_MODE=single` the configured tenant
-  is bound and a header or token tenant that names another one is `403
-  tenant_mismatch`.
+  `detail` what to do. One case comes first: a token whose grant the claim
+  policy removed answers `401 token_policy_outdated` (refresh the token) or
+  `503 claims_policy_mismatch` (issuer and verifier disagree). With
+  `TENANCY_MODE=single` the configured tenant is bound. A header or token tenant
+  that names another one is `403 tenant_mismatch`.
 - **New memberships need a fresh access token.** After creating or joining an
   organization, refresh the access token so it lists the organization. Call
   `POST /auth/refresh` with your refresh token and replace **both** stored
@@ -132,10 +131,10 @@ the required role gets `403`.
   lowercase and every run of characters outside `a-z0-9` becomes one `-`.
   Leading and trailing `-` are trimmed (`{"name": "Acme Robotics, Inc."}` gets
   `acme-robotics-inc`). If the derived slug is taken, the answer is `409` asking
-  for an explicit `slug`. The derived slug needs at least two characters and
-  only ASCII `a-z0-9-`: a name such as `{"name": "A"}`, or one written in
-  another script, is `422` ("the name does not produce a valid slug: pass an
-  explicit slug"). A taken explicit slug is `409` too.
+  for an explicit `slug`. The derived slug needs at least two characters, all
+  ASCII `a-z0-9-`. A name such as `{"name": "A"}`, or one written in another
+  script, is `422` ("the name does not produce a valid slug: pass an explicit
+  slug"). A taken explicit slug is `409` too.
 - **`PATCH /api/v1/orgs/{org_id}`** accepts only `name`; any other field
   (including `is_active`) is rejected with `422`. Deactivation is the owner-only
   `DELETE`, which soft-deletes the org, publishes

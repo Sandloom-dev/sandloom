@@ -48,17 +48,17 @@ written `reason` (stale entries fail too).
 overrides it.
 
 `TenantScope` picks the tenant in this order. The header (`X-Tenant-Id`, or the
-`TenantScope(header=...)` the route names) is only a selector: its id is
+`TenantScope(header=...)` the route names) is only a selector. Its id is
 accepted when the token's signed `tenant_ids` allowlist lists it or when it is
-the token's signed `tenant_id` or `org_id` claim, otherwise the request is
-rejected with `403 tenant_not_authorized`. Without the header the `tenant_id`
-claim, then the `org_id` claim, binds directly. Without either claim a token
-that lists exactly one tenant in `tenant_ids` binds it. A token that lists
-several and no header gets `400 tenant_required`; only `tenant_ids` decides
-that `400`. A grant the claim policy removed answers `401 token_policy_outdated`
-or `503 claims_policy_mismatch` before these answers. With `TENANCY_MODE=single`
-the configured tenant binds, and a header or token tenant that names another
-one answers `403 tenant_mismatch`.
+the token's signed `tenant_id` or `org_id` claim. Any other id is rejected with
+`403 tenant_not_authorized`. Without the header the `tenant_id` claim, then the
+`org_id` claim, binds directly. Without either claim a token that lists
+exactly one tenant in `tenant_ids` binds it. A token that lists several and no
+header gets `400 tenant_required`; only `tenant_ids` decides that `400`. A
+grant the claim policy removed answers `401 token_policy_outdated` or `503
+claims_policy_mismatch` before these answers. With `TENANCY_MODE=single` the
+configured tenant binds. A header or token tenant that names another one
+answers `403 tenant_mismatch`.
 
 The `403 tenant_not_authorized` `detail` names the header the route reads. It
 tells the user to refresh the access token or log in again when the
