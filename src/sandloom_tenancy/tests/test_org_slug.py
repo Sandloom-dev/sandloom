@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom_tenancy.exceptions import TenancyConflictError
 from sandloom_tenancy.schemas import OrganizationCreateIn
-from sandloom_tenancy.schemas.organization import NO_DERIVED_SLUG, derive_slug
+from sandloom_tenancy.schemas.organization import derive_slug
 from sandloom_tenancy.services import OrganizationService
 
 
@@ -37,7 +37,9 @@ def test_a_name_with_nothing_to_derive_from_has_no_slug(name: str) -> None:
     assert derive_slug(name) is None
     with pytest.raises(ValidationError) as refused:
         OrganizationCreateIn(name=name)
-    assert NO_DERIVED_SLUG in str(refused.value)
+    assert "the name does not produce a valid slug: pass an explicit slug" in str(
+        refused.value
+    )
     assert OrganizationCreateIn(name=name, slug="chosen-slug").slug == "chosen-slug"
 
 
@@ -109,7 +111,7 @@ async def test_a_name_that_yields_no_valid_slug_is_422(
     _, headers = user_a
     resp = await async_client.post("/api/v1/orgs", json={"name": name}, headers=headers)
     assert resp.status_code == 422, resp.text
-    assert NO_DERIVED_SLUG in resp.text
+    assert "the name does not produce a valid slug: pass an explicit slug" in resp.text
 
 
 async def test_a_dto_built_without_validation_is_refused_by_the_service(
