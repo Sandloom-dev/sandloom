@@ -1,7 +1,7 @@
 """The in-memory ``cache`` driver (``memory``): development and tests only.
 
-State lives in the process. Compared with ``redis`` this driver gives less, and
-a deployment must not rely on any of it:
+State lives in the process. Compared with a shared-server driver this one gives
+less, and a deployment must not rely on any of it:
 
 * **Per process, not shared.** Two processes (two workers, an app and a worker,
   two services) each hold their own keys. A rate limit counts per process, a
@@ -13,7 +13,7 @@ a deployment must not rely on any of it:
 The driver is ``development_only``: production refuses it with no accepted risk
 to lift the refusal, and no resolver picks it on its own. It serves only an
 instance whose ``INFRA`` names it (``driver: memory``). It is never an automatic
-fallback for an unreachable Redis.
+fallback for an unreachable server.
 
 It keeps the whole contract (major 2) and declares ``cas``. Every operation
 runs under one lock with no ``await`` between its read and its write, so it is
@@ -48,7 +48,7 @@ from sandloom.driverkit.atomic_store import (
 #: process share a failure domain, two processes never do.
 _PROCESS_ID = uuid.uuid4().hex[:12]
 
-#: What ``incr`` accepts as a stored integer (the form Redis ``INCR`` accepts).
+#: What ``incr`` accepts as a stored integer (the form a server's ``INCR`` accepts).
 _INTEGER = re.compile(r"-?[0-9]+")
 
 #: Every operation is one step in process: the batch and fused ones too.

@@ -1,9 +1,12 @@
-"""``sandloom dev`` with PostgreSQL and Redis the person already runs
-(Homebrew, Postgres.app): no Docker call, the same ``.env`` block and
+"""``sandloom dev`` with PostgreSQL and the keyed server the person already
+runs (Homebrew, Postgres.app): no Docker call, the same ``.env`` block and
 ``.env.test.local``; and the banner ``dev run`` prints once the app is up.
 
-The end-to-end test points "external" at this run's own test servers (they
-stand in for a Homebrew install) and works in a scratch database it drops.
+The end-to-end test points "external" at this run's own test PostgreSQL (it
+stands in for a Homebrew install) and works in a scratch database it drops;
+the keyed server is the in-memory stand-in of
+:mod:`sandloom.core.tests._fake_stack` (the real one:
+``packages/sandloom-redis/tests/test_dev_external_redis.py``).
 """
 
 from __future__ import annotations
@@ -11,22 +14,22 @@ from __future__ import annotations
 import io
 import json
 import os
-import re
+import shutil
 import subprocess
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
 from sandloom.core.cli import dev as dev_cli
-from sandloom.core.cli import ui
+from sandloom.core.cli import stack_service, ui
 from sandloom.core.cli.dev import commands, envfile, identity, services
 from sandloom.core.cli.dev.state import CheckoutRow, load_state, save_state
+from sandloom.core.tests._fake_stack import FakeStack
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -73,57 +76,6 @@ def _composition(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-#: The ``databases`` setting of the stand-in server (a Redis default is 16, the
-#: test compose and CI start Redis with 256).
-_FAKE_REDIS_DATABASES = 256
-
-
-@pytest.fixture(autouse=True)
-def _redis_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``sandloom dev`` reads Redis through the optional ``redis`` client
-    (``services._redis_module``), which the kernel does not install: a stand-in
-    client over an in-memory server (indexes, keys, ``DBSIZE``, ``FLUSHDB``)
-    runs the kernel's own logic on every lane. The real server and client:
-    ``packages/sandloom-redis/tests/test_dev_external_redis.py``."""
-    keys: dict[int, dict[str, str]] = {}
-
-    class ResponseError(Exception):
-        pass
-
-    class FakeRedis:
-        def __init__(self, host: str, port: int, db: int = 0, **_kw: Any) -> None:
-            self.db = db
-
-        def ping(self) -> bool:
-            return True
-
-        def config_get(self, name: str) -> dict[str, str]:
-            assert name == "databases"
-            return {name: str(_FAKE_REDIS_DATABASES)}
-
-        def dbsize(self) -> int:
-            if self.db >= _FAKE_REDIS_DATABASES:
-                raise ResponseError("DB index is out of range")
-            return len(keys.get(self.db, {}))
-
-        def set(self, key: str, value: str) -> None:
-            keys.setdefault(self.db, {})[key] = value
-
-        def delete(self, key: str) -> None:
-            keys.get(self.db, {}).pop(key, None)
-
-        def flushdb(self) -> None:
-            keys.pop(self.db, None)
-
-        def close(self) -> None:
-            pass
-
-    module = SimpleNamespace(
-        Redis=FakeRedis, ResponseError=ResponseError, RedisError=ResponseError
-    )
-    monkeypatch.setattr(services, "_redis_module", lambda: module)
-
-
 @pytest.fixture
 def environ(tmp_path: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in {"CI", "DOCKER_HOST"}}
@@ -156,9 +108,9 @@ def _app(tmp_path: Path, name: str) -> Path:
     (root / "deploy").mkdir(parents=True)
     (root / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n')
     (root / ".env.example").write_text(
-        "ENVIRONMENT=dev\nJWT_SECRET=change_me\n" + envfile.empty_block()
+        "ENVIRONMENT=dev\nJWT_SECRET=change_me\n" + envfile.empty_block("Redis")
     )
-    (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block())
+    (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block("Redis"))
     (root / "deploy" / "docker-compose.dev.yml").write_text("services: {}\n")
     _git(root, "init", "-q", "-b", "main")
     return root
@@ -202,7 +154,7 @@ def test_external_services_end_to_end(
     pg = services.Postgres.from_url(database)
     try:
         options = commands.UpOptions(
-            services="external", database_url=database, redis_url=redis
+            services="external", database_url=database, kv_url=redis
         )
         assert commands.up(ctx, options) == 0
         assert services.database_exists(pg, name)
@@ -268,7 +220,7 @@ def test_external_up_never_adopts_a_database_it_did_not_create(
         _sql(pg, "CREATE TABLE theirs (id int)", name)
         root = _app(tmp_path, name)
         options = commands.UpOptions(
-            services="external", database_url=database, redis_url=redis
+            services="external", database_url=database, kv_url=redis
         )
         with pytest.raises(commands.DevError) as refused:
             commands.up(_ctx(root, environ), options)
@@ -299,7 +251,7 @@ def test_external_reset_and_prune_drop_only_a_marked_database(
     pg = services.Postgres.from_url(database)
     try:
         options = commands.UpOptions(
-            services="external", database_url=database, redis_url=redis
+            services="external", database_url=database, kv_url=redis
         )
         assert commands.up(_ctx(root, environ), options) == 0
         state = load_state(_ctx(root, environ).state_dir)
@@ -349,50 +301,50 @@ def test_external_reset_and_prune_drop_only_a_marked_database(
         services.drop_database(pg, foreign)
 
 
-def test_only_empty_redis_indexes_are_taken_on_your_own_server() -> None:
-    """Your own Redis may keep data in any index, and `dev reset` / `prune`
-    flush ours: a checkout gets two that hold no key, below the server's
-    last database."""
-    _, redis_url = _servers()
-    server = services.RedisServer.from_url(redis_url)
-    # The server's top three indexes (the test compose and CI start Redis
-    # with 256 databases, a developer's own server may have more).
-    probe = services._redis(server.host, server.port, 0, server.password)
-    try:
-        last = int(probe.config_get("databases")["databases"]) - 1
-    finally:
-        probe.close()
-    first, second, third = last - 2, last - 1, last
-    busy = services._redis(server.host, server.port, first, server.password)
-    try:
-        busy.set("theirs", "1")
-        assert services.empty_indexes(server, [first, second, third]) == [
-            second,
-            third,
-        ]
-        # Past the server's `databases` setting there is nothing to take.
-        assert services.empty_indexes(server, [second, 10**6, third]) == [second]
-    finally:
-        busy.delete("theirs")
-        busy.close()
-
-
-@pytest.mark.parametrize(
-    ("url", "says"),
-    [
-        ("rediss://:secret@cache.local:6380", "rediss:// (TLS) is not supported"),
-        ("redis://app:secret@cache.local:6379", "ACL user"),
-        ("redis://cache.local:6379?ssl_cert_reqs=none", "URL options"),
-    ],
-)
-def test_a_redis_url_whose_tls_or_user_would_be_dropped_is_refused(
-    url: str, says: str
+def test_a_checkout_takes_only_the_indexes_the_stack_reports_empty(
+    tmp_path: Path, environ: dict[str, str], fake_stack: FakeStack
 ) -> None:
-    with pytest.raises(ValueError, match=re.escape(says)) as refused:
-        services.RedisServer.from_url(url)
-    assert "secret" not in str(refused.value)
-    problem = commands.check_external("postgresql://me@127.0.0.1:5432/postgres", url)
-    assert problem is not None and says in problem
+    """Your own server may keep data in any index, and `dev reset` / `prune`
+    flush ours: the stack says which indexes hold no key, and `dev up` gives
+    the checkout two of those, never one that is in use."""
+    fake_stack.keys = {index: {"theirs": "1"} for index in range(0, 40)}
+    root = _app(tmp_path, "shop")
+    ctx = _ctx(root, environ)
+    state = commands.reconcile(
+        ctx,
+        None,
+        commands.UpOptions(
+            services="external",
+            database_url="postgresql://me@127.0.0.1:5432/postgres",
+            kv_url="redis://127.0.0.1:6379",
+        ),
+    )
+    state.services = "external"
+    state.external = {
+        "database_url": "postgresql://me@127.0.0.1:5432/postgres",
+        "kv_url": "redis://127.0.0.1:6379",
+    }
+    indexes = commands._external_indexes(ctx, state, str(root))
+    assert min(indexes) >= 40
+    assert not any(fake_stack.keys.get(index) for index in indexes)
+    # No two empty indexes left: refused, naming the server, never reused.
+    fake_stack.keys = {
+        index: {"theirs": "1"} for index in range(fake_stack.index_count)
+    }
+    with pytest.raises(commands.DevError, match="no two empty database indexes"):
+        commands._external_indexes(ctx, state, str(root))
+
+
+def test_a_keyed_url_the_stack_refuses_is_refused_without_its_password() -> None:
+    problem = commands.check_external(
+        "postgresql://me@127.0.0.1:5432/postgres", "rediss://:secret@cache.local:6380"
+    )
+    assert problem is not None and "TLS" in problem
+    assert "secret" not in problem
+    other = commands.check_external(
+        "postgresql://me@127.0.0.1:5432/postgres", "mysql://:secret@cache.local:3306"
+    )
+    assert other is not None and "secret" not in other
 
 
 def test_a_postgres_url_whose_sslmode_would_be_dropped_is_refused() -> None:
@@ -400,7 +352,6 @@ def test_a_postgres_url_whose_sslmode_would_be_dropped_is_refused() -> None:
     with pytest.raises(ValueError, match="sslmode") as refused:
         services.Postgres.from_url(url)
     assert "secret" not in str(refused.value)
-    assert services.RedisServer.from_url("redis://:pw@h:1").password == "pw"
 
 
 def test_the_cli_flags_switch_to_external(
@@ -415,7 +366,7 @@ def test_the_cli_flags_switch_to_external(
         "external",
         "--database-url",
         "postgresql://me@127.0.0.1:5432/postgres",
-        "--redis-url",
+        "--kv-url",
         "redis://127.0.0.1:6379",
     ]
     assert dev_cli.main(argv, environ=environ) == 0
@@ -429,19 +380,18 @@ def test_dev_run_with_external_servers_down_says_what_to_do(
     environ: dict[str, str],
     no_docker: list[str],
     monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
 ) -> None:
     root = _app(tmp_path, "shop")
     ctx = _ctx(root, environ)
     monkeypatch.setattr(commands._services, "pg_ready", lambda pg: None)
-    monkeypatch.setattr(commands._services, "redis_ready", lambda *a, **k: None)
     monkeypatch.setattr(commands._services, "ensure_database", lambda pg, n: False)
     monkeypatch.setattr(commands._services, "has_tables", lambda pg, n: True)
     monkeypatch.setattr(commands, "_claim_external", lambda *a, **k: None)
-    monkeypatch.setattr(commands._services, "empty_indexes", lambda s, c: list(c)[:2])
     options = commands.UpOptions(
         services="external",
         database_url="postgresql://me@127.0.0.1:5432/postgres",
-        redis_url="redis://127.0.0.1:6379",
+        kv_url="redis://127.0.0.1:6379",
     )
     assert commands.up(ctx, options) == 0
     monkeypatch.setattr(commands._services, "pg_ready", lambda pg: "connection refused")
@@ -452,6 +402,417 @@ def test_dev_run_with_external_servers_down_says_what_to_do(
     assert "127.0.0.1:5432" in message and "brew services start" in message
     assert "--services docker" in message
     assert no_docker == []
+    # The stack's own server down: the same one line, with how it starts.
+    monkeypatch.setattr(commands._services, "pg_ready", lambda pg: None)
+    fake_stack.down = "connection refused"
+    with pytest.raises(commands.DevError) as refused_keyed:
+        commands.run(_ctx(root, environ), port="auto", reload=False)
+    keyed = str(refused_keyed.value)
+    assert "\n" not in keyed
+    assert f"127.0.0.1:{fake_stack.local_port}" in keyed
+    assert fake_stack.start_command in keyed
+    assert "--services docker" in keyed
+
+
+def test_a_state_from_before_kv_url_says_to_run_up_again(
+    tmp_path: Path, environ: dict[str, str]
+) -> None:
+    """A ``dev.json`` that holds ``redis_url`` (the key before it was renamed)
+    names no keyed server: one line that says what to run, not a KeyError."""
+    ctx = _ctx(_app(tmp_path, "shop"), environ)
+    state = commands.reconcile(ctx, None, commands.UpOptions())
+    state.services = "external"
+    state.external = {
+        "database_url": "postgresql://me@127.0.0.1:5432/postgres",
+        "redis_url": "redis://127.0.0.1:6379",
+    }
+    with pytest.raises(commands.DevError) as refused:
+        ctx.keyed(state)
+    message = str(refused.value)
+    assert "\n" not in message
+    assert "--kv-url" in message and "dev up --services external" in message
+
+
+def _state_from_before_kv_url(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> tuple[Path, dict[str, Any], tuple[int, ...]]:
+    """What the CLI of before ``--kv-url`` left: an external ``dev.json`` that
+    names the person's server as ``redis_url`` (here the local port), a row on
+    the indexes that CLI found empty on it, and data of the person's own on
+    another server that answers on the default local port."""
+    monkeypatch.setattr(commands._services, "pg_ready", lambda pg: None)
+    monkeypatch.setattr(commands._services, "ensure_database", lambda pg, n: False)
+    monkeypatch.setattr(commands._services, "has_tables", lambda pg, n: True)
+    monkeypatch.setattr(commands, "_claim_external", lambda *a, **k: None)
+    root = _app(tmp_path, "shop")
+    ctx = _ctx(root, environ)
+    database = "postgresql://me@127.0.0.1:5432/postgres"
+    options = commands.UpOptions(
+        services="external", database_url=database, kv_url="redis://127.0.0.1:6390"
+    )
+    assert commands.up(ctx, options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    state.external = {"database_url": database, "redis_url": "redis://127.0.0.1:6390"}
+    save_state(ctx.state_dir, state)
+    # The person's Homebrew server on the default port holds data in the row's
+    # two indexes, and answers.
+    monkeypatch.setattr(commands._services, "tcp_open", lambda h, p, timeout=2.0: True)
+    indexes = state.checkouts[str(root)].indexes
+    fake_stack.keys = {index: {"theirs": "data"} for index in indexes}
+    return root, dict(state.external), indexes
+
+
+def test_a_plain_up_on_a_state_from_before_kv_url_stops_and_touches_nothing(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The row's indexes were checked empty on the server the old state named.
+    Falling back to whatever answers on the default port would put them on a
+    server nobody checked, and `dev reset` would then flush the person's data."""
+    root, external, indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    ctx = _ctx(root, environ)
+    with pytest.raises(commands.DevError) as refused:
+        commands.up(ctx, commands.UpOptions())
+    message = str(refused.value)
+    assert "\n" not in message
+    assert "--kv-url" in message and "dev up --services external" in message
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert state.external == external  # no kv_url written
+    assert state.checkouts[str(root)].indexes == indexes
+    assert all(fake_stack.keys[index] == {"theirs": "data"} for index in indexes)
+    # `status` and `run` stop with the same line (the upgrade note says so).
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.status(ctx, as_json=True)
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.run(ctx, port="auto", reload=False)
+    # `--database-url` alone does not name the server either.
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.up(
+            ctx, commands.UpOptions(database_url="postgresql://me@127.0.0.1:5432/x")
+        )
+    # Naming it again, as the message says, works.
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6390")
+    assert commands.up(_ctx(root, environ), again) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None and state.external["kv_url"] == "redis://127.0.0.1:6390"
+
+
+def test_naming_another_keyed_server_rechecks_the_indexes_of_every_row(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The row's pair was checked empty on the server the state named. The
+    replacement server holds keys there: the pair is replaced before the state
+    is saved (`reset` and `prune` flush it); the same server keeps it."""
+    root, _external, indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    keys = {index: dict(held) for index, held in fake_stack.keys.items()}
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6390")
+    assert commands.up(_ctx(root, environ), again) == 0
+    state = load_state(_ctx(root, environ).state_dir)
+    assert state is not None
+    moved = state.checkouts[str(root)].indexes
+    assert not set(moved) & set(indexes)
+    assert not any(fake_stack.keys.get(index) for index in moved)
+    assert fake_stack.keys == keys  # nothing of theirs touched
+    # The same server named again: the allocation stays.
+    assert commands.up(_ctx(root, environ), again) == 0
+    after = load_state(_ctx(root, environ).state_dir)
+    assert after is not None and after.checkouts[str(root)].indexes == moved
+    # Another server, indexes free there: the pair stays (nothing to move).
+    fake_stack.keys = {}
+    other = commands.UpOptions(kv_url="redis://127.0.0.1:6391")
+    assert commands.up(_ctx(root, environ), other) == 0
+    last = load_state(_ctx(root, environ).state_dir)
+    assert last is not None and last.checkouts[str(root)].indexes == moved
+
+
+def _external_up_with_rows(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    pairs: dict[str, tuple[int, int]],
+) -> tuple[Path, dict[str, Path]]:
+    """``dev up --services external`` on the server at :6390, then one more
+    checkout per name in ``pairs`` (a directory with a managed ``.env`` block,
+    a row on that pair, which was never checked on any server)."""
+    monkeypatch.setattr(commands._services, "pg_ready", lambda pg: None)
+    monkeypatch.setattr(commands._services, "ensure_database", lambda pg, n: False)
+    monkeypatch.setattr(commands._services, "has_tables", lambda pg, n: True)
+    monkeypatch.setattr(commands, "_claim_external", lambda *a, **k: None)
+    root = _app(tmp_path, "shop")
+    ctx = _ctx(root, environ)
+    options = commands.UpOptions(
+        services="external",
+        database_url="postgresql://me@127.0.0.1:5432/postgres",
+        kv_url="redis://127.0.0.1:6390",
+    )
+    assert commands.up(ctx, options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    others: dict[str, Path] = {}
+    for name, (cache, broker) in pairs.items():
+        checkout = tmp_path / name
+        checkout.mkdir()
+        (checkout / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block("Redis"))
+        state.checkouts[str(checkout)] = CheckoutRow(
+            path=str(checkout),
+            database=f"shop_{name}",
+            cache_index=cache,
+            broker_index=broker,
+            test_database=f"shop_{name}_test",
+        )
+        others[name] = checkout
+    save_state(ctx.state_dir, state)
+    return root, others
+
+
+def test_going_external_docker_external_rechecks_the_rows_of_the_docker_period(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """A switch to Docker keeps the recorded server, and a checkout that runs
+    `dev up` meanwhile gets indexes nobody checked on the person's server.
+    Naming no `--kv-url` on the way back reuses that record: the rows are
+    still checked again (the rows were not checked on it), so `reset` and
+    `prune` never flush the person's own keys."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"wt": (3, 4)}
+    )
+    ctx = _ctx(root, environ)
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    state.services = "docker"  # `dev up --services docker`: `external` is kept
+    save_state(ctx.state_dir, state)
+    fake_stack.keys = {3: {"theirs": "a"}, 4: {"theirs": "b"}}  # on their server
+    assert (
+        commands.up(_ctx(root, environ), commands.UpOptions(services="external")) == 0
+    )
+    after = load_state(ctx.state_dir)
+    assert after is not None
+    row = after.checkouts[str(others["wt"])]
+    assert not set(row.indexes) & {3, 4}
+    assert f"/{row.cache_index}" in (others["wt"] / ".env").read_text(encoding="utf-8")
+    # The worktree is gone and `prune` flushes the pair of its row.
+    monkeypatch.setattr(
+        commands._services, "database_mark", lambda pg, name: commands.dev_mark(row)
+    )
+    monkeypatch.setattr(commands._services, "drop_database", lambda pg, name: None)
+    monkeypatch.setattr(commands, "_prune_test_databases", lambda c, s: [])
+    shutil.rmtree(others["wt"])
+    assert commands.prune(_ctx(root, environ)) == 0
+    assert fake_stack.keys[3] == {"theirs": "a"}
+    assert fake_stack.keys[4] == {"theirs": "b"}
+
+
+def test_a_changed_keyed_server_rewrites_the_blocks_of_every_other_checkout(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """A row whose pair is empty on the new server keeps its indexes but its
+    `.env` block still names the old server: every other checkout is written."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"free": (3, 4), "held": (5, 6)}
+    )
+    fake_stack.keys = {5: {"theirs": "a"}}  # only `held` meets keys there
+    ctx = _ctx(root, environ)
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6391")
+    assert commands.up(ctx, again) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert state.checkouts[str(others["free"])].indexes == (3, 4)
+    assert state.checkouts[str(others["held"])].indexes != (5, 6)
+    for name in others:
+        assert "127.0.0.1:6391" in (others[name] / ".env").read_text(encoding="utf-8")
+    warning = ctx.err.getvalue()  # type: ignore[attr-defined]
+    assert "1 checkout(s) held keys" in warning and "restart" in warning
+    assert commands.REWRITE_PENDING not in state.external
+
+
+def test_a_rewrite_that_failed_is_repeated_by_the_next_up_on_the_same_server(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The state names the new server before any other checkout is written;
+    one that could not be written is named, kept pending, and written by the
+    next `dev up`, which finds the recorded server unchanged."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"first": (3, 4), "broken": (5, 6)}
+    )
+    real = commands.write_checkout_files
+
+    def write(ctx: commands.Context, state: Any, row: CheckoutRow) -> list[str]:
+        if row.path == str(others["broken"]):
+            raise commands.DevError(f"{row.path}/.env: bad INFRA")
+        return real(ctx, state, row)
+
+    monkeypatch.setattr(commands, "write_checkout_files", write)
+    ctx = _ctx(root, environ)
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6391")
+    assert commands.up(ctx, again) == 0
+    saved = load_state(ctx.state_dir)
+    assert saved is not None
+    assert saved.external["kv_url"] == "redis://127.0.0.1:6391"
+    assert saved.external[commands.REWRITE_PENDING]
+    assert "bad INFRA" in ctx.err.getvalue()  # type: ignore[attr-defined]
+    assert "6391" in (others["first"] / ".env").read_text(encoding="utf-8")
+    assert "6391" not in (others["broken"] / ".env").read_text(encoding="utf-8")
+    monkeypatch.setattr(commands, "write_checkout_files", real)
+    assert commands.up(_ctx(root, environ), commands.UpOptions()) == 0
+    assert "6391" in (others["broken"] / ".env").read_text(encoding="utf-8")
+    done = load_state(ctx.state_dir)
+    assert done is not None and commands.REWRITE_PENDING not in done.external
+
+
+def test_an_up_interrupted_before_its_own_checkout_is_written_stays_pending(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """Every other checkout was written, then this checkout's own write failed:
+    the marker stays, so the next `dev up` (same server, no --kv-url) writes the
+    blocks again and only then drops it."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"first": (3, 4)}
+    )
+    real = commands.write_checkout_files
+
+    def write(ctx: commands.Context, state: Any, row: CheckoutRow) -> list[str]:
+        if row.path == str(root):
+            raise commands.DevError(f"{row.path}/.env: interrupted")
+        return real(ctx, state, row)
+
+    monkeypatch.setattr(commands, "write_checkout_files", write)
+    ctx = _ctx(root, environ)
+    with pytest.raises(commands.DevError, match="interrupted"):
+        commands.up(ctx, commands.UpOptions(kv_url="redis://127.0.0.1:6391"))
+    saved = load_state(ctx.state_dir)
+    assert saved is not None
+    assert saved.external["kv_url"] == "redis://127.0.0.1:6391"
+    assert saved.external[commands.REWRITE_PENDING]
+    assert "6391" in (others["first"] / ".env").read_text(encoding="utf-8")
+    assert "6391" not in (root / ".env").read_text(encoding="utf-8")
+    monkeypatch.setattr(commands, "write_checkout_files", real)
+    assert commands.up(_ctx(root, environ), commands.UpOptions()) == 0
+    assert "6391" in (root / ".env").read_text(encoding="utf-8")
+    done = load_state(ctx.state_dir)
+    assert done is not None and commands.REWRITE_PENDING not in done.external
+
+
+def test_reset_and_prune_name_the_keyed_server_before_dropping_a_database(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """A state that names no keyed server stops `dev reset` and `dev prune`
+    before the database is dropped: never a fresh database next to the stale
+    keys, never a row left whose database is gone."""
+    root, _external, _indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    dropped: list[str] = []
+    monkeypatch.setattr(
+        commands._services, "drop_database", lambda pg, name: dropped.append(name)
+    )
+    monkeypatch.setattr(commands._services, "sessions", lambda *a, **k: {})
+    monkeypatch.setattr(commands._services, "mark_database", lambda *a: None)
+    monkeypatch.setattr(commands, "_prune_test_databases", lambda ctx, state: [])
+    ctx = _ctx(root, environ)
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    row = state.checkouts[str(root)]
+    gone = str(tmp_path / "gone")
+    gone_row = CheckoutRow(
+        path=gone,
+        database="shop_gone",
+        cache_index=40,
+        broker_index=41,
+        test_database="sandloom_test_gone",
+    )
+    marks = {
+        row.database: commands.dev_mark(row),
+        "shop_gone": commands.dev_mark(gone_row),
+    }
+    monkeypatch.setattr(
+        commands._services, "database_mark", lambda pg, name: marks[name]
+    )
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.reset(ctx, force=True)
+    assert dropped == []
+    # A removed checkout's row, marked as ours: prune stops before its
+    # database is dropped.
+    state.checkouts[gone] = gone_row
+    save_state(ctx.state_dir, state)
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.prune(ctx)
+    assert dropped == []
+    after = load_state(ctx.state_dir)
+    assert after is not None and gone in after.checkouts
+    assert all(fake_stack.keys[index] == {"theirs": "data"} for index in row.indexes)
+
+
+def test_prune_touches_nothing_when_no_keyed_server_is_named(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """Before either pass: the pass over test databases drops stale marked
+    `sandloom_test_` databases on the person's PostgreSQL without a row, so the
+    refusal comes first, with no database, key or registry entry touched."""
+    root, _external, _indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    touched: list[str] = []
+    monkeypatch.setattr(
+        commands._services, "drop_database", lambda pg, name: touched.append(name)
+    )
+    monkeypatch.setattr(
+        commands,
+        "_prune_test_databases",
+        lambda ctx, state: touched.append("test databases") or [],
+    )
+    ctx = _ctx(root, environ)
+    stale = {5999: str(tmp_path / "gone")}
+    commands.save_registry(ctx.home, stale)
+    keys = {index: dict(held) for index, held in fake_stack.keys.items()}
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.prune(ctx)
+    assert touched == []
+    assert commands.load_registry(ctx.home) == stale
+    assert fake_stack.keys == keys
+
+
+def test_without_a_package_for_the_stack_the_command_names_what_to_install(
+    tmp_path: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def missing(driver: str) -> Any:
+        raise stack_service.StackServiceError(f"no package for {driver}: install it")
+
+    ctx = _ctx(_app(tmp_path, "shop"), environ)
+    monkeypatch.setattr(stack_service, "_discover", missing)
+    with pytest.raises(commands.DevError, match="install it"):
+        commands.up(ctx, commands.UpOptions(services="external", kv_url="redis://h"))
 
 
 def test_a_postgres_url_round_trips() -> None:
@@ -531,7 +892,7 @@ def test_two_apps_in_one_repository_share_containers_not_state(
         root = repo / "apps" / name
         (root / "deploy").mkdir(parents=True)
         (root / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n')
-        (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block())
+        (root / ".env").write_text("JWT_SECRET=x\n" + envfile.empty_block("Redis"))
         apps.append(root)
     shop, desk = (_ctx(root, environ) for root in apps)
     assert shop.identity.repository == desk.identity.repository

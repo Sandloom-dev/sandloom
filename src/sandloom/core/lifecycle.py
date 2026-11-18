@@ -35,7 +35,7 @@ class CriticalStartupError(RuntimeError):
 def _log_task_failure(
     group_name: str, t_name: str, exc: Exception, *, critical: bool
 ) -> None:
-    """A best-effort task that cannot reach PostgreSQL / Redis (the dev
+    """A best-effort task that cannot reach PostgreSQL or a backing service (the dev
     services are stopped): one WARNING line with the advice, the traceback at
     DEBUG. Any other failure keeps its traceback."""
     unreachable = None if critical else _unreachable.unreachable(exc)

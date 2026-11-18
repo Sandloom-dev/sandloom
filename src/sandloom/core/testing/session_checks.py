@@ -1,9 +1,9 @@
 """Run-level guards, checked once before any test runs.
 
-* **Ownership** (:mod:`sandloom.core.testing.ownership`): every database / Redis
+* **Ownership** (:mod:`sandloom.core.testing.ownership`): every database / keyed
   index the run will reset — under pytest-xdist each worker's own — belongs to
   this run (claimed if unmarked); another run's resource aborts the session.
-  Redis is a harness family (:mod:`sandloom.core.testing.families`): its hooks
+  A keyed server is a harness family (:mod:`sandloom.core.testing.families`): its hooks
   allocate, cap and claim; without one the run is DB-only.
 * **Connection budget** (:mod:`sandloom.core.testing.connections`): the server has
   room for the run's pools (x workers); ``-n auto`` is capped to it.
@@ -73,7 +73,7 @@ def worker_targets(values: dict[str, str], count: int) -> list[dict[str, str]]:
 
 def allocate_worker_resources(values: dict[str, str], count: int) -> None:
     """Every harness family claims its resources for the ``count`` workers
-    (the Redis family, under ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: free
+    (the keyed family, under ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: free
     indexes, published in ``SANDLOOM_TEST_REDIS_WORKER_DBS``).
 
     Runs in the controller's ``pytest_sessionstart`` (``tryfirst``), before
@@ -138,7 +138,7 @@ def check_run_resources(config: pytest.Config) -> None:
     os.environ.setdefault(ownership.OWNER_ENV, ownership.current_owner())
     values = run_values(config)
     count = _numprocesses(config)
-    # Budget first: a run that cannot start must not claim Redis indexes.
+    # Budget first: a run that cannot start must not claim keyed indexes.
     database = values.get("DATABASE_URL") or ""
     _warn_unreachable(config, database)
     if database:
@@ -211,8 +211,8 @@ def _prepare_serial_database(database: str) -> None:
 
 def cap_auto_workers(config: pytest.Config, requested: Any) -> Any:
     """``-n auto``'s worker count capped to the server's connection room and,
-    by each harness family, to what its backend has room for (the Redis family,
-    with ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: the free Redis indexes).
+    by each harness family, to what its backend has room for (the keyed family,
+    with ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: the free keyed indexes).
 
     A shortage runs fewer workers (0: serially) with a warning instead of
     aborting the session: an explicit ``-n N`` still fails with the full

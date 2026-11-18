@@ -106,7 +106,7 @@ def load_test_env(
     apply_test_pool_profile()
     # Explicit SANDLOOM_TEST_<VAR> overrides win over the file (parallel suites).
     apply_test_overrides(create_database=create_database)
-    # Under pytest-xdist: move this worker onto its own database / Redis DBs
+    # Under pytest-xdist: move this worker onto its own database / keyed-server DBs
     # (idempotent, so later reloads never put it back on the shared ones).
     apply_worker_env(create_database=create_database)
     return path

@@ -65,7 +65,7 @@ class BackupHint:
     * ``url`` — the server this instance keeps its data on, as the instance
       states it. ``None``: the instance runs on the server of ``cache.default``
       (a bus with no url of its own).
-    * ``kind`` — the item's kind, one word (``"redis"``); it is the plan's key
+    * ``kind`` — the item's kind, one word, the driver's own; it is the plan's key
       beside the url.
     * ``criticality`` — see :data:`BackupCriticality`.
     * ``backup`` / ``restore`` — operator steps, one sentence each. A step two
@@ -363,7 +363,7 @@ class InfraProvider(abc.ABC):
         """An opaque name of the backing store's failure and eviction domain.
 
         Two instances with the same identity share eviction and memory. It
-        starts with the driver name and a colon (``redis:<run_id>``) and
+        starts with the driver name and a colon (``<driver>:<run_id>``) and
         carries no credential. ``None`` means unknown, which fails production
         attestation closed.
         """

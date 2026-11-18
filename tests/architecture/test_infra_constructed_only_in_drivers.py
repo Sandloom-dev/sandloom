@@ -122,12 +122,7 @@ PG_SYNC_NAMES: dict[str, list[str]] = {
 # listed, a higher count and a stale entry (fewer sites, or none) all fail.
 _OPS = "stays: PostgreSQL ops tool (design.md section 4: psycopg2 stays where the ops tools need it)"
 _HARNESS = "stays: PostgreSQL test harness (design.md section 4)"
-_DEV_REDIS = (
-    "stays: `sandloom dev` pings and inspects the developer's own Redis server "
-    "(the optional `redis` extra, imported by name; no client: a TCP check)"
-)
 SEEDED: dict[tuple[str, str], tuple[int, str]] = {
-    ("core/cli/dev/services.py", "Redis"): (1, _DEV_REDIS),
     ("core/cli/dev/services.py", "psycopg2.connect"): (1, _OPS),
     ("core/migrations/backup.py", "psycopg2.connect"): (1, _OPS),
     ("core/testing/connections.py", "psycopg2.connect"): (1, _HARNESS),

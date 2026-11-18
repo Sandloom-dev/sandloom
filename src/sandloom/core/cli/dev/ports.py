@@ -15,16 +15,25 @@ import hashlib
 import socket
 from collections.abc import Callable, Iterable
 
-#: Service -> (port variable of the compose file, container port).
-SERVICES: dict[str, tuple[str, int]] = {
-    "db": ("SANDLOOM_DEV_POSTGRES_PORT", 5432),
-    "redis": ("SANDLOOM_DEV_REDIS_PORT", 6379),
-    "postgres_test": ("SANDLOOM_DEV_TEST_POSTGRES_PORT", 5432),
-    "redis_test": ("SANDLOOM_DEV_TEST_REDIS_PORT", 6379),
-}
+from sandloom.core.cli.stack_service import StackService
+
 LOW, HIGH = 20000, 32767
 STRIDE = 257
 ATTEMPTS = 256
+#: The services of the standard stack, which sets how far :func:`candidates` goes.
+SERVICE_COUNT = 4
+
+
+def services(stack: StackService) -> dict[str, tuple[str, int]]:
+    """Service -> (port variable of the compose file, container port): the two
+    PostgreSQL servers and the stack's keyed server, dev and disposable test
+    (the order the ports are chosen in)."""
+    return {
+        "db": ("SANDLOOM_DEV_POSTGRES_PORT", 5432),
+        stack.name: (stack.port_var, stack.container_port),
+        "postgres_test": ("SANDLOOM_DEV_TEST_POSTGRES_PORT", 5432),
+        stack.test_name: (stack.test_port_var, stack.container_port),
+    }
 
 
 def port_free(port: int) -> bool:
@@ -72,7 +81,7 @@ def candidates(seed: str) -> Iterable[int]:
     """Ports to try for ``seed``, in order."""
     span = HIGH - LOW + 1
     start = int(hashlib.sha256(seed.encode()).hexdigest()[:8], 16) % span
-    for n in range(ATTEMPTS * len(SERVICES)):
+    for n in range(ATTEMPTS * SERVICE_COUNT):
         yield LOW + (start + n * STRIDE) % span
 
 
@@ -102,4 +111,4 @@ def choose_ports(
     return out
 
 
-__all__ = ["HIGH", "LOW", "SERVICES", "candidates", "choose_ports", "port_free"]
+__all__ = ["HIGH", "LOW", "candidates", "choose_ports", "port_free", "services"]

@@ -124,7 +124,7 @@ class _StreamsDispatch(_StreamsInventory):
     ) -> None:
         """Run one consumed batch, flushing successes within a bounded interval.
 
-        Redis work is per BATCH, not per event: the inbox dedupe check is one
+        Transport work is per BATCH, not per event: the inbox dedupe check is one
         ``MGET`` (:meth:`ConsumerInbox.processed_many`; skipped, with the
         marks, when every callback is a durable consumer), the successful
         deliveries' marks one pipeline (:meth:`ConsumerInbox.mark_processed_many`)

@@ -2,10 +2,16 @@
 
 At a terminal (:func:`sandloom.core.cli.ui.interactive`) ``sandloom new``
 welcomes the person and asks what its flags did not say: the name, the
-standard modules, the coding agents, how to run PostgreSQL and Redis
-(Docker, servers they already run, or later) and whether to set the app up
-now. The setup runs ``uv sync``, ``sandloom generate``, ``dev up`` and the
-migrations in the new app, one line per step. Last, with the console:
+standard modules, the coding agents, the stack (the backing servers and the
+packages installed for them: :data:`sandloom.core.cli.stack_service.STACKS`, a
+list with no compose text or URL form in it), how to run PostgreSQL and the
+keyed server (Docker, servers they already run, or later) and whether to set the
+app up now. The setup runs ``uv sync``, ``sandloom generate``, ``dev up`` and the
+migrations in the new app, one line per step. When the stack's package is not
+importable (a bare ``uvx --from sandloom``) the files carry its markers, and
+``uv sync`` + ``sandloom add stack`` (run for the person, or printed) write them
+from the package in the app's environment: the same bytes either way. A failing
+step prints the commands to run later, never a traceback. Last, with the console:
 "Now create the console administrator", the email, and ``admin create``
 attached to the terminal, which asks for the password itself: the wizard
 never handles it. A summary says how to start the app, what to open, where
@@ -50,6 +56,7 @@ import sandloom.core.cli.dev.process as _process
 import sandloom.core.cli.dev.services as _services
 import sandloom.core.cli.project as _project
 import sandloom.core.cli.skills as _skills
+import sandloom.core.cli.stack_service as _stack
 import sandloom.core.cli.ui as _ui
 from sandloom.core.url_split import split_url
 
@@ -65,10 +72,31 @@ SITE_URL = "https://sandloom.dev"
 DOCS_URL = "https://sandloom.dev/docs/"
 #: The welcome under the caracal (one line at 80 columns).
 WELCOME = "Welcome! This wizard guides you step by step to a new Sandloom application."
-#: How the app's PostgreSQL and Redis run: the compose project, servers the
-#: person already runs, or not decided yet (the files only).
+#: How the app's PostgreSQL and keyed server run: the compose project, servers
+#: the person already runs, or not decided yet (the files only).
 DOCKER, EXTERNAL, LATER = "docker", "external", "none"
 SERVICE_CHOICES = (DOCKER, EXTERNAL, LATER)
+
+
+#: What the wizard calls the keyed server while the stack's package is not
+#: installed here (the package supplies the name: ``StackService.label``).
+NEUTRAL_LABEL = "the keyed server"
+
+
+def _label() -> str:
+    """The keyed server's name in what the wizard says: the stack's driver
+    package supplies it, a neutral one stands in while it is not installed."""
+    service = _stack.available()
+    return NEUTRAL_LABEL if service is None else service.label
+
+
+#: Why servers the person already runs cannot be chosen here: the stack's
+#: package probes them, and this environment has none.
+NO_STACK_EXTERNAL = (
+    "your own servers are checked with the stack's package, which is not "
+    "installed here: choose 1 or 3, then run `uv run sandloom dev up --services "
+    "external` in the new app (or install `sandloom[redis]` and run again)"
+)
 #: ``Machine.docker()``: Docker answers, is not installed, or is not running.
 DOCKER_READY, DOCKER_MISSING, DOCKER_STOPPED = "ready", "missing", "stopped"
 UV_INSTALL_URL = "https://docs.astral.sh/uv/getting-started/installation/"
@@ -110,7 +138,8 @@ class Given:
     git: bool | None = None
     services: str | None = None
     database_url: str | None = None
-    redis_url: str | None = None
+    kv_url: str | None = None
+    stack: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,7 +152,8 @@ class Answers:
     git: bool = True
     services: str = LATER
     database_url: str | None = None
-    redis_url: str | None = None
+    kv_url: str | None = None
+    stack: str = _stack.DEFAULT_STACK
 
 
 @dataclass(frozen=True)
@@ -144,7 +174,9 @@ class Plan:
     #: Only ``external`` shows in the repeat command (Docker is the default).
     services: str = DOCKER
     database_url: str | None = None
-    redis_url: str | None = None
+    kv_url: str | None = None
+    #: Only a stack other than the default shows in the repeat command.
+    stack: str = _stack.DEFAULT_STACK
 
 
 @dataclass
@@ -155,10 +187,14 @@ class Machine:
     uv: str | None = None
     docker: Callable[[], str] = lambda: DOCKER_READY
     git_email: str | None = None
-    #: The local PostgreSQL and Redis URLs that answer (``None``: nothing).
+    #: Whether the stack's package is installed here: the person's own servers
+    #: are probed with it (without it, ``sandloom dev up --services external``
+    #: in the new app does).
+    stack_here: bool = True
+    #: The local PostgreSQL and keyed-server URLs that answer (``None``: nothing).
     local_services: Callable[[], tuple[str | None, str | None]] = lambda: (None, None)
     #: Why these servers cannot serve the app (one line), or ``None``.
-    check_services: Callable[[str, str], str | None] = lambda db, redis: None
+    check_services: Callable[[str, str], str | None] = lambda db, keyed: None
 
 
 @dataclass
@@ -249,6 +285,16 @@ def parser() -> argparse.ArgumentParser:
         "coding agents pass it)",
     )
     p.add_argument(
+        "--stack",
+        choices=[stack.name for stack in _stack.STACKS],
+        default=None,
+        help="the backing servers the app runs on, and the packages it installs "
+        "for them: "
+        + "; ".join(f"{s.name}: {s.summary}" for s in _stack.STACKS)
+        + f" (default: {_stack.DEFAULT_STACK}; asked at a terminal when "
+        "there is more than one)",
+    )
+    p.add_argument(
         "--setup",
         action="store_true",
         help="also run uv sync, sandloom generate, dev up and the migrations "
@@ -271,8 +317,8 @@ def parser() -> argparse.ArgumentParser:
         "--services",
         choices=SERVICE_CHOICES,
         default=None,
-        help="how --setup runs PostgreSQL and Redis: docker (the default), "
-        "external (servers you already run: --database-url, --redis-url) or "
+        help="how --setup runs PostgreSQL and the keyed server: docker (the default), "
+        "external (servers you already run: --database-url, --kv-url) or "
         "none (create the files only)",
     )
     p.add_argument(
@@ -282,9 +328,10 @@ def parser() -> argparse.ArgumentParser:
         "create databases (default: postgresql://$USER@127.0.0.1:5432/postgres)",
     )
     p.add_argument(
-        "--redis-url",
+        "--kv-url",
         default=None,
-        help="with --services external: your Redis (default: redis://127.0.0.1:6379)",
+        help="with --services external: your keyed server (the one the stack's "
+        "driver package describes; default: its local server on 127.0.0.1)",
     )
     p.add_argument(
         "--plain",
@@ -320,25 +367,39 @@ def plan_from_args(args: argparse.Namespace, *, cwd: Path) -> Plan:
         git=args.git is not False,
         services=_services_flag(args) or DOCKER,
         database_url=args.database_url,
-        redis_url=args.redis_url,
+        kv_url=args.kv_url,
+        stack=args.stack or _stack.DEFAULT_STACK,
     )
 
 
 def _services_flag(args: argparse.Namespace) -> str | None:
     """``--services``; the URL flags alone mean ``external``."""
-    if args.services is None and (args.database_url or args.redis_url):
+    if args.services is None and (args.database_url or args.kv_url):
         return EXTERNAL
     return str(args.services) if args.services is not None else None
 
 
+def _repeat_extra(plan: Plan) -> str:
+    """The extras of the ``uvx --from`` spec: the batteries, or, for your own
+    servers (checked at once, with the stack's package, which the bare kernel
+    the line runs in does not have), the stack's extras."""
+    if plan.batteries:
+        return "[standard]"
+    if plan.services == EXTERNAL:
+        return f"[{','.join(_stack.stack_choice(plan.stack).extras)}]"
+    return ""
+
+
 def repeat_command(version: str, plan: Plan, *, cwd: Path) -> list[str]:
     """The argv that makes the same app with no question, pinned to this
-    version like the docs: ``uvx --from "sandloom==<v>" sandloom new …
-    --yes``. It never carries the administrator's email or a password."""
-    extra = "[standard]" if plan.batteries else ""
+    version like the docs: ``uvx --from "sandloom==<v>" sandloom new … --yes``.
+    It never carries the administrator's email or a password."""
+    extra = _repeat_extra(plan)
     argv = ["uvx", "--from", f"sandloom{extra}=={version}", "sandloom", "new", plan.app]
     if plan.parent.resolve() != cwd.resolve():
         argv += ["--dir", str(plan.parent)]
+    if plan.stack != _stack.DEFAULT_STACK:
+        argv += ["--stack", plan.stack]
     if plan.batteries:
         argv += ["--with", ",".join(plan.batteries)]
     argv += ["--agents", ",".join(plan.agents)]
@@ -364,8 +425,8 @@ def _repeat_choices(plan: Plan) -> list[str]:
         argv += ["--services", EXTERNAL]
         if plan.database_url:
             argv += ["--database-url", plan.database_url]
-        if plan.redis_url:
-            argv += ["--redis-url", plan.redis_url]
+        if plan.kv_url:
+            argv += ["--kv-url", plan.kv_url]
     return argv
 
 
@@ -381,7 +442,7 @@ def repeat_line(version: str, plan: Plan, *, cwd: Path) -> str:
     return " ".join(f'"{a}"' if i == 2 else shlex.quote(a) for i, a in enumerate(shown))
 
 
-_URL_FLAGS = frozenset({"--database-url", "--redis-url"})
+_URL_FLAGS = frozenset({"--database-url", "--kv-url"})
 
 
 # --------------------------------------------------------------------------- #
@@ -501,8 +562,28 @@ def _address(url: str) -> str:
     return f"{parts.hostname}:{parts.port}" if parts.port else str(parts.hostname)
 
 
+def ask_stack(p: Prompter, stacks: Sequence[_stack.StackChoice] = _stack.STACKS) -> str:
+    """The stack's name: what each gives and what it installs, then the question
+    when there is a choice (one stack is told, not asked)."""
+    if len(stacks) == 1:
+        only = stacks[0]
+        p.say(p.style.bold("Stack") + p.style.muted(f"  {only.name}: {only.summary}"))
+        return only.name
+    p.say(p.style.bold("Which stack should the app run on?"))
+    for n, choice in enumerate(stacks, 1):
+        p.say(f"  {n}. {choice.name} {p.style.symbols.dash} {choice.summary}")
+    while True:
+        answer = p.ask("Stack [1]: ") or "1"
+        if answer.isdigit() and 1 <= int(answer) <= len(stacks):
+            return stacks[int(answer) - 1].name
+        for choice in stacks:
+            if answer == choice.name:
+                return choice.name
+
+
 def ask_services(p: Prompter, machine: Machine) -> tuple[str, str | None, str | None]:
-    """How to run PostgreSQL and Redis: ``(choice, database URL, Redis URL)``.
+    """How to run PostgreSQL and the keyed server: ``(choice, database URL,
+    keyed-server URL)``.
 
     Docker is the default when it answers; otherwise the wizard says so
     plainly and defaults to servers that answer on the usual local ports, or
@@ -510,18 +591,18 @@ def ask_services(p: Prompter, machine: Machine) -> tuple[str, str | None, str | 
     sym = p.style.symbols
     status = machine.docker()
     found: tuple[str | None, str | None] | None = None
-    p.say(
-        p.style.bold("PostgreSQL and Redis")
-        + p.style.muted(" (the app's database and cache)")
-    )
+    both = f"PostgreSQL and {_label()}"
+    p.say(p.style.bold(both) + p.style.muted(" (the app's database and cache)"))
     if status == DOCKER_READY:
         default = 1
-    else:
+    elif machine.stack_here:
         found = machine.local_services()
         default = 2 if any(found) else 3
+    else:
+        default = 3
     labels = [
         "Docker " + sym.dash + " Sandloom starts them for you",
-        "I already run PostgreSQL and Redis (for example Homebrew or Postgres.app)",
+        f"I already run {both} (for example Homebrew or Postgres.app)",
         "Later " + sym.dash + " just create the files",
     ]
     for n, label in enumerate(labels, 1):
@@ -532,6 +613,9 @@ def ask_services(p: Prompter, machine: Machine) -> tuple[str, str | None, str | 
         answer = p.ask(f"How do you want to run them? [{default}]: ") or str(default)
         if answer == "1" and _docker_now(p, machine, status):
             return DOCKER, None, None
+        if answer == "2" and not machine.stack_here:
+            p.say(_ui.error_lines(p.style, NO_STACK_EXTERNAL))
+            continue
         if answer == "2":
             urls = ask_external(p, machine, found)
             return (LATER, None, None) if urls is None else (EXTERNAL, *urls)
@@ -564,19 +648,21 @@ def ask_external(
 ) -> tuple[str, str] | None:
     """The URLs of the servers the person runs, checked; ``None``: gave up
     (the files only)."""
-    db, redis = found if found is not None else machine.local_services()
-    for url, what in ((db, "PostgreSQL"), (redis, "Redis")):
+    label = _label()
+    db, keyed = found if found is not None else machine.local_services()
+    for url, what in ((db, "PostgreSQL"), (keyed, label)):
         if url:
             p.say(f"  {p.style.ok(f'{what} answers at {_address(url)}')}")
     while True:
         db = _ask_url(
             p, "PostgreSQL URL", db, "postgresql://you@127.0.0.1:5432/postgres"
         )
-        redis = _ask_url(p, "Redis URL", redis, "redis://127.0.0.1:6379")
-        problem = machine.check_services(db, redis)
+        example = _dev_commands.stack_service().local_url("127.0.0.1")
+        keyed = _ask_url(p, f"{label} URL", keyed, example)
+        problem = machine.check_services(db, keyed)
         if problem is None:
-            p.say(f"  {p.style.ok('PostgreSQL and Redis answer')}")
-            return db, redis
+            p.say(f"  {p.style.ok(f'PostgreSQL and {label} answer')}")
+            return db, keyed
         p.say(_ui.error_lines(p.style, problem))
         if not ask_yes(p, "Try other URLs?"):
             return None
@@ -596,7 +682,7 @@ def setup_question(services: str, *, admin: bool) -> str:
     """Says in plain words what the setup does, and about how long."""
     parts = ["Install the dependencies"]
     if services == DOCKER:
-        parts.append("start PostgreSQL and Redis in Docker")
+        parts.append(f"start PostgreSQL and {_label()} in Docker")
     if admin:
         text = ", ".join([*parts, "create the tables and your administrator"])
     else:
@@ -642,17 +728,18 @@ def ask(
         if given.batteries is not None
         else ask_modules(p)
     )
+    stack = given.stack or ask_stack(p)
     if given.agents is not None:
         agents = list(given.agents)
     else:
         preselected = [a.key for a in _skills.CODING_AGENTS if a.key in detected]
         agents = ask_agents(p, detected, preselected or list(_skills.DEFAULT_AGENTS))
-    services, db, redis = given.services, given.database_url, given.redis_url
+    services, db, keyed = given.services, given.database_url, given.kv_url
     if machine.uv is None:
         p.hint(f"uv is not installed, so the setup is yours to run: {UV_INSTALL_URL}")
         services = services or LATER
     elif services is None:
-        services, db, redis = ask_services(p, machine)
+        services, db, keyed = ask_services(p, machine)
     admin = "admin" in batteries
     setup = False
     if machine.uv is not None and services != LATER:
@@ -667,7 +754,8 @@ def ask(
         git=given.git is not False,
         services=services,
         database_url=db,
-        redis_url=redis,
+        kv_url=keyed,
+        stack=stack,
     )
 
 
@@ -744,6 +832,7 @@ def machine_for(environ: Mapping[str, str], parent: Path) -> Machine:
         uv=uv_binary(environ),
         docker=lambda: docker_status(environ),
         git_email=git_email(environ),
+        stack_here=_stack.available() is not None,
         local_services=lambda: _dev_commands.local_servers(environ),
         check_services=_dev_commands.check_external,
     )
@@ -859,18 +948,29 @@ class Step:
     attached: bool = False
 
 
+def stack_steps(uv: str) -> list[Step]:
+    """``uv sync`` and ``sandloom add stack``: the app's own environment writes
+    the stack's files, when the running ``sandloom`` has no stack package."""
+    return [
+        Step("uv sync", [uv, "sync"]),
+        Step("uv run sandloom add stack", [uv, "run", "sandloom", "add", "stack"]),
+    ]
+
+
 def setup_steps(
     uv: str,
     *,
     admin_email: str | None,
     attach: bool,
+    stack_pending: bool = False,
 ) -> list[Step]:
     """The setup commands, and the administrator when ``admin_email`` is
     given: at a terminal (``attach``) ``admin create`` itself asks for the
     password (the wizard never reads it); without one it prints a single-use
-    set-password link (``--invite``)."""
+    set-password link (``--invite``). ``stack_pending``: the stack's files are
+    not written yet (:func:`stack_steps` come first)."""
     steps = [
-        Step("uv sync", [uv, "sync"]),
+        *(stack_steps(uv) if stack_pending else [Step("uv sync", [uv, "sync"])]),
         Step("uv run sandloom generate", [uv, "run", "sandloom", "generate"]),
         Step("uv run sandloom dev up", [uv, "run", "sandloom", "dev", "up"]),
         Step(
@@ -1108,6 +1208,11 @@ class _Run:
     #: The questions' prompter (at a terminal), for the administrator's email.
     prompter: Prompter | None = None
     git_email: str | None = None
+    #: The stack's package is installed here (else the new app's own
+    #: environment writes the stack's files: :func:`stack_steps`).
+    stack_here: bool = True
+    #: The stack's files are not written yet (no ``uv``, or a step failed).
+    stack_pending: bool = False
 
     def fail(self, message: str, code: int = 1) -> int:
         self.err.write(f"error: {message}\n")
@@ -1137,6 +1242,19 @@ def _reader(run: _Run) -> Callable[[str], str]:
     return read
 
 
+def _services_refusal(run: _Run, services: str | None) -> int | None:
+    """The exit status of a ``--services`` / URL / ``--setup`` combination that
+    cannot work (nothing is written yet), or ``None``."""
+    args = run.args
+    if services != EXTERNAL and (args.database_url or args.kv_url):
+        return run.fail("--database-url and --kv-url need --services external", 2)
+    if services == LATER and args.setup:
+        return run.fail("--services none creates the files only: leave --setup out", 2)
+    if services == EXTERNAL and not run.stack_here:
+        return run.fail(f"--services external: {NO_STACK_EXTERNAL}", 2)
+    return None
+
+
 def _given(run: _Run) -> Given | int:
     """The flags as :class:`Given`, or an exit status for a bad flag."""
     args = run.args
@@ -1159,10 +1277,9 @@ def _given(run: _Run) -> Given | int:
         if problem is not None:
             return run.fail(problem)
     services = _services_flag(args)
-    if services != EXTERNAL and (args.database_url or args.redis_url):
-        return run.fail("--database-url and --redis-url need --services external", 2)
-    if services == LATER and args.setup:
-        return run.fail("--services none creates the files only: leave --setup out", 2)
+    refused = _services_refusal(run, services)
+    if refused is not None:
+        return refused
     return Given(
         app=args.app,
         batteries=batteries,
@@ -1172,29 +1289,33 @@ def _given(run: _Run) -> Given | int:
         git=args.git,
         services=services,
         database_url=args.database_url,
-        redis_url=args.redis_url,
+        kv_url=args.kv_url,
+        stack=args.stack,
     )
 
 
 def _external_without_questions(run: _Run, given: Given) -> Given | int:
     """``--services external`` with ``--yes``: the URLs given, else the local
     servers that answer; both checked before anything is written."""
-    db, redis = given.database_url, given.redis_url
-    if not db or not redis:
-        found_db, found_redis = _dev_commands.local_servers(run.environ)
-        db, redis = db or found_db, redis or found_redis
-    if not db or not redis:
+    db, keyed = given.database_url, given.kv_url
+    if not db or not keyed:
+        found_db, found_keyed = _dev_commands.local_servers(run.environ)
+        db, keyed = db or found_db, keyed or found_keyed
+    if not db or not keyed:
+        stack = _dev_commands.stack_service()
         missing = (
-            "PostgreSQL on 127.0.0.1:5432" if not db else "Redis on 127.0.0.1:6379"
+            "PostgreSQL on 127.0.0.1:5432"
+            if not db
+            else f"{stack.label} on 127.0.0.1:{stack.local_port}"
         )
         return run.fail(
             f"--services external: no {missing} answers; pass --database-url and "
-            "--redis-url"
+            "--kv-url"
         )
-    problem = _dev_commands.check_external(db, redis)
+    problem = _dev_commands.check_external(db, keyed)
     if problem is not None:
         return run.fail(problem)
-    return dataclasses.replace(given, database_url=db, redis_url=redis)
+    return dataclasses.replace(given, database_url=db, kv_url=keyed)
 
 
 def welcome(
@@ -1234,7 +1355,8 @@ def _answers(run: _Run, given: Given) -> Answers | int:
             git=given.git is not False,
             services=given.services or (DOCKER if setup else LATER),
             database_url=given.database_url,
-            redis_url=given.redis_url,
+            kv_url=given.kv_url,
+            stack=given.stack or _stack.DEFAULT_STACK,
         )
     welcome(
         run.out,
@@ -1276,6 +1398,7 @@ def _generate(run: _Run, plan: Plan) -> list[Path] | int:
             framework_source=plan.framework_source,
             framework_path=plan.framework_path,
             agents=plan.agents,
+            stack=plan.stack,
         )
     except FileExistsError:
         return run.fail(
@@ -1300,7 +1423,9 @@ def _created(run: _Run, plan: Plan, created: list[Path]) -> Path:
     # The generated files (snapshots, schemas, stubs): the app's own CI gate
     # (`sandloom test --ci`) only checks them, so a fresh app must carry them.
     # A setup writes them in the app's own environment (`sandloom generate`).
-    if plan.setup:
+    # Without the stack's package here the app's own environment does it, after
+    # the stack's files (`_complete_stack`).
+    if plan.setup or not run.stack_here:
         return root
     problem = _project.write_generated_files(root)
     if problem is not None:
@@ -1337,8 +1462,12 @@ def _next_steps(run: _Run, plan: Plan, root: Path, answers: Answers) -> list[str
         lines = [lines[0], _serve_line(run, root)]
         if "admin" in plan.batteries and not answers.admin_email:
             lines.insert(1, _project.ADMIN_NEXT_STEP)
-    elif "admin" in plan.batteries:
-        lines.append(_project.ADMIN_NEXT_STEP)
+    else:
+        if run.stack_pending:  # after `uv sync`: its package writes the files
+            at = next(i for i, line in enumerate(lines) if line.startswith("uv sync"))
+            lines.insert(at + 1, "uv run sandloom add stack")
+        if "admin" in plan.batteries:
+            lines.append(_project.ADMIN_NEXT_STEP)
     return lines
 
 
@@ -1354,16 +1483,46 @@ def _setup(run: _Run, root: Path, answers: Answers) -> Result:
         )
     # At a terminal the administrator comes after (create_administrator).
     steps = setup_steps(
-        uv, admin_email=None if run.asking else answers.admin_email, attach=False
+        uv,
+        admin_email=None if run.asking else answers.admin_email,
+        attach=False,
+        stack_pending=not run.stack_here,
     )
-    runner = SetupRunner(
+    return _runner(run, root).run(steps, cwd=root, app_dir=_app_dir(root))
+
+
+def _runner(run: _Run, root: Path) -> SetupRunner:
+    return SetupRunner(
         out=run.out,
         style=run.style,
         environ=run.environ,
         log=root / SETUP_LOG,
         width=_ui.columns(run.out),
     )
-    return runner.run(steps, cwd=root, app_dir=_app_dir(root))
+
+
+def _complete_stack(run: _Run, root: Path) -> Result:
+    """No stack package here, and no setup asked for: the app is not complete
+    without the stack's files, so the app's own environment writes them
+    (``uv sync``, ``sandloom add stack``) and the generated files
+    (``sandloom generate``). Without ``uv``, or if a step fails, the files
+    stay as they are and the commands to run later are named."""
+    uv = uv_binary(run.environ)
+    generate = Step(
+        "uv run sandloom generate", [uv or "uv", "run", "sandloom", "generate"]
+    )
+    if uv is None:
+        run.stack_pending = True
+        run.out.write(
+            f"note: the stack's files are not written yet (uv is not installed: "
+            f"{UV_INSTALL_URL}); in the app run `uv sync`, `uv run sandloom add "
+            "stack` and `uv run sandloom generate`\n"
+        )
+        return Result(False)
+    steps = [*stack_steps(uv), generate]
+    result = _runner(run, root).run(steps, cwd=root, app_dir=_app_dir(root))
+    run.stack_pending = not result.ok
+    return result
 
 
 def configure_external(run: _Run, root: Path, answers: Answers) -> str | None:
@@ -1380,7 +1539,7 @@ def configure_external(run: _Run, root: Path, answers: Answers) -> str | None:
     options = _dev_commands.UpOptions(
         services=EXTERNAL,
         database_url=answers.database_url,
-        redis_url=answers.redis_url,
+        kv_url=answers.kv_url,
     )
     try:
         _dev_commands.up_external(ctx, options)
@@ -1400,6 +1559,7 @@ def _start_lines(run: _Run, plan: Plan, root: Path, answers: Answers) -> list[st
         "uv",
         admin_email="you@example.com" if "admin" in plan.batteries else None,
         attach=True,
+        stack_pending=run.stack_pending,
     )
     return [cd, *(step.label for step in steps), serve]
 
@@ -1455,7 +1615,7 @@ def _summary(
             (
                 "No Docker?",
                 "uv run sandloom dev up --services external  (your own "
-                "PostgreSQL and Redis)",
+                f"PostgreSQL and {_label()})",
             )
         )
     help_rows.append(("Docs", DOCS_URL))
@@ -1511,7 +1671,7 @@ def _own_servers(run: _Run, plan: Plan, root: Path, answers: Answers) -> Answers
         where = "your PostgreSQL"  # the usual local ports, found by `dev up`
         if answers.database_url:
             where = _services.Postgres.from_url(answers.database_url).address
-        done = f"PostgreSQL and Redis: the database {plan.app} on {where}"
+        done = f"PostgreSQL and {_label()}: the database {plan.app} on {where}"
         run.out.write(f"  {run.style.ok(done)}\n")
         return answers
     run.out.write(_ui.error_lines(run.style, problem) + "\n")
@@ -1568,6 +1728,11 @@ def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
             admin_created = created is not None
         else:
             admin_created = bool(answers.admin_email) and not result.skipped
+    elif not run.stack_here:
+        completed = _complete_stack(run, root)
+        if completed.cancelled:
+            return 130
+        servers_failed = servers_failed or not completed.ok
     if initialised:
         # After the setup: the files `sandloom generate` writes are in it too.
         hint = initial_commit(root, run.environ)
@@ -1619,6 +1784,12 @@ def main(
             "--setup starts the dev services, and CI provides its own services "
             "(`sandloom dev up` refuses there): leave --setup out"
         )
+    try:
+        # No package here is fine (the app's own environment writes the
+        # stack's files); one too old, broken or registered twice is not.
+        run.stack_here = _stack.available() is not None
+    except _stack.StackServiceError as exc:
+        return run.fail(str(exc))
     given = _given(run)
     if isinstance(given, int):
         return given
@@ -1638,7 +1809,8 @@ def main(
         git=answers.git,
         services=EXTERNAL if answers.services == EXTERNAL else DOCKER,
         database_url=answers.database_url,
-        redis_url=answers.redis_url,
+        kv_url=answers.kv_url,
+        stack=answers.stack,
     )
     created = _generate(run, plan)
     if isinstance(created, int):

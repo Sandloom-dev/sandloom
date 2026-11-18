@@ -6,7 +6,7 @@ Messages reach the subscriptions of this process only (it does not declare
 does not read lets it fill, the subscription ends with ``Unavailable`` after
 the messages it already holds, never a silent skip (spec section 6). Providers
 of one ``namespace`` option share one hub, so two instances of one store reach
-each other, as two Redis connections do.
+each other, as two connections to one server do.
 
 A built-in driver imports only ``sandloom.driverkit`` (ADR-0016), so the argument
 checks below are this driver's own.

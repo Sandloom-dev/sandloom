@@ -66,18 +66,18 @@ Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloo
 postgres = [
     "asyncpg>=0.32.0,<0.33",
 ]
-# The redis-py client with its hiredis parser (the Redis stack the pin in
-# docs/contributing/dependencies.md is measured on), and the package of the
-# Redis atomic_store, lease, broadcast and cache drivers and of the Streams
-# event bus (sandloom-redis).
+# The package of the Redis atomic_store, lease, broadcast and cache drivers and
+# of the Streams event bus (sandloom-redis), with its `hiredis` extra: the
+# redis-py client and the hiredis parser the pin in
+# docs/contributing/dependencies.md is measured on. The client's bound is the
+# package's own (one place).
 redis = [
-    "redis[hiredis]>=5.2.1,<6",
-    "sandloom-redis>=0.7.0a14,<0.8",
+    "sandloom-redis[hiredis]>=0.7.0a14,<0.8",
 ]
-# The Celery client the worker tooling uses, and the package of the Celery
-# taskqueue driver and its worker host (sandloom-celery).
+# The package of the Celery taskqueue driver and its worker host
+# (sandloom-celery), which requires the Celery client the worker tooling uses
+# (one place for its bound).
 celery = [
-    "celery[redis]>=5.6.3,<6",
     "sandloom-celery>=0.7.0a14,<0.8",
 ]
 # The batteries-included set: the standard composition root

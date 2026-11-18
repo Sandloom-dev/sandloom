@@ -835,8 +835,8 @@ profile's problems in its `config` section):
 | app role is not superuser / `BYPASSRLS` / table owner / system-role member (existing role verification) | database driver at startup (API + worker) | `TenantRLSConfigError` |
 | every `TenantScoped` table carries RLS **enabled + forced** and its `<table>_tenant_isolation` policy | critical startup task (API + worker) | `ProductionProfileError` naming each table and the fix (`enable_tenant_rls(op, table)`) |
 | `AUTH_REVOCATION_FAIL_CLOSED` not `false` (turned **on** when unset) | boot check (`enforce_configuration`) | refuses to start |
-| `INFRA["atomic_store"]["security"]` is declared (never built from the cache's options or from `memory`) on a **different Redis server** than the default cache | boot check (`enforce_configuration`) | refuses to start |
-| `INFRA["atomic_store"]["idempotency"]`, when declared (opt-in), is on a **different Redis server** than the default cache (same server as the security store: warning) | boot check (`enforce_configuration`) | refuses to start |
+| `INFRA["atomic_store"]["security"]` is declared (never built from the cache's options or from `memory`) on a **different server** than the default cache | boot check (`enforce_configuration`) | refuses to start |
+| `INFRA["atomic_store"]["idempotency"]`, when declared (opt-in), is on a **different server** than the default cache (same server as the security store: warning) | boot check (`enforce_configuration`) | refuses to start |
 | the security store and a declared idempotency store run on a driver that declares `never_evicts` and `shared` for their options (every production profile, not only this one) | boot check (`create_app`, from the registry) | refuses to start |
 | the security store and a separate idempotency store differ from the default cache by `isolation_identity()` (Redis: the `run_id` of the reached process; a `None` or raising identity fails) | critical startup task | `ProductionProfileError` |
 | split (`SERVICE_BINDINGS` set): `CONTRACT_COMPAT_CHECK` not `off` | boot check (`enforce_configuration`) | refuses to start |

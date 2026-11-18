@@ -402,7 +402,7 @@ guarantees:
     note: 'instance attestation: lifecycle isolation_identity()'
   statement: With ENVIRONMENT=prod and PRODUCTION_PROFILE=multi_tenant_strict, boot refuses (enforce_configuration)
     TENANCY_MODE other than multi, any database instance without tenant_rls, AUTH_REVOCATION_FAIL_CLOSED=false,
-    and an INFRA.atomic_store.security that is undeclared, a memory driver, or on the same Redis server as
+    and an INFRA.atomic_store.security that is undeclared, a memory driver, or on the same server as
     the default cache — listing every reason.
   sources:
   - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
@@ -467,7 +467,7 @@ guarantees:
     atomic_store) declare never_evicts and shared and differ from the default cache by isolation_identity()
     (on Redis the run_id of the reached process), failing with ProductionProfileError on the same identity
     or when an identity is None or cannot be read; a real Redis cache reports redis:<run_id>, so the
-    same Redis server as the security store is refused.
+    same server as the security store is refused.
   sources:
   - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/modules/database/multi-tenancy.md
@@ -494,8 +494,8 @@ guarantees:
     operations: [isolation_identity]
     note: 'instance attestation: lifecycle isolation_identity()'
   statement: Under the strict profile an INFRA.atomic_store.idempotency, when declared, must be on a different
-    Redis server than the default cache and not the memory driver (refused otherwise), sharing the security
-    Redis is only a warning, and leaving it undeclared makes the security instance hold the records.
+    server than the default cache and not the memory driver (refused otherwise), sharing the security
+    store's server is only a warning, and leaving it undeclared makes the security instance hold the records.
   sources:
   - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/advanced/security-model.md#Security-critical vs best-effort cache

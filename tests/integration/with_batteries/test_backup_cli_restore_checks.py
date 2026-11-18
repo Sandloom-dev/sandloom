@@ -1,6 +1,6 @@
 """``sandloom backup plan|verify`` and the operator guard rails (H-20).
 
-* the plan names every database instance and Redis endpoint, flags the
+* the plan names every database instance and backing-service endpoint, flags the
   security cache as critical and never prints a password;
 * ``verify`` restores into a throw-away database, checks every hosted
   migration chain is at its head plus basic integrity, and drops it;

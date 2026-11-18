@@ -233,7 +233,7 @@ class RequeueIn(BaseModel):
 
 
 #: A dead-letter entry id (and the page cursor): an opaque, bounded token. The
-#: event transport mints it (a Redis stream id is ``1700000000000-0``, another
+#: event transport mints it (a stream entry id is ``1700000000000-0``, another
 #: transport may use a UUID), so the API checks its shape and no more.
 _DLQ_ENTRY_ID = r"^[A-Za-z0-9_.:-]{1,80}$"
 

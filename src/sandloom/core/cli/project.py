@@ -46,9 +46,10 @@ from pathlib import Path
 from string import Template
 
 import sandloom.core.cli.add as _add
-import sandloom.core.cli.dev.envfile as _envfile
 import sandloom.core.cli.image_secrets as _image_secrets
 import sandloom.core.cli.skills as _skills
+import sandloom.core.cli.stack_files as _stack_files
+import sandloom.core.cli.stack_service as _stack
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _BUNDLED = ("identity", "tenancy", "billing", "admin")
@@ -530,27 +531,6 @@ test_data/
 """
 
 
-def _infra_json(cache: str, persistent: str, *, eventbus: bool = True) -> str:
-    """The ``INFRA`` of the Redis instances ``DEFAULT_INFRA`` (``_APP_INIT``)
-    selects, one explicit url each (an entry carries no ``driver``: the
-    composition's is kept). The instances that may lose their keys (cache,
-    broadcast) take ``cache``; every one that holds state (the security store,
-    the beat lease, the event streams, the Celery broker) takes ``persistent``,
-    never the cache's: a persistent instance sharing the cache's host, port and
-    database logs a startup warning. ``eventbus=False`` leaves the event bus
-    out (the in-process bus is selected)."""
-    infra: dict[str, dict[str, dict[str, str]]] = {
-        "cache": {"default": {"url": cache}},
-        "broadcast": {"default": {"url": cache}},
-        "atomic_store": {"security": {"url": persistent}},
-        "lease": {"beat": {"url": persistent}},
-        "taskqueue": {"default": {"broker": persistent}},
-    }
-    if eventbus:
-        infra["eventbus"] = {"default": {"url": persistent}}
-    return json.dumps(infra, separators=(",", ":"))
-
-
 _ENV_EXAMPLE = Template(
     """# ==== Modules loaded by this process ====
 # Default: every module of $app/modules (and the bundled ones). Set to select
@@ -843,15 +823,7 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--databases", "1024"]
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_REDIS_PORT:?$port_hint}:6379"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 2s
-      retries: 20
+$kv_dev
   postgres_test:
     image: postgres:16-alpine
     environment:
@@ -864,15 +836,7 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
-  redis_test:
-    image: redis:7-alpine
-    command: ["redis-server", "--databases", "1024"]
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_TEST_REDIS_PORT:?$port_hint}:6379"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 2s
-      retries: 20
+$kv_dev_test
 volumes:
   dev_postgres:
 """
@@ -935,16 +899,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always"]
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+$kv_prod
 
   # One-shot schema migration: runs to completion before the app starts.
   migrate:
@@ -975,7 +930,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      $kv_name:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -1002,7 +957,7 @@ services:
     healthcheck:
       disable: true
     depends_on:
-      redis:
+      $kv_name:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -1027,7 +982,7 @@ services:
     healthcheck:
       disable: true
     depends_on:
-      redis:
+      $kv_name:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -1041,7 +996,7 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
+  $kv_volume:
   app_data:
 """
 )
@@ -1129,10 +1084,7 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-      redis:
-        image: redis:7
-        ports:
-          - 6380:6379
+$kv_ci
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.2.0
@@ -1346,10 +1298,16 @@ _STDLIB_EXTRAS = frozenset(
 def _installed_import_names() -> dict[str, str]:
     """``{top-level import name: distribution}`` of what is installed here
     (the framework and its dependencies: the app installs the same), plus
-    the bundled modules' packages."""
+    the bundled modules' packages and what each stack's extras install (a bare
+    kernel has none of them installed, the app does)."""
     found: dict[str, str] = {
         "sandloom": "sandloom",
         **{f"sandloom_{name}": f"sandloom-{name}" for name in _BUNDLED},
+        **{
+            name: f"sandloom[{','.join(stack.extras)}]"
+            for stack in _stack.STACKS
+            for name in stack.imports
+        },
     }
     for name, dists in importlib.metadata.packages_distributions().items():
         if name.isidentifier():
@@ -1393,34 +1351,43 @@ def generate_project(
     framework_source: str | None = None,
     framework_path: Path | None = None,
     agents: Sequence[str] = _skills.DEFAULT_AGENTS,
+    stack: str = _stack.DEFAULT_STACK,
 ) -> list[Path]:
     """Generate a standalone Sandloom application; returns created file paths.
 
     ``agents`` (keys of :data:`sandloom.core.cli.skills.CODING_AGENTS`) decides
-    which skill folders and instruction pointers the application gets."""
+    which skill folders and instruction pointers the application gets;
+    ``stack`` (a name of :data:`sandloom.core.cli.stack_service.STACKS`) which
+    backing servers it runs on.
+
+    The stack's own lines (compose blocks, urls) come from its driver package:
+    written here when the package is importable, else left as tokens that
+    :func:`sandloom.core.cli.stack_files.complete` fills (``sandloom add
+    stack``, run in the app's environment): the same bytes either way."""
     problem = app_name_problem(app)
     if problem is not None:
         raise ValueError(problem)
     if not _NAME_RE.fullmatch(sample_module) or keyword.iskeyword(sample_module):
         raise ValueError("module name must be snake_case starting with a letter")
+    chosen = _stack.stack_choice(stack)
 
     bundled = _normalize_modules(with_batteries or [])
     source_config = _framework_sources(framework_source, framework_path, bundled)
-    # The kernel with its Redis/Celery drivers (the generated compose uses
-    # Redis and runs the Celery worker), plus each module package chosen with
-    # --with: ecosystem packages, each a compatible range.
-    # In a local checkout (``source_config`` is not empty) ``sandloom-redis``
-    # and ``sandloom-celery`` are named beside the extras that require them:
-    # uv applies a ``[tool.uv.sources]`` entry (an unpublished checkout) to
-    # direct dependencies only. A published app gets them through
+    # The kernel with the extras of the chosen stack (``standard``: its Redis
+    # and Celery drivers, which the generated compose runs), plus each module
+    # package chosen with --with: ecosystem packages, each a compatible range.
+    # In a local checkout (``source_config`` is not empty) the stack's packages
+    # (``sandloom-redis``, ``sandloom-celery``) are named beside the extras that
+    # require them: uv applies a ``[tool.uv.sources]`` entry (an unpublished
+    # checkout) to direct dependencies only. A published app gets them through
     # ``sandloom[postgres,redis,celery]``.
     driver_packages: list[str] = []
     if framework_req is None:
-        framework_req = f"sandloom[postgres,redis,celery]{FRAMEWORK_RANGE}"
+        extras = ",".join(["postgres", *chosen.extras])
+        framework_req = f"sandloom[{extras}]{FRAMEWORK_RANGE}"
         if source_config:
             driver_packages = [
-                f"sandloom-redis{FRAMEWORK_RANGE}",
-                f"sandloom-celery{FRAMEWORK_RANGE}",
+                f"sandloom-{extra}{FRAMEWORK_RANGE}" for extra in chosen.extras
             ]
     framework_deps = [
         framework_req,
@@ -1449,6 +1416,11 @@ def generate_project(
     if root.exists():
         raise FileExistsError(f"{root} already exists")
 
+    # The stack's backing server: the package of its driver describes it. No
+    # package installed here (a bare kernel) is not an error: the files keep
+    # their tokens for ``sandloom add stack``. A package too old, broken or
+    # registered twice is a ``StackServiceError`` (a ``ValueError``).
+    service = _stack.available(chosen.driver)
     ctx = {
         "app": app,
         "runtime_hardening": (
@@ -1473,17 +1445,9 @@ def generate_project(
         "dev_pins": "\n".join(
             f'    "{pin}",' for pin in (*DEV_TOOL_PINS, CHECK_EXTRA_REQ, f"{app}[fast]")
         ),
-        "port_hint": "start the services with: uv run sandloom dev up",
-        "dev_block": _envfile.empty_block(),
-        # CI's test Redis (Postgres :5433, Redis :6380): the cache on /15, the
-        # persistent instances on /14. The in-process bus is selected there.
-        "infra_test": _infra_json(
-            "redis://127.0.0.1:6380/15", "redis://127.0.0.1:6380/14", eventbus=False
-        ),
-        "infra_compose": _infra_json("redis://redis:6379/1", "redis://redis:6379/2"),
-        "infra_sqlite": _infra_json(
-            "redis://127.0.0.1:6379/0", "redis://127.0.0.1:6379/1", eventbus=False
-        ),
+        "port_hint": _stack_files.PORT_HINT,
+        # The stack's lines: tokens here, its package's text after the render.
+        **{key: _stack_files.token(key) for key in _stack_files.KEYS},
         "identity_note": _IDENTITY_NOTE if "identity" in bundled else "",
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
@@ -1515,7 +1479,9 @@ def generate_project(
         "AGENTS.md": _AGENTS_HEADER.substitute(
             ctx, skill_dirs=", ".join(f"`{d}`" for d in _skills.skill_dirs(agents))
         ),
-        "pyproject.toml": _PYPROJECT.substitute(ctx) + source_config,
+        "pyproject.toml": _PYPROJECT.substitute(ctx)
+        + source_config
+        + _stack_files.recording(chosen.name),
         "README.md": _README.substitute(ctx),
         ".gitignore": _GITIGNORE,
         ".env": _ENV_EXAMPLE.substitute(local_env_ctx),
@@ -1541,10 +1507,13 @@ def generate_project(
         ".pre-commit-config.yaml": _PRE_COMMIT,
     }
 
+    filled = _stack_files.values(service) if service is not None else None
     created: list[Path] = []
     for rel, content in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
+        if filled is not None:
+            content = _stack_files.fill(content, filled)
         path.write_text(content, encoding="utf-8")
         created.append(path)
     # The agent files: skills where each chosen agent reads them, the
@@ -1576,6 +1545,11 @@ def write_generated_files(root: Path) -> str | None:
     # `uvx --from sandloom` isolates the CLI from the app's optional packages.
     # Do not boot that incomplete composition: generation runs after `uv sync`
     # in the app environment, using the dependency versions it actually installed.
+    if _stack_files.pending(root):
+        return (
+            "run `uv sync` and `uv run sandloom add stack` to write the stack's "
+            "files first"
+        )
     metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = {
         re.split(r"[\[<>=!~ ;]", dependency, maxsplit=1)[0]

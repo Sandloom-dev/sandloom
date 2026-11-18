@@ -1,8 +1,8 @@
-"""Which instances share one Redis database: the startup warning's rendezvous.
+"""Which instances share one keyed-server database: the startup warning's rendezvous.
 
 The ``cache`` is allowed to evict (``maxmemory-policy allkeys-lru`` is the usual
 setting). An ``atomic_store``, a ``lease``, a ``streams`` bus or a task queue's
-broker on the same Redis database as ``cache.default`` can lose live keys when
+broker on the same database as ``cache.default`` can lose live keys when
 the cache fills up: an idempotency record, a lease holder, a stream entry, a
 queued task. No url is shared by inheritance (each instance states its own), so
 a shared database is a choice the operator made, or a url copied into several
@@ -18,8 +18,15 @@ registration that comes second finds the other and logs.
 
 An endpoint is an opaque string both sides compute alike: :func:`redis_endpoint`
 gives ``host:port/db`` of a ``redis://`` / ``rediss://`` url and never carries a
-credential. A persistent instance the kernel synthesized (``declared=False``:
-nobody wrote it in ``INFRA``, so nobody chose it) is logged at INFO, never as a
+credential. The function keeps its Redis name on purpose: it reads the Redis url
+grammar (default port 6379, ``?db=N`` as the client reads it), and the drivers
+that call it sit in two packages (``sandloom-redis``: cache, broadcast, lease,
+atomic store, event bus; ``sandloom-celery``: the broker on a Redis url) that
+import nothing of each other, so the one copy lives in the shared ``driverkit``
+(a driver of another server writes its own parser and registers the result
+here: the registry compares opaque strings). A persistent instance the kernel
+synthesized (``declared=False``: nobody wrote it in ``INFRA``, so nobody chose
+it) is logged at INFO, never as a
 WARNING: a development default (an instance the composition selects without
 an ``INFRA`` entry) shares by construction and a warning every start would hide
 the one that matters. In production nothing counts as a development default: a

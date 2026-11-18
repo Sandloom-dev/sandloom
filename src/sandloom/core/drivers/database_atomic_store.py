@@ -107,7 +107,7 @@ from sandloom.driverkit.atomic_store import (
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
-#: The same series as the Redis driver's (one declaration, one help text).
+#: The same series as the key-value driver's (one declaration, one help text).
 atomic_store_operation_errors_total = observe.counter(
     "sandloom_atomic_store_operation_errors_total",
     "Atomic store operations that raised (connection, timeout, server error)",

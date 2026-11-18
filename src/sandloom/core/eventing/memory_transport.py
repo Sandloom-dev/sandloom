@@ -65,9 +65,9 @@ class MemoryTransport(TransportDefaults):
     deliverable to a group until that group acks it, and is redelivered on a
     later ``consume`` if left unacked (after ``retry_base_ms`` backoff — 0 by
     default so unit tests stay instantaneous). Not durable across process
-    restarts — that is what the Redis Streams driver is for. Mirrors the Redis
+    restarts — that is what the streams driver is for. Mirrors the streams
     driver's group start position, targeted DLQ replay, group ownership and
-    subscription inventory so those contracts are testable without Redis.
+    subscription inventory so those contracts are testable without a server.
     """
 
     #: The ``eventbus`` features of this transport (spec 7). ``durable`` is

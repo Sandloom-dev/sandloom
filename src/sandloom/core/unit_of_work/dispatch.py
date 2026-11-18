@@ -127,8 +127,8 @@ async def _publish_prefix_with_origin(
 ) -> int:
     """Publish ``events`` in order; return how many LEADING ones were published.
 
-    A batch-capable bus gets them in ONE ``publish_event_batch`` call (Redis
-    Streams: one ``MULTI``/``EXEC`` round trip); any other bus one
+    A batch-capable bus gets them in ONE ``publish_event_batch`` call (the streams
+    bus: one transaction round trip); any other bus one
     ``publish_event`` at a time. Bounded by
     ``_POST_COMMIT_DISPATCH_TIMEOUT_SECONDS``; a timed-out batch confirms
     nothing (its outcome is unknown — the relay redelivers, duplicates allowed).
@@ -229,7 +229,7 @@ _PUBLISH_COOLDOWN_SECONDS = 1.0
 #: to this many jobs ...
 _ROUND_MAX_JOBS = 64
 #: ... or until it holds at least this many events, and publishes them in one
-#: batch (one broker round trip on Redis Streams).
+#: batch (one broker round trip on the streams bus).
 _ROUND_MAX_EVENTS = 512
 
 
@@ -303,7 +303,7 @@ class PostCommitDispatcher:
       waiting for more) and publishes them as ONE ordered batch: jobs in
       commit order (FIFO), each job's events in emission order — so within
       this process one UoW's events never overtake each other, as before —
-      in one broker round trip on Redis Streams (``MULTI``/``EXEC``) instead
+      in one broker round trip on the streams bus instead
       of one per event. A batch that fails or times out marks NOTHING
       delivered: all of its events are left to the relay (duplicates of the
       ones that did reach the broker are possible, loss is not), and later
@@ -670,7 +670,7 @@ async def _dispatch_pending_events(session: AsyncSession, *, wait: bool) -> None
     # contextvars. An IN-PROCESS bus does no I/O at all: hand it the events in
     # line (deterministic for tests and dev — the effects are scheduled when
     # the response returns) and defer only the delivered marks. A networked
-    # transport (Redis Streams) is published by the background coalescer.
+    # transport (the streams bus) is published by the background coalescer.
     events: tuple[_PendingEvent, ...] = tuple(pending)
     delivered_inline: tuple[_uuid.UUID, ...] = ()
     if isinstance(bus, _bus_base.BusFacts) and bus.in_process:

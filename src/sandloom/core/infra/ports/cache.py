@@ -53,7 +53,7 @@ class Cache(Protocol):
 
 
 class CacheProvider(InfraProvider, Cache):
-    """Ephemeral key/value store capability (Redis, in-memory, ...).
+    """Ephemeral key/value store capability (a networked store, in-memory, ...).
 
     Values are UTF-8 strings; keys are strings of at most 1024 bytes. TTLs are
     whole seconds ``>= 1``; ``None`` means no expiry. A key is not readable after

@@ -1,4 +1,4 @@
-"""Durable event bus over an ``EventTransport`` (Redis Streams)."""
+"""Durable event bus over an ``EventTransport`` (the streams transport)."""
 
 from __future__ import annotations
 
@@ -177,9 +177,11 @@ class StreamsEventBus(_StreamsDispatch):
 
         Envelopes and checks are exactly :meth:`publish_event`'s; an event
         failing its check stops the batch there (the events before it are
-        still published, in order). The transport appends the batch atomically
-        and in order (Redis Streams: ``MULTI``/``EXEC``); a transport failure
-        reports only the leading events it confirmed (``PartialPublish``).
+        still published, in order). The streams transport appends the batch in
+        order in one transaction. A transport that keeps the default
+        ``publish_many`` appends one item at a time and rolls nothing back: a
+        failure can leave the earlier items appended. Either way a transport
+        failure reports only the leading events it confirmed (``PartialPublish``).
         """
         items, error = self._prepare_batch(events, prevalidated)
         published = 0
@@ -423,7 +425,7 @@ class StreamsEventBus(_StreamsDispatch):
 
     def _register_consumer_name(self, channel: str, group: str, consumer: str) -> str:
         """Record the loop's consumer name in its inventory entry."""
-        # Unique per process so Redis tracks pending per replica and a crashed
+        # Unique per process so the transport tracks pending per replica and a crashed
         # consumer's backlog can be reclaimed (XAUTOCLAIM) rather than stranded.
         info = self._inventory_info.get((channel, group))
         if info is not None:

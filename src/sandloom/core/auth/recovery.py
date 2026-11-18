@@ -7,7 +7,7 @@ record ``sandloom:auth:subject:{user}`` (ADR-0009 item 13), either
 :func:`sandloom.core.auth.blocks.block_user`) or ``v1:after:<mark>`` (the access
 -token revocation of :func:`sandloom.core.auth.revocation.revoke_user_tokens`).
 
-Restoring a Redis snapshot (RDB / AOF) taken BEFORE a later block silently
+Restoring a snapshot of the store (RDB / AOF) taken BEFORE a later block silently
 lifts that block: the record is absent or an older ``after`` value, which
 means "not blocked". Likewise a revocation written after the snapshot is
 lost, so access tokens it revoked pass again until they expire.

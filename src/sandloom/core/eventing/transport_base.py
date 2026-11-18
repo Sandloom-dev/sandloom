@@ -105,7 +105,7 @@ def service_name() -> str | None:
 def process_consumer_id() -> str:
     """A consumer name unique to this process (``[service@]host-pid``).
 
-    Each process gets its own consumer within a group, so Redis tracks pending
+    Each process gets its own consumer within a group, so the transport tracks pending
     entries per process and ``XAUTOCLAIM`` can reclaim a dead process's backlog.
     A fixed name (e.g. ``group.1``) would make two replicas share one pending
     list and mask a crashed consumer. ``SANDLOOM_SERVICE_NAME`` (when set) prefixes

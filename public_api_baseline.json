@@ -4245,6 +4245,10 @@
     }
   },
   "sandloom.driverkit.url_split": {
+    "redact": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str) -> str"
+    },
     "split_url": {
       "kind": "function",
       "signature": "(url:POSITIONAL_OR_KEYWORD|str) -> SplitResult"

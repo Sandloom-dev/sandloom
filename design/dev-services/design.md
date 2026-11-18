@@ -240,9 +240,9 @@ registered in `error_codes` and `docs/reference/error-codes.md`.
 
 Docker is no longer required. The dev state (`dev.json`) records where the services come from.
 `services: "docker"` is the compose project, the default, and what an older state means.
-`"external"` holds `external: {database_url, redis_url}`: servers the person already runs.
+`"external"` holds `external: {database_url, kv_url}`: servers the person already runs.
 
-- `dev up --services external [--database-url URL] [--redis-url URL]` switches to them. The
+- `dev up --services external [--database-url URL] [--kv-url URL]` switches to them. The
   default URLs are `postgresql://$USER@127.0.0.1:5432/postgres` and `redis://127.0.0.1:6379`,
   taken only when they answer.
 - It checks both servers (`SELECT 1`, `PING`) and creates this checkout's database there. It

@@ -238,12 +238,6 @@ def _check_contents(package: str, wheel: Path) -> None:
 #: ``sandloom-celery``. ``asyncpg`` is the kernel's one backend client, and it
 #: stays an extra (``sandloom[postgres]``): imported, never required.
 KERNEL_BANNED_IMPORTS = frozenset({"redis", "aioredis", "celery", "kombu"})
-#: The one kernel module that may name ``redis``: ``sandloom dev`` pings and
-#: inspects the developer's own Redis server through the client when the
-#: ``redis`` extra installed it (``importlib.import_module("redis")`` inside
-#: ``except ImportError``; without it the check stops at a TCP connect). A
-#: guarded import only: the kernel wheel requires no Redis client.
-KERNEL_GUARDED_REDIS = "sandloom.core.cli.dev.services"
 #: Requirements the kernel wheel never declares unconditionally: a base
 #: requirement installs with ``pip install sandloom``.
 KERNEL_BANNED_BASE_REQUIREMENTS = KERNEL_BANNED_IMPORTS | {
@@ -318,38 +312,26 @@ def check_kernel_backends(wheel: Path) -> None:
     """The kernel wheel names no Redis or Celery and requires no database client.
 
     Three rules, read from the built wheel: no ``.py`` file imports ``redis``,
-    ``aioredis``, ``celery`` or ``kombu`` (at any depth), but the one guarded
-    import of :data:`KERNEL_GUARDED_REDIS` (and that module must still have
-    it); no code string is a Redis wire command or a Lua call; and no
+    ``aioredis``, ``celery`` or ``kombu`` (at any depth, guarded or not: the
+    Redis server of ``sandloom dev`` is described by ``sandloom-redis``); no
+    code string is a Redis wire command or a Lua call; and no
     base requirement installs a Redis, Celery or ``asyncpg`` distribution, with
     ``asyncpg`` declared by the ``postgres`` extra (the kernel serves SQLite
     without it)."""
     built = distribution_imports.read_wheel(wheel)
     problems: list[str] = []
-    guarded_seen = False
     for module, source in sorted(built.modules.items()):
         imports = distribution_imports.module_imports(
             source, module, is_package=module in built.packages
         )
-        for found in imports:
-            if found.target.split(".")[0] not in KERNEL_BANNED_IMPORTS:
-                continue
-            if (
-                module == KERNEL_GUARDED_REDIS
-                and found.optional
-                and found.target.split(".")[0] == "redis"
-            ):
-                guarded_seen = True
-            else:
-                problems.append(f"{module}:{found.line} imports {found.target}")
+        problems.extend(
+            f"{module}:{found.line} imports {found.target}"
+            for found in imports
+            if found.target.split(".")[0] in KERNEL_BANNED_IMPORTS
+        )
         problems.extend(
             f"{module} carries Redis protocol code {text[:40]!r}"
             for text in _wire_code_strings(source)
-        )
-    if not guarded_seen:
-        problems.append(
-            f"stale exemption: {KERNEL_GUARDED_REDIS} no longer has a guarded "
-            "redis import; drop KERNEL_GUARDED_REDIS"
         )
     required = built.requires & KERNEL_BANNED_BASE_REQUIREMENTS
     if required:
@@ -546,8 +528,7 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
         lean_checks: list[Future[Any]] = [
             pool.submit(_check_docs, sandloom, env, work),
             pool.submit(inspection_smoke.check, _python(venv), work),
-            pool.submit(_check_new_app, sandloom, env, work),
-            pool.submit(_check_battery_handoff, sandloom, env, work),
+            pool.submit(_check_new_app_needs_the_stack_package, sandloom, env, work),
             pool.submit(_check_kernel_factory, venv, env, work),
             # The internal-RPC transport from the installed lean wheel: aiohttp
             # probe + live call, then the httpx fallback on an internals mismatch.
@@ -578,6 +559,61 @@ def _check_new_app(sandloom: Path, env: dict[str, str], work: Path) -> None:
     pyproject = (work / "probe" / "pyproject.toml").read_text()
     if '"sandloom' not in pyproject:
         raise RuntimeError("the generated app does not depend on sandloom")
+
+
+def _check_new_app_needs_the_stack_package(
+    sandloom: Path, env: dict[str, str], work: Path
+) -> None:
+    """The bare kernel wheel describes no backing server of the standard stack.
+    ``sandloom new`` still writes the app, leaves the stack's lines marked, tries
+    ``uv sync`` + ``sandloom add stack`` in the new app and, when uv cannot reach
+    a registry (offline here, an empty cache), prints the commands to run later:
+    no traceback, a failing exit, the marked files left as they were."""
+    cache = work / "uv-cache-offline"
+    cache.mkdir()
+    offline = {**env, "UV_OFFLINE": "1", "UV_CACHE_DIR": str(cache)}
+    done = _run(
+        str(sandloom), "new", "probe", "--dir", str(work),
+        env=offline, cwd=work, capture_output=True, check=False,
+    )  # fmt: skip
+    shown = done.stdout + done.stderr
+    if "Traceback" in shown:
+        raise RuntimeError(f"bare kernel: `sandloom new` printed a traceback:\n{shown}")
+    if done.returncode == 0 or "Fix it and continue with:" not in shown:
+        raise RuntimeError(
+            "bare kernel, uv offline: `sandloom new` must stop with the commands "
+            f"to run later:\n{shown}"
+        )
+    later = shown.split("Fix it and continue with:", 1)[1]
+    if "uv run sandloom add stack" not in later.split("Next steps:", 1)[0]:
+        raise RuntimeError(
+            f"bare kernel: the commands to run later are missing:\n{shown}"
+        )
+    if (
+        "@@STACK:"
+        not in (work / "probe" / "deploy" / "docker-compose.dev.yml").read_text()
+    ):
+        raise RuntimeError(
+            "bare kernel: the stack's lines were written without a package"
+        )
+
+
+def check_scaffold_install(temp: Path, wheels: dict[str, Path]) -> None:
+    """The kernel with ``sandloom-redis``: ``sandloom new`` describes the standard
+    stack from the package's ``sandloom.stack`` entry point, and a battery the
+    bare CLI lacks is handed to ``uv sync``."""
+    venv = temp / "scaffold"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--python", str(_python(venv)),
+        str(wheels[KERNEL]), str(wheels["sandloom-redis"]),
+    )  # fmt: skip
+    env = _smoke_environment()
+    work = temp / "scaffold-work"
+    work.mkdir()
+    sandloom = _script(venv, "sandloom")
+    _check_new_app(sandloom, env, work)
+    _check_battery_handoff(sandloom, env, work)
 
 
 def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
@@ -1061,6 +1097,7 @@ def main(argv: list[str] | None = None) -> int:
                     pool.submit(check_lean_test_harness, temp, wheels[KERNEL]),
                     pool.submit(check_sqlite_install, temp, wheels[KERNEL]),
                     pool.submit(check_standard_install, temp, wheels),
+                    pool.submit(check_scaffold_install, temp, wheels),
                     *(
                         pool.submit(check_console_install, temp, wheels, p)
                         for p in release_packages.PACKAGES

@@ -437,7 +437,7 @@ def _bind_infrastructure(
     # lazy module-level accessor is used (outbox dispatch, relay).
     eventbus_provider = core_facade.eventbus_provider("default")
     # In production the default bus MUST be durable. The composition's selection
-    # (EVENT_BUS_BACKEND unset) names the durable Redis Streams bus, but an
+    # (EVENT_BUS_BACKEND unset) names the durable event bus, but an
     # explicit override to the in-memory or pub/sub bus would deliver domain
     # events (billing credits, provisioning, …) at-most-once and silently drop
     # them with no error. Fail fast at startup instead. Dev/test intentionally
@@ -449,7 +449,7 @@ def _bind_infrastructure(
             f"features={sorted(eventbus_provider.features())}). Domain events "
             "would be lost. Unset EVENT_BUS_BACKEND (the composition selects "
             "the bus) or set EVENT_BUS_BACKEND=streams to use the durable "
-            "Redis Streams transport."
+            "streams event transport."
         )
     bus = build_event_bus(eventbus_provider, schema_registry_service)
     core_facade.set_event_bus(bus)

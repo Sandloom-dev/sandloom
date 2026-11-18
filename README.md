@@ -72,6 +72,10 @@ uv run uvicorn myapp.asgi:app --reload
 ```
 <!-- readme:quickstart:end -->
 
+`sandloom new` also installs the app's packages and writes the Redis and
+compose files of the stack. If it printed "Fix it and continue with:", run the
+commands it lists: `uv sync`, then `uv run sandloom add stack`.
+
 At a terminal, `uvx --from "sandloom==0.7.0a14" sandloom new` with no name asks
 for the name, the modules and the coding agents, and can run the setup.
 Scripts and coding agents pass `--yes`.

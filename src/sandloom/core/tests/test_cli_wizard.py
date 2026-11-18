@@ -21,7 +21,8 @@ from typing import Any
 
 import pytest
 
-from sandloom.core.cli import project, ui, wizard
+from sandloom.core.cli import project, stack_service, ui, wizard
+from sandloom.core.tests._fake_stack import install_fake_stack
 
 PY = sys.executable
 
@@ -123,7 +124,10 @@ def test_enter_takes_the_default_name_and_no_module(tmp_path: Path) -> None:
     assert answers.admin_email is None
 
 
-def test_flags_leave_only_the_rest(tmp_path: Path) -> None:
+def test_flags_leave_only_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_stack(monkeypatch)  # the package's label, on every lane
     prompter, asked, _ = _prompter(["", ""])
     given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
     answers = _ask(prompter, tmp_path, given, git_email=None)
@@ -761,6 +765,49 @@ def test_an_existing_directory_names_dir(tmp_path: Path) -> None:
         err=err,
     )
     assert code == 1 and "--dir" in err.getvalue()
+
+
+def _broken_stack_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    def too_old(driver: str) -> Any:
+        raise stack_service.StackServiceError(
+            f"{driver}: sandloom-redis is installed but is too old to register "
+            "one: upgrade it (`sandloom[redis]`)"
+        )
+
+    monkeypatch.setattr(stack_service, "_discover", too_old)
+
+
+@pytest.mark.parametrize(
+    ("argv", "tty"),
+    [
+        (["shop", "--yes"], False),
+        (["shop", "--yes", "--services", "docker"], False),
+        # No flag and a terminal: the wizard would ask its questions first.
+        ([], True),
+    ],
+    ids=["yes", "yes-docker", "terminal"],
+)
+def test_a_stack_package_too_old_stops_new_with_one_line_before_asking(
+    argv: list[str], tty: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A package that is installed but cannot describe the stack is not a bare
+    kernel: every path says so in one line, before a question and before a
+    file, never a traceback (a bare kernel is another test file)."""
+    _broken_stack_package(monkeypatch)
+    out, err = _Stream(tty=tty), _Stream(tty=False)
+    code = wizard.main(
+        [*argv, "--dir", str(tmp_path)],
+        environ={},
+        stdin=_Stream(tty=tty),
+        out=out,
+        err=err,
+    )
+    assert code == 1
+    assert "upgrade it" in err.getvalue()
+    assert "Traceback" not in err.getvalue() + out.getvalue()
+    assert len(err.getvalue().strip().splitlines()) == 1
+    assert out.getvalue() == ""
+    assert list(tmp_path.iterdir()) == []
 
 
 # ------------------------------------------------------- pseudo-terminal

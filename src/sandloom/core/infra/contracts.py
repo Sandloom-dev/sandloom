@@ -1,7 +1,8 @@
 """Abstract infrastructure provider contracts (technology-agnostic).
 
 The kernel and business modules interact with infrastructure ONLY through
-these abstractions. A concrete backend (Postgres, Redis, S3, Celery, …) is a
+these abstractions. A concrete backend (a database, a key-value store, an
+object store, a task queue, …) is a
 *driver* that subclasses one of these capability base classes and is selected
 purely by configuration — modules never import a concrete driver.
 

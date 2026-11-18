@@ -221,6 +221,17 @@ already works through renderers.
 9. The worker commands change in one step, with no shim: `sandloom worker`, `sandloom beat` and
    `sandloom worker check`. `sandloom-celery` keeps a stable importable Celery app for
    `celery inspect` and Flower.
+10. (Added 2026-11-18.) A bare `pip install sandloom` (or `uvx --from sandloom==<v>`) followed by `sandloom new` works.
+    The person picks the stack in the wizard (`--stack`), which says what installing it adds. The
+    kernel holds no stack data: `sandloom.core.cli.stack_service.STACKS` lists a name, a summary and
+    the extras to install, never compose text, an image or a URL form. The stack's package writes its
+    own files (`sandloom.stack` entry point, `StackService`): in-process when it is importable,
+    otherwise `sandloom new` leaves a marker where its lines go (`@@STACK:<key>@@`), runs `uv sync` in
+    the new app and `sandloom add stack` fills the markers from the package in the app's
+    environment. The bytes are the same on both paths. A stack the kernel could ship without a
+    package is not offered: the kernel has memory and database drivers for the cache, the broadcast,
+    the lease and the atomic store, but no task queue driver (`celery` needs a broker) and no durable
+    event bus other than Streams.
 
 ### 7. What this must not change
 

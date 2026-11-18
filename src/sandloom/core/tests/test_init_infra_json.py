@@ -1,6 +1,6 @@
 """The README's SQLite ``INFRA`` line names every Redis instance of ``DEFAULT_INFRA``.
 
-``_infra_json`` writes it with a capability list of its own, next to the
+``stack_files.infra_json`` writes it with a capability list of its own, next to the
 ``DEFAULT_INFRA`` of the generated ``__init__.py``; ``.env.test`` and the
 compose file are held to the selection by ``test_project.py``, this line by
 this test: an instance missing from it would make the app refuse to start

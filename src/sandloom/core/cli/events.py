@@ -40,9 +40,9 @@ docs/operate/operator-reference.md).
 
 ``groups`` / ``consumers`` are the observability side: per-group lag / pending,
 and the cross-service subscription inventory every consumer heartbeats into
-Redis (which module / service reads which channel version — check it before
-retiring a ``.v1`` channel). ``release-group`` clears the ownership fingerprint
-of a group after a deliberate move of its module to another database.
+the shared store (which module / service reads which channel version — check
+it before retiring a ``.v1`` channel). ``release-group`` clears the ownership
+fingerprint of a group after a deliberate move of its module to another database.
 
 Both keep the stable envelope id, so consumers that already applied an event
 dedupe the redelivery. The commands build the app (to resolve the configured

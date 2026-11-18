@@ -223,6 +223,61 @@ So is an override value that is no URL of an installed backend (`unix:///tmp/r.s
 `memcached://h` next to a Redis default). The message does not quote it.
 Upgrade `sandloom-redis` and `sandloom-celery` with the kernel.
 
+## Upgrading to 0.7.0a15: dev services and the scaffold ask a package
+
+The kernel no longer holds the Redis server of the standard stack. `sandloom dev` asks for its
+checks, its reset and prune, and the disposable test server. The scaffold of `sandloom new` and
+`sandloom add deploy` asks for the compose text and the URL forms. Both ask the
+object that `sandloom-redis` registers in the `sandloom.stack` entry-point group. The wheel of `sandloom`
+imports no Redis client any more, not even a guarded one. An app on the standard stack changes
+nothing but the names below, and every file `sandloom new` writes is byte for byte what it was.
+`sandloom dev` needs `sandloom-redis` installed (an app made by `sandloom new` has it: `uv sync`)
+and says so in one line when it is not. An older `sandloom-redis` that registers no stack
+makes it say to upgrade it.
+
+A bare `uvx --from "sandloom==<version>" sandloom new …` still works. The wizard names the
+stack the app runs on and what installing it adds. Today there is one, `standard`: PostgreSQL
+and Redis. The wizard asks only when there is more than one, and `--stack standard` answers
+it. The kernel holds none of the stack's text.
+
+When `sandloom-redis` is importable (`sandloom[standard]` or `sandloom[redis]`), `sandloom new`
+writes the stack's files itself. Otherwise it writes the rest of the app with a marker where
+the stack's lines go. The app depends on `sandloom[redis,celery]`, so `sandloom new` then runs
+`uv sync` in it. After that, `uv run sandloom add stack` writes the marked lines from the
+package now in the app's environment. Then `uv run sandloom generate` runs. The files are byte
+for byte the same on both paths.
+
+Without `uv`, or when a step fails (no network), `sandloom new` prints the commands to run
+later. It prints no traceback and leaves the marked files as they are. `--services external`
+(your own servers) needs the package while `sandloom new` runs. The repeat command it prints for
+that choice installs the stack's extras (`sandloom[redis,celery]`).
+
+Until `sandloom add stack` has run, `sandloom check`, `generate`, `test` and `dev up` stop with
+one line that names it, because the marked files do not parse. An app records its stack in
+`[tool.sandloom] stack` of `pyproject.toml` only when it is not the default one, and
+`sandloom add stack` reads it from there.
+
+The `redis` and `celery` extras of `sandloom` name the driver packages alone now:
+`sandloom-redis[hiredis]` and `sandloom-celery`, which require the client libraries with their
+bounds, once. The installed set is the same.
+
+A name of the command line and of the state is renamed after what it holds, a keyed server. There
+is no alias: the old names are gone. This is for development machines only.
+
+| Before | After |
+| --- | --- |
+| `sandloom dev up --redis-url URL`, `sandloom new --redis-url URL` | `--kv-url URL`, same meaning and default (the local server on `127.0.0.1`). The `--services external` choice keeps the URL in the state. |
+| `external.redis_url` in `<git common dir>/sandloom/dev.json` | `external.kv_url`. A `dev.json` from before names no server: `dev up`, `dev status`, `dev run`, `dev reset` and `dev prune` stop with one line that says to run `uv run sandloom dev up --services external --kv-url URL` again. They touch no database and no key first, and `dev up` never picks a server that happens to answer on the default port. |
+| The key `redis_indexes` of `sandloom dev status --json` | `kv_indexes` |
+| `sandloom.core.cli.dev.services.RedisServer`, `redis_ready`, `redis_clients`, `empty_indexes`, `flush_indexes` | `sandloom_redis.stack.RedisServer` and the members of its `STACK_SERVICE` (`problem`, `clients`, `empty_indexes`, `flush`). The module is the CLI's own, not public API; change a script that imported them. |
+| `wizard.Plan.redis_url`, `Given.redis_url`, `Answers.redis_url` | `kv_url` (the wizard's own dataclasses) |
+
+`SANDLOOM_DEV_REDIS_PORT`, `SANDLOOM_DEV_TEST_REDIS_PORT` and the compose services `redis` and
+`redis_test` keep their names. The compose files that `sandloom new` already wrote read them.
+A rename would stop `dev up` in every project made before. They are now the standard stack's
+data in `sandloom_redis.stack`, not a name in the kernel. A project made earlier needs no
+regeneration.
+
 ## Upgrading the Celery driver's connection checks
 
 The `celery` taskqueue driver now refuses, at startup, connections it used to accept.

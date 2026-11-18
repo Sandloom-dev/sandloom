@@ -1,7 +1,7 @@
-"""The static schema and deploy checks of ``sandloom test`` (no database, no Redis).
+"""The static schema and deploy checks of ``sandloom test`` (no database, no server).
 
 Three checks that used to run only inside the parallel fast suite, where a
-Redis or connection shortage could hide them, run as one in-process step of
+service or connection shortage could hide them, run as one in-process step of
 ``sandloom test`` (``schema & deploy``, about a second) and stay pinned by the
 framework's own tests:
 

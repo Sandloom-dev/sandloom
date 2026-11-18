@@ -45,6 +45,8 @@ from typing import Any
 
 import sandloom.core.cli.scaffold_deploy as _deploy
 import sandloom.core.cli.skills as _skills
+import sandloom.core.cli.stack_files as _stack_files
+import sandloom.core.cli.stack_service as _stack
 import sandloom.core.cli.tool_process as _tool_process
 from sandloom.core.archcheck import api10_rules
 from sandloom.core.archcheck.manifest import ManifestError, load_rules
@@ -1586,6 +1588,12 @@ def _parser() -> argparse.ArgumentParser:
         add_help=False,
         help="split the app into services (`sandloom add deploy --help`)",
     )
+    sub.add_parser(
+        "stack",
+        help="write the stack's own lines (compose blocks, urls) that `sandloom "
+        "new` left for the app's environment: needs the stack's package "
+        "(`uv sync` installs it)",
+    )
     skills = sub.add_parser(
         "skills",
         help="write the app's agent skills (.claude/skills, .agents/skills)",
@@ -1641,6 +1649,28 @@ def add_skills(
     return written
 
 
+def add_stack(root: Path) -> int:
+    """``sandloom add stack``: fill the tokens ``sandloom new`` left in the app's
+    files (it ran without the stack's package) from the package installed in
+    this environment: the stack the app records (``[tool.sandloom] stack``, the
+    default one where none is). One line and a status; nothing changes when
+    the app is complete."""
+    try:
+        driver = _stack.stack_choice(_stack_files.recorded(root)).driver
+        written = _stack_files.complete(root, _stack.load(driver))
+    except (_stack.StackServiceError, OSError) as exc:
+        print(f"sandloom add stack: {exc}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"  {path}")
+    print(
+        f"stack files written ({len(written)})"
+        if written
+        else "the stack's files are already written"
+    )
+    return 0
+
+
 def _run(args: argparse.Namespace) -> tuple[list[Path], str | None]:
     where = layout(args.root)
     if args.what == "skills":
@@ -1676,6 +1706,12 @@ def main(argv: list[str] | None = None) -> int:
         return _deploy.main(extra)
     if extra:
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    if args.what == "stack":  # no module to generate, no `sandloom generate` after
+        return add_stack(args.root)
+    return _generate_and_report(args)
+
+
+def _generate_and_report(args: argparse.Namespace) -> int:
     try:
         created, note = _run(args)
     except GeneratorError as exc:

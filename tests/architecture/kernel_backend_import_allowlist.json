@@ -1,7 +1,6 @@
 {
   "_doc": "Exact allowlist of test_kernel_backend_imports.py: the backend SDK imports in src/sandloom/core outside core/drivers that stay. A new (file, sdk) or a higher count fails, and so does a stale entry (fewer sites than listed, or none). reason says why the site stays. The scan covers src/sandloom/core (outside core/drivers and unit tests), src/sandloom/sdk and src/sandloom/shared.",
   "entries": [
-    {"file": "core/cli/dev/services.py", "sdk": "redis", "sites": 1, "reason": "stays: `sandloom dev` pings and inspects the developer's own Redis server through the client when the `redis` extra installed it; imported by name inside `except ImportError` (no client: the check stops at a TCP connect). The kernel wheel requires no Redis client (tools/packaging/check_package_distributions.py KERNEL_GUARDED_REDIS)"},
     {"file": "core/migrations/pg_sync.py", "sdk": "psycopg2", "sites": 4, "reason": "stays: the one lazy import of the PostgreSQL ops tools and the test harness (design.md section 4: psycopg2 stays where the ops tools need it, each import lazy); backup, extract, dev services and the harness name psycopg2 through it, so nothing loads at import"}
   ]
 }

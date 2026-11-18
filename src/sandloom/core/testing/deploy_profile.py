@@ -690,7 +690,7 @@ def _module_shared(procs: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str
 def _comparable(key: str, value: Any) -> Any:
     """What ``_same_everywhere`` compares for ``key``. ``INFRA`` is shared in
     full except each service's own Celery broker (``taskqueue.<instance>.broker``,
-    one Redis database per service): the rest of it, parsed, so that key order
+    one broker database per service): the rest of it, parsed, so that key order
     and spacing never matter. A value that is not a JSON object is compared as
     written (a difference is reported, never skipped)."""
     if key != "INFRA" or value is None:
