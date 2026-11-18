@@ -97,10 +97,12 @@ Execute **POST `/auth/login`** with the same address and password:
 {"email": "alice@example.com", "password": "Example-Passw0rd!"}
 ```
 
-The `200` response contains `access_token`, `refresh_token`, `token_type` and
-`expires_in`. Keep the refresh token locally. In Swagger UI, click **Authorize**
-and paste the access token into the bearer-token field. **GET `/auth/me`** should
-now return your account. Application module routes authenticate the same way.
+The `200` response holds the two tokens (`access_token`, `refresh_token`) with
+their `token_type` and `expires_in`. Keep the refresh token locally.
+
+In Swagger UI, click **Authorize** and paste the access token into the
+bearer-token field. **GET `/auth/me`** should now return your account.
+Application module routes authenticate the same way.
 
 ## Refresh after creating an organization
 
