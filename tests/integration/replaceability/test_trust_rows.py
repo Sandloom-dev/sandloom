@@ -30,6 +30,7 @@ from test_replaceability import (
     SPLIT_BINDINGS,
     T_A,
     T_FOREIGN,
+    TENANT_REQUIRED,
     UNAVAILABLE_FORGED,
     UNAVAILABLE_GRANTS,
     UNAVAILABLE_ISSUER,
@@ -283,7 +284,7 @@ def test_t6_without_an_assignment_no_writer_is_trusted(infra: Infra) -> None:
         token = token_of(answer)
         assert set(gate_statuses(proc, token).values()) == {403}
         none = get(proc, "/api/v1/shop/tenant", token)
-        assert (none.status, none.detail) == (400, "tenant context required")
+        assert (none.status, none.detail) == (400, TENANT_REQUIRED)
         for path in ("/api/v1/shop/tenant", "/api/v1/notes/items"):
             seen = get(proc, path, token, tenant=T_A)
             assert (seen.status, seen.detail) == (403, NOT_AUTHORIZED), path

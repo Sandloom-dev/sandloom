@@ -22,6 +22,7 @@ from sandloom_tenancy.models import (
     OrganizationMember,
 )
 from sandloom_tenancy.schemas import OrganizationCreateIn, OrganizationUpdateIn
+from sandloom_tenancy.schemas.organization import NO_DERIVED_SLUG, derive_slug
 from sandloom_tenancy.services.membership_service import MembershipService
 
 
@@ -32,16 +33,24 @@ class OrganizationService:
     async def create(
         cls, data: OrganizationCreateIn, owner_id: UUID, db: AsyncSession
     ) -> Organization:
-        taken = TenancyConflictError(
-            f"Organization slug '{data.slug}' is already taken"
-        )
+        slug = data.slug
+        if slug is None:
+            slug = derive_slug(data.name)
+            if slug is None:  # the DTO refuses this; a caller that built it unvalidated
+                raise TenancyConflictError(NO_DERIVED_SLUG)
+            taken = TenancyConflictError(
+                f"Organization slug '{slug}' derived from the name is already "
+                "taken: pass slug"
+            )
+        else:
+            taken = TenancyConflictError(f"Organization slug '{slug}' is already taken")
         existing = await db.execute(
-            select(Organization.id).where(Organization.slug == data.slug)
+            select(Organization.id).where(Organization.slug == slug)
         )
         if existing.scalar_one_or_none() is not None:
             raise taken
 
-        org = Organization(name=data.name, slug=data.slug, owner_id=owner_id)
+        org = Organization(name=data.name, slug=slug, owner_id=owner_id)
         try:
             # The pre-check is a fast path; the unique index is the arbiter
             # when two requests race for the same slug.

@@ -167,6 +167,30 @@ infrastructure registry from the settings and asks the driver's host. It needs t
 `DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
 
+## Upgrading to 0.7.0a16: tenant selection errors carry a code
+
+Four answers of `TenantScope` have a stable `code`, and two of them new
+`detail` text. The HTTP statuses are unchanged. The `detail` text is part of
+the API: a client that compared it with the old sentences must compare the
+`code` instead.
+
+| Status | Before (`detail`, `code`) | Now (`code`) |
+| --- | --- | --- |
+| `400` | `tenant context required`, `null` | `tenant_required`; the `detail` names the header the route reads and says the value is an organization id that the access token lists |
+| `403` | `tenant is not authorized by the access token`, `null` | `tenant_not_authorized`; the `detail` names the header, says the token does not list that organization and, for a user who joined or created it after the token was issued, to refresh the access token or log in again |
+| `400` | `<header> is required when the token grants multiple tenants`, `null` | `tenant_required`; the `detail` is unchanged |
+| `403` | `tenant does not match the configured tenant` or `token tenant does not match the configured tenant` (`TENANCY_MODE=single`), `null` | `tenant_mismatch`; the `detail` is unchanged |
+
+The same `400 tenant_required` answers a `MissingTenantError` that reaches the
+request boundary. The route bound no tenant there. Only a fix on the server
+changes that, so its `detail` names no header: it says the route needs a
+tenant scope.
+
+After creating or joining an organization, a client still refreshes its access
+token so that it lists the organization; the `403` now says so. `POST
+/api/v1/orgs` takes an optional `slug`; without one it is derived from the name,
+and a derived slug that is taken answers `409` asking for `slug`.
+
 ## Upgrading to 0.7.0a16: contracts and events are drafts until released
 
 `SANDLOOM-T004` (a contract) and `SANDLOOM-T005` (an event) used to refuse an

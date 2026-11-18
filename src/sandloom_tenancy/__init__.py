@@ -39,6 +39,13 @@ and every role gate reads the role live, so a demotion is already effective on
 the next request — the revocation ends the stale session and keeps a future
 membership cache / role claims safe. The member re-authenticates.
 
+An ADDITION (creating an organization, accepting an invitation, ``add_member``)
+does NOT revoke: the token minted before the join lacks the organization in
+``tenant_ids``, so selecting it answers ``403 tenant_not_authorized`` (its
+detail says to refresh the access token or log in again), but every other use
+of that token keeps working. A revocation would answer 401 to a client that
+creates or joins an organization and keeps working.
+
 Consumers of the member events apply ``version``-ed events with a version
 guard and REFRESH on a version-less one (an instance from before the upgrade)
 via ``get_member_state`` — the ordering rule is in the descriptions of

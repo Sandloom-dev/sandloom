@@ -1042,6 +1042,7 @@
         "type": "object"
       },
       "OrganizationCreateIn": {
+        "description": "``slug`` is optional: absent, it is derived from ``name`` (``derive_slug``).",
         "properties": {
           "name": {
             "maxLength": 255,
@@ -1050,16 +1051,22 @@
             "type": "string"
           },
           "slug": {
-            "maxLength": 100,
-            "minLength": 2,
-            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-            "title": "Slug",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 2,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
           }
         },
         "required": [
-          "name",
-          "slug"
+          "name"
         ],
         "title": "OrganizationCreateIn",
         "type": "object"

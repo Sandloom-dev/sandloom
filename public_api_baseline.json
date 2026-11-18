@@ -867,6 +867,10 @@
       "kind": "function",
       "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> bool"
     },
+    "links_are_logged": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> bool"
+    },
     "make_db_dependency": {
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> Callable[[Request], AsyncGenerator[AsyncSession, None]]"
@@ -6287,6 +6291,10 @@
     "get_core": {
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> CoreRuntime"
+    },
+    "links_are_logged": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> bool"
     },
     "notifier": {
       "kind": "function",

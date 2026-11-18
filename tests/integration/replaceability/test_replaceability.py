@@ -153,7 +153,15 @@ UNAVAILABLE_ISSUER = (
     "Token claims from 'test_identity' are unavailable; try again later"
 )
 UNAVAILABLE_GRANTS = "Token claims from 'grants' are unavailable; try again later"
-NOT_AUTHORIZED = "tenant is not authorized by the access token"
+NOT_AUTHORIZED = (
+    "the organization in X-Tenant-Id is not listed by the access token; if the "
+    "user joined or created it after the token was issued, refresh the access "
+    "token or log in again"
+)
+TENANT_REQUIRED = (
+    "tenant context required: select an organization by sending the "
+    "X-Tenant-Id header with an organization id that the access token lists"
+)
 PLATFORM_REQUIRED = "Platform administrator role required"
 ENTITLEMENT = "requires entitlement 'inventory.stock.available'"
 
@@ -813,10 +821,7 @@ def test_tenant_grants_from_an_independent_provider_drive_scope_and_row_security
         admin = mint(issuer, users.admin)
         assert admin.body["claims"]["tenant_ids"] == []
         seen = _tenant_statuses(issuer, token_of(admin))
-        assert (seen["none"].status, seen["none"].detail) == (
-            400,
-            "tenant context required",
-        )
+        assert (seen["none"].status, seen["none"].detail) == (400, TENANT_REQUIRED)
         for key in ("T_A", "T_B", "T_FOREIGN", "notes T_A", "notes T_B"):
             assert (seen[key].status, seen[key].detail) == (403, NOT_AUTHORIZED), key
 
@@ -886,10 +891,7 @@ def test_without_a_grant_provider_no_tenant_is_bound(infra: Infra) -> None:
         answer = mint(proc, users.user)
         assert "tenant_ids" not in answer.body["claims"]
         seen = _tenant_statuses(proc, token_of(answer))
-        assert (seen["none"].status, seen["none"].detail) == (
-            400,
-            "tenant context required",
-        )
+        assert (seen["none"].status, seen["none"].detail) == (400, TENANT_REQUIRED)
         for key in ("T_A", "T_B", "T_FOREIGN", "notes T_A", "notes T_B"):
             assert (seen[key].status, seen[key].detail) == (403, NOT_AUTHORIZED), key
 

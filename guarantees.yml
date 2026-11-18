@@ -132,17 +132,26 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_malformed_signed_tenant_ids_entry_is_400_on_every_request
   - src/sandloom/core/tests/test_tenant_isolation.py::test_tenant_ids_memo_is_bounded
 - id: G-TENANT-12
-  statement: A required TenantScope with no resolvable tenant answers 400 'tenant context required', a token
-    granting several tenants without an X-Tenant-Id selector answers 400 instead of picking one, and a MissingTenantError
-    reaching the request boundary also answers 400 'tenant context required' (never a bare 500, never the internal
-    message).
+  statement: A required TenantScope with no resolvable tenant answers 400 with code 'tenant_required' (its detail
+    names the selector header), a selected tenant the token does not list answers 403 with code 'tenant_not_authorized',
+    a token granting several tenants without an X-Tenant-Id selector answers 400 'tenant_required' instead
+    of picking one, and with TENANCY_MODE=single a selector or token tenant other than the configured one answers
+    403 'tenant_mismatch'; a grant the claim policy removed (an outdated token or an issuer-verifier mismatch)
+    answers 401 or 503 before any of these 400 / 403 answers. A MissingTenantError reaching the request
+    boundary also answers 400 'tenant_required' (its detail offers the client no header because the route bound
+    no tenant; never a bare 500, never the internal message).
   sources:
   - docs/modules/database/multi-tenancy.md
   - tests/fixtures/specs/public-api-1.0-spec.md#4.2 Route kinds
   tests:
   - tests/integration/test_request_boundaries.py::test_a_missing_tenant_at_the_boundary_is_the_tenant_scope_400
   - tests/integration/test_request_boundaries.py::test_tenant_scope_without_a_tenant_answers_400
+  - tests/integration/test_request_boundaries.py::test_the_tenant_required_text_names_the_configured_header
+  - tests/integration/test_request_boundaries.py::test_a_selected_tenant_the_token_does_not_list_names_the_header
   - tests/integration/test_request_boundaries.py::test_a_token_granting_several_tenants_needs_the_selector
+  - tests/integration/test_request_boundaries.py::test_a_grant_the_claim_policy_removed_answers_before_the_tenant_400
+  - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_rejects_other_tenant_selector
+  - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_rejects_a_token_naming_another_tenant
 - id: G-TENANT-13
   statement: TenantScope rejects a revoked access token (401) before selecting a tenant from its claims,
     so a stale tenant_ids grant cannot keep selecting a tenant after revocation.
@@ -154,16 +163,14 @@ guarantees:
 - id: G-TENANT-14
   statement: With TENANCY_MODE=single, settings refuse to load without SINGLE_TENANT_ID, TenantScope binds
     the canonical tenant, and an X-Tenant-Id selector or token tenant naming another tenant is refused
-    with 403.
+    with 403 and code 'tenant_mismatch'.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_requires_canonical_tenant
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_binds_canonical_tenant
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_rejects_other_tenant_selector
-  gap: The 'token tenant does not match the configured tenant' 403 (token claim, no header) branch has
-    no test.
-  gap_size: S
+  - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_rejects_a_token_naming_another_tenant
 - id: G-TENANT-15
   statement: With TENANCY_MODE=single, request UoWs, worker/script UoWs and contract read scopes bind
     the canonical tenant automatically, and only for their own extent.

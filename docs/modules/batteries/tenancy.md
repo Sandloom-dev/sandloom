@@ -95,15 +95,46 @@ the required role gets `403`.
 
 ### Rules API clients must know
 
-- **New memberships need a fresh access token.** After creating an organization
-  or accepting an invitation, call `POST /auth/refresh` with your current refresh
-  token and replace **both** stored tokens with the returned pair. Existing
-  access tokens retain their earlier `tenant_ids` claim; selecting the new
-  organization with `X-Tenant-Id` on a tenant-scoped application route returns
-  `403` even though the membership exists. Tenancy's own membership endpoints
-  check membership live and do not all require refreshed claims. Logging in
+- **Selecting an organization.** A tenant-scoped application route picks the
+  organization in this order:
+    1. The `X-Tenant-Id` header (or the header the route's
+       `TenantScope(header=...)` names). Its value is an organization id. It is
+       accepted when the access token's `tenant_ids` lists it or when it is the
+       token's signed `tenant_id` or `org_id` claim; any other value is `403
+       tenant_not_authorized`.
+    2. Without the header, the signed `tenant_id` claim, then the `org_id`
+       claim, selects the organization.
+    3. Without either claim, a token whose `tenant_ids` lists exactly one
+       organization selects it. A token that lists several needs the header:
+       the answer is `400 tenant_required`. Only `tenant_ids` decides this
+       `400`.
+
+  No header and nothing to select is `400 tenant_required`. Both answers say in
+  `detail` what to do. One case comes first: a token whose grant the claim
+  policy removed answers `401 token_policy_outdated` (refresh the token) or
+  `503 claims_policy_mismatch` (issuer and verifier disagree). With
+  `TENANCY_MODE=single` the configured tenant is bound. A header or token tenant
+  that names another one is `403 tenant_mismatch`.
+- **New memberships need a fresh access token.** After creating or joining an
+  organization, refresh the access token so it lists the organization. Call
+  `POST /auth/refresh` with your refresh token and replace **both** stored
+  tokens with the returned pair. An older access token keeps its earlier
+  `tenant_ids` claim. Selecting the new organization with `X-Tenant-Id` on a
+  tenant-scoped application route then returns `403 tenant_not_authorized`, even
+  though the membership exists. The `detail` says to refresh or log in again.
+  Nothing revokes the old token: it keeps working for every other request.
+  Tenancy's own `GET /api/v1/orgs/{org_id}` checks membership live. Logging in
   again also mints current claims. See the
   [first access-token walkthrough](first-access-token.md#refresh-after-creating-an-organization).
+- **Creating an organization.** `POST /api/v1/orgs` takes `name` and an
+  optional `slug`. Without `slug` it is derived from the name. The slug is
+  lowercase and every run of characters outside `a-z0-9` becomes one `-`.
+  Leading and trailing `-` are trimmed (`{"name": "Acme Robotics, Inc."}` gets
+  `acme-robotics-inc`). If the derived slug is taken, the answer is `409` asking
+  for an explicit `slug`. The derived slug needs at least two characters, all
+  ASCII `a-z0-9-`. A name such as `{"name": "A"}`, or one written in another
+  script, is `422` ("the name does not produce a valid slug: pass an explicit
+  slug"). A taken explicit slug is `409` too.
 - **`PATCH /api/v1/orgs/{org_id}`** accepts only `name`; any other field
   (including `is_active`) is rejected with `422`. Deactivation is the owner-only
   `DELETE`, which soft-deletes the org, publishes

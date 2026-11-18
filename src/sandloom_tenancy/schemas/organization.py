@@ -1,18 +1,58 @@
 """Tenancy DTOs (API contracts are ORM-free per architecture rules)."""
 
+import re
 from datetime import datetime
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from sandloom_tenancy.roles import ORG_ROLES, ROLE_MEMBER, ROLE_OWNER
 
 _SLUG_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+_SLUG_MIN_LENGTH = 2
+_SLUG_MAX_LENGTH = 100
+
+
+#: The refusal of a name that yields no slug (the schema's 422, the service's
+#: fallback): fewer than two ASCII ``a-z0-9`` characters are left, as for
+#: ``"A"`` or a name written in another script.
+NO_DERIVED_SLUG = "the name does not produce a valid slug: pass an explicit slug"
+
+
+def derive_slug(name: str) -> str | None:
+    """The slug an organization name stands for: lowercase, every run of
+    characters outside ASCII ``a-z0-9`` one ``-``, trimmed of ``-`` and cut to
+    the length bound; ``None`` when fewer than ``_SLUG_MIN_LENGTH`` characters
+    are left (a name of one letter, or without ASCII letters and digits)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    slug = slug[:_SLUG_MAX_LENGTH].strip("-")
+    return slug if len(slug) >= _SLUG_MIN_LENGTH else None
 
 
 class OrganizationCreateIn(BaseModel):
+    """``slug`` is optional: absent, it is derived from ``name`` (``derive_slug``)."""
+
     name: str = Field(min_length=1, max_length=255)
-    slug: str = Field(min_length=2, max_length=100, pattern=_SLUG_PATTERN)
+    slug: str | None = Field(
+        default=None,
+        min_length=_SLUG_MIN_LENGTH,
+        max_length=_SLUG_MAX_LENGTH,
+        pattern=_SLUG_PATTERN,
+    )
+
+    @model_validator(mode="after")
+    def _name_yields_a_slug(self) -> Self:
+        if self.slug is None and derive_slug(self.name) is None:
+            raise ValueError(NO_DERIVED_SLUG)
+        return self
 
 
 class OrganizationUpdateIn(BaseModel):

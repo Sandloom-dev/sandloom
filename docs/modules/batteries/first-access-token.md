@@ -19,6 +19,10 @@ Create an application with identity and tenancy:
 uvx --from "sandloom[standard]==0.7.0a15" sandloom new myapp --with identity,tenancy --module notes
 ```
 
+The `tenant_not_authorized` code, the tenant error texts and the printed
+`[dev only] no frontend?` step below need `0.7.0a16` or later. With `0.7.0a15`
+the same answers carry no `code` and the older texts.
+
 Follow the printed quickstart through `uv sync`, `uv run sandloom generate`,
 starting the development services and applying migrations. Before starting the
 API, launch [Mailpit's official Docker image](https://mailpit.axllent.org/docs/install/docker/):
@@ -74,7 +78,11 @@ Start the API and open its interactive API documentation at
 
     Success is `204`. Sandloom provides the verification API; the URL in the
     email points to your frontend's verification page. A backend-only application
-    can use this API request directly without implementing that page yet.
+    can use this API request directly without implementing that page yet. With
+    `NOTIFIER_LOG_LINKS=true` and the default `log` notifier (dev only) the API
+    prints the request after the link: `[dev only] no frontend? POST
+    /auth/verify-email {"token": "..."}`. With the `smtp` driver a real mail
+    goes out and the API prints nothing.
 
 If registration happened before SMTP was configured, execute
 **POST `/auth/resend-verification`** with `{"email": "alice@example.com"}` after
@@ -89,10 +97,12 @@ Execute **POST `/auth/login`** with the same address and password:
 {"email": "alice@example.com", "password": "Example-Passw0rd!"}
 ```
 
-The `200` response contains `access_token`, `refresh_token`, `token_type` and
-`expires_in`. Keep the refresh token locally. In Swagger UI, click **Authorize**
-and paste the access token into the bearer-token field. **GET `/auth/me`** should
-now return your account. Application module routes authenticate the same way.
+The `200` response holds the two tokens (`access_token`, `refresh_token`) with
+their `token_type` and `expires_in`. Keep the refresh token locally.
+
+In Swagger UI, click **Authorize** and paste the access token into the
+bearer-token field. **GET `/auth/me`** should now return your account.
+Application module routes authenticate the same way.
 
 ## Refresh after creating an organization
 
@@ -103,8 +113,10 @@ With the access token authorized, execute **POST `/api/v1/orgs`**:
 ```
 
 The response is `201` and contains the organization's `id`. The creator becomes
-its owner. The access token you already hold was minted before this membership
-existed, so its `tenant_ids` claim does not include the new organization yet.
+its owner. `slug` is optional: without it, the slug is derived from the name
+(`my-workspace` here). Your access token was minted before this membership
+existed. Its `tenant_ids` claim does not list the new organization yet, so
+refresh it as below.
 
 Execute **POST `/auth/refresh`** with your current refresh token:
 
@@ -129,8 +141,9 @@ curl --fail-with-body http://127.0.0.1:8000/api/v1/notes/items \
   -H "X-Tenant-Id: $ORG_ID"
 ```
 
-The new organization's item list returns `200` with `[]`. Using the old access
-token with that `X-Tenant-Id` returns `403`; this does not mean organization
+The new organization's item list returns `200` with `[]`. The old access token
+with that `X-Tenant-Id` returns `403 tenant_not_authorized`. Its `detail` says
+to refresh the access token or log in again. This does not mean organization
 creation failed. Accepting an invitation requires the same refresh. Refresh
 tokens rotate, so subsequent refreshes use the newest one.
 

@@ -34,7 +34,15 @@ async def test_a_missing_tenant_at_the_boundary_is_the_tenant_scope_400() -> Non
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         resp = await c.get("/needs-tenant")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "tenant context required"
+    # The route bound no tenant (a server-side fault): no header is offered.
+    assert resp.json() == {
+        "detail": (
+            "tenant context required: this route bound no tenant; "
+            "it needs a tenant scope (a fix on the server, not in the request)"
+        ),
+        "code": "tenant_required",
+    }
+    assert "header" not in resp.json()["detail"]
     assert "TenantScoped" not in resp.text
 
 
@@ -81,7 +89,60 @@ async def test_tenant_scope_without_a_tenant_answers_400() -> None:
     ) as c:
         resp = await c.get("/scoped")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "tenant context required"
+    assert resp.json() == {
+        "detail": (
+            "tenant context required: select an organization by sending the "
+            "X-Tenant-Id header with an organization id that the access token lists"
+        ),
+        "code": "tenant_required",
+    }
+
+
+async def test_the_tenant_required_text_names_the_configured_header() -> None:
+    """A ``TenantScope(header=...)`` names ITS header, not the default."""
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/scoped", dependencies=[di.public(reason="probe")])
+    async def scoped(tenant: Any = di.TenantScope(header="X-Org-Id")) -> None:
+        return None
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        resp = await c.get("/scoped")
+    assert resp.status_code == 400
+    assert "the X-Org-Id header" in resp.json()["detail"]
+    assert "X-Tenant-Id" not in resp.json()["detail"]
+    assert resp.json()["code"] == "tenant_required"
+
+
+async def test_a_selected_tenant_the_token_does_not_list_names_the_header() -> None:
+    """The 403 keeps its status, carries ``tenant_not_authorized`` and the
+    configured header, and tells a stale token's holder to refresh."""
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/scoped", dependencies=[di.public(reason="probe")])
+    async def scoped(tenant: Any = di.TenantScope(header="X-Org-Id")) -> None:
+        return None
+
+    token = mint_test_token(
+        {
+            "sub": str(uuid.uuid4()),
+            "token_type": "access",
+            "tenant_ids": [str(uuid.uuid4())],
+        }
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        resp = await c.get(
+            "/scoped",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Id": str(uuid.uuid4())},
+        )
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["code"] == "tenant_not_authorized"
+    assert "the organization in X-Org-Id is not listed" in body["detail"]
+    assert "refresh the access token or log in again" in body["detail"]
+    assert "/auth" not in body["detail"]  # the kernel names no module's route
 
 
 async def test_a_token_granting_several_tenants_needs_the_selector(
@@ -109,6 +170,43 @@ async def test_a_token_granting_several_tenants_needs_the_selector(
         resp = await c.get("/scoped", headers=auth)
         assert resp.status_code == 400
         assert "X-Tenant-Id is required" in resp.json()["detail"]
+        assert resp.json()["code"] == "tenant_required"
         picked = await c.get("/scoped", headers={**auth, "X-Tenant-Id": str(two)})
     assert picked.status_code == 200
     assert picked.json() == {"tenant": str(two)}
+
+
+@pytest.mark.parametrize(
+    ("reason", "status", "detail"),
+    [
+        ("token_policy_outdated", 401, "token_policy_outdated"),
+        ("claims_policy_mismatch", 503, "claims_policy_mismatch"),
+    ],
+)
+async def test_a_grant_the_claim_policy_removed_answers_before_the_tenant_400(
+    monkeypatch: pytest.MonkeyPatch, reason: str, status: int, detail: str
+) -> None:
+    """G-TENANT-12: a required ``TenantScope`` whose token lost its ``tenant_ids``
+    grant to the claim policy answers 401 (a refresh fixes it) or 503 (issuer
+    and verifier disagree), never ``400 tenant_required`` that a header cannot
+    fix."""
+    claims = {
+        "sub": str(uuid.uuid4()),
+        "token_type": "access",
+        "sandloom.untrusted": {"tenant_ids": reason},
+    }
+
+    def _claims_of(_request: Any) -> tuple[str, dict[str, Any]]:
+        return "token", claims
+
+    async def _not_revoked(_request: Any, _claims: Any) -> None:
+        return None
+
+    monkeypatch.setattr(_tenant_scope, "bearer_token_and_claims", _claims_of)
+    monkeypatch.setattr(_tenant_scope, "ensure_token_not_revoked", _not_revoked)
+    async with AsyncClient(
+        transport=ASGITransport(app=_tenant_app()), base_url="http://t"
+    ) as c:
+        resp = await c.get("/scoped")
+    assert resp.status_code == status
+    assert resp.json()["detail"] == detail
