@@ -174,9 +174,9 @@ incompatible change from the first snapshot on. A contract or event written a
 minute ago could not be reshaped without a new `.vN`. They now refuse the
 change only for one marked released ([ADR-0017](../adr/0017-released-marks.md)).
 A draft is something a command created as one. That is the sample of
-`sandloom new`, what `sandloom add module`, `contract` and `event` create, a new
-entry in a snapshot file that exists, or a name you pass to
-`sandloom generate --draft`. `sandloom generate` rewrites a draft freely. A draft
+`sandloom new`, what `sandloom add module`, `contract` and `event` create, and a
+new entry in a snapshot file that exists. A name you pass to
+`sandloom generate --draft` is one too. `sandloom generate` rewrites a draft freely. A draft
 is never inferred from a missing file. A snapshot file that does not exist is
 written with every current entry released.
 
