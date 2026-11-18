@@ -24,9 +24,15 @@ _BIN = Path(sys.executable).parent
 _BACKEND = Path(__file__).resolve().parents[3]
 
 
+#: A correctness probe, not a speed budget: ``sandloom check`` takes about 16 s
+#: on a developer machine and 36-120 s on a loaded CI runner under the coverage
+#: job, where the whole suite runs 2-3x slower. The limit only stops a hang.
+_TIMEOUT_SECONDS = 300
+
+
 def _run_empty_env(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        argv, cwd=cwd, env={}, capture_output=True, text=True, timeout=120
+        argv, cwd=cwd, env={}, capture_output=True, text=True, timeout=_TIMEOUT_SECONDS
     )
 
 
