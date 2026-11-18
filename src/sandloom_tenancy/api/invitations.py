@@ -8,7 +8,7 @@ from sandloom.sdk.web import DbSession, at_commit, current_user_id, sensitive
 from sandloom_tenancy.access import TokenEmail, get_token_email
 from sandloom_tenancy.api._errors import http_errors
 from sandloom_tenancy.schemas import InvitationAcceptIn, MemberOut
-from sandloom_tenancy.services import InvitationService, MembershipService
+from sandloom_tenancy.services import InvitationService
 
 invitations_router = APIRouter(
     prefix="/api/v1/invitations",
@@ -45,11 +45,4 @@ async def accept_invitation(
             email=token_email.email,
             email_verified=token_email.verified,
         )
-    # The caller's own token lacks the organization: make it stale so the client
-    # refreshes. The route's last step, not the service's: the revocation of the
-    # request's own subject re-checks the caller live right here (kernel
-    # "check, then revoke") and exempts it from the commit-time re-check after.
-    await MembershipService.revoke_tokens_of_added_member(
-        user_id, reason="tenancy.invitation.accepted"
-    )
     return MemberOut.model_validate(member)

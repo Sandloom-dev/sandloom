@@ -2602,7 +2602,6 @@
         "src/sandloom_tenancy/tests/test_declared_operations.py",
         "src/sandloom_tenancy/tests/test_invitations_api.py",
         "src/sandloom_tenancy/tests/test_member_events.py",
-        "src/sandloom_tenancy/tests/test_member_join_revocation.py",
         "src/sandloom_tenancy/tests/test_membership_api.py",
         "src/sandloom_tenancy/tests/test_membership_contract.py",
         "src/sandloom_tenancy/tests/test_migrations_match_models.py",

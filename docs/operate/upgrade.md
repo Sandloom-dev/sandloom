@@ -183,13 +183,10 @@ its `detail` says "the tenant header" because no route is at hand. The `400` for
 a token that lists several organizations and a request without the header is
 unchanged.
 
-The tenancy battery changed with it. Creating an organization, accepting an
-invitation and `MembershipService.add_member` now revoke the new member's access
-tokens on commit, not immediately: a client with the old token gets `401` once
-and refreshes into a token that lists the organization. Before, it got `403`
-until it refreshed on its own. A client that already refreshes on `401` needs no
-change. `POST /api/v1/orgs` takes an optional `slug`; without one it is derived
-from the name, and a derived slug that is taken answers `409` asking for `slug`.
+After creating or joining an organization, a client still refreshes its access
+token so that it lists the organization; the `403` now says so. `POST
+/api/v1/orgs` takes an optional `slug`; without one it is derived from the name,
+and a derived slug that is taken answers `409` asking for `slug`.
 
 ## Upgrading to 0.7.0a16: contracts and events are drafts until released
 

@@ -56,11 +56,6 @@ async def create_organization(
     """Create an organization; the caller becomes its owner."""
     with http_errors():
         org = await OrganizationService.create(data, owner_id=user_id, db=db)
-    # The creator's token lacks the new organization: make it stale so the client
-    # refreshes. The route's last step (see ``accept_invitation``).
-    await MembershipService.revoke_tokens_of_added_member(
-        user_id, reason="tenancy.organization.created"
-    )
     return OrganizationOut.model_validate(org)
 
 

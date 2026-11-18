@@ -39,18 +39,12 @@ and every role gate reads the role live, so a demotion is already effective on
 the next request — the revocation ends the stale session and keeps a future
 membership cache / role claims safe. The member re-authenticates.
 
-An ADDITION revokes too, but not immediately: ``POST /api/v1/orgs`` (the
-creator), ``POST /api/v1/invitations/accept`` (the acceptor) and
-``MembershipService.add_member`` (the added user) call
-``revoke_user_tokens_on_commit(user_id, reason=..., require_immediate=False)``.
-The token minted before the join lacks the organization in ``tenant_ids``, so
-selecting it answers ``403 tenant_not_authorized``; the revocation turns that
-into the 401 clients already refresh on. A token that lacks an organization is
-a usability problem, never a security one: the mark is written after the
-commit (the durable applier retries it), and an unreachable revocation store
-never refuses the creation or the join with 503. The two routes call it as
-their last step: the revocation of the request's own subject re-checks the
-caller live and exempts it from the commit-time re-check afterwards.
+An ADDITION (creating an organization, accepting an invitation, ``add_member``)
+does NOT revoke: the token minted before the join lacks the organization in
+``tenant_ids``, so selecting it answers ``403 tenant_not_authorized`` (its
+detail says to refresh the access token or log in again), but every other use
+of that token keeps working. A revocation would answer 401 to a client that
+creates or joins an organization and keeps working.
 
 Consumers of the member events apply ``version``-ed events with a version
 guard and REFRESH on a version-less one (an instance from before the upgrade)

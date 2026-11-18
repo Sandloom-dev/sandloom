@@ -54,7 +54,7 @@ async def test_role_change_revokes_the_members_tokens(
     user_b_id, _ = user_b
     org_id = org_with_owner["id"]
     await _join(async_client, org_id, headers_a, user_b, ROLE_MEMBER)
-    revoked_users.clear()  # joining marks the joiner's token stale; not under test
+    assert revoked_users == []
 
     resp = await async_client.patch(
         f"/api/v1/orgs/{org_id}/members/{user_b_id}",
@@ -74,7 +74,6 @@ async def test_no_op_role_change_revokes_nobody(
     user_b_id, _ = user_b
     org_id = org_with_owner["id"]
     await _join(async_client, org_id, headers_a, user_b, ROLE_MEMBER)
-    revoked_users.clear()  # joining marks the joiner's token stale; not under test
     resp = await async_client.patch(
         f"/api/v1/orgs/{org_id}/members/{user_b_id}",
         json={"role": ROLE_MEMBER},
@@ -92,7 +91,6 @@ async def test_ownership_transfer_revokes_both_parties(
     user_b_id, _ = user_b
     org_id = org_with_owner["id"]
     await _join(async_client, org_id, headers_a, user_b, ROLE_ADMIN)
-    revoked_users.clear()  # joining marks the joiner's token stale; not under test
 
     resp = await async_client.post(
         f"/api/v1/orgs/{org_id}/transfer-ownership/{user_b_id}", headers=headers_a

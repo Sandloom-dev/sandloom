@@ -103,26 +103,25 @@ the required role gets `403`.
   (`400` otherwise). No header and no organization to select is `400
   tenant_required`; an organization the token does not list is `403
   tenant_not_authorized`. Both answers say in `detail` what to do.
-- **New memberships need a fresh access token.** Creating an organization,
-  accepting an invitation and `MembershipService.add_member` revoke the new
-  member's access tokens on commit, but not immediately (`require_immediate=False`):
-  a token that lacks an organization is a usability problem, never a security
-  one, so an unreachable revocation store never refuses the creation or the join
-  with `503`. The client's next request answers `401`: call `POST /auth/refresh`
-  with your refresh token and replace **both** stored tokens with the returned
-  pair. A request sent while the mark is not written yet can still select the
-  new organization with the old token and get `403 tenant_not_authorized` (the
-  `detail` says to refresh the access token or log in again), even though the
-  membership exists. Tenancy's own membership endpoints check membership live
-  and do not all require refreshed claims. Logging in again also mints current
-  claims. See the
+- **New memberships need a fresh access token.** After creating or joining an
+  organization, refresh the access token so it lists the organization: call
+  `POST /auth/refresh` with your refresh token and replace **both** stored
+  tokens with the returned pair. Existing access tokens retain their earlier
+  `tenant_ids` claim, so selecting the new organization with `X-Tenant-Id` on a
+  tenant-scoped application route returns `403 tenant_not_authorized` (the
+  `detail` says to refresh the access token or log in again) even though the
+  membership exists. Nothing revokes the old token: it keeps working for every
+  other request. Tenancy's own membership endpoints check membership live and do
+  not all require refreshed claims. Logging in again also mints current claims.
+  See the
   [first access-token walkthrough](first-access-token.md#refresh-after-creating-an-organization).
 - **Creating an organization** — `POST /api/v1/orgs` takes `name` and an
   optional `slug`. Without `slug` it is derived from the name: lowercase, every
   run of characters outside `a-z0-9` becomes one `-`, leading and trailing `-`
   trimmed (`{"name": "Acme Robotics, Inc."}` gets `acme-robotics-inc`). A
-  derived slug that is taken, or a name that yields no valid slug, is `409`
-  asking for an explicit `slug`; an explicit slug that is taken is `409` too.
+  derived slug that is taken is `409` asking for an explicit `slug`; a name with
+  no letters or digits to derive from is `422`; an explicit slug that is taken is
+  `409` too.
 - **`PATCH /api/v1/orgs/{org_id}`** accepts only `name`; any other field
   (including `is_active`) is rejected with `422`. Deactivation is the owner-only
   `DELETE`, which soft-deletes the org, publishes
