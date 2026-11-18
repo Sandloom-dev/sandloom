@@ -74,6 +74,7 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.di.objectstore": "sandloom.sdk.infra",
     "core.di.taskqueue": "sandloom.sdk.infra",
     "core.di.capability": "sandloom.sdk.infra",
+    "core.di.links_are_logged": "sandloom.sdk.infra",
     "core.di.sensitive_effect": "sandloom.sdk.effects",
     "core.di.mark_reauthenticated": "sandloom.sdk.effects",
     "core.di.request_operation_key": "sandloom.sdk.web",
