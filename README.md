@@ -62,9 +62,10 @@ the framework without the optional identity, tenancy and billing packages:
 
 <!-- readme:quickstart:start -->
 ```bash
-uvx --from "sandloom[redis]==0.7.0a14" sandloom new myapp --no-batteries --module notes
+uvx --from "sandloom==0.7.0a14" sandloom new myapp --no-batteries --module notes
 cd myapp
 uv sync
+uv run sandloom add stack
 uv run sandloom generate
 docker compose -f deploy/docker-compose.dev.yml up -d --wait
 uv run sandloom migrate upgrade-all --apply
@@ -72,7 +73,7 @@ uv run uvicorn myapp.asgi:app --reload
 ```
 <!-- readme:quickstart:end -->
 
-At a terminal, `uvx --from "sandloom[redis]==0.7.0a14" sandloom new` with no name asks
+At a terminal, `uvx --from "sandloom==0.7.0a14" sandloom new` with no name asks
 for the name, the modules and the coding agents, and can run the setup.
 Scripts and coding agents pass `--yes`.
 

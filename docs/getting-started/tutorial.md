@@ -25,12 +25,18 @@ empty directory; no framework checkout is needed. It takes about twenty minutes.
 ## 1. Create the application
 
 ```bash
-uvx --from "sandloom[redis]==0.7.0a14" sandloom new tasklist --no-batteries --module tasks
+uvx --from "sandloom==0.7.0a14" sandloom new tasklist --no-batteries --module tasks
 cd tasklist
 uv sync
+uv run sandloom add stack  # the Redis and compose files of the standard stack
 uv run sandloom generate
 uv run sandloom dev up     # Postgres and Redis in Docker, and their URLs in .env
 ```
+
+The bare `sandloom` package holds no Redis text: `uv sync` installs `sandloom-redis` into the
+app, and `sandloom add stack` writes the files that package supplies (compose, `.env`, CI). With
+`sandloom[standard]` in the `uvx` line, `sandloom new` writes them itself and `add stack` says
+they are already written.
 
 `sandloom new` writes a complete application: `tasklist/asgi.py` (the
 composition root), `pyproject.toml` with the test plugin activated, a

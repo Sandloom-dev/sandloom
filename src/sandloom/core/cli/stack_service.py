@@ -17,6 +17,7 @@ the re-export of this module.
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from functools import cache
 from importlib import metadata
 from typing import Protocol
@@ -34,6 +35,55 @@ STANDARD_PACKAGE = "sandloom-redis"
 
 class StackServiceError(ValueError):
     """No package describes the standard stack's backing server."""
+
+
+class StackNotInstalled(StackServiceError):
+    """No stack package is installed in this environment at all (a bare
+    ``pip install sandloom``): ``sandloom new`` writes the files without the
+    stack's and completes them in the new app's own environment."""
+
+
+@dataclass(frozen=True)
+class StackChoice:
+    """One stack ``sandloom new`` offers, as the kernel knows it: a name, what
+    it gives and why, and what it installs. No compose text, image or url:
+    those are the stack package's (:class:`StackService`)."""
+
+    name: str
+    summary: str
+    #: The extras of ``sandloom`` the new app requires beside ``postgres``.
+    extras: tuple[str, ...]
+    #: The driver the stack's package registers its :class:`StackService` under.
+    driver: str
+
+
+#: The stacks ``sandloom new`` offers: only ``standard``. A lean one on the
+#: kernel's own drivers (memory cache, broadcast and lease, the database
+#: atomic store, SQLite) does not cover what a generated app selects: the
+#: task queue has the port in the kernel and ``celery`` (on a broker) as its
+#: only driver, and a deploy's durable event bus is the Streams one.
+STACKS: tuple[StackChoice, ...] = (
+    StackChoice(
+        name="standard",
+        summary=(
+            "PostgreSQL and Redis: the cache, the security store, the lease, "
+            "the event streams and the Celery task queue each on a Redis "
+            "database"
+        ),
+        extras=("redis", "celery"),
+        driver=STANDARD_DRIVER,
+    ),
+)
+DEFAULT_STACK = STACKS[0].name
+
+
+def stack_choice(name: str) -> StackChoice:
+    """The stack called ``name``, or ``StackServiceError`` naming the known ones."""
+    for stack in STACKS:
+        if stack.name == name:
+            return stack
+    known = ", ".join(stack.name for stack in STACKS)
+    raise StackServiceError(f"unknown stack {name!r} (one of: {known})")
 
 
 class KeyedServer(Protocol):
@@ -158,18 +208,20 @@ def _discover(driver: str) -> StackService:
             "uninstall one of them"
         )
     if not entries:
+        problem = (
+            f"no installed package describes the backing server of the standard "
+            f"stack ({driver!r}, entry-point group {GROUP!r})"
+        )
         try:
             metadata.distribution(STANDARD_PACKAGE)
         except metadata.PackageNotFoundError:
-            how = "install `sandloom[redis]`"
-        else:
-            how = (
-                f"{STANDARD_PACKAGE} is installed but is too old to register "
-                "one: upgrade it (`sandloom[redis]`)"
-            )
+            raise StackNotInstalled(
+                f"{problem}: install `sandloom[redis]` (in an app made by "
+                "`sandloom new`, `uv sync` does)"
+            ) from None
         raise StackServiceError(
-            f"no installed package describes the backing server of the standard "
-            f"stack ({driver!r}, entry-point group {GROUP!r}): {how}"
+            f"{problem}: {STANDARD_PACKAGE} is installed but is too old to "
+            "register one: upgrade it (`sandloom[redis]`)"
         )
     (entry,) = entries
     try:
@@ -187,11 +239,28 @@ def load(driver: str = STANDARD_DRIVER) -> StackService:
     return _discover(driver)
 
 
+def available(driver: str = STANDARD_DRIVER) -> StackService | None:
+    """The :class:`StackService` of ``driver``, or ``None`` when no stack package
+    is installed here (a bare kernel: the stack's files are written later, in
+    the new app's environment). A package that is too old, broken or
+    registered twice still raises :class:`StackServiceError`."""
+    try:
+        return _discover(driver)
+    except StackNotInstalled:
+        return None
+
+
 __all__ = [
+    "DEFAULT_STACK",
     "GROUP",
+    "STACKS",
     "STANDARD_DRIVER",
     "KeyedServer",
+    "StackChoice",
+    "StackNotInstalled",
     "StackService",
     "StackServiceError",
+    "available",
     "load",
+    "stack_choice",
 ]

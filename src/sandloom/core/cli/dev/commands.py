@@ -1010,6 +1010,42 @@ def _owned_external(ctx: Context, state: State, row: CheckoutRow) -> bool:
     return _services.database_mark(ctx.postgres(state), row.database) == dev_mark(row)
 
 
+def _recheck_indexes_on_new_server(
+    ctx: Context, state: State, previous: str | None
+) -> None:
+    """Rows keep the indexes checked empty on the keyed server of their time:
+    when ``up`` names another one (a recovery of an earlier build's state, a
+    moved server) every row's pair is checked again there, and a pair that
+    holds keys is replaced (``reset`` and ``prune`` flush it). The same server
+    keeps every allocation."""
+    if not state.checkouts:
+        return
+    stack = stack_service()
+    server = ctx.keyed(state)
+    if previous:
+        try:
+            if stack.parse(previous).address == server.address:
+                return
+        except ValueError:
+            pass  # an unreadable record names no server: check again
+    moved: list[str] = []
+    for path, row in state.checkouts.items():
+        if len(stack.empty_indexes(server, list(row.indexes))) == len(row.indexes):
+            continue
+        row.cache_index, row.broker_index = _external_indexes(ctx, state, path)
+        moved.append(path)
+    elsewhere = [p for p in moved if p != str(ctx.root) and Path(p).is_dir()]
+    with _checkout_locks(ctx, elsewhere):
+        for path in elsewhere:
+            write_checkout_files(ctx, state, state.checkouts[path])
+    if moved:
+        ctx.warn(
+            f"the keyed server is now {server.address}: the database indexes of "
+            f"{len(moved)} checkout(s) hold keys there, so they were given free ones"
+            + (" (their .env blocks were rewritten)" if elsewhere else "")
+        )
+
+
 def up_external(ctx: Context, options: UpOptions) -> int:
     """``up`` on the person's own servers: no Docker. Checks both, creates
     this checkout's database, writes its ``.env`` block and
@@ -1031,8 +1067,10 @@ def up_external(ctx: Context, options: UpOptions) -> int:
         if problem is not None:
             raise DevError(problem)
         known = _known_external(ctx, state, database)
+        previous_keyed = state.external.get("kv_url")
         state.services = EXTERNAL
         state.external = {"database_url": database, "kv_url": keyed}
+        _recheck_indexes_on_new_server(ctx, state, previous_keyed)
         save_state(ctx.state_dir, state)
         pg = ctx.postgres(state)
         with ctx.checkout_lock(ctx.root):
@@ -2026,6 +2064,12 @@ def down(ctx: Context, *, all_: bool, volumes: bool, force: bool) -> int:
 def prune(ctx: Context) -> int:
     removed: list[str] = []
     with ctx.machine_lock():
+        known = load_state(ctx.state_dir)
+        if known is not None and known.is_external:
+            # An earlier build's state names no keyed server: stop here, before
+            # any pass touches the registry or drops a database (the
+            # test-database pass reaches the person's PostgreSQL without a row).
+            ctx.keyed(known)
         registry = load_registry(ctx.home)
         stale_ports = [p for p, owner in registry.items() if not Path(owner).exists()]
         for port in stale_ports:

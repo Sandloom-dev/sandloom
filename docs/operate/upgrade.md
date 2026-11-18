@@ -231,11 +231,25 @@ checks, its reset and prune, and the disposable test server. The scaffold of `sa
 object that `sandloom-redis` registers in the `sandloom.stack` entry-point group. The wheel of `sandloom`
 imports no Redis client any more, not even a guarded one. An app on the standard stack changes
 nothing but the names below, and every file `sandloom new` writes is byte for byte what it was.
-`sandloom dev` and `sandloom new` need `sandloom-redis` installed (`pip install sandloom[redis]`)
-and say so in one line when it is not. An older `sandloom-redis` that registers no stack
-makes them say to upgrade it. A bare `uvx --from "sandloom==<version>" sandloom new …`
-therefore stops with that line: run it as `uvx --from "sandloom[redis]==<version>" sandloom new …`
-(the quickstarts and the repeat command that the wizard prints say so).
+`sandloom dev` needs `sandloom-redis` installed (an app made by `sandloom new` has it: `uv sync`)
+and says so in one line when it is not. An older `sandloom-redis` that registers no stack
+makes it say to upgrade it.
+
+A bare `uvx --from "sandloom==<version>" sandloom new …` still works. The wizard names the
+stack the app runs on and what installing it adds. Today there is one, `standard`: PostgreSQL
+and Redis. The wizard asks only when there is more than one, and `--stack standard` answers
+it. The kernel holds none of the stack's text.
+
+When `sandloom-redis` is importable (`sandloom[standard]` or `sandloom[redis]`), `sandloom new`
+writes the stack's files itself. Otherwise it writes the rest of the app with a marker where
+the stack's lines go. The app depends on `sandloom[redis,celery]`, so `sandloom new` then runs
+`uv sync` in it. After that, `uv run sandloom add stack` writes the marked lines from the
+package now in the app's environment. Then `uv run sandloom generate` runs. The files are byte
+for byte the same on both paths.
+
+Without `uv`, or when a step fails (no network), `sandloom new` prints the commands to run
+later. It prints no traceback and leaves the marked files as they are. `--services external`
+(your own servers) needs the package while `sandloom new` runs.
 
 The `redis` and `celery` extras of `sandloom` name the driver packages alone now:
 `sandloom-redis[hiredis]` and `sandloom-celery`, which require the client libraries with their

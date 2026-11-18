@@ -75,10 +75,12 @@ Redis instance that has one (`lease.beat`, `atomic_store.security`, `broadcast.d
 harness reads the cache url from the resolved `INFRA`.
 
 The override reaches the default instance of each Redis capability. It also reaches the
-instances on the same server and database as the default (the `url` and `broker`
-options). An instance declared in `INFRA` on another database or server is not touched, so
-two parallel runs would share it. Each run overrides those instances too: give them urls of
-your own in the `INFRA` your run loads. An override with no declared Redis default instance
+instances whose url names the same database as the default's (the `url` and `broker`
+options). The Redis family calls two urls the same database when four parts agree: scheme,
+authority, query string and database index. The authority is everything before the path,
+credentials included. A url with no path is database 0. An instance on another database or
+server is not touched. Neither is one with other credentials or another query. Two parallel
+runs would share it. Give those instances urls of your own in the `INFRA` your run loads. An override with no declared Redis default instance
 in `INFRA` is refused (`UnmatchedOverrideError`), never dropped. An app that selects no
 task queue has no `taskqueue.default.broker`. `sandloom dev up` writes a test override only
 where the `INFRA` of `.env.test` declares a Redis url on that capability's `default`

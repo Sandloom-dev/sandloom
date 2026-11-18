@@ -1588,7 +1588,7 @@ jobs:
       - name: Install standalone CLI without batteries
         run: |
           uv venv "$RUNNER_TEMP/quickstart-cli"
-          uv pip install --python "$RUNNER_TEMP/quickstart-cli/bin/python" ./packages/sandloom ./packages/sandloom-redis
+          uv pip install --python "$RUNNER_TEMP/quickstart-cli/bin/python" ./packages/sandloom
       - name: Quickstart (sandloom new -> next steps -> app round trip -> sandloom test --ci)
         env:
           QUICKSTART_PROFILE: ${{ matrix.profile }}

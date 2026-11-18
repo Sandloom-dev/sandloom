@@ -33,6 +33,12 @@ __all__ = ["STACK_SERVICE", "RedisServer", "RedisStackService"]
 _DEFAULT_PORT = 6379
 
 
+def _bracketed(host: str) -> str:
+    """``host`` as it stands in a URL: an IPv6 literal (``::1``; ``urlsplit``
+    hands it back without its brackets) gets them again."""
+    return f"[{host}]" if ":" in host and not host.startswith("[") else host
+
+
 @dataclass(frozen=True)
 class RedisServer:
     """A Redis server: host, port and the password of its default user."""
@@ -44,7 +50,7 @@ class RedisServer:
     def url(self, index: int | None = None) -> str:
         auth = f":{quote(self.password, safe='')}@" if self.password else ""
         tail = "" if index is None else f"/{index}"
-        return f"redis://{auth}{self.host}:{self.port}{tail}"
+        return f"redis://{auth}{self.address}{tail}"
 
     @classmethod
     def from_url(cls, url: str) -> RedisServer:
@@ -76,7 +82,7 @@ class RedisServer:
 
     @property
     def address(self) -> str:
-        return f"{self.host}:{self.port}"
+        return f"{_bracketed(self.host)}:{self.port}"
 
 
 def _connect(server: KeyedServer, db: int = 0) -> redis.Redis[bytes]:
@@ -204,7 +210,7 @@ class RedisStackService:
         return RedisServer.from_url(url)
 
     def local_url(self, host: str) -> str:
-        return f"redis://{host}:{_DEFAULT_PORT}"
+        return f"redis://{_bracketed(host)}:{_DEFAULT_PORT}"
 
     def problem(self, server: KeyedServer) -> str | None:
         if not _tcp_open(server.host, server.port):

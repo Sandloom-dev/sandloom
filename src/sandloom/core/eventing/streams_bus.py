@@ -177,9 +177,11 @@ class StreamsEventBus(_StreamsDispatch):
 
         Envelopes and checks are exactly :meth:`publish_event`'s; an event
         failing its check stops the batch there (the events before it are
-        still published, in order). The transport appends the batch atomically
-        and in order (one transaction on the streams transport); a transport failure
-        reports only the leading events it confirmed (``PartialPublish``).
+        still published, in order). The streams transport appends the batch in
+        order in one transaction. A transport that keeps the default
+        ``publish_many`` appends one item at a time and rolls nothing back: a
+        failure can leave the earlier items appended. Either way a transport
+        failure reports only the leading events it confirmed (``PartialPublish``).
         """
         items, error = self._prepare_batch(events, prevalidated)
         published = 0

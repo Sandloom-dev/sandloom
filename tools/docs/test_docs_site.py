@@ -336,10 +336,16 @@ class DocumentationSiteTests(unittest.TestCase):
         if quickstart is None:
             self.fail("README has no readme:quickstart block")
         commands = quickstart.group(1)
-        # `sandloom new` needs the driver package of the standard stack: the
-        # `redis` extra names it.
-        self.assertRegex(
-            commands, r'uvx --from "sandloom\[redis\]==[^"]+" sandloom new'
+        # A bare kernel is enough to run `sandloom new`: the app's own
+        # environment fetches the stack package, and `add stack` completes the
+        # stack's files once `uv sync` has installed it.
+        self.assertRegex(commands, r'uvx --from "sandloom==[^"]+" sandloom new')
+        self.assertLess(
+            commands.index("uv sync"), commands.index("uv run sandloom add stack")
+        )
+        self.assertLess(
+            commands.index("uv run sandloom add stack"),
+            commands.index("docker compose"),
         )
         self.assertNotIn("--framework-source path", commands)
         self.assertNotIn("git clone", commands)

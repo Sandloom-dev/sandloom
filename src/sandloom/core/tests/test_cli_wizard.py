@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from sandloom.core.cli import project, stack_service, ui, wizard
+from sandloom.core.tests._fake_stack import install_fake_stack
 
 PY = sys.executable
 
@@ -123,7 +124,10 @@ def test_enter_takes_the_default_name_and_no_module(tmp_path: Path) -> None:
     assert answers.admin_email is None
 
 
-def test_flags_leave_only_the_rest(tmp_path: Path) -> None:
+def test_flags_leave_only_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_stack(monkeypatch)  # the package's label, on every lane
     prompter, asked, _ = _prompter(["", ""])
     given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
     answers = _ask(prompter, tmp_path, given, git_email=None)
@@ -289,7 +293,7 @@ def test_an_existing_directory_is_named(tmp_path: Path) -> None:
 )
 def test_the_repeat_command_round_trips(plan: wizard.Plan) -> None:
     argv = wizard.repeat_command("0.7.0a8", plan, cwd=Path("/w"))
-    extra = "[standard]" if plan.batteries else "[redis]"
+    extra = "[standard]" if plan.batteries else ""
     assert argv[:5] == ["uvx", "--from", f"sandloom{extra}==0.7.0a8", "sandloom", "new"]
     args = wizard.parser().parse_args(argv[5:])
     assert args.yes
@@ -301,7 +305,7 @@ def test_the_repeat_command_round_trips(plan: wizard.Plan) -> None:
 def test_the_repeat_command_is_shell_quoted() -> None:
     plan = wizard.Plan(app="desk", parent=Path("/a b"), agents=["claude"])
     line = wizard.repeat_line("0.7.0a8", plan, cwd=Path("/w"))
-    assert line.startswith('uvx --from "sandloom[redis]==0.7.0a8" sandloom new desk')
+    assert line.startswith('uvx --from "sandloom==0.7.0a8" sandloom new desk')
     assert "--dir '/a b'" in line
     assert line.endswith(" --yes")
 
@@ -763,33 +767,33 @@ def test_an_existing_directory_names_dir(tmp_path: Path) -> None:
     assert code == 1 and "--dir" in err.getvalue()
 
 
-def _no_stack_package(monkeypatch: pytest.MonkeyPatch) -> None:
-    def missing(driver: str) -> Any:
+def _broken_stack_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    def too_old(driver: str) -> Any:
         raise stack_service.StackServiceError(
-            f"no package for {driver}: install `sandloom[redis]`"
+            f"{driver}: sandloom-redis is installed but is too old to register "
+            "one: upgrade it (`sandloom[redis]`)"
         )
 
-    monkeypatch.setattr(stack_service, "_discover", missing)
+    monkeypatch.setattr(stack_service, "_discover", too_old)
 
 
 @pytest.mark.parametrize(
     ("argv", "tty"),
     [
         (["shop", "--yes"], False),
-        (["shop", "--yes", "--services", "external"], False),
         (["shop", "--yes", "--services", "docker"], False),
         # No flag and a terminal: the wizard would ask its questions first.
         ([], True),
     ],
-    ids=["yes", "yes-external", "yes-docker", "terminal"],
+    ids=["yes", "yes-docker", "terminal"],
 )
-def test_without_the_stack_package_new_stops_with_one_line_before_asking(
+def test_a_stack_package_too_old_stops_new_with_one_line_before_asking(
     argv: list[str], tty: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A bare ``sandloom`` has no package for the stack's server (the
-    ``redis`` extra brings it): every path says so in one line, before a
-    question and before a file, never a traceback."""
-    _no_stack_package(monkeypatch)
+    """A package that is installed but cannot describe the stack is not a bare
+    kernel: every path says so in one line, before a question and before a
+    file, never a traceback (a bare kernel is another test file)."""
+    _broken_stack_package(monkeypatch)
     out, err = _Stream(tty=tty), _Stream(tty=False)
     code = wizard.main(
         [*argv, "--dir", str(tmp_path)],
@@ -799,7 +803,7 @@ def test_without_the_stack_package_new_stops_with_one_line_before_asking(
         err=err,
     )
     assert code == 1
-    assert "install `sandloom[redis]`" in err.getvalue()
+    assert "upgrade it" in err.getvalue()
     assert "Traceback" not in err.getvalue() + out.getvalue()
     assert len(err.getvalue().strip().splitlines()) == 1
     assert out.getvalue() == ""

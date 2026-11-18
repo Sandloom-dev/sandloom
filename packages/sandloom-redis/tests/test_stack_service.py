@@ -63,6 +63,28 @@ def test_a_url_round_trips_with_its_password_and_default_port() -> None:
     assert STACK_SERVICE.server("h", 1).url(0) == "redis://h:1/0"
 
 
+def test_an_ipv6_literal_keeps_its_brackets_in_every_url_and_address() -> None:
+    server = STACK_SERVICE.parse("redis://[::1]:6380")
+    assert server.host == "::1"  # the client connects to the bare literal
+    assert server.url(2) == "redis://[::1]:6380/2"
+    assert server.address == "[::1]:6380"
+    again = STACK_SERVICE.parse(server.url(2))
+    assert (again.host, again.port) == ("::1", 6380)
+    assert STACK_SERVICE.local_url("::1") == "redis://[::1]:6379"
+    assert STACK_SERVICE.local_url("127.0.0.1") == "redis://127.0.0.1:6379"
+    assert STACK_SERVICE.local_url("host") == "redis://host:6379"
+
+
+def test_a_password_in_the_query_never_reaches_the_refusal() -> None:
+    for url in (
+        f"redis://localhost:6379?password={_SECRET}",
+        f"redis://u:{_SECRET}@localhost:6379/0?password={_SECRET}",
+    ):
+        with pytest.raises(ValueError, match="not supported") as refused:
+            RedisServer.from_url(url)
+        assert _SECRET not in str(refused.value)
+
+
 def test_the_clients_errors_are_the_ones_the_engine_catches() -> None:
     assert redis.RedisError in STACK_SERVICE.errors()
     assert issubclass(redis.ConnectionError, STACK_SERVICE.errors())

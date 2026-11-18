@@ -564,22 +564,38 @@ def _check_new_app(sandloom: Path, env: dict[str, str], work: Path) -> None:
 def _check_new_app_needs_the_stack_package(
     sandloom: Path, env: dict[str, str], work: Path
 ) -> None:
-    """The bare kernel wheel describes no backing server of the standard stack:
-    ``sandloom new`` refuses in one line naming the extra, and writes nothing."""
-    refused = _run(
+    """The bare kernel wheel describes no backing server of the standard stack.
+    ``sandloom new`` still writes the app, leaves the stack's lines marked, tries
+    ``uv sync`` + ``sandloom add stack`` in the new app and, when uv cannot reach
+    a registry (offline here, an empty cache), prints the commands to run later:
+    no traceback, a failing exit, the marked files left as they were."""
+    cache = work / "uv-cache-offline"
+    cache.mkdir()
+    offline = {**env, "UV_OFFLINE": "1", "UV_CACHE_DIR": str(cache)}
+    done = _run(
         str(sandloom), "new", "probe", "--dir", str(work),
-        env=env, cwd=work, capture_output=True, check=False,
+        env=offline, cwd=work, capture_output=True, check=False,
     )  # fmt: skip
+    shown = done.stdout + done.stderr
+    if "Traceback" in shown:
+        raise RuntimeError(f"bare kernel: `sandloom new` printed a traceback:\n{shown}")
+    if done.returncode == 0 or "Fix it and continue with:" not in shown:
+        raise RuntimeError(
+            "bare kernel, uv offline: `sandloom new` must stop with the commands "
+            f"to run later:\n{shown}"
+        )
+    later = shown.split("Fix it and continue with:", 1)[1]
+    if "uv run sandloom add stack" not in later.split("Next steps:", 1)[0]:
+        raise RuntimeError(
+            f"bare kernel: the commands to run later are missing:\n{shown}"
+        )
     if (
-        refused.returncode == 0
-        or "sandloom[redis]" not in refused.stderr + refused.stdout
+        "@@STACK:"
+        not in (work / "probe" / "deploy" / "docker-compose.dev.yml").read_text()
     ):
         raise RuntimeError(
-            "bare kernel: `sandloom new` must refuse naming `sandloom[redis]`:\n"
-            f"{refused.stdout}{refused.stderr}"
+            "bare kernel: the stack's lines were written without a package"
         )
-    if "Traceback" in refused.stderr or (work / "probe").exists():
-        raise RuntimeError("bare kernel: `sandloom new` refused untidily")
 
 
 def check_scaffold_install(temp: Path, wheels: dict[str, Path]) -> None:

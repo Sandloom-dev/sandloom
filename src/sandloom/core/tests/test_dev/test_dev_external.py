@@ -505,6 +505,39 @@ def test_a_plain_up_on_a_state_from_before_kv_url_stops_and_touches_nothing(
     assert state is not None and state.external["kv_url"] == "redis://127.0.0.1:6390"
 
 
+def test_naming_another_keyed_server_rechecks_the_indexes_of_every_row(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The row's pair was checked empty on the server the state named. The
+    replacement server holds keys there: the pair is replaced before the state
+    is saved (`reset` and `prune` flush it); the same server keeps it."""
+    root, _external, indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    keys = {index: dict(held) for index, held in fake_stack.keys.items()}
+    again = commands.UpOptions(kv_url="redis://127.0.0.1:6390")
+    assert commands.up(_ctx(root, environ), again) == 0
+    state = load_state(_ctx(root, environ).state_dir)
+    assert state is not None
+    moved = state.checkouts[str(root)].indexes
+    assert not set(moved) & set(indexes)
+    assert not any(fake_stack.keys.get(index) for index in moved)
+    assert fake_stack.keys == keys  # nothing of theirs touched
+    # The same server named again: the allocation stays.
+    assert commands.up(_ctx(root, environ), again) == 0
+    after = load_state(_ctx(root, environ).state_dir)
+    assert after is not None and after.checkouts[str(root)].indexes == moved
+    # Another server, indexes free there: the pair stays (nothing to move).
+    fake_stack.keys = {}
+    other = commands.UpOptions(kv_url="redis://127.0.0.1:6391")
+    assert commands.up(_ctx(root, environ), other) == 0
+    last = load_state(_ctx(root, environ).state_dir)
+    assert last is not None and last.checkouts[str(root)].indexes == moved
+
+
 def test_reset_and_prune_name_the_keyed_server_before_dropping_a_database(
     tmp_path: Path,
     environ: dict[str, str],
@@ -556,6 +589,38 @@ def test_reset_and_prune_name_the_keyed_server_before_dropping_a_database(
     after = load_state(ctx.state_dir)
     assert after is not None and gone in after.checkouts
     assert all(fake_stack.keys[index] == {"theirs": "data"} for index in row.indexes)
+
+
+def test_prune_touches_nothing_when_no_keyed_server_is_named(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """Before either pass: the pass over test databases drops stale marked
+    `sandloom_test_` databases on the person's PostgreSQL without a row, so the
+    refusal comes first, with no database, key or registry entry touched."""
+    root, _external, _indexes = _state_from_before_kv_url(
+        tmp_path, environ, monkeypatch, fake_stack
+    )
+    touched: list[str] = []
+    monkeypatch.setattr(
+        commands._services, "drop_database", lambda pg, name: touched.append(name)
+    )
+    monkeypatch.setattr(
+        commands,
+        "_prune_test_databases",
+        lambda ctx, state: touched.append("test databases") or [],
+    )
+    ctx = _ctx(root, environ)
+    stale = {5999: str(tmp_path / "gone")}
+    commands.save_registry(ctx.home, stale)
+    keys = {index: dict(held) for index, held in fake_stack.keys.items()}
+    with pytest.raises(commands.DevError, match="--kv-url"):
+        commands.prune(ctx)
+    assert touched == []
+    assert commands.load_registry(ctx.home) == stale
+    assert fake_stack.keys == keys
 
 
 def test_without_a_package_for_the_stack_the_command_names_what_to_install(

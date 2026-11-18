@@ -31,11 +31,11 @@ def _nested_infra(*, eventbus: bool = False) -> str:
     where the venv has no ``sandloom-redis`` (``redis_free_infra_env``)."""
     import os
 
-    from sandloom.core.cli.project import _infra_json
+    from sandloom.core.cli.stack_files import infra_json
 
     cache = os.environ.get("SANDLOOM_TEST_CACHE_URL") or "redis://localhost:6380/0"
     broker = os.environ.get("SANDLOOM_TEST_BROKER_URL") or "redis://localhost:6380/1"
-    infra = json.loads(_infra_json(cache, broker, eventbus=eventbus))
+    infra = json.loads(infra_json(cache, broker, eventbus=eventbus))
     infra.update(json.loads(redis_free_infra_env().get("INFRA", "{}")))
     return json.dumps(infra)
 
@@ -1158,7 +1158,7 @@ def _app_command(root: Path, database_url: str, *argv: str) -> tuple[int, str]:
     import os
     import subprocess
 
-    from sandloom.core.cli.project import _infra_json
+    from sandloom.core.cli.stack_files import infra_json
 
     env = {
         "PATH": os.environ.get("PATH", ""),
@@ -1172,7 +1172,7 @@ def _app_command(root: Path, database_url: str, *argv: str) -> tuple[int, str]:
         "INFRA": json.dumps(
             {
                 **json.loads(
-                    _infra_json("redis://127.0.0.1:9/0", "redis://127.0.0.1:9/1")
+                    infra_json("redis://127.0.0.1:9/0", "redis://127.0.0.1:9/1")
                 ),
                 **json.loads(redis_free_infra_env().get("INFRA", "{}")),
             }

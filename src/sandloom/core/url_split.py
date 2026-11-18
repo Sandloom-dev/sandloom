@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from urllib.parse import SplitResult, urlsplit
 
+from sandloom.core.url_mask import mask_query_secrets
+
 __all__ = ["redact", "split_url"]
 
 
@@ -34,6 +36,6 @@ def redact(url: str) -> str:
     except ValueError:
         return "<unparseable url>"
     if not parts.password:
-        return url
+        return mask_query_secrets(url)
     netloc = parts.netloc.replace(f":{parts.password}@", ":<password>@", 1)
-    return parts._replace(netloc=netloc).geturl()
+    return mask_query_secrets(parts._replace(netloc=netloc).geturl())
