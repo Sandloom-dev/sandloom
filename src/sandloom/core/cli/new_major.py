@@ -62,7 +62,13 @@ def _declared(node: ast.ClassDef) -> list[tuple[str, str]]:
         if not isinstance(decorator, ast.Call) or not decorator.args:
             continue
         func = decorator.func
-        called = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+        called = (
+            func.id
+            if isinstance(func, ast.Name)
+            else func.attr
+            if isinstance(func, ast.Attribute)
+            else ""
+        )
         name = _literal(decorator.args[0])
         if called == "contract" and name is not None:
             found.append(("contract", name))
