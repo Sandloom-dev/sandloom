@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.7.0a15] — 2026-11-18
+
+### Added
+
+- **The Redis drivers carry their own backup advice and shutdown** (redis-out-runtime). The cache, the atomic store and the Streams bus implement `backup_hint` (AOF, `noeviction`, the loss notes of the cache and the streams) and the cache and the Streams bus implement `aclose_shared`, which closes the shared client pools. This replaces what the kernel did by testing for `redis://` urls.
+
+### Changed
+
+- **The `streams` bus declares `opens_after = ("cache",)`** (idk-low6-kernel). A bus with no `url` runs on the default cache client, which `cache.default` configures when it opens. The kernel used to open `cache` before every other capability for that one reason; it now reads this declaration, so a kernel from this change opens the bus after the cache only with this package version. An older package on that kernel opens a bus listed before the cache in the order `INFRA` gives, and refuses it with a "no url" error although the cache has one. Upgrade the package with the kernel; the release raises the package's kernel floor (`sync_release`).
+- **The hint of a cluster redirect is passed to the error's constructor** (idk-low6-product). The mapping of a `MOVED` / `ASK` reply to `Unavailable` set `hint` as an attribute, for kernels before 0.7.0a14. The floor is 0.7.0a14, whose `InfraError` takes `hint=`, so the dead fallback is gone. No change in behaviour.
+- **The Redis harness family implements the three new `HarnessFamily` hooks and owns the per-worker layout** (redis-out-harness). `owns_url`, `same_database` and `parallel_env` carry what the kernel harness knew about Redis url forms, the database 0 default of a url without a path and the `auto` stride of a parallel run. `WorkerLayout`, the stride and the index mapping live in `sandloom_redis.testing.isolation`; the family installs them as its URL mover, `set_url_mover("redis", mover)` (`sandloom_redis.testing.isolation.REDIS_FAMILY`), beside the movers of other families. The package needs the kernel that has `sandloom.driverkit.testing_isolation.set_url_mover`: a kernel before this change has no such name and the harness does not start. Upgrade the package with the kernel.
+- **A url the package cannot parse no longer leaks its password** (redis-out-harness). The broadcast bus and the Redis test harness read each url through `sandloom.driverkit.url_split.split_url`, so the `ValueError` of a url with a character that NFKC-normalises to `#` (for example U+FF03) carries a fixed message, not the netloc with the password. The options of the cache, atomic store, lease, `streams` event bus and broadcast bus refuse such a url when they are read (a `ValidationError` with one fixed message, the input hidden), so it never reaches `urlsplit` or `redis.from_url`, whose errors quote it. The ownership claim (`claim_redis`) and the scanner's client read the url through `split_url` before `redis.from_url`, as a second guard. The ownership message answers `<unparseable url>`. The package needs a kernel that has `sandloom.driverkit.url_split`. No other upgrade step.
+- **An `atomic_store` instance on its own Redis server gets the `noeviction` step in the plan.** It is any `atomic_store` now, where the kernel gave it to the `security` one only.
+
+### Fixed
+
+- **A `streams` DLQ id or cursor past the unsigned 64-bit limit is refused as `InvalidArgument`** (idk-low6-product). The check of the entry id accepted any number of up to twenty digits, so `99999999999999999999-0` passed it and Redis answered "Invalid stream ID", which the API then reported as a server error. Each part of `<ms>-<seq>` is bounded to `2**64 - 1`. The transport raises `InvalidArgument` (not retryable, a 422 from the admin API) for a malformed `replay_dlq` id or `list_dlq` cursor, and for one over that bound, before Redis sees it. No upgrade step.
+- **`list_dlq` after the largest stream id answers `[]`** (idk-low6-product). The cursor `18446744073709551615-18446744073709551615` is a valid id, but Redis refuses an exclusive range start there ("invalid start ID"), which the API reported as a server error. Nothing follows that id, so the listing is empty. No upgrade step.
+
 ## [0.7.0a14] — 2026-11-16
 
 ### Breaking changes
