@@ -798,6 +798,9 @@ def test_add_contract_use_declares_and_writes_the_stub_at_once(
     text = init.read_text(encoding="utf-8")
     assert 'consumes=[ContractRequirement("stats.quota.v1")]' in text
     assert "import ContractRequirement" in text
+    # The project's ruff (88 columns) passes the import line, marker included.
+    assert "# sandloom: advanced" in text
+    assert max(len(line) for line in text.splitlines()) <= 88
     # Again: nothing is declared twice and the stub is not rewritten.
     again, note = add.add_contract_use("reports", "stats.quota.v1", where)
     assert again == [] and note is None

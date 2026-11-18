@@ -911,7 +911,7 @@ def run_generate(root: Path, *options: str) -> tuple[int, str]:
 
 _REQUIREMENT_IMPORT = (
     "from sandloom.sdk.module import ContractRequirement  "
-    "# sandloom: advanced consumed contract"
+    "# sandloom: advanced contract"
 )
 
 
