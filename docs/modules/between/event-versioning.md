@@ -55,9 +55,9 @@ released channels only. Exactly one change is accepted on a released `.vN`:
 #### Released and draft
 
 `sandloom release` marks every contract and event the project declares as
-released. A channel is a draft only where a command made it one: the sample of
-`sandloom new`, a channel `sandloom add event` creates, a channel added to a
-`module.snapshot.json` that exists, or one you name with
+released. A channel is a draft only where a command made it one. That is the
+sample of `sandloom new`, a channel `sandloom add event` creates, a channel added
+to a `module.snapshot.json` that exists, or one you name with
 `sandloom generate --draft <channel>`. `sandloom generate` rewrites a draft
 whatever the change: no SANDLOOM-T005, no new `.vN`. It compares a released
 channel as described above, and a change moves its revision

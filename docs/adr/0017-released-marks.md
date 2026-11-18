@@ -71,7 +71,9 @@ Where a draft comes from:
 **A snapshot file written fresh records every current entry as released** (revision 1): a deleted
 file, a renamed module directory or a module copied in from elsewhere has no committed record to
 tell a draft from a release, and the safe reading is the strict one. `--draft` is the way back for
-a project that really wants a draft; the generate commands above pass it for what they create.
+a project that really wants a draft: delete the snapshot file and run `generate --draft <name>`,
+which writes the named entry as a draft and every other entry of the file as released. The commands
+above pass it for what they create.
 
 ### 3. `sandloom release`
 
