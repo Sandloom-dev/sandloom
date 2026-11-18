@@ -2193,6 +2193,12 @@ each table and index literally (or a table through a module-level string
 constant), as `sandloom migrate new` writes it; a name built at runtime, such as
 an f-string in a loop, is not recognised.
 
+The revisions are replayed in `down_revision` order, without a database: a
+`create_table` adds a table, a `drop_table` removes it and a `rename_table`
+renames it (a `downgrade()` is not read). A table the chain created and a later
+revision drops is no longer the chain's, so a revision that drops a table no
+model declares clears the problem.
+
 On a test database that takes its schema from the models (SQLite) coverage
 and ownership skip, with the reason: no chain runs there and no revision can
 be written. `sandloom migrate upgrade-all` and `upgrade-core` run the coverage
@@ -2344,7 +2350,7 @@ A unique index on (a, b) serves every lookup a plain index on (a) would, so
 the plain one is pure write cost. sandloom test's static `schema & deploy` step
 reports it (sandloom.core.testing.static_checks), with no database.
 
-**Fix:** drop `index=True` / the Index from the model and add a revision that drops it (`sandloom migrate new <module> "<message>"`); the TenantScoped tenant_id index is dropped for you when a unique key leads with tenant_id, so keep per-tenant keys tenant-first
+**Fix:** remove `index=True` / the Index from the model (the message names the unique key that already covers it) and add a revision that drops it (`sandloom migrate new <module> "<message>"`); the TenantScoped tenant_id index is dropped for you when a unique key leads with tenant_id, so keep per-tenant keys tenant-first
 
 ### SANDLOOM-T013
 

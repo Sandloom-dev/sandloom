@@ -62,7 +62,7 @@ from sandloom.core.tasks.periodic import has_periodic_tasks
 from sandloom.core.tenant import TenantScoped
 from sandloom.core.testing.database import (
     GLOBAL_UNIQUE_INFO,
-    redundant_indexes,
+    redundant_index_keys,
     tenant_keys_without_tenant,
 )
 from sandloom.core.testing.families import parse_infra
@@ -211,12 +211,12 @@ def redundant_index_problems(
         if str(index.info.get(KNOWN_REDUNDANT_INFO) or "").strip()
     }
     return [
-        f"index {name} duplicates the leading column(s) of a unique key of the "
-        "same table: the unique index already serves those lookups. Fix: drop "
-        "`index=True` / the Index (a TenantScoped tenant_id index is dropped "
-        "for you when the unique key leads with tenant_id) and add a revision "
-        "that drops it (SANDLOOM-T012)"
-        for name in redundant_indexes(metadata)
+        f"index {name} is already covered by unique key {key}: that key "
+        "serves every lookup the index would. Fix: remove `index=True` from "
+        "the column (or the Index from __table_args__; a TenantScoped "
+        "tenant_id index is dropped for you when the unique key leads with "
+        "tenant_id) and add a revision that drops the index (SANDLOOM-T012)"
+        for name, key in sorted(redundant_index_keys(metadata).items())
         if name not in allowed
     ]
 

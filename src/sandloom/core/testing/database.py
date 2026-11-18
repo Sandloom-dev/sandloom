@@ -415,14 +415,20 @@ def _plain_columns(index: Any) -> tuple[str, ...] | None:
 
 def redundant_indexes(metadata: MetaData) -> list[str]:
     """``table.index`` names of plain indexes on a unique key's leading columns."""
-    redundant = []
+    return sorted(redundant_index_keys(metadata))
+
+
+def redundant_index_keys(metadata: MetaData) -> dict[str, str]:
+    """``{table.index: the unique key that covers it}`` for every plain index on
+    a unique key's leading columns (the key reads ``uq_name (a, b)``)."""
+    redundant: dict[str, str] = {}
     for table in metadata.tables.values():
         uniques = [
-            tuple(c.name for c in constraint.columns)
+            (str(constraint.name or ""), tuple(c.name for c in constraint.columns))
             for constraint in table.constraints
             if isinstance(constraint, UniqueConstraint)
         ] + [
-            cols
+            (str(index.name or ""), cols)
             for index in table.indexes
             if index.unique and (cols := _plain_columns(index))
         ]
@@ -430,9 +436,14 @@ def redundant_indexes(metadata: MetaData) -> list[str]:
             cols = _plain_columns(index)
             if index.unique or not cols:
                 continue
-            if any(u[: len(cols)] == cols for u in uniques):
-                redundant.append(f"{table.name}.{index.name}")
-    return sorted(redundant)
+            for name, key_cols in uniques:
+                if key_cols[: len(cols)] == cols:
+                    shown = f"{name} " if name else ""
+                    redundant[f"{table.name}.{index.name}"] = (
+                        f"{shown}({', '.join(key_cols)})"
+                    )
+                    break
+    return redundant
 
 
 #: ``info`` key of a unique constraint / index (or a primary-key column) that
@@ -497,6 +508,7 @@ __all__ = [
     "open_test_engine",
     "open_test_session",
     "GLOBAL_UNIQUE_INFO",
+    "redundant_index_keys",
     "redundant_indexes",
     "tenant_keys_without_tenant",
     "reset_schema",

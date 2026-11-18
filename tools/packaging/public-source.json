@@ -2078,6 +2078,7 @@
         "src/sandloom/core/tests/test_streams_split_identity.py",
         "src/sandloom/core/tests/test_strict_mode.py",
         "src/sandloom/core/tests/test_subject_record.py",
+        "src/sandloom/core/tests/test_table_drop_replay.py",
         "src/sandloom/core/tests/test_task_review_fixes.py",
         "src/sandloom/core/tests/test_taskqueue_enqueue_layer.py",
         "src/sandloom/core/tests/test_taskqueue_kit_session.py",
