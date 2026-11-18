@@ -37,6 +37,7 @@ from starlette.responses import Response
 
 import sandloom.core.idempotency.replay as _replay
 from sandloom.core.exceptions import AppException
+from sandloom.core.http.tenant_scope import TENANT_REQUIRED, tenant_required_detail
 from sandloom.core.observability.guardrails import scrub_text
 from sandloom.core.tenant_context import MissingTenantError
 
@@ -136,13 +137,13 @@ def http_exception_handler(request: Request, exc: Exception) -> Response:
 
 def missing_tenant_handler(request: Request, exc: Exception) -> Response:
     """A ``MissingTenantError`` that reaches the request boundary: the same
-    ``400 tenant context required`` ``TenantScope()`` answers (G-TENANT-12),
-    never a bare 500. The message (it names models / operations) stays in the
-    log."""
+    ``400 tenant_required`` ``TenantScope()`` answers (G-TENANT-12), never a
+    bare 500. The message (it names models / operations) stays in the log; no
+    scope is at hand, so the text says "the tenant header", not its name."""
     logger.info("tenant context required: %s", exc)
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content={"detail": "tenant context required", "code": None},
+        content={"detail": tenant_required_detail(), "code": TENANT_REQUIRED},
     )
 
 

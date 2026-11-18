@@ -74,7 +74,9 @@ Start the API and open its interactive API documentation at
 
     Success is `204`. Sandloom provides the verification API; the URL in the
     email points to your frontend's verification page. A backend-only application
-    can use this API request directly without implementing that page yet.
+    can use this API request directly without implementing that page yet. With
+    `NOTIFIER_LOG_LINKS=true` (dev only) the API prints the request next to the
+    link: `[dev only] no frontend? POST /auth/verify-email {"token": "..."}`.
 
 If registration happened before SMTP was configured, execute
 **POST `/auth/resend-verification`** with `{"email": "alice@example.com"}` after
@@ -103,8 +105,11 @@ With the access token authorized, execute **POST `/api/v1/orgs`**:
 ```
 
 The response is `201` and contains the organization's `id`. The creator becomes
-its owner. The access token you already hold was minted before this membership
-existed, so its `tenant_ids` claim does not include the new organization yet.
+its owner. `slug` is optional: without it, the slug is derived from the name
+(`my-workspace` here). The access token you already hold was minted before this
+membership existed, so its `tenant_ids` claim does not include the new
+organization yet. Creating the organization revokes that token on commit, so the
+next request with it answers `401` and a client refreshes, as below.
 
 Execute **POST `/auth/refresh`** with your current refresh token:
 
@@ -130,8 +135,9 @@ curl --fail-with-body http://127.0.0.1:8000/api/v1/notes/items \
 ```
 
 The new organization's item list returns `200` with `[]`. Using the old access
-token with that `X-Tenant-Id` returns `403`; this does not mean organization
-creation failed. Accepting an invitation requires the same refresh. Refresh
+token with that `X-Tenant-Id` returns `401` (revoked) or `403
+tenant_not_authorized`, whose `detail` says to refresh the access token or log
+in again; neither means organization creation failed. Accepting an invitation requires the same refresh. Refresh
 tokens rotate, so subsequent refreshes use the newest one.
 
 Stop the inbox when finished:

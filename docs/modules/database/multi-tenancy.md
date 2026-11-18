@@ -15,7 +15,7 @@ across tenants. The framework filters automatically.
 | You write | Sandloom does for you |
 | --- | --- |
 | a model that inherits `TenantScoped` | an indexed `tenant_id` column, filled from the bound tenant on insert; every read, update and delete filtered to the bound tenant; fails closed with no tenant bound |
-| `router = module_router()` in a module with a `TenantScoped` model | binds the tenant on every route from the signed token (`400 tenant context required` when missing) |
+| `router = module_router()` in a module with a `TenantScoped` model | binds the tenant on every route from the signed token (`400 tenant_required` when missing) |
 | `sandloom migrate new <module> "<msg>"` | `enable_tenant_rls` / `disable_tenant_rls` in the revision for every new `TenantScoped` table |
 | `with unscoped():` | lifts the ORM guard for deliberate cross-tenant system work (never PostgreSQL RLS) |
 | a global table | a `tenant_scope_exempt` entry with a written reason in `architecture_rules.yml` |
@@ -47,9 +47,18 @@ written `reason` (stale entries fail too).
 `tenant=` of `"required"`, `"optional"` or `"none"` on the router or the route
 overrides it. A signed `tenant_id` / `org_id` access-token claim binds directly.
 `X-Tenant-Id` is only a selector: the requested id must also be in the token's
-signed `tenant_ids` allowlist, otherwise the request is rejected with `403`.
-A missing tenant answers `400 tenant context required`
-([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)). The binding
+signed `tenant_ids` allowlist, otherwise the request is rejected with
+`403 tenant_not_authorized`. Its `detail` names the header the route reads
+(`TenantScope(header=...)`, default `X-Tenant-Id`) and says that the user may
+have joined or created the organization after the token was issued: refresh the
+access token or log in again. A missing tenant answers `400 tenant_required`; its
+`detail` names the header and says the value is an organization id that the
+access token lists. Both bodies carry the `code`; the HTTP statuses are
+unchanged. The `detail` text is part of the API: a client branches on `code`
+(see [Upgrading to 0.7.0a16](../../operate/upgrade.md#upgrading-to-070a16-tenant-selection-errors-carry-a-code-and-say-what-to-do)).
+The same `400` answers a `MissingTenantError` that reaches the request boundary
+([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)); there no route
+is at hand, so the text says "the tenant header". The binding
 scopes data only and never chooses a billing account
 ([Authorization](../http/authorization.md#billing-subjects-of-is-required)).
 
@@ -268,7 +277,7 @@ mistakes, not against malicious Python or SQL inside its process.
 
     - Fail-closed scoping of every ORM path, inserts inheriting the bound
       tenant (G-TENANT-01 to G-TENANT-08 and related entries).
-    - A missing tenant is `400 tenant context required`, also when the error
+    - A missing tenant is `400 tenant_required`, also when the error
       reaches the request boundary (G-TENANT-12).
     - RLS policies are fail-closed, forced and without bypass; the role checks
       run at startup (G-RLS-*).

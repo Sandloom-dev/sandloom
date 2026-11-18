@@ -396,7 +396,8 @@ async def test_member_removal_and_leave_revoke_the_users_tokens(
     for uid, headers in ((user_b_id, headers_b), (user_c_id, headers_c)):
         inv = await _invite(async_client, org_id, headers_a, email_of(uid))
         assert (await _accept(async_client, inv["token"], headers)).status_code == 200
-    assert revoked_users == []
+    # Joining marks the joiner's token stale (see test_member_join_revocation).
+    revoked_users.clear()
 
     removed = await async_client.delete(
         f"/api/v1/orgs/{org_id}/members/{user_b_id}", headers=headers_a

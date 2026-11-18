@@ -252,7 +252,15 @@ def test_header_cannot_override_token_tenant() -> None:
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "tenant is not authorized by the access token"
+    # This app has no framework error handlers: the body is FastAPI's own, the
+    # ``code`` is pinned in tests/integration/test_request_boundaries.py.
+    assert response.json() == {
+        "detail": (
+            "the organization in X-Tenant-Id is not listed by the access token; "
+            "if the user joined or created it after the token was issued, "
+            "refresh the access token or log in again"
+        )
+    }
 
 
 def test_header_can_select_tenant_from_token_allowlist() -> None:

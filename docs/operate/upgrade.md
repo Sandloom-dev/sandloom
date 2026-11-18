@@ -167,6 +167,30 @@ infrastructure registry from the settings and asks the driver's host. It needs t
 `DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
 
+## Upgrading to 0.7.0a16: tenant selection errors carry a code and say what to do
+
+Two answers of `TenantScope` have new `detail` text and a stable `code`. The
+HTTP statuses are unchanged. The `detail` text is part of the API: a client
+that compared it with the old sentences must compare the `code` instead.
+
+| Status | Before (`detail`, `code`) | Now (`code`) |
+| --- | --- | --- |
+| `400` | `tenant context required`, `null` | `tenant_required`; the `detail` names the header the route reads and says the value is an organization id that the access token lists |
+| `403` | `tenant is not authorized by the access token`, `null` | `tenant_not_authorized`; the `detail` names the header, says the token does not list that organization and, for a user who joined or created it after the token was issued, to refresh the access token or log in again |
+
+The same `400` answers a `MissingTenantError` that reaches the request boundary;
+its `detail` says "the tenant header" because no route is at hand. The `400` for
+a token that lists several organizations and a request without the header is
+unchanged.
+
+The tenancy battery changed with it. Creating an organization, accepting an
+invitation and `MembershipService.add_member` now revoke the new member's access
+tokens on commit, not immediately: a client with the old token gets `401` once
+and refreshes into a token that lists the organization. Before, it got `403`
+until it refreshed on its own. A client that already refreshes on `401` needs no
+change. `POST /api/v1/orgs` takes an optional `slug`; without one it is derived
+from the name, and a derived slug that is taken answers `409` asking for `slug`.
+
 ## Upgrading to 0.7.0a16: contracts and events are drafts until released
 
 `SANDLOOM-T004` (a contract) and `SANDLOOM-T005` (an event) used to refuse an

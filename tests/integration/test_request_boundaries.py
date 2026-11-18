@@ -34,7 +34,14 @@ async def test_a_missing_tenant_at_the_boundary_is_the_tenant_scope_400() -> Non
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         resp = await c.get("/needs-tenant")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "tenant context required"
+    # No TenantScope is at hand: the text says "the tenant header", not its name.
+    assert resp.json() == {
+        "detail": (
+            "tenant context required: select an organization by sending the "
+            "tenant header with an organization id that the access token lists"
+        ),
+        "code": "tenant_required",
+    }
     assert "TenantScoped" not in resp.text
 
 
@@ -81,7 +88,60 @@ async def test_tenant_scope_without_a_tenant_answers_400() -> None:
     ) as c:
         resp = await c.get("/scoped")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "tenant context required"
+    assert resp.json() == {
+        "detail": (
+            "tenant context required: select an organization by sending the "
+            "X-Tenant-Id header with an organization id that the access token lists"
+        ),
+        "code": "tenant_required",
+    }
+
+
+async def test_the_tenant_required_text_names_the_configured_header() -> None:
+    """A ``TenantScope(header=...)`` names ITS header, not the default."""
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/scoped", dependencies=[di.public(reason="probe")])
+    async def scoped(tenant: Any = di.TenantScope(header="X-Org-Id")) -> None:
+        return None
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        resp = await c.get("/scoped")
+    assert resp.status_code == 400
+    assert "the X-Org-Id header" in resp.json()["detail"]
+    assert "X-Tenant-Id" not in resp.json()["detail"]
+    assert resp.json()["code"] == "tenant_required"
+
+
+async def test_a_selected_tenant_the_token_does_not_list_names_the_header() -> None:
+    """The 403 keeps its status, carries ``tenant_not_authorized`` and the
+    configured header, and tells a stale token's holder to refresh."""
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/scoped", dependencies=[di.public(reason="probe")])
+    async def scoped(tenant: Any = di.TenantScope(header="X-Org-Id")) -> None:
+        return None
+
+    token = mint_test_token(
+        {
+            "sub": str(uuid.uuid4()),
+            "token_type": "access",
+            "tenant_ids": [str(uuid.uuid4())],
+        }
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        resp = await c.get(
+            "/scoped",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Id": str(uuid.uuid4())},
+        )
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["code"] == "tenant_not_authorized"
+    assert "the organization in X-Org-Id is not listed" in body["detail"]
+    assert "refresh the access token or log in again" in body["detail"]
+    assert "/auth" not in body["detail"]  # the kernel names no module's route
 
 
 async def test_a_token_granting_several_tenants_needs_the_selector(

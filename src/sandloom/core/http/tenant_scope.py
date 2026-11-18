@@ -23,6 +23,39 @@ from sandloom.core.auth.verification import ensure_token_not_revoked
 from sandloom.core.tenant_context import _current_tenant
 
 
+#: ``code`` of the 400 a request without a resolvable tenant gets.
+TENANT_REQUIRED = "tenant_required"
+#: ``code`` of the 403 for a selected tenant the access token does not list
+#: (the name the shared authorization atoms use for the same refusal).
+TENANT_NOT_AUTHORIZED = "tenant_not_authorized"
+
+
+class TenantSelectionError(HTTPException):
+    """A tenant selection the request cannot be served with (400 / 403): the
+    ``detail`` says what the client does about it, ``code`` is stable."""
+
+    def __init__(self, status_code: int, code: str, detail: str) -> None:
+        super().__init__(status_code=status_code, detail=detail)
+        self.code = code
+
+
+def tenant_required_detail(header: str | None = None) -> str:
+    """The ``400 tenant_required`` text. ``header`` is the selector header the
+    ``TenantScope`` reads; ``None`` (a ``MissingTenantError`` that reached the
+    request boundary: no scope is at hand) says "the tenant header"."""
+    selector = f"the {header} header" if header else "the tenant header"
+    return (
+        "tenant context required: select an organization by sending "
+        f"{selector} with an organization id that the access token lists"
+    )
+
+
+def tenant_required_error(header: str | None = None) -> TenantSelectionError:
+    return TenantSelectionError(
+        status.HTTP_400_BAD_REQUEST, TENANT_REQUIRED, tenant_required_detail(header)
+    )
+
+
 def TenantScope(  # dependency factory, reads like a type
     *,
     header: str = "X-Tenant-Id",
@@ -66,10 +99,7 @@ def TenantScope(  # dependency factory, reads like a type
                 raise policy_error
         if tid is None:
             if required:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="tenant context required",
-                )
+                raise tenant_required_error(header)
             yield None
             return
         token_var = _current_tenant.set(tid)
@@ -129,9 +159,12 @@ def _resolve_tenant(  # noqa: C901
 
     if selected is not None:
         if selected not in granted and selected not in keyed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="tenant is not authorized by the access token",
+            raise TenantSelectionError(
+                status.HTTP_403_FORBIDDEN,
+                TENANT_NOT_AUTHORIZED,
+                f"the organization in {header} is not listed by the access "
+                "token; if the user joined or created it after the token was "
+                "issued, refresh the access token or log in again",
             )
         return selected
 

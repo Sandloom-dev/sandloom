@@ -3,8 +3,10 @@
 import asyncio
 import concurrent.futures
 import hmac
+import json
 import logging
 import secrets
+import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, NoReturn
@@ -82,7 +84,28 @@ _BAD_CREDENTIALS = "Incorrect email or password"
 _PENDING_EMAILS: set["asyncio.Task[None]"] = set()
 
 
-async def _email_after_commit(send: Callable[[], Awaitable[None]]) -> None:
+#: The routes the links of the e-mails stand for when no frontend serves them
+#: (the router's own paths: ``tests/services/test_dev_api_step.py`` compares them).
+VERIFY_EMAIL_API_PATH = "/auth/verify-email"
+RESET_PASSWORD_API_PATH = "/auth/reset-password"
+
+
+def _dev_api_step(path: str, body: dict[str, str]) -> str | None:
+    """The API form of an e-mailed link's step, for a dev app without a frontend.
+
+    Only with ``NOTIFIER_LOG_LINKS`` (refused in prod without the accepted risk
+    ``log_links_in_prod``): the line carries the token like the ``[dev only]``
+    link the log notifier prints. ``None`` otherwise, so a token is never even
+    formatted outside dev.
+    """
+    if not settings.notifier_log_links:
+        return None
+    return f"[dev only] no frontend? POST {path} {json.dumps(body)}"
+
+
+async def _email_after_commit(
+    send: Callable[[], Awaitable[None]], *, dev_step: str | None = None
+) -> None:
     """Send an email once the UoW COMMITS, off the request/commit path.
 
     Never inline: the response time of registration / password reset /
@@ -90,10 +113,15 @@ async def _email_after_commit(send: Callable[[], Awaitable[None]]) -> None:
     whether the account exists), and a change that rolls back must send no
     link. ``on_commit`` runs before the response, so it only SPAWNS the
     delivery; best-effort like the sender itself (failures are logged).
+    ``dev_step`` (:func:`_dev_api_step`) goes to stderr with the delivery, not
+    through logging: the log formatter masks every ``token`` value, which is
+    the point of a log line and the opposite of this one.
     """
 
     async def _deliver() -> None:
         try:
+            if dev_step is not None:
+                print(dev_step, file=sys.stderr, flush=True)
             await send()
         except Exception as exc:  # noqa: BLE001 - never surfaces to a request
             logger.warning("identity: email delivery failed (%s)", type(exc).__name__)
@@ -639,7 +667,8 @@ class AuthService:
         await _email_after_commit(
             lambda: email_sender.send_verification_email(
                 to_email=email, full_name=full_name, verification_url=verification_url
-            )
+            ),
+            dev_step=_dev_api_step(VERIFY_EMAIL_API_PATH, {"token": token}),
         )
 
     # --- Password reset / change --------------------------------------------
@@ -663,7 +692,11 @@ class AuthService:
             await _email_after_commit(
                 lambda: email_sender.send_password_reset_email(
                     to_email=to_email, full_name=full_name, reset_url=reset_url
-                )
+                ),
+                dev_step=_dev_api_step(
+                    RESET_PASSWORD_API_PATH,
+                    {"token": token, "new_password": "<the new password>"},
+                ),
             )
 
     @classmethod

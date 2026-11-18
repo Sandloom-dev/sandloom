@@ -210,7 +210,24 @@ class MembershipService:
                 version=version,
             )
         )
+        await cls.revoke_tokens_of_added_member(user_id, reason="tenancy.member.added")
         return member
+
+    @staticmethod
+    async def revoke_tokens_of_added_member(user_id: UUID, *, reason: str) -> None:
+        """Make the new member's access token stale so the client refreshes.
+
+        The token minted before the join lacks the organization in
+        ``tenant_ids``: selecting it answers 403 ``tenant_not_authorized``
+        until the member refreshes. Revoking on commit turns that into the 401
+        every client already refreshes on. NOT immediate (unlike a removal): a
+        token that misses an organization is a usability problem, never a
+        security one, so a revocation store that is down must not refuse the
+        join with 503; the durable outbox applier still delivers the mark.
+        """
+        await revoke_user_tokens_on_commit(
+            user_id, reason=reason, require_immediate=False
+        )
 
     @classmethod
     @sensitive_effect("admin")
