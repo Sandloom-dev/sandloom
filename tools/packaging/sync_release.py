@@ -129,6 +129,9 @@ def synchronized(
         r"(sync_release\.py --version )" + VERSION, lambda m: m[1] + value, text
     )
     text = re.sub(
+        r"(changelog_fragments\.py --fold )" + VERSION, lambda m: m[1] + value, text
+    )
+    text = re.sub(
         r"(" + NAME + r"-v)" + VERSION,
         lambda m: m[1] + value,
         text,

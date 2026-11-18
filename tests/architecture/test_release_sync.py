@@ -40,6 +40,21 @@ def test_discovers_stale_pin_in_a_new_document_and_preserves_other_versions(tmp_
     assert "0.7.0a1" in p.read_text(), "check must never write"
 
 
+def test_release_commands_in_docs_follow_the_version(tmp_path):
+    """The prepare and fold commands of the release how-to name the version
+    being prepared: a stale ``--fold`` would be refused by the fold's own check."""
+    source(tmp_path)
+    p = tmp_path / "docs" / "publishing.md"
+    p.parent.mkdir()
+    p.write_text(
+        "python tools/packaging/sync_release.py --version 0.7.0a1 --write\n"
+        "python3 tools/packaging/changelog_fragments.py --fold 0.7.0a1\n"
+        "python3 tools/packaging/changelog_fragments.py --fold 0.7.0a1"
+        " --package sandloom-redis\n"
+    )
+    assert "0.7.0a1" not in sync.changes(tmp_path, "0.7.0a3")[p]
+
+
 def test_prose_and_badges_update_but_audit_and_changelog_remain_historical(tmp_path):
     source(tmp_path)
     text = "<!-- sandloom-release --> Current alpha: 0.7.0a1\n"
