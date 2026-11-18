@@ -15,7 +15,8 @@ already committed (`module.snapshot.json`, and the exported file in the
 shared DTO package).
 
 **Do not use it** for a new event: [add one](add-event.md). A channel that
-has never been committed can still change freely.
+has not been released (a draft, see [Released and draft](#released-and-draft))
+changes freely.
 
 ## Prerequisites
 
@@ -29,8 +30,9 @@ has never been committed can still change freely.
 
 The `.vN` suffix is the channel's major schema version. `sandloom generate`
 compares the producer's schema with the committed snapshot before it writes
-anything, and `sandloom test` (which never writes) makes the same check. Exactly one change is accepted on the
-same `.vN`:
+anything, and `sandloom test` (which never writes) makes the same check, for
+every channel that is released. Exactly one change is accepted on the
+same released `.vN`:
 
 - **Compatible: add an optional field.** Stay on `.v1`. Consumers must
   treat a missing value as "unknown", because events from producers that
@@ -47,6 +49,19 @@ same `.vN`:
 - **Breaking: everything else.** A removed, renamed or retyped field, a new
   required field, a field that became optional, or a changed meaning. This
   fails with SANDLOOM-T005; publish a new channel `.v2` (steps 2 to 6).
+  `sandloom generate --new-major notes.note.archived.v1` copies the released
+  class to `.v2` beside the old one; edit the copy.
+
+#### Released and draft
+
+A channel is a draft until you run `sandloom release`, which marks every
+contract and event the project declares as released. A draft is rewritten by
+`sandloom generate` whatever the change: no SANDLOOM-T005, no new `.vN`. A
+released channel is compared as described above, and a compatible change moves
+its revision (`sandloom docs <channel>` prints `release: released, revision N`).
+A channel you add after a release is a draft again. A project whose snapshot
+was written before the marks counts as released: its first `sandloom generate`
+adds the marks. The decision is [ADR-0017](../../adr/0017-released-marks.md).
 
 ### 2. Declare v2 next to v1
 

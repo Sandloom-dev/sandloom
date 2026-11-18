@@ -93,5 +93,9 @@
   "format": 1,
   "module": "helpdesk.modules.tickets",
   "projections": [],
+  "released": {
+    "tickets.created.v1": 1,
+    "tickets.status_changed.v1": 1
+  },
   "sagas": []
 }

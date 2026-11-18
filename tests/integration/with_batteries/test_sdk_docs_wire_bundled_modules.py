@@ -31,6 +31,7 @@ def test_a_contract_prints_each_method_with_its_semantics(
         "import BILLING_CREDITS_V1" in by_name
     )
     assert "provider: sandloom_billing" in by_name
+    assert "release: released, revision 1" in by_name  # the bundled snapshots
     assert (
         "await client.spend(tenant_type: str, tenant_id: UUID, amount: int" in by_name
     )
@@ -55,6 +56,7 @@ def test_an_event_prints_its_fields_and_the_producers_notes(
 ) -> None:
     text = _out(capsys, "tenancy.member_added.v2")
     assert "tenant_id" in text and "version" in text
+    assert "release: released, revision 1" in text
     assert "also on tenancy.member_added.v1" in text
     assert "tenant_from='tenant_id'" in text and "version_field='version'" in text
     assert 'class MemberAdded(Event, channel="tenancy.member_added.v2")' in text

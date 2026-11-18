@@ -894,5 +894,10 @@
     }
   },
   "format": 1,
-  "module": "sandloom_identity"
+  "module": "sandloom_identity",
+  "released": {
+    "identity.claims.v1": 1,
+    "identity.contact.v1": 1,
+    "identity.security.v1": 1
+  }
 }

@@ -18,7 +18,12 @@ Subcommands:
                          write every generated file (module, route and
                          contract snapshots, contract stubs, DTO copies,
                          exported event schemas) after the compatibility
-                         checks (see sandloom.core.cli.generated)
+                         checks (see sandloom.core.cli.generated);
+                         `--new-major <name>` copies a released contract or
+                         event to its next major beside it
+    sandloom release          generate, and mark every contract and event of
+                         this project released: from then on a breaking change
+                         of one is a new major (ADR-0017)
     sandloom test [module]    the module's tests, the fast (--full: whole) parallel
                          suite and every static gate, with one summary; it
                          never writes a generated file (see
@@ -151,7 +156,7 @@ _CONNECTING_COMMANDS = _CONFIGURED_COMMANDS | {"migrate", "doctor"}
 #: Commands that read the files of the app whose stack lines ``sandloom new``
 #: may have left as tokens (a bare kernel): they say what to run instead of
 #: failing on a compose file or an ``INFRA`` that does not parse.
-_NEEDS_STACK_FILES = frozenset({"check", "generate", "test"})
+_NEEDS_STACK_FILES = frozenset({"check", "generate", "release", "test"})
 
 
 def _refuse_unfinished_stack(command: str | None, rest: list[str]) -> None:
@@ -212,6 +217,11 @@ def _main() -> None:  # noqa: C901
         "generate",
         add_help=False,
         help="write the generated files (snapshots, stubs, DTO copies, schemas)",
+    )
+    sub.add_parser(
+        "release",
+        add_help=False,
+        help="generate, and mark every contract and event of this project released",
     )
     sub.add_parser(
         "test", add_help=False, help="module tests + fast suite + static gates"
@@ -292,6 +302,13 @@ def _main() -> None:  # noqa: C901
     if args.command == "generate":
         _load_test_env_for_authoring(create_database=False)
         raise SystemExit(_static_import("sandloom.core.cli.generated").main(rest))
+    if args.command == "release":
+        # `generate`, and in the same pass every contract and event of this
+        # project is marked released (ADR-0017).
+        _load_test_env_for_authoring(create_database=False)
+        raise SystemExit(
+            _static_import("sandloom.core.cli.generated").main(["--release", *rest])
+        )
     if args.command == "explore":
         raise SystemExit(_static_import("sandloom.core.cli.explore").main(rest))
     if args.command in {"context", "graph"}:

@@ -2217,13 +2217,28 @@ Slug: `contract-snapshot` · kind: test · status: active
 **What happened and why it matters**
 
 Each module commits contracts.snapshot.json: the describe document of every
-sync contract it provides. `sandloom generate` writes it after comparing it
-with the committed one (a breaking change fails and nothing is written);
-`sandloom test` only checks. Callers compare a bound provider's live describe
-with it (rolling upgrades); `sandloom contracts check --against <snapshot>`
-reports breaking changes.
+sync contract it provides, and a `released` map (`{contract: revision}`).
+`sandloom generate` writes it after comparing it with the committed one;
+`sandloom test` only checks.
 
-**Fix:** run `sandloom generate` and review the diff; a breaking change is a new contract version (.v2), not an edit of .v1
+A contract in the `released` map is released: a breaking change of it fails
+and nothing is written. Fix it with a new major beside the old one,
+`sandloom generate --new-major <name>` (it copies the declaration of
+`m.x.v1` to `m.x.v2`; edit the copy). A compatible change (an added method,
+an added optional parameter) is written and moves the contract's revision up
+by one, computed, never typed.
+
+A contract with no entry in `released` is a draft: `sandloom generate`
+rewrites it freely, no T004. `sandloom release` marks every current contract
+and event of the project released; a contract added after that is a draft
+until the next release. A snapshot written before the marks existed has no
+`released` key: its contracts count as released, so nothing that was
+protected is loosened. `sandloom docs <contract>` shows the state.
+
+Callers compare a bound provider's live describe with it (rolling upgrades);
+`sandloom contracts check --against <snapshot>` reports breaking changes.
+
+**Fix:** run `sandloom generate` and review the diff; a breaking change of a released contract is a new major: `sandloom generate --new-major <name>` copies it to .v2 beside it
 
 ### SANDLOOM-T003
 
@@ -2247,9 +2262,9 @@ Slug: `event-schema-compat` · kind: test · status: active
 
 **What happened and why it matters**
 
-Compatibility is checked against the committed snapshot before `sandloom generate` writes anything, and by `sandloom test` (spec §5.2, §5.8), at every depth and in both directions (producers and consumers of one .vN deploy independently: a new reader accepts what an old producer sends, an old reader what a new producer sends). Any changed validation constraint is breaking: a narrowed one (a raised minimum, a new pattern) rejects an old producer's payload, a loosened one (a longer maxLength, a removed bound) a new producer's; so is a removed field, open model or not.
+Only a released event is checked: module.snapshot.json lists the released channels in its `released` map (`{channel: revision}`), and an application's exported shared/events/&lt;channel>.json carries `x-sandloom-released` (`0`: a draft). An event with no mark is a draft: `sandloom generate` rewrites it freely, no T005; `sandloom release` marks every contract and event of the project released. A snapshot written before the marks has no `released` key, so its events count as released. A compatible change of a released event moves its revision up by one, computed. Compatibility is checked against the committed snapshot before `sandloom generate` writes anything, and by `sandloom test` (spec §5.2, §5.8), at every depth and in both directions (producers and consumers of one .vN deploy independently: a new reader accepts what an old producer sends, an old reader what a new producer sends). Any changed validation constraint is breaking: a narrowed one (a raised minimum, a new pattern) rejects an old producer's payload, a loosened one (a longer maxLength, a removed bound) a new producer's; so is a removed field, open model or not.
 
-**Fix:** add only optional fields to a published channel; anything else is a new version (.v2, see the event-versioning guide)
+**Fix:** add only optional fields to a released channel; anything else is a new major: `sandloom generate --new-major <name>` copies it to .v2 beside it (see the event-versioning guide)
 
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 

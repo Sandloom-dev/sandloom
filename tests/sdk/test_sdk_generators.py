@@ -824,3 +824,186 @@ def test_add_contract_use_refuses_what_it_cannot_serve(tmp_path: Path) -> None:
     with pytest.raises(add.GeneratorError, match="no module"):
         add.add_contract_use("nobody", "stats.quota.v1", where)
     assert init.read_text(encoding="utf-8") == before
+
+
+# --------------------------------------------------------------------------- #
+# Released marks (ADR-0017): a draft changes freely, a released one is strict
+# --------------------------------------------------------------------------- #
+
+
+def _snapshot(root: Path, module: str, name: str) -> dict[str, Any]:
+    path = root / "probe" / "modules" / module / name
+    return dict(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _edit(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    assert old in text, old
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def _provider_app(tmp_path: Path) -> Path:
+    """An app whose ``stats`` module provides the contract ``stats.quota.v1``
+    and whose ``notes`` module produces ``notes.note.archived.v1``."""
+    root, where = _app_with_provider(tmp_path)
+    add.add_event("notes", "NoteArchived", where, ["note_id:UUID", "reason:str"])
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    return root
+
+
+_DROP_RECORD = (
+    '    @command(idempotency_key="operation_key")\n'
+    "    async def record(self, amount: int, operation_key: str) -> int:\n"
+    "        return amount\n"
+)
+
+
+def test_a_new_project_starts_as_drafts(tmp_path: Path) -> None:
+    root = _provider_app(tmp_path)
+    assert _snapshot(root, "stats", "contracts.snapshot.json")["released"] == {}
+    assert _snapshot(root, "notes", "module.snapshot.json")["released"] == {}
+    exported = root / "probe" / "shared" / "events" / "notes.note.archived.v1.json"
+    assert json.loads(exported.read_text(encoding="utf-8"))[
+        "x-sandloom-released"
+    ] == 0
+
+
+def test_a_draft_contract_and_event_change_freely(tmp_path: Path) -> None:
+    root = _provider_app(tmp_path)
+    contracts = root / "probe" / "modules" / "stats" / "contracts.py"
+    _edit(contracts, _DROP_RECORD, "")
+    events = root / "probe" / "modules" / "notes" / "events.py"
+    _edit(events, "    reason: str\n", "")
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    methods = _snapshot(root, "stats", "contracts.snapshot.json")["contracts"]
+    assert "record" not in methods["stats.quota.v1"]["methods"]
+    schema = _snapshot(root, "notes", "module.snapshot.json")["events"]
+    assert "reason" not in schema["notes.note.archived.v1"]["properties"]
+
+
+def test_release_marks_everything_and_a_breaking_change_is_then_refused(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    code, output = add.run_generate(root, "--release")
+    assert code == 0, output
+    released = _snapshot(root, "stats", "contracts.snapshot.json")["released"]
+    assert released == {"stats.quota.v1": 1}
+    events = _snapshot(root, "notes", "module.snapshot.json")["released"]
+    assert events == {"notes.note.archived.v1": 1, "notes.item.created.v1": 1}
+    exported = root / "probe" / "shared" / "events" / "notes.note.archived.v1.json"
+    assert json.loads(exported.read_text(encoding="utf-8"))[
+        "x-sandloom-released"
+    ] == 1
+    # A plain generate changes no mark.
+    assert add.run_generate(root)[0] == 0
+    assert _snapshot(root, "stats", "contracts.snapshot.json")["released"] == released
+    # A breaking change of the released contract and event is T004 / T005.
+    _edit(root / "probe" / "modules" / "stats" / "contracts.py", _DROP_RECORD, "")
+    _edit(root / "probe" / "modules" / "notes" / "events.py", "    reason: str\n", "")
+    code, output = add.run_generate(root)
+    assert code == 1, output
+    assert "SANDLOOM-T004" in output and "SANDLOOM-T005" in output
+    assert "--new-major" in output
+    assert "nothing was written" in output
+
+
+def test_a_compatible_change_of_a_released_contract_moves_its_revision(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    _edit(
+        root / "probe" / "modules" / "stats" / "contracts.py",
+        _DROP_RECORD,
+        _DROP_RECORD + "\n    async def peek(self) -> QuotaStatus:\n"
+        "        return QuotaStatus(ready=True)\n",
+    )
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    snapshot = _snapshot(root, "stats", "contracts.snapshot.json")
+    assert snapshot["released"] == {"stats.quota.v1": 2}
+    assert "peek" in snapshot["contracts"]["stats.quota.v1"]["methods"]
+    # Generated again: the revision does not move without a change.
+    assert add.run_generate(root)[0] == 0
+    assert _snapshot(root, "stats", "contracts.snapshot.json")["released"] == {
+        "stats.quota.v1": 2
+    }
+
+
+def test_a_contract_added_after_a_release_is_a_draft(tmp_path: Path) -> None:
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    add.add_contract("stats", "limit", add.layout(root))
+    assert add.run_generate(root)[0] == 0
+    released = _snapshot(root, "stats", "contracts.snapshot.json")["released"]
+    assert released == {"stats.quota.v1": 1}  # stats.limit.v1 is a draft
+
+
+def test_a_snapshot_written_before_the_marks_counts_as_released(
+    tmp_path: Path,
+) -> None:
+    """The upgrade rule: no ``released`` key, so everything in the file was
+    protected and stays so."""
+    root = _provider_app(tmp_path)
+    for module, name in (("stats", "contracts.snapshot.json"), ("notes", "module.snapshot.json")):
+        path = root / "probe" / "modules" / module / name
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        del doc["released"]
+        path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    _edit(root / "probe" / "modules" / "stats" / "contracts.py", _DROP_RECORD, "")
+    code, output = add.run_generate(root)
+    assert code == 1 and "SANDLOOM-T004" in output, output
+
+
+def test_new_major_copies_a_released_contract_beside_the_old_one(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    code, output = add.run_generate(root, "--new-major", "stats.quota.v1")
+    assert code == 0, output
+    source = (root / "probe" / "modules" / "stats" / "contracts.py").read_text()
+    assert '@contract("stats.quota.v1")' in source
+    assert '@contract("stats.quota.v2")' in source
+    assert "class QuotaV2:" in source and "class Quota:" in source
+    snapshot = _snapshot(root, "stats", "contracts.snapshot.json")
+    assert set(snapshot["contracts"]) == {"stats.quota.v1", "stats.quota.v2"}
+    # v1 stays released and untouched; the copy is a draft.
+    assert snapshot["released"] == {"stats.quota.v1": 1}
+    # The next major exists: a second request is refused and writes nothing.
+    code, output = add.run_generate(root, "--new-major", "stats.quota.v1")
+    assert code == 2 and "stats.quota.v2 exists already" in output
+    assert (root / "probe" / "modules" / "stats" / "contracts.py").read_text() == source
+
+
+def test_new_major_copies_a_released_event(tmp_path: Path) -> None:
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    code, output = add.run_generate(root, "--new-major", "notes.note.archived.v1")
+    assert code == 0, output
+    events = (root / "probe" / "modules" / "notes" / "events.py").read_text()
+    assert 'channel="notes.note.archived.v1"' in events
+    assert 'channel="notes.note.archived.v2"' in events
+    schemas = _snapshot(root, "notes", "module.snapshot.json")["events"]
+    assert {"notes.note.archived.v1", "notes.note.archived.v2"} <= set(schemas)
+
+
+def test_new_major_refuses_a_draft_an_unknown_name_and_a_check_run(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    contracts = root / "probe" / "modules" / "stats" / "contracts.py"
+    before = contracts.read_text()
+    code, output = add.run_generate(root, "--new-major", "stats.quota.v1")
+    assert code == 2 and "is a draft" in output, output
+    assert add.run_generate(root, "--release")[0] == 0
+    code, output = add.run_generate(root, "--new-major", "stats.ghost.v1")
+    assert code == 2 and "has no contract or event stats.ghost.v1" in output
+    code, output = add.run_generate(root, "--new-major", "stats.quota")
+    assert code == 2 and "not a versioned" in output
+    code, output = add.run_generate(root, "--new-major", "stats.quota.v1", "--check")
+    assert code == 2 and "drop --check" in output
+    assert contracts.read_text() == before

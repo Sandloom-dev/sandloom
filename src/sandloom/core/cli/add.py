@@ -889,16 +889,16 @@ from sandloom.core.cli.run_tests import load_project_test_env
 root = Path(sys.argv[1])
 load_project_test_env(root)
 from sandloom.core.cli.generated import main
-sys.exit(main(["--root", str(root)]))
+sys.exit(main(["--root", str(root), *sys.argv[2:]]))
 """
 
 
-def run_generate(root: Path) -> tuple[int, str]:
-    """``sandloom generate`` for the project at ``root``, in a child process
-    of this interpreter (a fresh import of the project's files); returns
-    ``(exit code, output)``."""
+def run_generate(root: Path, *options: str) -> tuple[int, str]:
+    """``sandloom generate [options]`` for the project at ``root``, in a child
+    process of this interpreter (a fresh import of the project's files);
+    returns ``(exit code, output)``."""
     proc = _tool_process.run_tool(
-        [sys.executable, "-c", _GENERATE, str(root.resolve())],
+        [sys.executable, "-c", _GENERATE, str(root.resolve()), *options],
         cwd=root,
         capture=True,
     )

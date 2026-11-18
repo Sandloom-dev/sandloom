@@ -28,5 +28,8 @@
   "format": 1,
   "module": "linkly.modules.links",
   "projections": [],
+  "released": {
+    "links.created.v1": 1
+  },
   "sagas": []
 }

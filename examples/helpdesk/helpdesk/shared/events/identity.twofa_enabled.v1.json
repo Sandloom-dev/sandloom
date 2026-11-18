@@ -82,5 +82,6 @@
     "trace_id"
   ],
   "title": "TwoFAEnabledEvent",
-  "type": "object"
+  "type": "object",
+  "x-sandloom-released": 1
 }

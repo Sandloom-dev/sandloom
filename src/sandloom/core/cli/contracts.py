@@ -45,6 +45,7 @@ from sandloom.core.contract_compat import (
     load_snapshot_contracts,
     module_snapshots,
 )
+from sandloom.core.descriptors.release_marks import ReleaseMarkError
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.rpc.outbound import _get_auth, _outbound_mac
 from sandloom.core.rpc.wire import _NONCE_HEADER, _unpack
@@ -78,8 +79,13 @@ def _cmd_snapshot(write: bool, check: bool, only: list[str]) -> int:
                 f"error: cannot locate package directory of {module}", file=sys.stderr
             )
             return 2
-        text = _contract_compat.render_snapshot(doc)
         current = path.read_text(encoding="utf-8") if path.is_file() else None
+        try:
+            marked, _released = _contract_compat.marked_snapshot(doc, current)
+        except ReleaseMarkError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        text = _contract_compat.render_snapshot(marked)
         if current == text:
             continue
         if check:

@@ -17,5 +17,6 @@
   "format": 1,
   "module": "academy.modules.payments",
   "projections": [],
+  "released": {},
   "sagas": []
 }

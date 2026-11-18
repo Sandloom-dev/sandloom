@@ -16,5 +16,6 @@
     "tenant_id"
   ],
   "title": "ItemCreated",
-  "type": "object"
+  "type": "object",
+  "x-sandloom-released": 1
 }

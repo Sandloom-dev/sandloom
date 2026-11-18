@@ -17,6 +17,8 @@ the bundled modules, so they run where the batteries are installed.
 
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI
 
 from sandloom.core import contract_compat
@@ -34,9 +36,24 @@ def test_committed_module_snapshots_match_registered_contracts() -> None:
     for module, doc in docs.items():
         path = contract_compat.snapshot_path(module)
         assert path is not None and path.is_file(), f"{module}: no snapshot"
-        assert path.read_text(encoding="utf-8") == contract_compat.render_snapshot(
-            doc
-        ), f"{path} is stale: run `sandloom contracts snapshot --write`"
+        text = path.read_text(encoding="utf-8")
+        marked, _released = contract_compat.marked_snapshot(doc, text)
+        assert text == contract_compat.render_snapshot(marked), (
+            f"{path} is stale: run `sandloom contracts snapshot --write`"
+        )
+
+
+def test_every_bundled_contract_is_released() -> None:
+    """ADR-0017 migration: the bundled modules' snapshots predate the marks, so
+    every contract they ship is released (nothing protected was loosened)."""
+    from sandloom_standard.main import core
+
+    for module, doc in contract_compat.module_snapshots(core).items():
+        path = contract_compat.snapshot_path(module)
+        assert path is not None
+        released = json.loads(path.read_text(encoding="utf-8"))["released"]
+        assert sorted(released) == sorted(doc["contracts"]), module
+        assert all(revision >= 1 for revision in released.values()), module
 
 
 def test_expectation_is_found_in_the_provider_package_without_importing_it() -> None:

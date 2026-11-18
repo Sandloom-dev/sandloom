@@ -25,5 +25,6 @@
     "organization_id"
   ],
   "title": "OrganizationCreated",
-  "type": "object"
+  "type": "object",
+  "x-sandloom-released": 1
 }

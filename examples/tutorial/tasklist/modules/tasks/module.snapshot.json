@@ -36,5 +36,8 @@
   "format": 1,
   "module": "tasklist.modules.tasks",
   "projections": [],
+  "released": {
+    "tasks.item.created.v1": 1
+  },
   "sagas": []
 }

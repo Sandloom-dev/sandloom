@@ -18,6 +18,7 @@
   "format": 1,
   "module": "academy.modules.enrollment",
   "projections": [],
+  "released": {},
   "sagas": [
     {
       "name": "enroll",

@@ -524,5 +524,11 @@
     }
   },
   "format": 1,
-  "module": "sandloom_billing"
+  "module": "sandloom_billing",
+  "released": {
+    "billing.claims.v1": 1,
+    "billing.credits.v1": 1,
+    "billing.entitlements.v1": 1,
+    "billing.facts.v1": 1
+  }
 }

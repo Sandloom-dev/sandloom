@@ -4007,7 +4007,7 @@ guarantees:
   statement: 'Each bundled module commits contracts.snapshot.json equal to the rendered describe documents
     of its registered contracts; a stale or missing snapshot fails the suite. For L1 modules, sandloom
     generate compares every generated file with the committed one before writing anything (SANDLOOM-T004
-    contracts, T005 events, T007 stubs, C012 DTO copies, T001 a route that lost its authentication); sandloom
+    contracts and T005 events, released ones only: G-COMPAT-09; T007 stubs, C012 DTO copies, T001 a route that lost its authentication); sandloom
     test, dev and --ci alike, only checks and fails on a stale file, listing it under "generated files are
     stale: run `sandloom generate`".'
   sources:
@@ -4112,6 +4112,29 @@ guarantees:
   - src/sandloom/core/tests/test_contract_compat_expectations.py::test_kernel_family_shapes_match_the_kernel_providers
   - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_remote_claims_contract_under_strict
   - src/sandloom/core/tests/test_contract_compat_expectations.py::test_expectations_are_read_at_startup_only
+- id: G-COMPAT-09
+  statement: 'A contract or exported event is a draft until sandloom release marks it released (the released map
+    of contracts.snapshot.json and module.snapshot.json, x-sandloom-released in an exported event file): sandloom
+    generate rewrites a draft whatever the change, with no SANDLOOM-T004 or T005, and compares only released
+    entries, where a compatible change moves the revision by one. A file with no released key counts as released
+    at revision 1 (a snapshot written before the marks), a mark that is not a revision is refused, and
+    sandloom generate --new-major copies a released contract or event to the next major beside the old one and
+    refuses a draft, an unknown name or a --check run. Nothing reads git, a tag or a remote.'
+  sources:
+  - docs/adr/0017-released-marks.md
+  - docs/modules/between/event-versioning.md
+  - docs/modules/between/contracts.md
+  tests:
+  - src/sandloom/core/tests/test_release_marks.py::test_a_file_with_no_key_is_legacy_and_releases_every_entry
+  - src/sandloom/core/tests/test_release_marks.py::test_a_mark_that_is_not_a_revision_is_refused_not_ignored
+  - src/sandloom/core/tests/test_release_marks.py::test_only_released_entries_are_compared
+  - src/sandloom/core/tests/test_release_marks.py::test_a_released_entry_moves_one_revision_per_change_only
+  - tests/sdk/test_sdk_generators.py::test_a_draft_contract_and_event_change_freely
+  - tests/sdk/test_sdk_generators.py::test_release_marks_everything_and_a_breaking_change_is_then_refused
+  - tests/sdk/test_sdk_generators.py::test_a_snapshot_written_before_the_marks_counts_as_released
+  - tests/sdk/test_sdk_generators.py::test_new_major_copies_a_released_contract_beside_the_old_one
+  - tests/sdk/test_sdk_generators.py::test_new_major_copies_a_released_event
+  - tests/sdk/test_sdk_generators.py::test_new_major_refuses_a_draft_an_unknown_name_and_a_check_run
 - id: G-RPC-01
   statement: 'The request key K_req is HKDF-SHA256 over the X25519 agreement of caller and provider with
     a role-ordered, direction-labelled info naming both services and kids: both sides derive the same
@@ -6303,7 +6326,8 @@ guarantees:
     time). A producer registers its wire schema (E.wire_schema(): the serialization schema, so a
     defaulted field is required, with no additionalProperties: false, so a reader accepts a newer
     producer''s added optional field; construction stays strict), and it is snapshotted
-    (module.snapshot.json) and exported to the shared DTO package; a change on the same .vN other than
+    (module.snapshot.json) and exported to the shared DTO package; once the channel is released
+    (sandloom release; a draft changes freely, G-COMPAT-09) a change on the same .vN other than
     an added optional field fails before anything is written (SANDLOOM-T005), in dev and CI, at every depth:
     $ref / $defs are resolved, so a referenced enum''s values or a nested DTO''s field types, removals and
     newly required fields fail like top-level ones, while an added defaulted (optional) field passes at
@@ -8721,7 +8745,7 @@ issued:
   G-BILLING: 22
   G-BLOCK: 8
   G-CMD: 9
-  G-COMPAT: 8
+  G-COMPAT: 9
   G-CONFIG: 16
   G-CONTRACT: 25
   G-DECL: 7
@@ -9479,6 +9503,24 @@ adr_sections:
     "6. The owner's decisions (2026-11-14)": informational
     "7. What this must not change": informational
     "8. Decided in the spec, not by the owner": informational
+    "Consequences": informational
+  0017-released-marks.md:
+    "Context": informational
+    "Decision": informational
+    "1. The strict model stays":
+    - G-COMPAT-09
+    "2. A released mark in the snapshot files":
+    - G-COMPAT-09
+    "3. `sandloom release`":
+    - G-COMPAT-09
+    "4. `sandloom generate --new-major <name>`":
+    - G-COMPAT-09
+    "5. No git, tag or remote dependency":
+    - G-COMPAT-09
+    "6. Migration":
+    - G-COMPAT-09
+    "7. Where the rule lives": informational
+    "Alternatives considered": informational
     "Consequences": informational
 planned_adrs:
   0012-kernel-boundary.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-03 edge register, KB-06, KB-07,

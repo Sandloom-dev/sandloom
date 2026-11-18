@@ -16,5 +16,8 @@
     }
   },
   "format": 1,
-  "module": "tasklist.modules.stats"
+  "module": "tasklist.modules.stats",
+  "released": {
+    "stats.quota.v1": 1
+  }
 }

@@ -23,5 +23,6 @@
   "format": 1,
   "module": "oidc_identity.modules.storefront",
   "projections": [],
+  "released": {},
   "sagas": []
 }

@@ -104,5 +104,9 @@
   "format": 1,
   "module": "projecthub.modules.projects",
   "projections": [],
+  "released": {
+    "projects.project.created.v1": 1,
+    "projects.project.updated.v1": 1
+  },
   "sagas": []
 }

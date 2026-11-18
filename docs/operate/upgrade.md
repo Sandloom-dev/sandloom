@@ -167,6 +167,40 @@ infrastructure registry from the settings and asks the driver's host. It needs t
 `DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
 
+## Upgrading to 0.7.0a16: contracts and events are drafts until released
+
+`SANDLOOM-T004` (a contract) and `SANDLOOM-T005` (an event) used to refuse an
+incompatible change from the first snapshot on, so a contract or event you had
+only just written could not be reshaped without a new `.vN`. They now refuse the
+change only for a contract or event marked released
+([ADR-0017](../adr/0017-released-marks.md)). An unmarked one is a draft that
+`sandloom generate` rewrites freely.
+
+What to do:
+
+1. Run `uv run sandloom generate` once. A snapshot written before the marks
+   counts as released at revision 1, so nothing you already published turns
+   into a draft. The run adds `released` to every `contracts.snapshot.json` and
+   `module.snapshot.json`, and `x-sandloom-released` to every exported event file.
+   Until it runs, `sandloom test` reports those files as stale. Commit the result.
+2. In a new project, or for a contract or event you add later, run
+   `uv run sandloom release` when its shape is published. It marks everything the
+   project declares as released and writes the snapshots. It reads no git, tag or
+   remote.
+3. A breaking change to a released contract or event is a new major:
+   `uv run sandloom generate --new-major <name>` copies it to `.v2` beside the
+   old one (refused for a draft, an unknown name or with `--check`).
+
+`sandloom docs <name>` prints `release: draft` or `release: released, revision N`
+for a contract or event. The revision rises by one with each compatible change of
+a released entry.
+
+Two nearby changes ship with it. An application's consumer stub is written
+before the consumer's first use (`uv run sandloom add contract-use <module>
+<contract>` declares the use and writes it). `SANDLOOM-T002` replays the
+migration chain, so a table a later revision drops no longer counts as created,
+and `SANDLOOM-T012` names the unique key that already covers the plain index.
+
 ## Upgrading to 0.7.0a15: the volatile event bus driver is `broadcast`
 
 The volatile `eventbus` driver that ran over a `broadcast` instance was called `redis`. It

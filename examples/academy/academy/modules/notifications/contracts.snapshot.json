@@ -44,5 +44,8 @@
     }
   },
   "format": 1,
-  "module": "academy.modules.notifications"
+  "module": "academy.modules.notifications",
+  "released": {
+    "notifications.mail.v1": 1
+  }
 }

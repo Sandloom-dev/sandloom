@@ -41,5 +41,6 @@
   "format": 1,
   "module": "projecthub.modules.notifications",
   "projections": [],
+  "released": {},
   "sagas": []
 }
