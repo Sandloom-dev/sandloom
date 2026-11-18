@@ -2665,12 +2665,15 @@ export interface components {
             /** Version */
             version: string | null;
         };
-        /** OrganizationCreateIn */
+        /**
+         * OrganizationCreateIn
+         * @description ``slug`` is optional: absent, it is derived from ``name`` (``derive_slug``).
+         */
         OrganizationCreateIn: {
             /** Name */
             name: string;
             /** Slug */
-            slug: string;
+            slug?: string | null;
         };
         /** OrganizationOut */
         OrganizationOut: {
