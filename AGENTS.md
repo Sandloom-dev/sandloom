@@ -74,7 +74,8 @@ names; `tm` finds its store through the machine's registry, `~/.tm/tm.yaml`.
   tracker is changed in the shell, whose commands carry the session:
   `tm task start <alias|id>`, `tm task done <alias|id>`.
 - How any of it is done: the tm skills — `tm-implement`, `tm-plan`,
-  `tm-review`, `tm-memory`, and `tm` where none of them fits.
+  `tm-review`, `tm-fleet`, `tm-memory`, `tm-consolidate`, `tm-docs`, and `tm`
+  where none of them fits.
 
 Written by `tm setup` and rewritten whole by its next run; the repository's
 own rules and checks belong outside these markers.

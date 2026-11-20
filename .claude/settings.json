@@ -61,6 +61,20 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm hook claude-code"
+          }
+        ]
+      }
     ]
+  },
+  "worktree": {
+    "baseRef": "head"
   }
 }

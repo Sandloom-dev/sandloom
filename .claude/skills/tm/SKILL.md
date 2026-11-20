@@ -25,7 +25,9 @@ time is not how they work.
 | resolve somebody else's `in_review` | `tm-review` |
 | run several agents at once over the front | `tm-fleet` |
 | record something worth keeping, or find why a decision was made | `tm-memory` |
-| set a repository up for tm at all | `tm-setup` |
+| turn a project's accumulated reflections into knowledge | `tm-consolidate` |
+| write a spec or another document, or work from one a task cites | `tm-docs` |
+| set a repository up for tm at all | ask the person to run `tm setup` |
 
 ## The operations document themselves — read them, do not guess
 
@@ -47,8 +49,9 @@ If `mcp__tm__*` tools are listed, use them — a hook holds that default, and
 a `tm <verb>` in a shell call is refused naming the tool that answers it.
 Without a server behind the session, the `tm` CLI dispatches the *same*
 operation table (`tm help` lists its verbs); `--json` makes an answer
-machine-readable, and a non-zero exit is the failure category (2 validation,
-3 not found, 4 conflict, 5 precondition).
+machine-readable, and a non-zero exit is the failure category (1 generic,
+2 validation, 3 not found, 4 conflict, 5 precondition or concurrency, 6 guardrail,
+7 graph).
 
 ### The project is resolved, not pasted
 
@@ -98,7 +101,9 @@ and cannot review each other's work.
 - **One claim at a time per holder, and the core refuses the second**
   (`ACTOR_BUSY`). A holder is a session, or a subagent within it; each subagent
   holds a claim of its own, named by the hook — `tm-fleet` says how. Turning to
-  something else means `task_hold` on what you hold, not a second `task_start`:
+  something else means `task_hold` on what you hold (it stays on the front for
+  whoever takes it next; `keepInScope: false` only when nobody should be handed
+  it until a person decides), not a second `task_start`:
   two live claims mean one of them is lying to the Agent Fleet view about work
   nobody is doing. The boundary is the project, so working in two checkouts at
   once is unaffected. Review does not keep you busy: `task_done` releases the
@@ -122,8 +127,8 @@ and cannot review each other's work.
 - **Nor does an agent take away what makes work wait for a person.** Under
   `human`, these are refused from an agent's session with `HUMAN_DOOR`, and
   the person makes them at their terminal:
-  - `requiresReview: false`, on a task or inside an `onSuccess` template, and
-    a task — or a template — naming fewer kinds than the project's default;
+  - `requiresReview: false` on a task, and a task naming fewer kinds than the
+    project's default;
   - a switch to `solo`, a change of the claim term, the review term or the
     planning limit or the limit of attempts, a kind taken off the project's deliverable default, a path
     added to `unguardedPaths`;

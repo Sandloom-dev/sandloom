@@ -58,6 +58,14 @@ claims — it stays `decision`.
 And what a doc comment or the code already says does not go into the graph at
 all — it is found where it is, and a copy is one more thing to keep true.
 
+**A document is a third thing, and neither layer.** What the project intends —
+a spec, a design, a guide — is a document (`tm-docs`), searched with
+`doc_search`, written by section and accepted by a person. What was learned
+stays here: a document cites an entity as `kg:<id>` and does not copy it, and
+an entity points at a section as `doc://<slug>#<anchor>` rather than
+retelling it. Consolidation writes only the graph; it never rewrites a
+document.
+
 ## Write a reflection when
 
 | Moment | Type |
@@ -75,6 +83,10 @@ to record", it is "would the next sitting pay to rediscover this".
 **Not worth recording:** what the code already says, what the git history
 already says, what the task description already says. A reflection restating
 the diff is noise that pushes down the one that is not.
+
+A note is written in the project's language (`project_status` shows it as
+`language`). Only a warning follows a text in another one, never a refusal; a
+string that belongs to the work goes in quotes or code.
 
 The moment is *while it happens*. Reconstructed at the end of a task, the
 reason you rejected the first approach is exactly what you no longer remember.

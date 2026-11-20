@@ -58,9 +58,22 @@ only for its own second claim, never for its sibling's. Nothing is registered,
 passed or cleaned up: do not tell an agent to carry a name.
 
 - A claim an agent took stays until somebody puts it down or its term runs out
-  (six hours, renewed by every tm call of the session), so the agents hand over
-  or `task_hold` before they return. An agent that comes back to a task after a
-  `/clear` or a restart takes it again with `task_start`.
+  (six hours, renewed by every tm call of the session), so agents hand over or
+  hold before they return, and the brief says which hold:
+  - **blocked on you** (a neighbour's file, a path another claim holds, a
+    choice you can make): a bare `task_hold` and the reason in its report —
+    out of scope, the task would refuse your own `task_start` with
+    `NOT_IN_SCOPE`;
+  - **blocked on a person** (an answer, a decision, an access only they
+    have): `keepInScope: false` and a `blocker` reflection saying what is
+    awaited, so no other agent is handed it meanwhile.
+
+  An agent whose session was cleared or restarted takes its task again with
+  `task_start`.
+- An agent that failed (an API error or a usage limit ends a subagent
+  mid-work) or was stopped may still hold its claim and leave work
+  uncommitted: `active_claims` for its task and a look at its tree before you
+  hand the task out again.
 - `AREA_CONFLICT` keeps holders apart, subagents of one session included: the
   second subagent whose area overlaps a sibling's claim is refused at its
   claim. Edits are checked differently: the guard asks whether any claim of the
@@ -99,8 +112,9 @@ real risk nobody has asked about.
 
 ## 5. Isolate the checkout where it is cheap, and only there
 
-`isolation: worktree` is a **per-agent** decision, not a property of an agent
-definition, because what it depends on is the task's area.
+Isolating an agent in a worktree of its own is a **per-agent** decision, not
+a property of an agent definition, because what it depends on is the task's
+area.
 
 **Decide it by what a fresh checkout of that area COSTS, not by where the area
 sits.** A worktree is a full second copy: the agent has to rebuild whatever the
@@ -152,20 +166,13 @@ once — one window, one port, one device is not divided by a filesystem (see
 nobody else's test runs in your tree, and nobody else's edits in your
 `git status`.
 
-**The work does not land in your tree.** It is in `.claude/worktrees/<name>/`
-on branch `worktree-<name>`, so verifying and committing read it there
-(`git -C .claude/worktrees/<name> status`). A `git diff` in your own checkout
-showing nothing is not the agent having done nothing — Claude Code blocks an
-isolated agent from editing the main checkout, `cd`-ing into it, or redirecting
-git at it, so that emptiness is enforced rather than hoped for.
-
-Two settings hold this up, both already in the repository: `worktree.baseRef:
-"head"` (the default `"fresh"` branches from the default branch, so on a
-feature branch the agent silently gets a tree without the work it was sent to
-extend) and `.claude/worktrees/` in `.gitignore`. And two things leak anyway,
-worth knowing before rather than after: the stash is **shared** across
-worktrees, and `git worktree prune` clears metadata but never branches, so
-abandoned `worktree-*` branches pile up.
+**The work does not land in your tree.** It is on the agent's branch in its
+worktree, so verifying and committing read it there, and an empty `git diff`
+in your checkout is not an agent that did nothing. Where the worktree lives,
+the settings it needs, and which shell commands the harness refuses inside it
+are the harness's: under Claude Code, read `references/claude-code.md` before
+dispatching an isolated agent. Two things leak in any harness: the stash is
+**shared** across worktrees, and `git worktree prune` never deletes a branch.
 
 ## 6. Brief each agent with what has already been paid for
 
@@ -195,6 +202,8 @@ Without these, an agent repeats a mistake this repository has already bought:
 - **Walk the call path first and name the line** where the ticket's claim
   happens. Tickets here have twice been right in the observation and wrong in
   the scenario.
+- **What the harness needs said** — under Claude Code, loading the tools and
+  auto mode's "no verdict": `references/claude-code.md`.
 
 **Agents write to each other through the tracker, not through you.** An
 agent that changed something a neighbour depends on, or found the
@@ -283,10 +292,10 @@ ground.
 
 | What happened | What to do |
 | --- | --- |
-| an agent edited outside its area | the guard should have refused it — check the task's area is actually set, then `git checkout -- <the stray paths>` |
+| an agent edited outside its area | the guard should have refused it — check the task's area is actually set, then look at the diff of the stray paths and restore them from a saved copy or `git stash push -- <the stray paths>`; not `git checkout --`, which in a shared tree also wipes another agent's uncommitted work |
 | an agent failed the task | `task_fail` with the reason, and read whether the plan was wrong before relaunching |
 | two candidate tasks overlap in area | run one; the other waits — or `tm-plan` merges them, because they were one slice |
 | a task needs a one-of-a-kind resource and it is taken | its `task_start` is refused with `AREA_CONFLICT`, naming the holder; it waits until that task is handed over or held |
 | rollback is needed | `git revert` the task's commit — it touches the task's area and nothing else, which is correct only because the boundary held, so it is the area that made rollback definable |
 | an agent asks for a decision | answer it yourself or give it back to the person; do not let it choose and report the choice as done |
-| an isolated agent's worktree outlives the run | `git worktree remove .claude/worktrees/<name>` once its work is in — the periodic sweep skips anything still holding changes, and neither it nor `prune` ever deletes the branch |
+| an isolated agent's worktree outlives the run | `git worktree remove <its path>` once its work is in; its branch is not deleted with it |

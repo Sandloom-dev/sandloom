@@ -38,3 +38,4 @@ private/
 
 # agent scratch files inside a worktree
 .agent-tmp/
+.claude/worktrees/
