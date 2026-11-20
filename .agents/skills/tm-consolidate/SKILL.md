@@ -22,6 +22,10 @@ and filed a task — where the checkout's `.tm/project.yaml` says
 `consolidate_hook: on`. That only notices. Nothing about it decided what should
 be written.
 
+What it writes is the graph, and only the graph: a synthesis that bears on a
+document becomes an entity citing its section, and the document is left to
+`tm-docs`.
+
 ## 1. Preview first. Always.
 
 ```

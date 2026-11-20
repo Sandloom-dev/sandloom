@@ -23,6 +23,10 @@ Siblings under one feature are *not* ordered by being siblings. If the third
 slice needs the first one's output, that is a `link_add`, or the front will
 offer all three at once and be right to.
 
+A link into a container holds everything inside it: every descendant waits
+for the container's prerequisites, and a link between a task and its own
+ancestor is refused.
+
 `link_add` direction is easy to get backwards: `from` is the prerequisite,
 `to` is the work that waits.
 
@@ -36,6 +40,19 @@ task is not accepted before its prerequisite (`PREDECESSOR_NOT_ACCEPTED`), and
 if the prerequisite is sent back, the waiting task carries
 `predecessorsSentBack` in `get_task` and `task_start` until it is handed over
 again.
+
+The other rules are for plans whose prerequisites are not all needed:
+
+- `oneCompleted`: starts once any one prerequisite is accepted. Several
+  approaches are tried side by side and the next step follows the first that
+  works. If none completes, it never starts.
+- `allDone`: starts once every prerequisite is over, completed, failed or
+  cancelled. A report or cleanup after experiments that must run whatever
+  their outcome.
+- `anyChild` is not a trigger rule but a container's `completionPolicy`
+  (default `allChildren`): the container completes when one child does.
+  Alternative solutions inside one stage, where the first that is accepted
+  settles it.
 
 ## Shape
 
@@ -66,6 +83,15 @@ written; `kg_task_link` with `refType: consumes` does the same for one you
 would rather not name. A claim hands what its task consumes over first and
 never cuts it, so the agent who takes the slice reads the decision you just
 read instead of finding it again — or not finding it.
+
+**Ask whether the feature has a spec** (`doc_search`), before the root task.
+A feature that will be sliced, shows behaviour outside, or is built by more
+than one agent needs one (`tm-docs` says when and how). Without it, the first
+child is the slice that writes the spec, and the others wait for it under
+`allSubmitted`: they build what it says, which is order and not a shared file.
+Each slice then names the requirements it builds, `REQ-<doc>-<NNN>` plainly in
+its description, which links them when the task is written. A slice that can
+name no requirement is usually a slice cut by file rather than by behaviour.
 
 ## The area is the planner's job, and nobody else can do it
 
@@ -161,6 +187,33 @@ orchestrating session as well, the orchestrator being a holder of its own. Only
 the claim guard on edits reads the session as a whole, so it does not tell
 subagents apart; the area of each claim is what keeps their files apart.
 
+## The text is in the project's language
+
+Titles and descriptions are written in the language the project writes in
+(`project_status` shows it as `language`; the description of the `language`
+field on `task_create` says what is checked and what is refused). A string
+that belongs to the work and is in another language, such as a translation or
+a user's quote, goes in quotes or a code block, so it reads as data and not as
+the text of the task. A task written wholly in another language says so with
+`language`, and its own text is held to that.
+
+A localisation task, in a project that writes in English:
+
+```
+title: Translate the empty-inbox hint into Russian
+description: The hint "No messages yet" has no Russian entry. Add
+`inbox.empty: "Сообщений пока нет"` to the `ru` strings file and check
+that the line fits the card.
+```
+
+A review of a translation, for a native speaker, in the same project:
+
+```
+title: Вычитать русский перевод экрана входа
+language: ru
+description: Проверить строки в `ru.json`: тон, падежи, длину кнопок.
+```
+
 ## Defaults worth setting deliberately
 
 `task_create` gives everything a working default, so a minimal call is enough
@@ -169,8 +222,8 @@ to start. Three defaults are worth a thought rather than a shrug:
 - **`requiresReview` is true, and where a person accepts it stays true.** A
   twelve-slice plan is therefore twelve acceptances. Under the project's
   default `review: human`, only a person takes a review off: an agent's
-  `requiresReview: false` is refused with `HUMAN_DOOR`, on `task_create`, on
-  `task_update` and inside an `onSuccess` template. If some slices are
+  `requiresReview: false` is refused with `HUMAN_DOOR`, on `task_create` and on
+  `task_update`. If some slices are
   mechanical steps of one whole and should not each wait for an acceptance,
   say so and leave the decision to the person at their terminal. Do not plan
   "the review on the parent" instead: a parent with children is a container,

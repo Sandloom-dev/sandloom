@@ -52,6 +52,13 @@ on the way to something else.
 3. **What the submitter said about the checks.** "All green" with no output
    quoted is not evidence, and neither is a suite that was already red.
 
+A task that cites documents (`get_task` lists them under `docs`) is checked
+against them: each requirement it implements is met and proved by a named test
+or check, and the spec it builds on is `accepted`, not a draft that may still
+move. A section it specifies has a new revision, or the handover says why not.
+The document itself is not accepted here: a person accepts it
+(`tm doc accept`), and never one who wrote part of it.
+
 On a task tagged `design`, the handover says which version of the design the
 work was checked against. If it does not, that is a finding: without it "did
 not look" and "the design moved after" read the same.
@@ -74,9 +81,7 @@ agent's door. When an answer settles your comment, say so in the verdict's
 
 ## The verdict
 
-`task_verify` with `accept: true` completes the task and fires its `on_success`
-template — whatever that spawns appears in the reply, so read it rather than
-assuming nothing happened.
+`task_verify` with `accept: true` completes the task.
 
 A task that follows another under `allSubmitted` can reach review before the
 work it rests on is accepted. Accepting it then is refused
@@ -84,7 +89,11 @@ work it rests on is accepted. Accepting it then is refused
 `awaiting_reviews`, and `tm task admission`, say so before the call): review
 the predecessor first. Sending it back is never held up.
 
-`accept: false` sends it back to `pending` for rework. The `reason` is the
+`accept: false` sends it back for rework: the task returns to `inProgress`,
+reserved for the role that handed it over and held by no session, until a
+session of that role takes it with `task_start`. If none does within the claim
+term (six hours) the claim runs out and the task goes back to `pending`. The
+`reason` is the
 whole value of a rejection: it is what the next attempt reads instead of
 guessing. Name the specific thing that is wrong and what would make it right —
 a rejection that says "does not look finished" costs a full sitting to

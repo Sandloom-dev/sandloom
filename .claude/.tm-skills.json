@@ -1,24 +1,38 @@
 {
   "files": [
     "skills/tm-consolidate/SKILL.md",
+    "skills/tm-docs/SKILL.md",
+    "skills/tm-docs/lint.md",
+    "skills/tm-docs/templates.md",
     "skills/tm-fleet/SKILL.md",
+    "skills/tm-fleet/references/claude-code.md",
     "skills/tm-implement/SKILL.md",
+    "skills/tm-implement/references/design-and-docs.md",
+    "skills/tm-implement/references/refusals.md",
+    "skills/tm-implement/references/sent-back.md",
     "skills/tm-memory/SKILL.md",
     "skills/tm-plan/SKILL.md",
     "skills/tm-review/SKILL.md",
     "skills/tm/SKILL.md"
   ],
   "sha256": {
-    "skills/tm-consolidate/SKILL.md": "47cc54538fc8f273bf7f3653ccc1b907979a7ec6d65d694ff823fbf3fb8edc61",
-    "skills/tm-fleet/SKILL.md": "0b01a89c029d8963fedbbbe6176014cb7d1ecbdd1eb5e62ea1146b28a8bc2cdf",
-    "skills/tm-implement/SKILL.md": "1ff5d855e951049fd9b9a48d860bcdfbb0100d146ed7e2d100460d01f8a966ae",
-    "skills/tm-memory/SKILL.md": "214eb8fa879bdc4454923948c4027bea8243e30d97d2697812151d311f94657b",
-    "skills/tm-plan/SKILL.md": "22564e9fd15e127e7aa7ada9f634d0fb0a1c2a1c902e0805edcd8212aaffdead",
-    "skills/tm-review/SKILL.md": "36cb09e0e1565e53c0b5cb7f8a66db8f6bd2e43f3ee166e43165fe8a4e8c5636",
-    "skills/tm/SKILL.md": "436daa529172e3b76d7925ad5a0dcaf04d30a70f7dfca0eaf2b23d510c7be51d"
+    "skills/tm-consolidate/SKILL.md": "c6e7e0f4e4ca3d30c0976f2c0b68636f05714bb638c8075c4fc9893063acd3d6",
+    "skills/tm-docs/SKILL.md": "d20238b2ba1986404073e9dfda964ead3a12eaed8ab29517391a46235c573436",
+    "skills/tm-docs/lint.md": "0d6b913e373dc3e24eb7a7f8c41a6f075bbd9f88889050270709b8e84ec2ff25",
+    "skills/tm-docs/templates.md": "5f0e0a74dff36cafb8c000480281c276b4595f869f29cb5d60e31e2bf70f3076",
+    "skills/tm-fleet/SKILL.md": "f4ba21febdef88b781da2cd9584df76f576a80e2302ec27972c39721cc31ce01",
+    "skills/tm-fleet/references/claude-code.md": "2f25fda5709df33ba5f5e05c004be0b99d00c4f052f8eab54c29f1d61d69bbd0",
+    "skills/tm-implement/SKILL.md": "32fef2c769f92824ad2432513393344fcd9ede1e8f3b65ae5b68221841f7741e",
+    "skills/tm-implement/references/design-and-docs.md": "7071c76812b60c2cd2efc05c707fd10d5f736fbdd71c35bab556ef1372c8f5ce",
+    "skills/tm-implement/references/refusals.md": "599676c14d5ebc10752b0fddb6344cc82f817945f56df0dc1285c013a789dd35",
+    "skills/tm-implement/references/sent-back.md": "4f68693cafc01bd8c1a6508ede8b8eee5c47328b5abbd63b638d3b60d8461271",
+    "skills/tm-memory/SKILL.md": "d4a1d6b46869a6409e6a420c6a7f42b568044881ccd0e8ad335640ff9a893539",
+    "skills/tm-plan/SKILL.md": "f0038fb8527968df7603d6a864fd6641788557c5a8cfc20b4fdda451a0277d1f",
+    "skills/tm-review/SKILL.md": "773943dcfdeb03dacaa484e3a24d63b628eb511b6cd83e76777529d78339dac0",
+    "skills/tm/SKILL.md": "5ed5863f8a12b971e5536b56ef0029610e65eaaf2598d26760c69962242118ab"
   },
   "created": [
     "settings.json"
   ],
-  "installedBy": "dist-v0.2.0"
+  "installedBy": "dist-v0.3.2"
 }
