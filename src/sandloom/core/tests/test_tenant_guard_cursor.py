@@ -682,6 +682,39 @@ async def test_the_refused_statement_really_reaches_tenant_bs_row(
 
 
 @pytest.mark.asyncio
+async def test_a_tenant_class_mapped_imperatively_after_the_caches_were_built_is_seen(
+    env: _Env,
+) -> None:
+    """rt342-a #14: the tenant table set was built before the class was mapped
+    and never learned the table (``__init_subclass__`` runs before mapping)."""
+    assert tenant_mod._tenant_names()  # the memo exists before the mapping below
+    late = Table(
+        "tgcur_late_imp",
+        MetaData(),
+        Column("id", Integer, primary_key=True),
+        Column("tenant_id", Uuid, nullable=False),
+        Column("name", Text),
+    )
+
+    class _LateImp(TenantScoped):
+        pass
+
+    reg = registry()
+    reg.map_imperatively(_LateImp, late)
+    try:
+        async with env.engine.begin() as conn:
+            await conn.run_sync(late.create)
+        with pytest.raises(UnsafeTenantOperationError):
+            await _bound(env, select(late.c.name))
+        with pytest.raises(MissingTenantError):
+            await _unbound(env, select(late.c.name))
+    finally:
+        async with env.engine.begin() as conn:
+            await conn.run_sync(late.drop)
+        reg.dispose()
+
+
+@pytest.mark.asyncio
 async def test_a_deferred_column_load_on_a_non_tenant_model_is_refused(
     env: _Env,
 ) -> None:
@@ -769,8 +802,12 @@ async def test_the_cursor_refuses_a_criterion_value_a_later_listener_swapped_in(
 
     event.listen(Session, "do_orm_execute", forge)
     try:
+        # one entity, then a join of two: both share the one criteria bind
         with pytest.raises(UnsafeTenantOperationError, match="criterion"):
             await _bound(env, select(_Item.name))
+        joined = select(_Item.name, _Imp.name).join(_Imp, _Imp.id == _Item.id)  # type: ignore[attr-defined]
+        with pytest.raises(UnsafeTenantOperationError, match="criterion"):
+            await _bound(env, joined)
     finally:
         event.remove(Session, "do_orm_execute", forge)
 
@@ -784,6 +821,8 @@ async def test_orm_statements_over_tenant_models_stay_scoped_and_allowed(
     assert [
         r[0] for r in await _bound(env, select(func.count()).select_from(_Item))
     ] == [1]
+    joined = select(_Item.name, _Imp.name).join(_Imp, _Imp.id == _Item.id)  # type: ignore[attr-defined]
+    assert [tuple(r) for r in await _bound(env, joined)] == [("a-name", "a-secret")]
     parents = await _bound(env, select(_Parent).options(joinedload(_Parent.item)))
     assert [row[0].item for row in parents] == [None]  # B's item is out of scope
     scoped_peer = await _bound(env, select(_OtherCPOrm.id, _OtherCPOrm.peer))
