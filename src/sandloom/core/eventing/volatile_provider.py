@@ -11,6 +11,9 @@ and a driver package cannot implement it.
 A volatile bus declares no ``durable``, so a module that needs delivery to
 survive requires it and is refused at load on one, and production refuses the
 bus without the accepted risk ``volatile_event_bus`` (G-EVENT-14, G-RISK-04).
+The risk admits it on a non-default ``eventbus`` instance only: production
+startup refuses a volatile default bus whatever the risk says
+(``app_factory._bind_infrastructure``).
 """
 
 from __future__ import annotations
@@ -136,9 +139,11 @@ def make_volatile_bus_drivers(
                 f"eventbus instance {cfg.name!r}: driver {cfg.driver!r} is "
                 "volatile (no persistence; a Pub/Sub PUBLISH succeeds with zero "
                 "subscribers, so the outbox would mark undelivered events as "
-                "delivered). fix: use driver 'streams' (EVENT_BUS_BACKEND=streams) "
-                "or accept lossy delivery explicitly with "
-                'SANDLOOM_ACCEPTED_RISKS=["volatile_event_bus"]'
+                "delivered). fix: use driver 'streams' (EVENT_BUS_BACKEND=streams). "
+                "For an instance other than 'default', lossy delivery can be "
+                "accepted explicitly with "
+                'SANDLOOM_ACCEPTED_RISKS=["volatile_event_bus"]; the default '
+                "bus must stay durable whatever the risk"
             )
 
     def _memory(cfg: InstanceConfig) -> InfraProvider:

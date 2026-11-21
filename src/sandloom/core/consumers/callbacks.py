@@ -73,10 +73,14 @@ def consumer_group_name(name: str, module: str | None, group: str | None) -> str
 
     An explicit ``group`` wins (an operator pin, e.g. to keep a pre-0.4 group).
     Otherwise the group is namespaced by the registering module --
-    ``<module>:<name>`` -- so two modules (or the same module deployed in two
-    services) choosing the same ``name`` never share one group and split each
-    other's events. A consumer registered directly on a bare facade (no owning
-    module: tests, scripts) keeps the bare ``name``.
+    ``<module>:<name>`` -- so two modules choosing the same ``name`` never
+    share one group and split each other's events. The same module in two
+    services resolves to the SAME group: the processes share it only when they
+    claim events in the same physical database, else the group-owner check
+    refuses startup. A consumer registered directly on a bare facade (no owning
+    module: tests, scripts) keeps the bare ``name``. The group is derived from
+    ``name`` (an ``@on`` handler's function name by default): renaming it
+    creates a new group, which starts at ``start_from`` with its own inbox.
     """
     if group:
         return group
