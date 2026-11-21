@@ -138,3 +138,8 @@ outlive its block. Two `sandloom check` rules say it for business modules.
 - Row-level security is the strong boundary. This guard is a second layer for databases without
   it, and for the paths RLS does not see. On a `tenant_rls` database the database still scopes every
   statement to the bound tenant.
+
+## Related
+
+- [Multi-tenancy](../modules/database/multi-tenancy.md): how modules use `TenantScoped`, `bind_tenant` and `unscoped()`.
+- [ADR-0011: driver API](0011-driver-api.md): the `tenant_rls` database option.
