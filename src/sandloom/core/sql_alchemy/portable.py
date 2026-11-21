@@ -1401,7 +1401,10 @@ def conflict_insert(table: Any, *, session: AsyncSession) -> ConflictInsert:
 
     On a ``TenantScoped`` model the tenant guard admits the statement once it
     has ``.on_conflict_do_nothing()`` / ``.on_conflict_do_update()``, for the
-    bound tenant's rows only (``sandloom.core.tenant._admit_conflict_insert``).
+    bound tenant's rows only (``sandloom.core.tenant._admit_conflict_insert``),
+    in one form: the rows are in ``.values()``, the statement runs with no
+    execution parameters, and ``tenant_id`` is absent or the bound tenant's id
+    as a plain value.
     """
     return conflict_insert_for(session, table)
 

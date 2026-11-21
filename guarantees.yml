@@ -69,20 +69,26 @@ guarantees:
   statement: Under a bound tenant, bulk INSERTs without an ON CONFLICT clause, bulk UPDATEs that change
     tenant_id (values or ordered_values) and bulk-by-primary-key UPDATEs on a TenantScoped model raise
     UnsafeTenantOperationError; they are only allowed inside explicit unscoped(). The one admitted bulk
-    INSERT is conflict_insert with an ON CONFLICT clause, for the bound tenant's rows only; it sets a
-    missing tenant_id, refuses another tenant's (a literal, a row of execution parameters or a named
-    bound parameter resolved from them) and any run with no tenant bound, and its DO UPDATE never changes
-    another tenant's row. set_ naming tenant_id, from_select, a subquery and the Table form are refused.
-    After admission the tenant_id slot is a reserved bind holding the bound tenant, which no execution
-    row can reach.
+    INSERT is conflict_insert with an ON CONFLICT clause, for the bound tenant's rows only, in one form,
+    with the rows in .values() and no execution parameters (any params dict or list is refused). It sets a missing tenant_id; a tenant_id in .values() must be the bound tenant's id
+    as a plain value, so another tenant's id, a bind, a literal or an expression is refused, as is any
+    run with no tenant bound. Its DO UPDATE never changes another tenant's row. set_ naming tenant_id,
+    from_select, a subquery and the Table form are refused. The tenant_id slot is a reserved bind
+    holding the bound tenant, and a statement holding any other bind of that name (or of the DO UPDATE
+    scope's) is refused.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
   - tests/sdk/test_conflict_insert_tenant.py::test_a_bind_shared_between_tenant_id_and_another_column_is_refused
-  - tests/sdk/test_conflict_insert_tenant.py::test_the_reserved_tenant_parameter_name_is_refused_in_a_row
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_bind_with_a_reserved_name_outside_the_slot_is_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_the_tenant_slot_renders_as_the_reserved_bind_in_every_form
-  - tests/sdk/test_conflict_insert_tenant.py::test_a_named_tenant_parameter_naming_another_tenant_is_refused
-  - tests/sdk/test_conflict_insert_tenant.py::test_a_callable_tenant_parameter_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_any_execution_parameters_are_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_execution_parameters_cannot_reach_a_named_tenant_parameter
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_tenant_id_that_is_not_a_plain_bound_value_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_multi_row_values_with_a_bind_for_tenant_id_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_an_attribute_mapped_onto_tenant_id_cannot_carry_another_tenant
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_multi_row_values_with_several_rows_is_admitted
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_subquery_in_a_multi_row_values_is_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_set_cannot_change_tenant_id
   - tests/sdk/test_conflict_insert_tenant.py::test_set_to_the_whole_excluded_row_cannot_change_tenant_id
   - tests/sdk/test_conflict_insert_tenant.py::test_from_select_is_refused

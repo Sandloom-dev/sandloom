@@ -111,14 +111,17 @@ for explicit `unscoped()` system work, except the upsert below.
 
 `conflict_insert(Model, session=...)` with `on_conflict_do_nothing()` or
 `on_conflict_do_update()` is admitted under a bound tenant, for that tenant's
-rows only:
+rows only, in one form: the rows are in `.values()`.
 
-- a row without `tenant_id` gets the bound tenant; one that names another
-  tenant raises `UnsafeTenantOperationError`. A named parameter for
-  `tenant_id` (`bindparam("t")`, default or not) is read from every row of the
-  execution parameters. The row value wins over the default, so it must be the
-  bound tenant. Rows without the key use the default, checked the same way.
-  Callable-valued ones are refused;
+- the statement runs with no execution parameters. A params dict or list, even
+  an empty one (`session.execute(stmt, rows)`), raises
+  `UnsafeTenantOperationError`. Pass the rows in `.values()`: one dict for one
+  row, a list of dicts for several;
+- a row without `tenant_id` gets the bound tenant. A `tenant_id` in `.values()`
+  must be the bound tenant's id as a plain Python value (a `UUID` or its
+  string). Another tenant's id raises `UnsafeTenantOperationError`. So does a
+  `bindparam`, a `literal()`, a callable or any expression, whatever it holds.
+  Another attribute mapped onto the `tenant_id` column counts as `tenant_id`;
 - `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`.
   A conflict on another tenant's row (a unique key that does not lead with
   `tenant_id`) then updates nothing and inserts nothing;
@@ -132,12 +135,16 @@ rows only:
 `from_select`, a subquery in the statement and a plain `INSERT` without an
 `ON CONFLICT` clause stay refused. Pass the model class: the `Table` of a
 tenant model is a Core statement and stays refused. A `text()` fragment inside
-`set_` is not inspected; it is trusted code, like any raw SQL.
+`set_` is not inspected beyond the reserved bind names below; it is trusted
+code, like any raw SQL.
 
-Once admitted, the `tenant_id` of the row is a fresh parameter that holds the
-bound tenant, so no execution row can change it. Reusing the parameter object
-given for `tenant_id` elsewhere in the statement is refused. So is a row that
-names `sandloom_bound_tenant__`, a reserved name.
+Once admitted, the `tenant_id` of each row is a bind named
+`sandloom_bound_tenant__` that holds the bound tenant. The `DO UPDATE` scope is
+a bind named `sandloom_upsert_tenant__`. Both names are reserved. The statement
+is refused when it holds any other bind of either name, wherever it sits: a
+column value, `set_`, `where=`, `index_where=`, `returning()` or `text()`.
+SQLAlchemy renders binds of one name once. The caller's value would replace the
+guard's.
 
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
 recognised tenant table is refused when it cannot be safely scoped, and
