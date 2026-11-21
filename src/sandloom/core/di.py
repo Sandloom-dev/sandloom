@@ -196,7 +196,7 @@ def module_database_of(import_name: object) -> str:
     core = get_active_core()
     if core is None or not isinstance(import_name, str):
         return "default"
-    return core.database_of_import(import_name) or "default"
+    return core._database_of_import(import_name) or "default"
 
 
 async def _yield_from_provider(

@@ -66,14 +66,23 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_insert_without_tenant_fails_closed
   - src/sandloom/core/tests/test_tenant_isolation.py::test_insert_cannot_target_another_tenant
 - id: G-TENANT-05
-  statement: Under a bound tenant, bulk INSERTs, bulk UPDATEs that change tenant_id (values or ordered_values)
-    and bulk-by-primary-key UPDATEs on a TenantScoped model raise UnsafeTenantOperationError; they are
-    only allowed inside explicit unscoped(). The one admitted bulk INSERT is conflict_insert with an
-    ON CONFLICT clause, for the bound tenant's rows only; it sets a missing tenant_id, refuses another
-    tenant's and with no tenant bound, and its DO UPDATE never changes another tenant's row.
+  statement: Under a bound tenant, bulk INSERTs without an ON CONFLICT clause, bulk UPDATEs that change
+    tenant_id (values or ordered_values) and bulk-by-primary-key UPDATEs on a TenantScoped model raise
+    UnsafeTenantOperationError; they are only allowed inside explicit unscoped(). The one admitted bulk
+    INSERT is conflict_insert with an ON CONFLICT clause, for the bound tenant's rows only; it sets a
+    missing tenant_id, refuses another tenant's (a literal, a row of execution parameters or a named
+    bound parameter resolved from them) and any run with no tenant bound, and its DO UPDATE never changes
+    another tenant's row. set_ naming tenant_id, from_select, a subquery and the Table form are refused.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_named_tenant_parameter_naming_another_tenant_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_callable_tenant_parameter_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_set_cannot_change_tenant_id
+  - tests/sdk/test_conflict_insert_tenant.py::test_set_to_the_whole_excluded_row_cannot_change_tenant_id
+  - tests/sdk/test_conflict_insert_tenant.py::test_from_select_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_subquery_in_the_upsert_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_the_table_form_of_a_tenant_model_stays_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_upsert_without_tenant_id_inserts_then_updates_for_the_bound_tenant
   - tests/sdk/test_conflict_insert_tenant.py::test_upsert_naming_another_tenant_is_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_a_conflict_with_another_tenants_row_does_not_update_it

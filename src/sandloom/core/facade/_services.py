@@ -355,10 +355,13 @@ class _ServicesMixin(_FacadeState):
                 return self._module_database(name)
         return "default"
 
-    def database_of_import(self, import_name: str) -> str | None:
+    def _database_of_import(self, import_name: str) -> str | None:
         """The database of the loaded module whose package holds ``import_name``
         (``sandloom_billing.tasks`` -> billing's), the same resolution a
-        contract's unit uses; ``None`` when no loaded module holds it.
+        contract's unit uses; ``None`` when no loaded module holds it. Kernel
+        internal: ``sandloom.core.di.module_database_of`` is its one caller.
+        A module with several databases and no ``migrations_database`` raises
+        ``MigrationTargetError`` here, as for its contracts.
 
         The longest matching module name wins (a module nested in another's
         package).

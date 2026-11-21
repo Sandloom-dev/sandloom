@@ -42,6 +42,7 @@ from sandloom.core.projections.tokens import (
 )
 from sandloom.core.sql_alchemy.models.projection_watermark import ProjectionWatermark
 from sandloom.core.unit_of_work.scope import _OUTBOX_PENDING_KEY, _PendingEvent
+from sandloom.sdk._decl._owner import OWNER_ATTR
 from sandloom.sdk.errors import ProjectionDefinitionError
 from sandloom.sdk.projections import (
     ConsistencyToken,
@@ -400,8 +401,11 @@ async def test_rebuild_entity_applies_one_aggregate_and_checks_its_ref(
             NoteSaved(note_id=two, tenant_id=tenant_id, title="two", version=1),
         ]
 
+    opened_for: list[str | None] = []
+
     @asynccontextmanager
-    async def same_session() -> AsyncIterator[Any]:
+    async def same_session(*, module: str | None = None) -> AsyncIterator[Any]:
+        opened_for.append(module)
         yield index_db
 
     monkeypatch.setattr(decl, "open_uow", same_session)
@@ -427,6 +431,11 @@ async def test_rebuild_entity_applies_one_aggregate_and_checks_its_ref(
     with bind_tenant(tenant):
         index_db.expire_all()
         assert await index_db.get(NoteIndex, (tenant, two)) is not None
+    # Every unit the rebuild opened (per tenant and the tenant listing) was
+    # opened for the projection's owner, not for the module calling rebuild.
+    owner = getattr(projection, OWNER_ATTR)
+    assert len(opened_for) >= 3
+    assert set(opened_for) == {owner}
 
 
 # -- consistency tokens ------------------------------------------------------------

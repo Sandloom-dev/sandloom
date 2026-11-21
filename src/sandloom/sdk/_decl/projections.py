@@ -35,6 +35,7 @@ import base64
 import binascii
 import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, Literal, Protocol, TypeVar, cast
@@ -42,6 +43,7 @@ from uuid import UUID
 
 from fastapi import Request, Response, params
 from sqlalchemy import case, delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk._decl._owner import OWNER_ATTR, caller_module
 from sandloom.sdk._decl.errors import ProjectionDefinitionError
@@ -626,6 +628,13 @@ class ProjectionRebuilderFromContract:
     def __init__(self, projection: Projection) -> None:
         self.projection = projection
 
+    def _open(self) -> AbstractAsyncContextManager[AsyncSession]:
+        """A unit of work on the projection owner's primary database: the
+        rebuild runs where the projection's table lives, not in the module
+        that happens to call it (``open_uow()`` alone would resolve this
+        file's module)."""
+        return open_uow(module=str(getattr(self.projection, OWNER_ATTR)))
+
     def _call(self) -> BoundContractMethod:
         source = self.projection.rebuild_from
         if callable(source):
@@ -664,7 +673,7 @@ class ProjectionRebuilderFromContract:
         rows = 0
         with bind_tenant(tenant_id):
             items = await call(tenant_id)
-            async with open_uow() as session:
+            async with self._open() as session:
                 for item in items:
                     group, event, mapper = self._decode(item)
                     if aggregate is not None and (
@@ -684,7 +693,7 @@ class ProjectionRebuilderFromContract:
                 "list its tenants; rebuild(name, tenant_id=...) per tenant"
             )
         column = cast(Any, model).__table__.c["tenant_id"]
-        async with open_uow() as session:
+        async with self._open() as session:
             with unscoped():
                 found = await session.execute(select(column).distinct())
             return [row[0] for row in found]

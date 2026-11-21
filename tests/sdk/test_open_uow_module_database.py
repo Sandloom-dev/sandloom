@@ -17,7 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import sandloom.core.di as di
 import sandloom.sdk._prim.data as data_prim
-from sandloom.core.descriptors import ModuleDescriptor
+from sandloom.core.descriptors import (
+    CapabilityRequirement,
+    MigrationTargetError,
+    ModuleDescriptor,
+)
 from sandloom.core.facade import CoreFacade
 from sandloom.core.runtime import use_active_core
 from sandloom.sdk.data import open_uow
@@ -52,10 +56,11 @@ def _core(*descriptors: ModuleDescriptor) -> CoreFacade:
     return core
 
 
-def _called_from(module: str) -> Callable[..., Any]:
-    """``open_uow`` as code of the module named ``module`` calls it."""
+def _called_from(caller: str, **kwargs: Any) -> Callable[..., Any]:
+    """``open_uow`` as code of the module named ``caller`` calls it."""
     return eval(  # noqa: S307 - a lambda over a fixed globals dict, no input
-        "lambda *a: open_uow(*a)", {"__name__": module, "open_uow": open_uow}
+        "lambda *a: open_uow(*a, **kwargs)",
+        {"__name__": caller, "open_uow": open_uow, "kwargs": kwargs},
     )
 
 
@@ -105,6 +110,33 @@ def test_a_package_that_only_shares_a_name_prefix_is_not_the_module(
 def test_an_explicit_name_wins(two_databases: CoreFacade, opened: list[str]) -> None:
     _called_from(f"{NOTES_PACKAGE}.tasks")("analytics")
     assert opened == ["analytics"]
+
+
+def test_module_names_the_module_the_unit_acts_for(
+    two_databases: CoreFacade, opened: list[str]
+) -> None:
+    # The caller belongs to billing (default database); the unit is opened for
+    # notes, as a projection rebuild does for the projection's owner.
+    _called_from("app.modules.billing.tasks", module=f"{NOTES_PACKAGE}.projections")()
+    assert opened == ["notes_db"]
+
+
+def test_a_module_with_several_databases_and_no_primary_one_refuses(
+    opened: list[str],
+) -> None:
+    core = _core(
+        ModuleDescriptor(
+            name="app.modules.reports",
+            version="1",
+            capabilities=[
+                CapabilityRequirement("database", instance="a"),
+                CapabilityRequirement("database", instance="b"),
+            ],
+        )
+    )
+    with use_active_core(core), pytest.raises(MigrationTargetError):
+        _called_from("app.modules.reports.tasks")()
+    assert opened == []
 
 
 def test_code_of_no_loaded_module_gets_default(

@@ -61,8 +61,15 @@ on a named one. The module is the one whose package holds the calling code.
 Its primary database is where its migration chain lives (`migrations_database`,
 else its required `database` capability). Code that no loaded module holds,
 such as a script, gets `default`. So does a module whose `define_module(name=)`
-differs from its package: pass the database name there. It replaces today's ad-hoc sessions and is
-the only way to open a unit outside a request, a consumer or a contract.
+differs from its package: pass the database name there.
+
+A module that needs several databases, with `default` not among them and no
+`migrations_database`, has no primary one. `open_uow()` then raises
+`MigrationTargetError`, as that module's contracts do; declare
+`migrations_database` or pass the database name.
+
+`open_uow` replaces today's ad-hoc sessions. It is the only way to open a unit
+outside a request, a consumer or a contract.
 
 ## Ownership: one task per unit
 

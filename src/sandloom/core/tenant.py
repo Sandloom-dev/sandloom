@@ -201,7 +201,9 @@ def _references_tenant_scoped(statement: Any) -> bool:
     return verdict
 
 
-def _unsafe_core_reference(statement: Any) -> bool:
+def _unsafe_core_reference(
+    statement: Any, allowed: frozenset[Any] = frozenset()
+) -> bool:
     """Reject raw tenant sources while preserving ORM aliases and subqueries.
 
     SQLAlchemy also exposes an implicit *raw* FROM table for a selected ORM
@@ -209,19 +211,24 @@ def _unsafe_core_reference(statement: Any) -> bool:
     a raw alias of that table is a different source and remains unsafe. Nested
     SELECTs establish a fresh scope so an ORM source in a subquery cannot bless
     a raw tenant table in the outer query.
+
+    ``allowed`` sources (an upsert's own ``excluded`` alias) are not unsafe;
+    a walk with ``allowed`` is not cached.
     """
 
-    try:
-        cache_key = statement._generate_cache_key()
-        key = cache_key.key if cache_key is not None else None
-        if key is not None and key in _unsafe_core_cache:
-            return _unsafe_core_cache[key]
-    except Exception:  # noqa: BLE001 - an uncacheable statement is still checked
-        key = None
+    key = None
+    if not allowed:
+        try:
+            cache_key = statement._generate_cache_key()
+            key = cache_key.key if cache_key is not None else None
+            if key is not None and key in _unsafe_core_cache:
+                return _unsafe_core_cache[key]
+        except Exception:  # noqa: BLE001 - an uncacheable statement is still checked
+            key = None
     walk = _UnsafeCoreWalk(_tenant_tables(), Alias, SelectBase)
 
     try:
-        verdict = walk.unsafe(statement, frozenset())
+        verdict = walk.unsafe(statement, allowed)
     except Exception:  # noqa: BLE001 - fail closed for opaque tenant SQL
         verdict = True
     if key is not None:
@@ -428,11 +435,44 @@ def _owned_by(value: Any, tid: uuid.UUID) -> bool:
 
 
 def _is_unset(value: Any) -> bool:
-    """A tenant_id of ``None`` (a plain value or a literal bound parameter)
-    stands for an absent one, as on the ORM add path."""
-    if isinstance(value, BindParameter):
-        return value.value is None and value.callable is None
+    """Only a literal ``None`` stands for an absent tenant_id, as on the ORM
+    add path. A named bound parameter is never unset: its value arrives with
+    the execution parameters (see :func:`_checked_tenant_value`)."""
     return value is None
+
+
+def _execution_rows(params: Any) -> list[dict[Any, Any]]:
+    """The execution parameters as a list of row dicts."""
+    if not params:
+        return []
+    return list(params) if isinstance(params, (list, tuple)) else [params]
+
+
+def _checked_tenant_value(
+    value: Any, tid: uuid.UUID, rows: list[dict[Any, Any]], model: str
+) -> Any:
+    """``value`` of a ``tenant_id`` slot, the bound tenant's or refused.
+
+    A literal ``None`` becomes the bound tenant. A bound parameter with a
+    literal value is compared as is; one whose value comes from the execution
+    parameters is looked up in every row there (a row without it is left to
+    SQLAlchemy's own missing-parameter error); a callable-valued one cannot be
+    checked and is refused."""
+    if _is_unset(value):
+        return tid
+    if isinstance(value, BindParameter):
+        if value.callable is not None:
+            raise _mismatch(model)
+        if value.value is None and value.required:
+            for row in rows:
+                if value.key in row and not _owned_by(row[value.key], tid):
+                    raise _mismatch(model)
+            return value
+        if value.value is None:
+            return tid
+    if not _owned_by(value, tid):
+        raise _mismatch(model)
+    return value
 
 
 def _mismatch(model: str) -> UnsafeTenantOperationError:
@@ -443,9 +483,18 @@ def _mismatch(model: str) -> UnsafeTenantOperationError:
     )
 
 
-def _tenant_row(row: Any, tid: uuid.UUID, model: str) -> dict[Any, Any]:
+def _tenant_row(
+    row: Any,
+    tid: uuid.UUID,
+    model: str,
+    rows: list[dict[Any, Any]],
+    *,
+    fill: bool = True,
+) -> dict[Any, Any]:
     """One INSERT row with its ``tenant_id`` the bound tenant: absent or
-    ``None`` is set, another tenant's id is refused."""
+    ``None`` is set (unless ``fill`` is off: the statement's own ``.values()``
+    names the column), another tenant's id is refused. ``rows`` are the
+    execution parameters a named bound parameter is resolved against."""
     if not isinstance(row, dict):
         raise UnsafeTenantOperationError(
             f"INSERT ... ON CONFLICT on TenantScoped model {model} takes its "
@@ -456,14 +505,27 @@ def _tenant_row(row: Any, tid: uuid.UUID, model: str) -> dict[Any, Any]:
     for key, value in row.items():
         if "tenant_id" in _key_names(key):
             seen = True
-            if _is_unset(value):
-                value = tid
-            elif not _owned_by(value, tid):
-                raise _mismatch(model)
+            value = _checked_tenant_value(value, tid, rows, model)
         checked[key] = value
-    if not seen:
+    if not seen and fill:
         checked["tenant_id"] = tid
     return checked
+
+
+def _own_excluded(stmt: Any) -> frozenset[Any]:
+    """The statement's own ``excluded`` alias (``stmt.excluded``, the row a
+    ``DO UPDATE`` proposes) as the ``DO UPDATE`` clause references it: an alias
+    named ``excluded`` of the insert's target table, nothing else."""
+    clause = stmt._post_values_clause
+    if getattr(clause, "update_values_to_set", None) is None:
+        return frozenset()
+    return frozenset(
+        table
+        for node in visitors.iterate(clause)
+        if isinstance(table := getattr(node, "table", None), Alias)
+        and table.name == "excluded"
+        and table.element is stmt.table
+    )
 
 
 def _refuse_unscopable(stmt: Any, models: str) -> Any:
@@ -497,23 +559,26 @@ def _scope_insert_rows(state: Any, stmt: Any, tid: uuid.UUID, models: str) -> An
     checked in ``.values()``, a multi-row ``.values()`` and the execution
     parameters, which are replaced on ``state``)."""
     scoped = stmt._generate()
+    execution = _execution_rows(state.parameters)
+    named = False
     for key, value in (stmt._values or {}).items():
-        if "tenant_id" in _key_names(key) and not (
-            _is_unset(value) or _owned_by(value, tid)
-        ):
-            raise _mismatch(models)
+        if "tenant_id" in _key_names(key):
+            named = True
+            _checked_tenant_value(value, tid, execution, models)
     if stmt._multi_values:
         scoped._multi_values = tuple(
-            [_tenant_row(row, tid, models) for row in rows]
+            [_tenant_row(row, tid, models, execution) for row in rows]
             for rows in stmt._multi_values
         )
-    elif state.parameters:
-        params = state.parameters
-        if isinstance(params, (list, tuple)):
-            state.parameters = [_tenant_row(row, tid, models) for row in params]
-        else:
-            state.parameters = _tenant_row(params, tid, models)
-    else:
+    elif execution:
+        rows = [
+            _tenant_row(row, tid, models, execution, fill=not named)
+            for row in execution
+        ]
+        state.parameters = (
+            rows if isinstance(state.parameters, (list, tuple)) else rows[0]
+        )
+    elif not named:
         scoped = scoped.values(tenant_id=tid)
     return scoped
 
@@ -541,6 +606,12 @@ def _admit_conflict_insert(state: Any, tenant_mappers: list[Any]) -> None:
             "trusted system imports"
         )
     stmt = state.statement
+    if _unsafe_core_reference(stmt, _own_excluded(stmt)):
+        raise UnsafeTenantOperationError(
+            "Core statements on TenantScoped tables cannot be automatically "
+            "scoped; use the ORM entity or explicit unscoped() for trusted "
+            "system access"
+        )
     updates = _refuse_unscopable(stmt, models)
     scoped = _scope_insert_rows(state, stmt, tid, models)
     if updates is not None:
@@ -712,6 +783,11 @@ def install_tenant_guard() -> None:  # noqa: C901
             if isinstance(mapper.class_, type)
             and issubclass(mapper.class_, TenantScoped)
         ]
+        if state.is_insert and tenant_mappers and _is_conflict_insert(state.statement):
+            # Runs its own Core-reference walk: the upsert's ``excluded`` alias
+            # is raw by construction and admitted there, nothing else is.
+            _admit_conflict_insert(state, tenant_mappers)
+            return
         if (
             state.is_select or state.is_update or state.is_delete or state.is_insert
         ) and _unsafe_core_reference(state.statement):
@@ -723,9 +799,6 @@ def install_tenant_guard() -> None:  # noqa: C901
                 "system access"
             )
         if state.is_insert and tenant_mappers:
-            if _is_conflict_insert(state.statement):
-                _admit_conflict_insert(state, tenant_mappers)
-                return
             raise UnsafeTenantOperationError(
                 "bulk INSERT of TenantScoped models is forbidden; use ORM "
                 "instances so tenant ownership is enforced, or explicit "

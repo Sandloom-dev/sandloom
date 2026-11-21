@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import Text, insert, select
+from sqlalchemy import Text, bindparam, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -176,6 +176,103 @@ async def test_execution_parameters_are_checked_and_filled_per_row(items) -> Non
     found = await _rows(sessions)
     assert found[mine] == (tenant_a, "mine")
     assert foreign not in found
+
+
+def _named(session: AsyncSession):
+    """``tenant_id`` is a named bound parameter, its value comes at execution."""
+    return (
+        conflict_insert(_Item, session=session)
+        .values(id=bindparam("i"), name=bindparam("n"), tenant_id=bindparam("t"))
+        .on_conflict_do_nothing(index_elements=["id"])
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_named_tenant_parameter_naming_another_tenant_is_refused(
+    items,
+) -> None:
+    sessions, tenant_a, tenant_b, _ = items
+    mine, foreign = uuid.uuid4(), uuid.uuid4()
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                await session.execute(
+                    _named(session),
+                    [
+                        {"i": mine, "n": "mine", "t": tenant_a},
+                        {"i": foreign, "n": "foreign", "t": tenant_b},
+                    ],
+                )
+        async with sessions() as session:
+            with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                await session.execute(
+                    _named(session), {"i": foreign, "n": "foreign", "t": tenant_b}
+                )
+    assert not {mine, foreign} & set(await _rows(sessions))
+
+
+@pytest.mark.asyncio
+async def test_a_named_tenant_parameter_naming_the_bound_tenant_is_admitted(
+    items,
+) -> None:
+    sessions, tenant_a, _, _ = items
+    mine = uuid.uuid4()
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            await session.execute(
+                _named(session), [{"i": mine, "n": "mine", "t": tenant_a}]
+            )
+            await session.commit()
+    assert (await _rows(sessions))[mine] == (tenant_a, "mine")
+
+
+@pytest.mark.asyncio
+async def test_a_callable_tenant_parameter_is_refused(items) -> None:
+    sessions, tenant_a, tenant_b, _ = items
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            callable_tenant = (
+                conflict_insert(_Item, session=session)
+                .values(
+                    id=uuid.uuid4(),
+                    name="x",
+                    tenant_id=bindparam("t", callable_=lambda: tenant_b),
+                )
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+            with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                await session.execute(callable_tenant)
+
+
+@pytest.mark.asyncio
+async def test_set_may_read_the_proposed_row_through_excluded(items) -> None:
+    sessions, tenant_a, _, a_id = items
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            insert = conflict_insert(_Item, session=session).values(
+                id=a_id, name="from-excluded"
+            )
+            await session.execute(
+                insert.on_conflict_do_update(
+                    index_elements=["id"], set_={"name": insert.excluded.name}
+                )
+            )
+            await session.commit()
+    assert (await _rows(sessions))[a_id] == (tenant_a, "from-excluded")
+
+
+@pytest.mark.asyncio
+async def test_set_to_the_whole_excluded_row_cannot_change_tenant_id(items) -> None:
+    sessions, tenant_a, _, a_id = items
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            insert = conflict_insert(_Item, session=session).values(id=a_id, name="x")
+            with pytest.raises(UnsafeTenantOperationError, match="tenant_id"):
+                await session.execute(
+                    insert.on_conflict_do_update(
+                        index_elements=["id"], set_=insert.excluded
+                    )
+                )
 
 
 @pytest.mark.asyncio

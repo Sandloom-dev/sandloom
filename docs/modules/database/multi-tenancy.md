@@ -114,15 +114,23 @@ for explicit `unscoped()` system work, except the upsert below.
 rows only:
 
 - a row without `tenant_id` gets the bound tenant; one that names another
-  tenant raises `UnsafeTenantOperationError`;
+  tenant raises `UnsafeTenantOperationError`. A named bound parameter for
+  `tenant_id` (`bindparam("t")`) is looked up in every row of the execution
+  parameters and must be the bound tenant; a callable-valued one is refused;
 - `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`.
   A conflict on another tenant's row (a unique key that does not lead with
   `tenant_id`) then updates nothing and inserts nothing;
-- with no tenant bound it raises `UnsafeTenantOperationError`;
-- `set_` that names `tenant_id`, `from_select`, a subquery in the statement
-  and a plain `INSERT` without an `ON CONFLICT` clause stay refused;
-- pass the model class: the `Table` of a tenant model is a Core statement and
-  stays refused.
+- `on_conflict_do_nothing` skips such a row without an error: check the result
+  when a skipped row matters;
+- `set_` may read the proposed row through `stmt.excluded`, for example
+  `{"name": stmt.excluded.name}`. It never changes `tenant_id`: `set_` that
+  names it, or is the whole `stmt.excluded`, is refused;
+- with no tenant bound it raises `UnsafeTenantOperationError`.
+
+`from_select`, a subquery in the statement and a plain `INSERT` without an
+`ON CONFLICT` clause stay refused. Pass the model class: the `Table` of a
+tenant model is a Core statement and stays refused. A `text()` fragment inside
+`set_` is not inspected; it is trusted code, like any raw SQL.
 
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
 recognised tenant table is refused when it cannot be safely scoped, and
