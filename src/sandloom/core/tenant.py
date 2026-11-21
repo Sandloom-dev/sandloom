@@ -38,8 +38,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
-from sqlalchemy.sql.elements import BindParameter
+from sqlalchemy.sql.elements import BindParameter, ClauseElement
 from sqlalchemy.sql.selectable import Alias, SelectBase
+from sqlalchemy.util import immutabledict
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
@@ -414,6 +415,10 @@ def _key_names(key: Any) -> list[str]:
 #: :data:`TENANT_CRITERIA_PARAM`).
 UPSERT_TENANT_PARAM = "sandloom_upsert_tenant__"
 
+#: Bound-parameter name of the bound tenant in a conflict insert's
+#: ``tenant_id`` slot. Reserved: an execution row that carries it is refused.
+BOUND_TENANT_PARAM = "sandloom_bound_tenant__"
+
 
 def _is_conflict_insert(statement: Any) -> bool:
     """An INSERT that carries an ``ON CONFLICT`` clause (what
@@ -492,12 +497,15 @@ def _tenant_row(
     model: str,
     rows: list[dict[Any, Any]],
     *,
+    fixed: Any,
     fill: bool = True,
 ) -> dict[Any, Any]:
-    """One INSERT row with its ``tenant_id`` the bound tenant: absent or
-    ``None`` is set (unless ``fill`` is off: the statement's own ``.values()``
-    names the column), another tenant's id is refused. ``rows`` are the
-    execution parameters a named bound parameter is resolved against."""
+    """One INSERT row whose ``tenant_id`` is ``fixed`` (the bound tenant as a
+    plain value, or as the reserved bind): absent or ``None`` is set (unless
+    ``fill`` is off: the statement's own ``.values()`` names the column), the
+    bound tenant's own is replaced by ``fixed``, another tenant's id is
+    refused. ``rows`` are the execution parameters a named bound parameter
+    is resolved against."""
     if not isinstance(row, dict):
         raise UnsafeTenantOperationError(
             f"INSERT ... ON CONFLICT on TenantScoped model {model} takes its "
@@ -508,10 +516,11 @@ def _tenant_row(
     for key, value in row.items():
         if "tenant_id" in _key_names(key):
             seen = True
-            value = _checked_tenant_value(value, tid, rows, model)
+            _checked_tenant_value(value, tid, rows, model)
+            value = fixed
         checked[key] = value
     if not seen and fill:
-        checked["tenant_id"] = tid
+        checked["tenant_id"] = fixed
     return checked
 
 
@@ -563,27 +572,83 @@ def _scope_insert_rows(state: Any, stmt: Any, tid: uuid.UUID, models: str) -> An
     parameters, which are replaced on ``state``)."""
     scoped = stmt._generate()
     execution = _execution_rows(state.parameters)
+    if any(BOUND_TENANT_PARAM in row for row in execution):
+        raise UnsafeTenantOperationError(
+            f"INSERT ... ON CONFLICT on TenantScoped model {models}: "
+            f"{BOUND_TENANT_PARAM!r} is reserved for the bound tenant"
+        )
+    # Whatever the checks below accept, the tenant_id slot of the statement is
+    # then this fresh bind under a reserved name: no execution parameter (and
+    # no bind object shared with another column) can reach it.
+    slot = bindparam(BOUND_TENANT_PARAM, value=tid, type_=Uuid())
+    tenant_binds: list[Any] = []
+    values = dict(stmt._values or {})
     named = False
-    for key, value in (stmt._values or {}).items():
+    for key, value in values.items():
         if "tenant_id" in _key_names(key):
             named = True
             _checked_tenant_value(value, tid, execution, models)
-    if stmt._multi_values:
-        scoped._multi_values = tuple(
-            [_tenant_row(row, tid, models, execution) for row in rows]
-            for rows in stmt._multi_values
+            tenant_binds.append(value)
+            values[key] = slot
+    if named:
+        scoped._values = immutabledict(values)
+    multi: tuple[list[dict[Any, Any]], ...] = ()
+    for rows in stmt._multi_values or ():
+        for row in rows:
+            tenant_binds.extend(
+                value for key, value in row.items() if "tenant_id" in _key_names(key)
+            )
+        multi += (
+            [_tenant_row(row, tid, models, execution, fixed=slot) for row in rows],
         )
+    _refuse_shared_tenant_binds(stmt, tenant_binds, models)
+    if multi:
+        scoped._multi_values = multi
     elif execution:
         rows = [
-            _tenant_row(row, tid, models, execution, fill=not named)
+            _tenant_row(row, tid, models, execution, fixed=tid, fill=not named)
             for row in execution
         ]
         state.parameters = (
             rows if isinstance(state.parameters, (list, tuple)) else rows[0]
         )
     elif not named:
-        scoped = scoped.values(tenant_id=tid)
+        scoped = scoped.values(tenant_id=slot)
     return scoped
+
+
+def _refuse_shared_tenant_binds(
+    stmt: Any, tenant_binds: list[Any], models: str
+) -> None:
+    """Refuse a bind object given for ``tenant_id`` that the statement uses
+    anywhere else (another column, ``set_``, a ``WHERE``): SQLAlchemy renders
+    one anonymous bind under one name, so a value meant for the other place
+    would be written to ``tenant_id`` too."""
+    binds = {id(bind) for bind in tenant_binds if isinstance(bind, BindParameter)}
+    if not binds:
+        return
+    others: list[Any] = [
+        value
+        for key, value in (stmt._values or {}).items()
+        if "tenant_id" not in _key_names(key)
+    ]
+    for rows in stmt._multi_values or ():
+        others.extend(
+            value
+            for row in rows
+            for key, value in row.items()
+            if "tenant_id" not in _key_names(key)
+        )
+    others.append(stmt._post_values_clause)
+    for other in others:
+        if isinstance(other, ClauseElement) and any(
+            id(node) in binds for node in visitors.iterate(other)
+        ):
+            raise UnsafeTenantOperationError(
+                f"INSERT ... ON CONFLICT on TenantScoped model {models} uses "
+                "the bound parameter given for tenant_id in another column or "
+                "clause; give tenant_id its own parameter"
+            )
 
 
 def _admit_conflict_insert(state: Any, tenant_mappers: list[Any]) -> None:

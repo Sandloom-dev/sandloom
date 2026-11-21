@@ -134,6 +134,11 @@ rows only:
 tenant model is a Core statement and stays refused. A `text()` fragment inside
 `set_` is not inspected; it is trusted code, like any raw SQL.
 
+Once admitted, the `tenant_id` of the row is a fresh parameter that holds the
+bound tenant, so no execution row can change it. Reusing the parameter object
+given for `tenant_id` elsewhere in the statement is refused. So is a row that
+names `sandloom_bound_tenant__`, a reserved name.
+
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
 recognised tenant table is refused when it cannot be safely scoped, and
 runtime raw SQL in a business module needs an explicit `unscoped()` admission

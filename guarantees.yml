@@ -73,9 +73,14 @@ guarantees:
     missing tenant_id, refuses another tenant's (a literal, a row of execution parameters or a named
     bound parameter resolved from them) and any run with no tenant bound, and its DO UPDATE never changes
     another tenant's row. set_ naming tenant_id, from_select, a subquery and the Table form are refused.
+    After admission the tenant_id slot is a reserved bind holding the bound tenant, which no execution
+    row can reach.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_bind_shared_between_tenant_id_and_another_column_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_the_reserved_tenant_parameter_name_is_refused_in_a_row
+  - tests/sdk/test_conflict_insert_tenant.py::test_the_tenant_slot_renders_as_the_reserved_bind_in_every_form
   - tests/sdk/test_conflict_insert_tenant.py::test_a_named_tenant_parameter_naming_another_tenant_is_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_a_callable_tenant_parameter_is_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_set_cannot_change_tenant_id

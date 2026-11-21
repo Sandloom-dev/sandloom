@@ -16,7 +16,17 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import Text, Uuid, bindparam, cast, insert, literal, select, type_coerce
+from sqlalchemy import (
+    Text,
+    Uuid,
+    bindparam,
+    cast,
+    event,
+    insert,
+    literal,
+    select,
+    type_coerce,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -27,6 +37,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from sandloom.core.di import UnsafeTenantOperationError, bind_tenant, unscoped
 from sandloom.core.orm import TenantScoped
+from sandloom.core.tenant import BOUND_TENANT_PARAM
 from sandloom.core.testing import reload_test_env
 from sandloom.sdk.data import conflict_insert
 
@@ -361,6 +372,116 @@ async def test_a_multi_row_values_with_a_foreign_default_is_refused(items) -> No
                     .on_conflict_do_nothing(index_elements=["id"])
                 )
     assert not set(ids) & set(await _rows(sessions))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("update", [False, True])
+@pytest.mark.parametrize("many", [False, True])
+@pytest.mark.parametrize("form", ["literal", "unique"])
+async def test_a_bind_shared_between_tenant_id_and_another_column_is_refused(
+    items, form: str, many: bool, update: bool
+) -> None:
+    # SQLAlchemy renders one anonymous bind under the last column's name, so a
+    # row key meant for ``name`` would otherwise be written to ``tenant_id`` too.
+    sessions, tenant_a, tenant_b, _ = items
+    new_id = uuid.uuid4()
+    shared = (
+        literal(tenant_a, Uuid())
+        if form == "literal"
+        else bindparam("t", value=tenant_a, unique=True)
+    )
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            insert_ = conflict_insert(_Item, session=session).values(
+                id=new_id, name=shared, tenant_id=shared
+            )
+            statement = (
+                insert_.on_conflict_do_update(
+                    index_elements=["id"], set_={"name": "set-by-upsert"}
+                )
+                if update
+                else insert_.on_conflict_do_nothing(index_elements=["id"])
+            )
+            row = {"name": tenant_b}
+            with pytest.raises(UnsafeTenantOperationError, match="own parameter"):
+                await session.execute(statement, [row] if many else row)
+    assert new_id not in await _rows(sessions)
+
+
+@pytest.mark.asyncio
+async def test_a_bind_shared_with_set_is_refused(items) -> None:
+    sessions, tenant_a, _, a_id = items
+    shared = bindparam("t", value=tenant_a, unique=True)
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            statement = (
+                conflict_insert(_Item, session=session)
+                .values(id=a_id, name="x", tenant_id=shared)
+                .on_conflict_do_update(
+                    index_elements=["id"], set_={"name": cast(shared, Text)}
+                )
+            )
+            with pytest.raises(UnsafeTenantOperationError, match="own parameter"):
+                await session.execute(statement)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("many", [False, True])
+async def test_the_reserved_tenant_parameter_name_is_refused_in_a_row(
+    items, many: bool
+) -> None:
+    sessions, tenant_a, tenant_b, _ = items
+    new_id = uuid.uuid4()
+    row = {"id": new_id, "name": "x", BOUND_TENANT_PARAM: tenant_b}
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            statement = conflict_insert(_Item, session=session).on_conflict_do_nothing(
+                index_elements=["id"]
+            )
+            with pytest.raises(UnsafeTenantOperationError, match="reserved"):
+                await session.execute(statement, [row] if many else row)
+    assert new_id not in await _rows(sessions)
+
+
+@pytest.mark.asyncio
+async def test_the_tenant_slot_renders_as_the_reserved_bind_in_every_form(
+    items,
+) -> None:
+    sessions, tenant_a, _, _ = items
+    sent: list[list[str]] = []
+    engine = sessions.kw["bind"].sync_engine
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if "INSERT INTO test_conflict_tenant_items" in statement:
+            sent.append(list(context.compiled.params))
+
+    event.listen(engine, "before_cursor_execute", capture)
+    ids = [uuid.uuid4() for _ in range(3)]
+    try:
+        with bind_tenant(tenant_a):
+            async with sessions() as session:
+                # tenant_id in .values() as the bound tenant's own value
+                await session.execute(
+                    conflict_insert(_Item, session=session)
+                    .values(id=bindparam("i"), name=bindparam("n"), tenant_id=tenant_a)
+                    .on_conflict_do_nothing(index_elements=["id"]),
+                    [{"i": ids[0], "n": "one"}, {"i": ids[1], "n": "two"}],
+                )
+                # multi-row .values() with a literal tenant_id
+                await session.execute(
+                    conflict_insert(_Item, session=session)
+                    .values([{"id": ids[2], "name": "three", "tenant_id": tenant_a}])
+                    .on_conflict_do_nothing(index_elements=["id"])
+                )
+                await session.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    found = await _rows(sessions)
+    assert [found[i][0] for i in ids] == [tenant_a] * 3
+    # The compiled parameter names of each INSERT carry the reserved bind:
+    # the tenant slot is that bind, nothing a row can name.
+    assert len(sent) == 2
+    assert all(BOUND_TENANT_PARAM in names for names in sent), sent
 
 
 @pytest.mark.asyncio
