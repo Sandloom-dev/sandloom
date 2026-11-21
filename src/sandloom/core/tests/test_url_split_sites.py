@@ -69,6 +69,13 @@ def test_a_parsable_process_url_without_a_scheme_is_refused_without_its_password
     assert _SECRET not in str(raised.value)
 
 
+def test_a_process_url_with_no_scheme_at_all_is_refused_without_its_password() -> None:
+    """``user:pw@host:port`` has no ``://``: ``redact`` must not echo it."""
+    with pytest.raises(ValueError, match="invalid process HTTP URL") as raised:
+        _split_env(f"test_user:{_SECRET}@127.0.0.1:8000")
+    assert _SECRET not in str(raised.value)
+
+
 @pytest.mark.asyncio
 async def test_the_unreachable_database_warning_names_no_part_of_an_unparsable_url(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch

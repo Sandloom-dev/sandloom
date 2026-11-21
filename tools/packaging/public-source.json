@@ -1170,7 +1170,7 @@
         "packages/sandloom-celery/CHANGELOG.md",
         "packages/sandloom-celery/tests/_celery_broker_guard.py",
         "packages/sandloom-celery/tests/test_broker_guard.py",
-        "packages/sandloom-celery/tests/test_url_split_sites.py",
+        "packages/sandloom-celery/tests/test_celery_url_split_sites.py",
         "packages/sandloom-celery/tests/test_taskqueue_kit.py",
         "packages/sandloom-celery/tests/test_taskqueue_kit_host.py",
         "packages/sandloom-celery/tests/test_celery_cli_worker.py",
