@@ -718,6 +718,59 @@ def test_an_up_interrupted_before_its_own_checkout_is_written_stays_pending(
     assert done is not None and commands.REWRITE_PENDING not in done.external
 
 
+def test_a_new_checkout_interrupted_after_its_files_keeps_its_indexes_reserved(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """A new checkout's `.env` names its indexes as soon as the files are
+    written: its row is in the saved state by then, so an `up` that stops right
+    after (here: choosing the app port) leaves the pair reserved, the rewrite
+    marker pending, and a retry from another checkout neither hands the same
+    pair out again nor drops the marker before the new checkout is rewritten."""
+    root, _ = _external_up_with_rows(tmp_path, environ, monkeypatch, {})
+    _git(root, "add", "-A")
+    _git(
+        root,
+        "-c",
+        "user.email=t@example.com",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "-m",
+        "init",
+    )
+    first, second = tmp_path / "shop-first", tmp_path / "shop-second"
+    _git(root, "worktree", "add", "-q", str(first), "-b", "first")
+    _git(root, "worktree", "add", "-q", str(second), "-b", "second")
+    real = commands.ensure_app_port
+
+    def stop(*_a: Any, **_k: Any) -> int:
+        raise commands.DevError("interrupted")
+
+    monkeypatch.setattr(commands, "ensure_app_port", stop)
+    ctx = _ctx(first, environ)
+    with pytest.raises(commands.DevError, match="interrupted"):
+        commands.up(ctx, commands.UpOptions(kv_url="redis://127.0.0.1:6391"))
+    assert "6391" in (first / ".env").read_text(encoding="utf-8")  # files written
+    saved = load_state(ctx.state_dir)
+    assert saved is not None
+    row = saved.checkouts[str(first.resolve())]  # reserved before the files
+    assert saved.external[commands.REWRITE_PENDING]
+    monkeypatch.setattr(commands, "ensure_app_port", real)
+    assert commands.up(_ctx(second, environ), commands.UpOptions(kv_url=None)) == 0
+    done = load_state(ctx.state_dir)
+    assert done is not None
+    other = done.checkouts[str(second.resolve())]
+    assert not set(other.indexes) & set(row.indexes)
+    assert done.checkouts[str(first.resolve())].indexes == row.indexes
+    assert commands.REWRITE_PENDING not in done.external
+    for checkout in (root, first, second):
+        assert "6391" in (checkout / ".env").read_text(encoding="utf-8")
+
+
 def test_reset_and_prune_name_the_keyed_server_before_dropping_a_database(
     tmp_path: Path,
     environ: dict[str, str],

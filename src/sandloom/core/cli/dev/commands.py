@@ -1126,6 +1126,11 @@ def up_external(ctx: Context, options: UpOptions) -> int:
                 ) from exc
             if created:
                 ctx.say(f"created the database {row.database}")
+            # The row (its indexes) is saved before its files name them: an `up`
+            # stopped after the write leaves the pair reserved, and the next one
+            # rewrites this checkout's files with the others'. The marker is
+            # still in the state saved here.
+            save_state(ctx.state_dir, state)
             notes = write_checkout_files(ctx, state, row)
             if others_written:
                 del state.external[REWRITE_PENDING]
