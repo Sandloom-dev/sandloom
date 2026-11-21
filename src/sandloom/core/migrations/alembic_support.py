@@ -45,7 +45,8 @@ from typing import Any, Literal
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
-from sqlalchemy.engine import Dialect, make_url
+from sqlalchemy.engine import Connection, Dialect, make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.types import JSON, TypeDecorator, TypeEngine
 
 from sandloom.core.config.settings import settings
@@ -189,7 +190,14 @@ def run_migrations(
                     # run-wide lock): serialise concurrent runners for the
                     # duration of this chain's transaction.
                     connection.execute(lock.statement, lock.parameters)
-                context.run_migrations()
+                # After the advisory lock: the wait for it is the runner's own
+                # (MIGRATION_LOCK_TIMEOUT_SECONDS), not a table lock.
+                _bound_ddl_waits(connection)
+                try:
+                    context.run_migrations()
+                except DBAPIError as exc:
+                    _name_the_timeout_setting(exc)
+                    raise
     finally:
         connectable.dispose()
 
@@ -362,6 +370,61 @@ def _direct_run_lock(connection: Any, url: str) -> LockStatement | None:
     return optional_lock_statement_for(
         connection, MIGRATION_LOCK_KEY, scope="transaction", wait=True
     )
+
+
+#: SQLSTATEs of PostgreSQL's ``lock_not_available`` (``lock_timeout``, ``NOWAIT``)
+#: and ``query_canceled`` (``statement_timeout``, ``pg_cancel_backend``).
+_LOCK_NOT_AVAILABLE = "55P03"
+_QUERY_CANCELED = "57014"
+
+
+def _bound_ddl_waits(connection: Connection) -> None:
+    """Give the migration connection a ``lock_timeout`` and ``statement_timeout``.
+
+    PostgreSQL only. The values are session settings (``SET``, not ``SET
+    LOCAL``), so they outlive ``autocommit_block()``, which commits the
+    revision's transaction and opens another. A revision lifts one for its own
+    transaction with ``SET LOCAL lock_timeout = 0``; inside
+    ``autocommit_block()``, where there is no transaction, with ``SET
+    lock_timeout = 0`` and the old value put back afterwards (a concurrent
+    index build waits for every older snapshot, which the timeout would cut).
+    A zero value is written too: it overrides a server or role default.
+    """
+    if connection.dialect.name != "postgresql":
+        return
+    lock_ms = settings.migration_ddl_lock_timeout_ms
+    statement_ms = settings.migration_statement_timeout_ms
+    connection.exec_driver_sql(f"SET lock_timeout = {int(lock_ms)}")
+    connection.exec_driver_sql(f"SET statement_timeout = {int(statement_ms)}")
+
+
+def _name_the_timeout_setting(exc: DBAPIError) -> None:
+    """Raise a ``RuntimeError`` naming the setting to raise when ``exc`` is one
+    of the migration connection's own timeouts; return for any other error.
+    """
+    state = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
+    message = str(exc.orig).strip()
+    primary = message.splitlines()[0] if message else ""
+    lock_ms = settings.migration_ddl_lock_timeout_ms
+    if state == _LOCK_NOT_AVAILABLE and lock_ms and "lock timeout" in primary:
+        raise RuntimeError(
+            f"{primary}: a migration statement waited longer than "
+            f"MIGRATION_DDL_LOCK_TIMEOUT_MS={lock_ms} for a lock, which a "
+            "long transaction holds. Retry when it has ended, raise "
+            "MIGRATION_DDL_LOCK_TIMEOUT_MS (0 waits without a limit), or "
+            "lift it in the revision: `SET LOCAL lock_timeout = 0`, or inside "
+            "`autocommit_block()` `SET lock_timeout = 0` and the old value "
+            "put back afterwards"
+        ) from exc
+    statement_ms = settings.migration_statement_timeout_ms
+    if state == _QUERY_CANCELED and statement_ms and "statement timeout" in primary:
+        raise RuntimeError(
+            f"{primary}: a migration statement ran longer than "
+            f"MIGRATION_STATEMENT_TIMEOUT_MS={statement_ms}. Raise it (0 sets "
+            "no limit), or lift it in the revision: `SET LOCAL "
+            "statement_timeout = 0`, or inside `autocommit_block()` `SET "
+            "statement_timeout = 0` and the old value put back afterwards"
+        ) from exc
 
 
 def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:

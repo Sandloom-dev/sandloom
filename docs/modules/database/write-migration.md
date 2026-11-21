@@ -81,6 +81,11 @@ cannot know:
 - a new `NOT NULL` column on a table with rows needs a server default or a
   data step;
 - data migrations (backfills) are yours to write; keep them idempotent;
+- a table that is being served needs its DDL in steps (a concurrent index,
+  a `NOT VALID` constraint, a batched backfill): see
+  [Zero-downtime migrations](zero-downtime-migrations.md). The runner gives
+  every statement a `lock_timeout` of `MIGRATION_DDL_LOCK_TIMEOUT_MS` (5 s by
+  default), so a revision that waits longer for a lock fails;
 - RLS is added only for tables the revision **creates**. A table that
   becomes tenant-scoped later needs `enable_tenant_rls` by hand.
 
@@ -147,6 +152,8 @@ differ from the chain head fail (SANDLOOM-T006).
 
 - [Run migrations](run-migrations.md): applying chains in development and
   deployment.
+- [Zero-downtime migrations](zero-downtime-migrations.md): revisions for a
+  table the app is using.
 - [Migrations](migrations.md): core chain, module chains, one
   database per chain.
 - [Multi-tenancy](multi-tenancy.md): `TenantScoped` and RLS.
