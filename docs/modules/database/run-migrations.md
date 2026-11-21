@@ -59,6 +59,12 @@ serialise instead of racing. `--lock-timeout SECONDS` bounds the wait
 holder's pid, application name and query start are logged. It exits
 non-zero on any failure, which the deployment one-shot relies on.
 
+On PostgreSQL each chain's connection also runs with a `lock_timeout`
+(`MIGRATION_DDL_LOCK_TIMEOUT_MS`, default 5000) and a `statement_timeout`
+(`MIGRATION_STATEMENT_TIMEOUT_MS`, default 0, none). A revision whose `ALTER`
+waits longer than the lock timeout for a table fails instead of blocking the
+table's traffic. See [Zero-downtime migrations](zero-downtime-migrations.md).
+
 ### 3. Targeted commands
 
 ```bash
@@ -139,6 +145,9 @@ required table is missing.
   (check `SANDLOOM_COMPOSITION_ROOT` and `SANDLOOM_MODULES`).
 - A lock timeout: another migration runner holds the database's advisory
   lock; the log names its pid and query.
+- "a migration statement waited longer than MIGRATION_DDL_LOCK_TIMEOUT_MS": a
+  revision's DDL waited for a table lock that an open transaction holds. See
+  [Zero-downtime migrations](zero-downtime-migrations.md#the-timeouts-the-runner-sets).
 - "Refusing 'ensure-outbox --apply' in production": use `upgrade-core`.
 - [SANDLOOM-T002](../../reference/error-codes.md#sandloom-t002) in tests: a table is not
   created by its owning chain, so production would miss it.
@@ -146,6 +155,8 @@ required table is missing.
 ## Related
 
 - [Write a migration](write-migration.md).
+- [Zero-downtime migrations](zero-downtime-migrations.md): changing a table
+  that is being served.
 - [Migrations](migrations.md): core chain, module chains, one
   owner per table.
 - [Deployment](../../operate/deploy.md).

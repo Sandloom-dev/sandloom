@@ -118,6 +118,33 @@ class RuntimeConfig(BaseModel):
             "migration lock."
         ),
     )
+    # Per-connection PostgreSQL waits of the migration runner
+    # (sandloom.core.migrations.alembic_support): DDL queued behind a long
+    # transaction holds its lock request and stalls every later query on the
+    # table, so a revision's DDL gives up instead of waiting without a bound.
+    # Not MIGRATION_LOCK_TIMEOUT_SECONDS, which bounds the wait for the
+    # runner's own advisory lock between two migrators.
+    migration_ddl_lock_timeout_ms: int = Field(
+        default=5000,
+        ge=0,
+        alias="MIGRATION_DDL_LOCK_TIMEOUT_MS",
+        description=(
+            "PostgreSQL lock_timeout in milliseconds on the migration "
+            "connection, applied once the runner holds its advisory lock: a "
+            "revision's DDL that waits longer for a table lock fails instead "
+            "of queuing behind a long transaction; zero waits without a limit."
+        ),
+    )
+    migration_statement_timeout_ms: int = Field(
+        default=0,
+        ge=0,
+        alias="MIGRATION_STATEMENT_TIMEOUT_MS",
+        description=(
+            "PostgreSQL statement_timeout in milliseconds on the migration "
+            "connection; zero (the default) sets none, since a backfill or an "
+            "index build is legitimately long."
+        ),
+    )
     # Celery beat singleton lease (sandloom.core.worker.run_scheduler; always on,
     # held in the `lease` instance INFRA.lease.beat): a second
     # beat for the same broker + module set stands by instead of

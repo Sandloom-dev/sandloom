@@ -168,6 +168,8 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | --- | --- | --- | --- |
 | `SHUTDOWN_BUDGET_SECONDS` | `float` | `30.0` | Overall graceful-shutdown budget in seconds for application lifecycle cleanup. |
 | `MIGRATION_LOCK_TIMEOUT_SECONDS` | `float` | `300.0` | Maximum seconds migration commands wait to acquire the database migration lock. |
+| `MIGRATION_DDL_LOCK_TIMEOUT_MS` | `int` | `5000` | PostgreSQL lock_timeout in milliseconds on the migration connection, applied once the runner holds its advisory lock: a revision's DDL that waits longer for a table lock fails instead of queuing behind a long transaction; zero waits without a limit. |
+| `MIGRATION_STATEMENT_TIMEOUT_MS` | `int` | `0` | PostgreSQL statement_timeout in milliseconds on the migration connection; zero (the default) sets none, since a backfill or an index build is legitimately long. |
 | `BEAT_LEASE_TTL_SECONDS` | `int` | `30` | Lifetime in seconds of the renewable singleton lease used to prevent duplicate Celery beat scheduling. |
 | `BEAT_LEASE_NAME` | `str` | `""` | Lease scope; empty = derived from the broker URL, the taskqueue instance and the loaded module set (one beat per service). |
 | `HEALTH_CACHE_TTL_SECONDS` | `float` | `3.0` | Seconds public health and readiness reuse probe results; zero disables this cache. |

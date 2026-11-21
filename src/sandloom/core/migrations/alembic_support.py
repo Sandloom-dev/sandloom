@@ -45,12 +45,14 @@ from typing import Any, Literal
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
-from sqlalchemy.engine import Dialect, make_url
+from sqlalchemy.engine import Connection, Dialect, make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.types import JSON, TypeDecorator, TypeEngine
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.config import load_infra_config
+from sandloom.core.migrations.pg_sync import errors as pg_errors
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
 from sandloom.core.sql_alchemy.portable import (
@@ -189,7 +191,14 @@ def run_migrations(
                     # run-wide lock): serialise concurrent runners for the
                     # duration of this chain's transaction.
                     connection.execute(lock.statement, lock.parameters)
-                context.run_migrations()
+                # After the advisory lock: the wait for it is the runner's own
+                # (MIGRATION_LOCK_TIMEOUT_SECONDS), not a table lock.
+                _bound_ddl_waits(connection)
+                try:
+                    context.run_migrations()
+                except DBAPIError as exc:
+                    _name_the_timeout_setting(exc)
+                    raise
     finally:
         connectable.dispose()
 
@@ -362,6 +371,47 @@ def _direct_run_lock(connection: Any, url: str) -> LockStatement | None:
     return optional_lock_statement_for(
         connection, MIGRATION_LOCK_KEY, scope="transaction", wait=True
     )
+
+
+def _bound_ddl_waits(connection: Connection) -> None:
+    """Give the migration connection a ``lock_timeout`` and ``statement_timeout``.
+
+    PostgreSQL only. The values are session settings (``SET``, not ``SET
+    LOCAL``), so they outlive ``autocommit_block()``, which commits the
+    revision's transaction and opens another. A revision lifts one for its own
+    transaction with ``SET LOCAL lock_timeout = 0``. A zero value is written
+    too: it overrides a server or role default.
+    """
+    if connection.dialect.name != "postgresql":
+        return
+    lock_ms = settings.migration_ddl_lock_timeout_ms
+    statement_ms = settings.migration_statement_timeout_ms
+    connection.exec_driver_sql(f"SET lock_timeout = {int(lock_ms)}")
+    connection.exec_driver_sql(f"SET statement_timeout = {int(statement_ms)}")
+
+
+def _name_the_timeout_setting(exc: DBAPIError) -> None:
+    """Raise a ``RuntimeError`` naming the setting to raise when ``exc`` is one
+    of the migration connection's own timeouts; return for any other error.
+    """
+    if isinstance(exc.orig, pg_errors.LockNotAvailable):
+        lock_ms = settings.migration_ddl_lock_timeout_ms
+        raise RuntimeError(
+            "a migration statement waited longer than "
+            f"MIGRATION_DDL_LOCK_TIMEOUT_MS={lock_ms} "
+            "for a table lock: a long transaction holds it. Retry when it has "
+            "ended, raise MIGRATION_DDL_LOCK_TIMEOUT_MS (0 waits without a "
+            "limit), or lift it for one revision with "
+            "`SET LOCAL lock_timeout = 0`"
+        ) from exc
+    statement_ms = settings.migration_statement_timeout_ms
+    if statement_ms and isinstance(exc.orig, pg_errors.QueryCanceled):
+        raise RuntimeError(
+            "a migration statement ran longer than "
+            f"MIGRATION_STATEMENT_TIMEOUT_MS={statement_ms}: "
+            "raise it (0 sets no limit), or lift it for one revision with "
+            "`SET LOCAL statement_timeout = 0`"
+        ) from exc
 
 
 def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:
