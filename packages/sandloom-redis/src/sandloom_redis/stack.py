@@ -25,12 +25,11 @@ from urllib.parse import quote, unquote
 
 import redis
 
+from sandloom.driverkit.shared_endpoints import DEFAULT_REDIS_PORT as _DEFAULT_PORT
 from sandloom.driverkit.stack_service import KeyedServer
 from sandloom.driverkit.url_split import redact, split_url
 
 __all__ = ["STACK_SERVICE", "RedisServer", "RedisStackService"]
-
-_DEFAULT_PORT = 6379
 
 
 def _bracketed(host: str) -> str:

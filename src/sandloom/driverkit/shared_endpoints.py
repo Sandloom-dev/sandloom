@@ -43,11 +43,18 @@ from __future__ import annotations
 
 import logging
 from typing import Literal
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
 
 from sandloom.core.url_split import split_url
 
-__all__ = ["Role", "redis_endpoint", "register", "reset", "unregister"]
+__all__ = [
+    "DEFAULT_REDIS_PORT",
+    "Role",
+    "redis_endpoint",
+    "register",
+    "reset",
+    "unregister",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +63,8 @@ logger = logging.getLogger(__name__)
 Role = Literal["cache_default", "persistent"]
 
 _REDIS_SCHEMES = frozenset({"redis", "rediss"})
-_DEFAULT_PORT = 6379
+#: The port a ``redis://`` url without one reaches.
+DEFAULT_REDIS_PORT = 6379
 _ROLES: tuple[Role, ...] = ("cache_default", "persistent")
 
 _Key = tuple[str, str]
@@ -87,7 +95,7 @@ def redis_endpoint(url: str | None) -> str | None:
         return None
     try:
         parts = split_url(url)
-        port = parts.port or _DEFAULT_PORT
+        port = parts.port or DEFAULT_REDIS_PORT
     except ValueError:
         return None
     if parts.scheme not in _REDIS_SCHEMES or not parts.hostname:
@@ -97,7 +105,10 @@ def redis_endpoint(url: str | None) -> str | None:
     # netloc, so what is left would echo user and password digits as host:port.
     if "@" in parts.path + parts.query + parts.fragment:
         return None
-    raw_db = parts.path.lstrip("/") or (parse_qs(parts.query).get("db") or ["0"])[0]
+    # redis-py: a non-empty ``db`` query wins over the path, and the path is
+    # unquoted with every ``/`` dropped; what is no number leaves database 0.
+    queried = (parse_qs(parts.query).get("db") or [""])[0]
+    raw_db = queried or unquote(parts.path).replace("/", "")
     try:
         db = int(raw_db) if raw_db.isdecimal() else 0
     except ValueError:  # more digits than int() converts (a 4300+ digit path)
