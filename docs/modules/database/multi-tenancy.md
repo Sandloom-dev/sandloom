@@ -175,39 +175,64 @@ open: a task created in an inner block keeps it until the outer block exits
 too. An event consumer's delivery always runs guarded, even when the bus task
 that runs it was first started inside an open `unscoped()`.
 
-A generator that yields inside `with unscoped():` keeps the guard off for its
-caller until the generator closes, because the block stays open across the
-`yield`. Do not yield inside the block: collect the rows in the block and yield
-them after it. `sandloom check` reports it
-([SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036)). A function
-decorated `@contextmanager` or `@asynccontextmanager` is exempt, because it hands
-the bypass to its caller's `with` on purpose.
+In a module `unscoped` is written one way: as the direct context expression of
+a `with` or `async with` item, with no `yield` inside the block. A generator
+that yields inside `with unscoped():` keeps the guard off for its caller until
+the generator closes, because the block stays open across the `yield`.
 
-The guard does not scope a data-modifying CTE. Its tenant criteria apply to the
-SELECTs of a statement, not to a write carried as a CTE. So the check reads the
-compiled statement, the SQL about to be sent, at the cursor of every engine the
-framework builds. It does not matter what ran the statement: a session,
-`session.connection().execute` or an engine. Nor does it matter where the tree
-hangs the CTE. In loader options or in a multi-row `VALUES`, it still ends up in
-the compiled SQL.
+Other spellings let the bypass outlive its block too: a `@contextmanager`
+wrapper, an alias, a variable, `ExitStack.enter_context(unscoped())`,
+`functools.partial(unscoped)`. A `@contextmanager` function is not exempt.
+Collect the rows in the block and yield them after it. `sandloom check` reports
+each of these
+([SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036)). It scans
+modules, not the kernel's own code.
 
-A statement whose compiled SQL carries an INSERT/UPDATE/DELETE CTE is refused
-outside `unscoped()`, whatever table the DML targets: `UnsafeTenantOperationError`
-under a bound tenant, `MissingTenantError` with none. No table is matched. Which
-tables a DML CTE reaches cannot be told reliably from the statement. Four
-shapes defeat it:
+The ORM guard does not scope everything a statement can reach. Its tenant
+criteria apply to the SELECTs the ORM builds from a mapped class. A write carried
+as a CTE is outside it. So is a core `Table` built by name, a hand-written
+clause, a column load or a bulk statement. So the cursor of every engine the
+framework builds checks the compiled SQL, the text about to be sent
+([ADR-0018](../../adr/0018-tenant-guard-at-the-cursor.md)). It does not matter
+whether a session or a bare connection ran the statement. Nor does it matter
+where the tree hangs the reference: a loader option or a custom `@compiles`
+element still ends up in the compiled SQL.
 
-- a name written with `quote=False`;
-- a per-execution `schema_translate_map`;
-- a table named only through the columns of `values()` or `where()`;
-- a SQL-expression column default.
+Outside `unscoped()`, a compiled statement that reaches a tenant table is
+refused. Two kinds pass: one the ORM guard has scoped, and a flush write of a
+row loaded under the bound tenant. A refusal is `UnsafeTenantOperationError`
+under a bound tenant and `MissingTenantError` with none.
 
-So a DML CTE needs `unscoped()`, even on a table that is not `TenantScoped`. SELECT-only CTEs stay allowed and scoped.
+A tenant table is matched by name. A `Table` of another `MetaData`, a
+`table("name")` and `text("select ... from name")` reach it as much as the
+mapped class does. The match ignores the schema, so a same-named table in
+another schema is refused too. A data-modifying CTE is refused whichever table
+it targets, because the statement does not tell reliably which one. SELECT-only
+CTEs that reach no tenant table stay allowed.
 
-Two cases the check does not see. A `nesting=True` CTE below the top level is
+What follows from it:
+
+- A statement the ORM guard scopes carries a private mark that a caller cannot
+  forge. A statement that carries the tenant criterion parameter itself, in its
+  parameters or from a later listener, is refused.
+- The mark covers the mapper's own table and its plain aliases. A tenant table
+  reached any other way inside that statement is refused: a raw `secondary`, or
+  a hand-written subquery.
+- A flushed UPDATE or DELETE is allowed only for an instance whose `tenant_id`
+  was read from the database under the bound tenant. So is the load of a
+  deferred or expired column. An instance built by `merge(load=False)`, by
+  unpickling or by `make_transient_to_detached` is refused at that point.
+- `Session.get` and `Session.refresh` answer from the identity map only for such
+  an instance. For any other they run the scoped query.
+- `unscoped()` lifts all of it for its block.
+
+Three cases the check does not see. A `nesting=True` CTE below the top level is
 not in the compiled list, and PostgreSQL itself refuses a data-modifying
-statement there. A CTE built from `text(...).columns(...)` is raw SQL, which is
-out of scope. Cross-tenant work uses `unscoped()`.
+statement there. `Connection.exec_driver_sql` sends a string with no compiled
+statement. A `text()` passed straight to `session.execute` is the caller's
+responsibility: write it with `scoped()`, or let the `unsafe-tenant-sql` check
+and [Row-Level Security](#postgresql-row-level-security-optional) hold it.
+Cross-tenant work uses `unscoped()`.
 
 `unscoped()` disables the ORM guard only. On a database with
 [Row-Level Security](#postgresql-row-level-security-optional) the database still
@@ -358,8 +383,8 @@ mistakes, not against malicious Python or SQL inside its process.
 | [SANDLOOM-C014](../../reference/error-codes.md#sandloom-c014) | a per-tenant table that is not `TenantScoped` |
 | [SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015) | runtime raw SQL or Core table access that can bypass the tenant guard |
 | [SANDLOOM-C024](../../reference/error-codes.md#sandloom-c024) | a raw query on a non-relational store outside `unscoped()` |
-| [SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036) | a `yield` inside `with unscoped():` that hands the bypass to the caller |
-| [SANDLOOM-C037](../../reference/error-codes.md#sandloom-c037) | a module that builds its own SQLAlchemy engine, skipping the write-admission hook |
+| [SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036) | `unscoped` used other than as a `with` item, or a `yield` inside that block, so the bypass outlives its block |
+| [SANDLOOM-C037](../../reference/error-codes.md#sandloom-c037) | a module that builds an engine or a pool, or opens a driver connection, around the framework's engine and its cursor check |
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | no tenant bound where one is required (`400`) |
 | [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026) | `tenant_rls` or the system channel on a database without row security |
 

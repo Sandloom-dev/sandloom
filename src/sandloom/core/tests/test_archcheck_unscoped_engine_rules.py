@@ -1,11 +1,17 @@
-"""SANDLOOM-C036 yield-inside-unscoped and SANDLOOM-C037 engine-in-module.
+"""SANDLOOM-C036 unscoped-bypass-leaves-its-block and SANDLOOM-C037
+engine-in-module, as ADR-0018 states them.
 
-C036: a generator that yields inside ``with unscoped():`` hands the tenant
-bypass to its caller until it closes (PR #338 red-team, surface B #1). A
-``@contextmanager`` hands it over on purpose and is exempt.
+C036: in a business module ``unscoped`` appears only as the direct context
+expression of a ``with`` / ``async with`` item, and nothing inside that block
+yields. Every other spelling (a variable, ``ExitStack.enter_context``, an
+alias, an attribute, a string, a decorator, a ``@contextmanager`` wrapper)
+lets the bypass outlive its block (PR #342 red-team, S1-S3, FP1).
 
-C037: an engine a module builds itself skips ``install_write_admission`` (the
-compiled-statement check, write admission) and the tenant_rls session setup.
+C037: a module reaches the database only through the framework's engine, so
+the rule is a list of capabilities, not of spellings: engine / pool factories
+and classes, ``sqlalchemy.engine`` beyond result and URL types,
+``sqlalchemy.pool``, star imports, DBAPI drivers, ``.raw_connection()``, an
+engine's ``.pool``, ``getattr`` on sqlalchemy (S4, S5, FP2).
 """
 
 from __future__ import annotations
@@ -58,6 +64,24 @@ _YIELD_BAD = {
         "    def inner():\n        yield\n"
         "    with unscoped():\n        yield 1\n"
     ),
+    # S2/S3: a module's own wrapper around the bypass hands it to its caller
+    "contextmanager decorator": (
+        "from contextlib import contextmanager\n"
+        "@contextmanager\ndef scope():\n    with unscoped():\n        yield\n"
+    ),
+    "asynccontextmanager call form": (
+        "import contextlib\n"
+        "@contextlib.asynccontextmanager\nasync def scope():\n"
+        "    with unscoped():\n        yield\n"
+    ),
+    "a local look-alike decorator": (
+        "def contextmanager(f):\n    return f\n"
+        "@contextmanager\ndef scope():\n    with unscoped():\n        yield\n"
+    ),
+    "an aliased decorator": (
+        "from contextlib import contextmanager as cm\n"
+        "@cm\ndef scope():\n    with unscoped():\n        yield\n"
+    ),
 }
 
 _YIELD_OK = {
@@ -69,15 +93,6 @@ _YIELD_OK = {
         "def rows(db):\n    yield 1\n    with unscoped():\n        db.rows()\n"
     ),
     "no generator": ("def rows(db):\n    with unscoped():\n        return db.rows()\n"),
-    "contextmanager": (
-        "from contextlib import contextmanager\n"
-        "@contextmanager\ndef scope():\n    with unscoped():\n        yield\n"
-    ),
-    "asynccontextmanager call form": (
-        "import contextlib\n"
-        "@contextlib.asynccontextmanager\nasync def scope():\n"
-        "    with unscoped():\n        yield\n"
-    ),
     "yield in a nested function": (
         "def rows(db):\n    with unscoped():\n"
         "        def later():\n            yield 1\n        return later\n"
@@ -98,6 +113,73 @@ _YIELD_OK = {
     "another context manager": (
         "def rows(db, lock):\n    with lock:\n        yield 1\n"
     ),
+    "a contextmanager that does not touch the bypass": (
+        "from contextlib import contextmanager\n"
+        "@contextmanager\ndef scope():\n    yield\n"
+    ),
+    "a keyword argument named unscoped": (
+        "def f(run):\n    return run(unscoped=True)\n"
+    ),
+    "the word in a docstring": (
+        'def f():\n    """Read it unscoped, then close the block."""\n'
+    ),
+    "async with, then a plain with": (
+        "async def f(db, lock):\n    async with unscoped():\n"
+        "        with lock:\n            return await db.rows()\n"
+    ),
+}
+
+#: S1: every spelling that lets the bypass leave the ``with`` it was made for.
+_USE_BAD = {
+    "a variable": ("def f():\n    cm = unscoped()\n    with cm:\n        pass\n"),
+    "ExitStack.enter_context": (
+        "from contextlib import ExitStack\n"
+        "def f():\n    with ExitStack() as stack:\n"
+        "        stack.enter_context(unscoped())\n"
+    ),
+    "AsyncExitStack.enter_async_context": (
+        "from contextlib import AsyncExitStack\n"
+        "async def f():\n    async with AsyncExitStack() as stack:\n"
+        "        await stack.enter_async_context(unscoped())\n"
+    ),
+    "manual __enter__": ("def f():\n    u = unscoped()\n    u.__enter__()\n"),
+    "a module-level alias": "system = unscoped\n",
+    "an attribute of the sdk": ("import sandloom.sdk as sdk\nsu = sdk.unscoped\n"),
+    "functools.partial": ("import functools\nrun = functools.partial(unscoped)\n"),
+    "getattr with the name": (
+        "import sandloom.sdk as sdk\ndef f():\n    return getattr(sdk, 'unscoped')()\n"
+    ),
+    "the name in a namespace lookup": (
+        "import sandloom.sdk as sdk\nsu = sdk.__dict__['unscoped']\n"
+    ),
+    "a decorator": ("@unscoped()\ndef f():\n    return 1\n"),
+    "a call outside a with": "def f():\n    unscoped()\n",
+    "a call through an attribute outside a with": (
+        "def f(tc):\n    return tc.unscoped()\n"
+    ),
+    "passed as an argument": "def f(run):\n    return run(unscoped)\n",
+    "returned": "def f():\n    return unscoped\n",
+    "used in a with item and elsewhere": (
+        "def f():\n    with unscoped():\n        pass\n    return unscoped()\n"
+    ),
+}
+
+_USE_OK = {
+    "with": "def f(db):\n    with unscoped():\n        return db.rows()\n",
+    "async with": (
+        "async def f(db):\n    async with unscoped():\n        return await db.rows()\n"
+    ),
+    "with and a name": (
+        "def f(db):\n    with unscoped() as scope:\n        return db.rows(scope)\n"
+    ),
+    "attribute spelling": ("def f(tc):\n    with tc.unscoped():\n        return 1\n"),
+    "second item of one with": (
+        "def f(lock):\n    with lock, unscoped():\n        return 1\n"
+    ),
+    "inside a method": (
+        "class Repo:\n    def rows(self):\n        with unscoped():\n"
+        "            return 1\n"
+    ),
 }
 
 
@@ -114,10 +196,21 @@ def test_a_yield_inside_unscoped_is_reported(tmp_path: Path, case: str) -> None:
 
 
 @pytest.mark.parametrize("case", list(_YIELD_OK))
-def test_a_yield_outside_unscoped_or_in_a_context_manager_passes(
+def test_a_yield_outside_unscoped_passes(tmp_path: Path, case: str) -> None:
+    assert find_yield_inside_unscoped(_write(tmp_path, _YIELD_OK[case])) == []
+
+
+@pytest.mark.parametrize("case", list(_USE_BAD))
+def test_unscoped_used_other_than_as_a_with_item_is_reported(
     tmp_path: Path, case: str
 ) -> None:
-    assert find_yield_inside_unscoped(_write(tmp_path, _YIELD_OK[case])) == []
+    found = find_yield_inside_unscoped(_write(tmp_path, _USE_BAD[case]))
+    assert found and all("`unscoped` may appear only" in line for line in found), found
+
+
+@pytest.mark.parametrize("case", list(_USE_OK))
+def test_unscoped_as_a_direct_with_item_passes(tmp_path: Path, case: str) -> None:
+    assert find_yield_inside_unscoped(_write(tmp_path, _USE_OK[case])) == []
 
 
 def test_an_aliased_unscoped_import_is_followed(tmp_path: Path) -> None:
@@ -125,6 +218,15 @@ def test_an_aliased_unscoped_import_is_followed(tmp_path: Path) -> None:
     path.write_text(
         "from sandloom.core.di import unscoped as system_scope\n"
         "def rows():\n    with system_scope():\n        yield 1\n"
+    )
+    assert find_yield_inside_unscoped(path)
+
+
+def test_an_aliased_unscoped_is_reported_outside_a_with_item(tmp_path: Path) -> None:
+    path = tmp_path / "service.py"
+    path.write_text(
+        "from sandloom.core.di import unscoped as system_scope\n"
+        "def rows():\n    return system_scope\n"
     )
     assert find_yield_inside_unscoped(path)
 
@@ -146,6 +248,58 @@ _ENGINE_BAD = {
         "from sqlalchemy.ext import asyncio as aio\n"
         "def build():\n    return aio.create_async_engine('x')\n"
     ),
+    # S4: the other ways to an engine or a pool
+    "a star import": "from sqlalchemy import *\n",
+    "a star import from a submodule": "from sqlalchemy.ext.asyncio import *\n",
+    "getattr on sqlalchemy": (
+        "import sqlalchemy as sa\nmake = getattr(sa, 'create_engine')\n"
+    ),
+    "vars of sqlalchemy": "import sqlalchemy as sa\nnames = vars(sa)\n",
+    "the namespace of sqlalchemy": (
+        "import sqlalchemy as sa\nmake = sa.__dict__['create_engine']\n"
+    ),
+    "the Engine class": "from sqlalchemy import Engine\n",
+    "the Engine class of the engine module": "from sqlalchemy.engine import Engine\n",
+    "the Engine class by attribute": (
+        "import sqlalchemy as sa\nengine = sa.engine.Engine(None, None, None)\n"
+    ),
+    "the pool factory": "from sqlalchemy import create_pool_from_url\n",
+    "a pool class": "from sqlalchemy.pool import QueuePool\n",
+    "the pool module": "import sqlalchemy.pool as pool\n",
+    "the pool module as a name": "from sqlalchemy import pool\n",
+    "a pool by attribute": (
+        "import sqlalchemy as sa\nqueue = sa.pool.QueuePool(lambda: None)\n"
+    ),
+    "the engine module as a name": "from sqlalchemy import engine\n",
+    "an engine module import": "import sqlalchemy.engine\n",
+    "a non-value name of the engine module": "from sqlalchemy.engine import Dialect\n",
+    "a submodule of the engine module": "from sqlalchemy.engine import default\n",
+    "a mock engine": "from sqlalchemy import create_mock_engine\n",
+    # S5: the paths that skip even an engine
+    "sqlite3": "import sqlite3\nconn = sqlite3.connect(':memory:')\n",
+    "psycopg": "import psycopg\n",
+    "psycopg from-import": "from psycopg import connect\n",
+    "psycopg2 submodule": "import psycopg2.extras\n",
+    "asyncpg": "import asyncpg\n",
+    "aiosqlite": "import aiosqlite\n",
+    "a driver by a constant import_module": (
+        "import importlib\nmod = importlib.import_module('psycopg')\n"
+    ),
+    "the sqlalchemy pool by a constant import_module": (
+        "import importlib\nmod = importlib.import_module('sqlalchemy.pool')\n"
+    ),
+    "raw_connection": "def f(session):\n    return session.get_bind().raw_connection()\n",
+    "get_raw_connection": (
+        "async def f(conn):\n    return await conn.get_raw_connection()\n"
+    ),
+    "driver_connection": "def f(conn):\n    return conn.driver_connection\n",
+    "an engine's pool": "def f(engine):\n    return engine.pool.connect()\n",
+    "the pool of a bind": (
+        "def f(session):\n    return session.get_bind().pool.connect()\n"
+    ),
+    "the pool of a connection's engine": (
+        "def f(conn):\n    return conn.engine.pool.connect()\n"
+    ),
 }
 
 _ENGINE_OK = {
@@ -157,11 +311,35 @@ _ENGINE_OK = {
         "from acme.tools import create_engine_report\n"
     ),
     "an attribute of another name": "def f(db):\n    return db.engine_config()\n",
+    # FP2: a method of that name on an object that is not sqlalchemy
+    "a create_engine method of a user class": (
+        "def f(factory):\n    return factory.create_engine()\n"
+    ),
+    "a create_engine method on self": (
+        "class Registry:\n    def build(self):\n        return self.create_engine()\n"
+    ),
+    "result types of the engine module": (
+        "from sqlalchemy.engine import CursorResult, Result, Row, RowMapping\n"
+    ),
+    "the URL helpers": (
+        "from sqlalchemy.engine import URL, make_url\n"
+        "from sqlalchemy.engine.url import make_url as parse\n"
+    ),
+    "a result type by attribute": (
+        "import sqlalchemy as sa\nresult: sa.engine.CursorResult\n"
+    ),
+    "a pool attribute of something that is no engine": (
+        "def f(worker):\n    return worker.pool\n"
+    ),
+    "getattr on a model": "def f(model):\n    return getattr(model, 'name')\n",
+    "a module named like a driver prefix": "from acme import sqlite3_helpers\n",
 }
 
 
 @pytest.mark.parametrize("case", list(_ENGINE_BAD))
-def test_an_engine_built_in_a_module_is_reported(tmp_path: Path, case: str) -> None:
+def test_a_database_reached_around_the_engine_is_reported(
+    tmp_path: Path, case: str
+) -> None:
     path = tmp_path / "service.py"
     path.write_text(_ENGINE_BAD[case])
     found = find_engine_constructors(path)
@@ -169,7 +347,9 @@ def test_an_engine_built_in_a_module_is_reported(tmp_path: Path, case: str) -> N
 
 
 @pytest.mark.parametrize("case", list(_ENGINE_OK))
-def test_a_module_without_an_engine_factory_passes(tmp_path: Path, case: str) -> None:
+def test_a_module_that_reaches_the_database_through_its_session_passes(
+    tmp_path: Path, case: str
+) -> None:
     path = tmp_path / "service.py"
     path.write_text(_ENGINE_OK[case])
     assert find_engine_constructors(path) == []
@@ -206,14 +386,30 @@ def test_yield_inside_unscoped_runs_in_sandloom_check(tmp_path: Path) -> None:
         tmp_path,
         {
             "service.py": _IMPORT + _YIELD_BAD["sync generator"],
-            "safe.py": _IMPORT + _YIELD_OK["contextmanager"],
+            "wrapper.py": _IMPORT + _YIELD_BAD["contextmanager decorator"],
+            "safe.py": _IMPORT + _YIELD_OK["yield after the block"],
         },
     )
     violations = run_checks(load_rules(manifest), only=["yield-inside-unscoped"])
-    assert [(v.rule, v.file.name) for v in violations] == [
-        ("yield-inside-unscoped", "service.py")
+    assert sorted((v.rule, v.file.name) for v in violations) == [
+        ("yield-inside-unscoped", "service.py"),
+        ("yield-inside-unscoped", "wrapper.py"),
     ]
-    assert violations[0].code == "SANDLOOM-C036"
+    assert {v.code for v in violations} == {"SANDLOOM-C036"}
+
+
+def test_a_laundered_bypass_is_reported_where_it_is_made(tmp_path: Path) -> None:
+    """S2: the wrapper is the finding, so a generator using it needs none."""
+    manifest = _app(
+        tmp_path,
+        {
+            "scope.py": _IMPORT + _YIELD_BAD["contextmanager decorator"],
+            "service.py": "from .scope import scope\n"
+            "def rows(db):\n    with scope():\n        yield 1\n",
+        },
+    )
+    violations = run_checks(load_rules(manifest), only=["yield-inside-unscoped"])
+    assert [v.file.name for v in violations] == ["scope.py"]
 
 
 def test_engine_in_module_runs_in_sandloom_check_including_migrations(
@@ -224,10 +420,16 @@ def test_engine_in_module_runs_in_sandloom_check_including_migrations(
         {
             "service.py": "from sqlalchemy.ext.asyncio import create_async_engine\n",
             "migrations/versions/0001.py": "from sqlalchemy import create_engine\n",
+            "driver.py": "import sqlite3\n",
+            "ok.py": "from sqlalchemy.engine import CursorResult\n",
         },
     )
     violations = run_checks(load_rules(manifest), only=["engine-in-module"])
-    assert sorted(v.file.name for v in violations) == ["0001.py", "service.py"]
+    assert sorted(v.file.name for v in violations) == [
+        "0001.py",
+        "driver.py",
+        "service.py",
+    ]
     assert {v.code for v in violations} == {"SANDLOOM-C037"}
 
 

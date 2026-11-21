@@ -2234,74 +2234,73 @@ class _TenantSqlVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-#: Decorators that turn a generator function into a context manager, which hands
-#: the ``unscoped()`` bypass to its caller's ``with`` on purpose.
-_CONTEXT_MANAGER_DECORATORS = frozenset({"contextmanager", "asynccontextmanager"})
-
-
-def _is_context_manager_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    for decorator in node.decorator_list:
-        target = decorator.func if isinstance(decorator, ast.Call) else decorator
-        name = (
-            target.id
-            if isinstance(target, ast.Name)
-            else target.attr
-            if isinstance(target, ast.Attribute)
-            else None
-        )
-        if name in _CONTEXT_MANAGER_DECORATORS:
-            return True
-    return False
-
-
 def find_yield_inside_unscoped(file_path: Path) -> list[str]:
-    """A ``yield`` / ``yield from`` lexically inside ``with unscoped():``.
+    """The ``unscoped()`` bypass leaves its ``with`` block (SANDLOOM-C036).
 
-    The generator suspends inside the block with the tenant guard still lifted:
-    its consumer's statements run unguarded until the generator closes. A
-    function decorated ``@contextmanager`` / ``@asynccontextmanager`` hands the
-    bypass over on purpose and is exempt (SANDLOOM-C036).
+    In a business module ``unscoped`` appears in exactly one shape: the direct
+    context expression of a ``with`` / ``async with`` item, and nothing inside
+    that block yields. Everything else lets the bypass outlive the block it was
+    opened for, so it is reported: a ``yield`` / ``yield from`` in the block
+    (the generator suspends with the tenant guard lifted and its consumer's
+    statements run unguarded), and any other mention of the name, whatever the
+    alias or spelling: ``cm = unscoped()``, ``stack.enter_context(unscoped())``,
+    ``system = unscoped``, ``sdk.unscoped``, ``functools.partial(unscoped)``,
+    ``getattr(sdk, "unscoped")``, a decorator. There is no exemption for a
+    ``@contextmanager``: a module's own wrapper around the bypass is the same
+    laundering. Only module code is scanned; the kernel's own context managers
+    (``sandloom.sdk``, the test harness) are not business modules.
     """
     tree = parse_file(file_path)
     _, _, unscoped_names = _tenant_sql_import_names(tree)
     found: list[str] = []
-    _YieldInsideUnscopedVisitor(unscoped_names, found).visit(tree)
+    _UnscopedUseVisitor(unscoped_names, found).visit(tree)
     return found
 
 
-class _YieldInsideUnscopedVisitor(ast.NodeVisitor):
+class _UnscopedUseVisitor(ast.NodeVisitor):
     def __init__(self, unscoped_names: set[str], found: list[str]) -> None:
         self.unscoped_names = unscoped_names
         self.found = found
         self.depth = 0  # open ``with unscoped()`` blocks of the current function
-        self.exempt = False  # the current function is a context manager
+        self.admitted: set[int] = set()  # ids of the ``unscoped`` refs of a with item
 
-    def _enters_unscoped(self, expr: ast.expr) -> bool:
-        if not isinstance(expr, ast.Call):
-            return False
-        func = expr.func
-        return (isinstance(func, ast.Name) and func.id in self.unscoped_names) or (
-            isinstance(func, ast.Attribute) and func.attr == "unscoped"
+    def _is_unscoped_ref(self, expr: ast.expr) -> bool:
+        return (isinstance(expr, ast.Name) and expr.id in self.unscoped_names) or (
+            isinstance(expr, ast.Attribute) and expr.attr == "unscoped"
         )
 
-    def _new_scope(self, node: ast.AST, *, exempt: bool) -> None:
-        saved = (self.depth, self.exempt)
-        self.depth, self.exempt = 0, exempt
+    def _report_use(self, node: ast.expr) -> None:
+        self.found.append(
+            f"Line {node.lineno}: `unscoped` may appear only as the context "
+            "expression of `with unscoped():` (or `async with`); an alias, a "
+            "variable, an attribute reference, a string, a decorator or a wrapper "
+            "lets the tenant bypass outlive its block"
+        )
+
+    def _new_scope(self, node: ast.AST) -> None:
+        saved = self.depth
+        self.depth = 0
         self.generic_visit(node)
-        self.depth, self.exempt = saved
+        self.depth = saved
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-        self._new_scope(node, exempt=_is_context_manager_function(node))
+        self._new_scope(node)
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
-        self._new_scope(node, exempt=False)
+        self._new_scope(node)
 
     def visit_With(self, node: ast.With | ast.AsyncWith) -> None:
+        entered = 0
         for item in node.items:
-            self.visit(item.context_expr)
-        entered = sum(self._enters_unscoped(item.context_expr) for item in node.items)
+            expr = item.context_expr
+            if isinstance(expr, ast.Call) and self._is_unscoped_ref(expr.func):
+                self.admitted.add(id(expr.func))
+                entered += 1
+            self.visit(expr)
+            if item.optional_vars is not None:
+                self.visit(item.optional_vars)
         self.depth += entered
         for statement in node.body:
             self.visit(statement)
@@ -2309,57 +2308,244 @@ class _YieldInsideUnscopedVisitor(ast.NodeVisitor):
 
     visit_AsyncWith = visit_With
 
+    def visit_Name(self, node: ast.Name) -> None:
+        if (
+            isinstance(node.ctx, ast.Load)
+            and node.id in self.unscoped_names
+            and id(node) not in self.admitted
+        ):
+            self._report_use(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr == "unscoped" and id(node) not in self.admitted:
+            self._report_use(node)
+        self.generic_visit(node)
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if (
+            isinstance(node.value, str)
+            and node.value.replace(":", ".").rsplit(".", 1)[-1] == "unscoped"
+        ):
+            self._report_use(node)
+
     def visit_Yield(self, node: ast.Yield | ast.YieldFrom) -> None:
-        if self.depth and not self.exempt:
+        if self.depth:
             self.found.append(
                 f"Line {node.lineno}: yield inside `with unscoped()` keeps the "
                 "tenant guard off for the caller until the generator closes; "
-                "read inside the block, yield after it, or make the function a "
-                "@contextmanager"
+                "read inside the block and yield after it"
             )
         self.generic_visit(node)
 
     visit_YieldFrom = visit_Yield
 
 
-#: The SQLAlchemy engine factories: an engine they build never went through
-#: ``install_write_admission`` or the tenant_rls session setup.
-_ENGINE_CONSTRUCTORS = frozenset(
+#: SQLAlchemy names that build an engine or a pool: what they make never went
+#: through ``install_write_admission`` or the tenant_rls session setup.
+_ENGINE_BUILDERS = frozenset(
     {
         "create_engine",
         "create_async_engine",
         "engine_from_config",
         "async_engine_from_config",
+        "create_mock_engine",
+        "create_pool_from_url",
+        "Engine",
+        "AsyncEngine",
+        "Pool",
+        "QueuePool",
+        "AsyncAdaptedQueuePool",
+        "NullPool",
+        "StaticPool",
+        "SingletonThreadPool",
+        "AssertionPool",
     }
 )
+#: What ``sqlalchemy.engine`` hands out that only DESCRIBES a result or a URL:
+#: importing it builds and reaches nothing (everything else there, and all of
+#: ``sqlalchemy.pool``, is refused).
+_ENGINE_VALUE_TYPES = frozenset(
+    {
+        "CursorResult",
+        "Result",
+        "ResultProxy",
+        "Row",
+        "RowMapping",
+        "Connection",
+        "URL",
+        "make_url",
+    }
+)
+#: DBAPI drivers: ``sqlite3.connect`` and its kind open a connection that has
+#: neither an engine nor a dialect hook between it and the database.
+_DBAPI_DRIVERS = frozenset(
+    {
+        "sqlite3",
+        "psycopg",
+        "psycopg2",
+        "psycopg_pool",
+        "asyncpg",
+        "aiosqlite",
+        "aiomysql",
+        "pymysql",
+        "MySQLdb",
+        "pg8000",
+        "pyodbc",
+        "oracledb",
+    }
+)
+#: Attributes that hand out the DBAPI connection under an engine's own checks.
+_RAW_CONNECTION_ATTRS = frozenset(
+    {"raw_connection", "get_raw_connection", "driver_connection", "dbapi_connection"}
+)
+#: Names that, in the chain before ``.pool``, say the receiver is an engine.
+_ENGINE_HOLDERS = frozenset({"engine", "sync_engine", "bind", "get_bind"})
+
+
+def _sqlalchemy_bound_names(tree: ast.AST) -> set[str]:
+    """Local names bound to ``sqlalchemy`` or something imported from it (a
+    submodule imported with ``from sqlalchemy.ext import asyncio as aio``
+    cannot be told from a class, so both count)."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(
+                alias.asname or "sqlalchemy"
+                for alias in node.names
+                if alias.name.split(".")[0] == "sqlalchemy"
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and (node.module or "").split(".")[0] == "sqlalchemy"
+        ):
+            names.update(a.asname or a.name for a in node.names if a.name != "*")
+    return names
+
+
+def _chain(expr: ast.expr) -> tuple[str | None, set[str]]:
+    """``(root name, every name along the chain)`` of ``a.b().c`` -> ``a``,
+    ``{a, b, c}``; the root is ``None`` when the chain starts at no name."""
+    names: set[str] = set()
+    while True:
+        if isinstance(expr, ast.Attribute):
+            names.add(expr.attr)
+            expr = expr.value
+        elif isinstance(expr, ast.Call):
+            expr = expr.func
+        elif isinstance(expr, ast.Name):
+            names.add(expr.id)
+            return expr.id, names
+        else:
+            return None, names
+
+
+def _engine_import_findings(line: int, module: str, name: str | None) -> list[str]:
+    """What importing ``name`` from ``module`` (``name`` ``None``: the module
+    itself) lets a module do: C037 reports the capability, not a spelling."""
+    parts = module.split(".")
+    if parts[0] in _DBAPI_DRIVERS:
+        return [
+            f"Line {line}: imports the DBAPI driver {module}, which connects to the "
+            "database outside the framework's engine"
+        ]
+    if parts[0] != "sqlalchemy":
+        return []
+    if name == "*":
+        return [
+            f"Line {line}: star import from {module} hides the engine and pool "
+            "factories it brings in"
+        ]
+    if name in _ENGINE_BUILDERS:
+        return [
+            f"Line {line}: imports {name}, which builds an engine or a pool outside "
+            "the framework's drivers"
+        ]
+    path = [*parts, *([name] if name else [])]
+    if len(path) > 1 and path[1] in {"engine", "pool"}:
+        if (
+            path[1] == "engine"
+            and parts[:2] == ["sqlalchemy", "engine"]
+            and name in _ENGINE_VALUE_TYPES
+        ):
+            return []
+        return [
+            f"Line {line}: imports {'.'.join(path)}: the engine and pool layers are "
+            "the framework's; only result and URL types come from sqlalchemy.engine"
+        ]
+    return []
+
+
+def _engine_attribute_findings(
+    node: ast.Attribute, bound: set[str], allowed: set[int]
+) -> list[str]:
+    root, names = _chain(node.value)
+    from_sqlalchemy = root in bound
+    if node.attr in _RAW_CONNECTION_ATTRS:
+        reason = "hands out the DBAPI connection, which skips the engine's checks"
+    elif node.attr in _ENGINE_BUILDERS and from_sqlalchemy:
+        reason = "builds an engine or a pool outside the framework's drivers"
+    elif node.attr in {"engine", "pool"} and from_sqlalchemy:
+        if id(node) in allowed:
+            return []
+        reason = "reaches the engine and pool layers, which are the framework's"
+    elif node.attr == "pool" and not names.isdisjoint(_ENGINE_HOLDERS):
+        reason = "is the connection pool of an engine, which skips the engine's checks"
+    elif node.attr == "__dict__" and from_sqlalchemy:
+        reason = "reads sqlalchemy's engine factories by name"
+    else:
+        return []
+    return [f"Line {node.lineno}: `.{node.attr}` {reason}"]
 
 
 def find_engine_constructors(file_path: Path) -> list[str]:
-    """A business module building its own SQLAlchemy engine (SANDLOOM-C037).
+    """A business module reaching the database around the framework's engine
+    (SANDLOOM-C037).
 
-    Seen: importing a factory from ``sqlalchemy`` (any alias) and calling one as
-    an attribute (``sa.create_engine(...)``, ``asyncio.create_async_engine(...)``).
+    An engine the framework builds carries ``install_write_admission`` and the
+    tenant_rls session setup; anything a module opens itself carries neither.
+    The rule asks which capability an import or access gives, so no spelling
+    gets around it: the engine and pool factories and classes (imported under any
+    alias, or reached as an attribute of a name bound to ``sqlalchemy``), any
+    import of ``sqlalchemy.engine`` besides its result and URL types, any import
+    of ``sqlalchemy.pool``, a star import from ``sqlalchemy``, a DBAPI driver
+    (also as a constant-string ``import_module``), ``.raw_connection()`` and its
+    kin, an engine's ``.pool``, and ``getattr`` / ``__dict__`` on ``sqlalchemy``.
+    A ``.create_engine()`` of an object that is not from ``sqlalchemy`` is no
+    finding.
     """
     tree = parse_file(file_path)
+    bound = _sqlalchemy_bound_names(tree)
     found: list[str] = []
+    allowed: set[int] = set()  # ``sa.engine`` nodes that only lead to a value type
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.level == 0:
-            if (node.module or "").split(".")[0] == "sqlalchemy":
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                found.extend(_engine_import_findings(node.lineno, alias.name, None))
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            for alias in node.names:
                 found.extend(
-                    f"Line {node.lineno}: imports {alias.name}, which builds an "
-                    "engine outside the framework's drivers"
-                    for alias in node.names
-                    if alias.name in _ENGINE_CONSTRUCTORS
+                    _engine_import_findings(node.lineno, node.module, alias.name)
                 )
+        elif isinstance(node, ast.Attribute):
+            if node.attr in _ENGINE_VALUE_TYPES and isinstance(
+                node.value, ast.Attribute
+            ):
+                allowed.add(id(node.value))
+            found.extend(_engine_attribute_findings(node, bound, allowed))
         elif (
             isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in _ENGINE_CONSTRUCTORS
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"getattr", "vars"}
+            and node.args
+            and _chain(node.args[0])[0] in bound
         ):
             found.append(
-                f"Line {node.lineno}: {node.func.attr}(...) builds an engine "
-                "outside the framework's drivers"
+                f"Line {node.lineno}: {node.func.id}() on sqlalchemy reads its "
+                "engine factories by name"
             )
+    for line, module, _call in dynamic_imports(tree):
+        found.extend(_engine_import_findings(line, module, None))
     return found
 
 

@@ -826,26 +826,37 @@ still refuses a name no loaded module declares.
         "SANDLOOM-C036",
         "yield-inside-unscoped",
         "check",
-        "a generator yields inside `with unscoped():`, handing the tenant "
-        "bypass to its caller",
-        "collect what the block reads, leave the block, then yield; a function "
-        "that is meant to hand the bypass over is a context manager "
-        "(`@contextmanager` / `@asynccontextmanager`)",
+        "a module uses `unscoped` other than as the context expression of a "
+        "`with` block, or yields inside that block, letting the tenant bypass "
+        "outlive it",
+        "write `with unscoped():` (or `async with`) directly and keep the block "
+        "free of `yield`: collect what it reads, leave the block, then yield; "
+        "never wrap, alias, store or pass `unscoped` around",
         """
-unscoped() lifts the tenant guard for the code inside its `with` block. A
-generator that yields inside the block suspends there with the guard still
-off: the consumer's own statements, between two items, run unguarded, for as
-long as the generator is held open (a dropped async generator only until the
-loop finalizes it). A route that iterates such a generator and queries on its
-own reads every tenant's rows.
+unscoped() lifts the tenant guard for the code inside its `with` block, and
+only a `with` block ends it. Anything that lets the bypass outlive its block
+keeps the guard off for a caller that never asked for it: a generator that
+yields inside the block suspends there with the guard still off, and so does
+a `@contextmanager` wrapper whose body yields inside it, a manager entered
+through `ExitStack.enter_context`, a call to `__enter__`, or a variable that
+holds the manager. A route that iterates such a generator, or enters such a
+wrapper, and queries on its own reads every tenant's rows.
 
-sandloom check refuses a `yield` / `yield from` lexically inside a
-`with unscoped():` (or `async with`) in any function that is not decorated
-`@contextmanager` / `@asynccontextmanager`; a context manager hands the
-bypass over on purpose and is closed by its caller's `with`. The usual
-rewrite reads everything inside the block into a list and yields from it
-after the block. Not seen: a bypass entered through an ExitStack, or a
-generator handed to a helper that yields inside.
+sandloom check, over every file of a business module, accepts `unscoped` only
+as the direct context expression of a `with` or `async with` item
+(`with unscoped():`, `with lock, tc.unscoped():`) and reports:
+
+- a `yield` / `yield from` anywhere inside such a block, in a plain generator
+  and in a `@contextmanager` / `@asynccontextmanager` function alike, there is
+  no decorator exemption;
+- every other use of the name, of an attribute named `unscoped`, or of the
+  string "unscoped": an alias, a variable, an argument, a return value, a
+  decorator, `getattr(sdk, "unscoped")`, `functools.partial(unscoped)`, a
+  `__dict__["unscoped"]` lookup.
+
+An aliased import is followed. The kernel's own files are not scanned: the
+rule is for modules. Not seen: a name built at run time (`getattr(sdk, name)`
+with a variable).
 """,
         docs="docs/modules/database/multi-tenancy.md",
     ),
@@ -853,22 +864,43 @@ generator handed to a helper that yields inside.
         "SANDLOOM-C037",
         "engine-in-module",
         "check",
-        "a business module builds its own database engine",
+        "a business module reaches a database around the framework's engine "
+        "(builds an engine or a pool, or opens a raw driver connection)",
         "use the module's session (`get_db`, the unit of work); a database is "
-        "declared in INFRA and built by a driver, never with create_engine / "
-        "create_async_engine / engine_from_config in module code",
+        "declared in INFRA and built by a driver, never built, wrapped or "
+        "opened with sqlalchemy engine / pool code or a DBAPI driver in module "
+        "code",
         """
 Every engine the framework builds gets install_write_admission (write
-admission and the compiled-statement check that refuses a data-modifying CTE
-outside unscoped()) and, on a tenant_rls database, the per-transaction tenant
-setting that row-level security reads. An engine a module builds itself gets
-none of them: its statements skip the compiled check and write admission, and
-the tenant setting is never set for it. sandloom check refuses a call to
-create_engine, create_async_engine, engine_from_config or
-async_engine_from_config (by name, by attribute, or through an aliased import)
-in a business module. A database a module needs is declared in INFRA and built
-by a driver (a driver package is not a module); module code reaches it through
-its session.
+admission and the cursor check that refuses a statement reaching a tenant
+table without the ORM guard, outside unscoped()) and, on a tenant_rls
+database, the per-transaction tenant setting that row-level security reads.
+A connection a module opens itself gets none of them: its statements skip the
+cursor check and write admission, and the tenant setting is never set for it.
+
+sandloom check refuses, in any file of a business module, the capabilities
+that open such a connection, not one spelling of them:
+
+- a star import from sqlalchemy or one of its submodules;
+- `create_engine`, `create_async_engine`, `engine_from_config`,
+  `async_engine_from_config`, `create_mock_engine`, `create_pool_from_url`
+  and the `Engine` classes, by name, by attribute, through an aliased import,
+  through `getattr(sqlalchemy, "create_engine")` or a `vars()` / `__dict__`
+  lookup;
+- `sqlalchemy.pool` and everything from it, and `sqlalchemy.engine` beyond its
+  result and URL types (`CursorResult`, `Result`, `Row`, `RowMapping`,
+  `Connection`, `URL`, `make_url`, which stay allowed);
+- a DBAPI driver import, `sqlite3`, `psycopg`, `psycopg2`, `asyncpg` or
+  `aiosqlite`, including `importlib.import_module("psycopg")` with a constant
+  name;
+- `.raw_connection()`, `.get_raw_connection()`, `.driver_connection`, and
+  `.pool` on an engine, a bind or a connection's engine.
+
+A method that only happens to be named `create_engine` on an object that is
+not sqlalchemy is not reported. A database a module needs is declared in INFRA
+and built by a driver (a driver package is not a module); module code reaches
+it through its session. Not seen: a module name or an attribute built at run
+time from a non-constant.
 """,
         docs="docs/modules/database/multi-tenancy.md",
     ),
