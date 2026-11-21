@@ -82,6 +82,15 @@ _YIELD_OK = {
         "def rows(db):\n    with unscoped():\n"
         "        def later():\n            yield 1\n        return later\n"
     ),
+    "yield in a method of a class defined inside the block": (
+        "def rows(db):\n    with unscoped():\n"
+        "        class Later:\n            def items(self):\n                yield 1\n"
+        "        return Later\n"
+    ),
+    "yield in a lambda defined inside the block": (
+        "def rows(db):\n    with unscoped():\n        later = lambda: (yield 1)\n"
+        "    return later\n"
+    ),
     "yield in a lambda-free comprehension": (
         "def rows(db):\n    with unscoped():\n        data = [1 for _ in db]\n"
         "    return data\n"

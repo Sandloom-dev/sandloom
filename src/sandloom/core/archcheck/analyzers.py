@@ -2298,9 +2298,6 @@ class _YieldInsideUnscopedVisitor(ast.NodeVisitor):
     def visit_Lambda(self, node: ast.Lambda) -> None:
         self._new_scope(node, exempt=False)
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self._new_scope(node, exempt=False)
-
     def visit_With(self, node: ast.With | ast.AsyncWith) -> None:
         for item in node.items:
             self.visit(item.context_expr)
