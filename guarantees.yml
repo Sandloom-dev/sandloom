@@ -66,13 +66,19 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_insert_without_tenant_fails_closed
   - src/sandloom/core/tests/test_tenant_isolation.py::test_insert_cannot_target_another_tenant
 - id: G-TENANT-05
-  statement: Under a bound tenant, bulk INSERTs (other than conflict_insert with an ON CONFLICT clause,
-    G-TENANT-19), bulk UPDATEs that change tenant_id (values or ordered_values) and bulk-by-primary-key
-    UPDATEs on a TenantScoped model raise UnsafeTenantOperationError; they are only allowed inside explicit
-    unscoped().
+  statement: Under a bound tenant, bulk INSERTs, bulk UPDATEs that change tenant_id (values or ordered_values)
+    and bulk-by-primary-key UPDATEs on a TenantScoped model raise UnsafeTenantOperationError; they are
+    only allowed inside explicit unscoped(). The one admitted bulk INSERT is conflict_insert with an
+    ON CONFLICT clause, for the bound tenant's rows only; it sets a missing tenant_id, refuses another
+    tenant's and with no tenant bound, and its DO UPDATE never changes another tenant's row.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
+  - tests/sdk/test_conflict_insert_tenant.py::test_upsert_without_tenant_id_inserts_then_updates_for_the_bound_tenant
+  - tests/sdk/test_conflict_insert_tenant.py::test_upsert_naming_another_tenant_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_conflict_with_another_tenants_row_does_not_update_it
+  - tests/sdk/test_conflict_insert_tenant.py::test_upsert_with_no_tenant_bound_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_plain_insert_stays_forbidden
   - src/sandloom/core/tests/test_tenant_isolation.py::test_bulk_insert_requires_explicit_system_scope
   - src/sandloom/core/tests/test_tenant_isolation.py::test_bulk_update_cannot_change_tenant_id
   - src/sandloom/core/tests/test_tenant_guard_gaps.py::test_bulk_update_by_primary_key_is_refused
@@ -218,18 +224,6 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_upsert_requires_tenant_and_never_crosses_tenants
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_update_is_scoped_to_bound_tenant
-- id: G-TENANT-19
-  statement: conflict_insert on a TenantScoped model (with on_conflict_do_nothing or on_conflict_do_update)
-    runs only under a bound tenant and writes that tenant's rows only; a tenant_id of another tenant is
-    refused with UnsafeTenantOperationError, a missing one is set to the bound tenant, and the DO UPDATE
-    never changes another tenant's row.
-  sources:
-  - docs/modules/database/multi-tenancy.md
-  tests:
-  - tests/sdk/test_conflict_insert_tenant.py::test_upsert_without_tenant_id_inserts_then_updates_for_the_bound_tenant
-  - tests/sdk/test_conflict_insert_tenant.py::test_upsert_naming_another_tenant_is_refused
-  - tests/sdk/test_conflict_insert_tenant.py::test_a_conflict_with_another_tenants_row_does_not_update_it
-  - tests/sdk/test_conflict_insert_tenant.py::test_upsert_with_no_tenant_bound_is_refused
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees
@@ -8804,7 +8798,7 @@ issued:
   G-SDK: 5
   G-SENS: 7
   G-TASK: 5
-  G-TENANT: 19
+  G-TENANT: 18
   G-UNIT: 3
   G-UOW: 9
   G-WINDOW: 3
