@@ -619,6 +619,131 @@ def test_going_external_docker_external_rechecks_the_rows_of_the_docker_period(
     assert fake_stack.keys[4] == {"theirs": "b"}
 
 
+def _row_of_another_checkout(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    stored_kv_url: str,
+) -> tuple[Path, Path, commands.Context]:
+    """An external state on ``stored_kv_url`` with a second checkout's row on
+    the pair (3, 4); returns the main checkout, the other one and a context."""
+    root, others = _external_up_with_rows(
+        tmp_path, environ, monkeypatch, {"wt": (3, 4)}
+    )
+    ctx = _ctx(root, environ)
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    state.external["kv_url"] = stored_kv_url
+    save_state(ctx.state_dir, state)
+    return root, others["wt"], ctx
+
+
+@pytest.mark.parametrize(
+    ("stored", "named"),
+    [
+        ("redis://127.0.0.1:6390", "redis://127.0.0.1:6390"),
+        # regression guards: the stack's parser lower-cases the host and fills the
+        # default port, so these never counted as another server
+        ("redis://cache.local:6379", "redis://CACHE.local"),
+        ("redis://cache.local", "redis://cache.local:6379"),
+    ],
+)
+def test_naming_the_same_keyed_server_keeps_the_rows_without_a_recheck(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+    stored: str,
+    named: str,
+) -> None:
+    """The pair was checked empty on this server: naming it again (another
+    spelling of its host, its default port left out) re-checks nothing. The keys
+    found on the pair now are the checkout's own, so the row keeps it."""
+    root, wt, ctx = _row_of_another_checkout(tmp_path, environ, monkeypatch, stored)
+    fake_stack.keys = {3: {"mine": "a"}, 4: {"mine": "b"}}
+    options = commands.UpOptions(services="external", kv_url=named)
+    assert commands.up(_ctx(root, environ), options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert state.checkouts[str(wt)].indexes == (3, 4)
+    assert state.external["kv_url"] == named
+    assert fake_stack.keys == {3: {"mine": "a"}, 4: {"mine": "b"}}
+
+
+@pytest.mark.parametrize(
+    ("stored", "named"),
+    [
+        ("redis://cache.local:6390", "redis://cache.local.:6390"),
+        ("redis://cache.local.:6390", "redis://cache.local:6390"),
+    ],
+)
+def test_a_trailing_dot_names_another_keyed_server_and_the_rows_are_rechecked(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+    stored: str,
+    named: str,
+) -> None:
+    """``cache.local.`` is an absolute name, ``cache.local`` may be completed by
+    the resolver's search list: the connection keeps the dot, so the two may be
+    two servers. Equal keys must mean one server, so the pair is checked again
+    and, holding keys there, replaced (``reset`` and ``prune`` flush it)."""
+    root, wt, ctx = _row_of_another_checkout(tmp_path, environ, monkeypatch, stored)
+    fake_stack.keys = {3: {"theirs": "a"}, 4: {"theirs": "b"}}
+    options = commands.UpOptions(services="external", kv_url=named)
+    assert commands.up(_ctx(root, environ), options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert not set(state.checkouts[str(wt)].indexes) & {3, 4}
+    assert fake_stack.keys == {3: {"theirs": "a"}, 4: {"theirs": "b"}}
+
+
+def test_naming_another_keyed_server_with_free_indexes_updates_the_row_state(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The pair is checked on the new server, found empty and kept; the state
+    names the new server from then on."""
+    root, wt, ctx = _row_of_another_checkout(
+        tmp_path, environ, monkeypatch, "redis://127.0.0.1:6390"
+    )
+    fake_stack.keys = {}
+    options = commands.UpOptions(services="external", kv_url="redis://127.0.0.1:6391")
+    assert commands.up(_ctx(root, environ), options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert state.external["kv_url"] == "redis://127.0.0.1:6391"
+    assert state.checkouts[str(wt)].indexes == (3, 4)
+
+
+def test_naming_another_keyed_server_with_no_room_is_refused_and_saves_nothing(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+) -> None:
+    """The new server holds keys of the person's own in the pair, and it has no
+    two other empty indexes to give: the `up` is refused before the state is
+    written, so `reset` and `prune` never flush those keys there."""
+    root, wt, ctx = _row_of_another_checkout(
+        tmp_path, environ, monkeypatch, "redis://127.0.0.1:6390"
+    )
+    before = (ctx.state_dir / "dev.json").read_text(encoding="utf-8")
+    fake_stack.index_count = 5
+    fake_stack.keys = {3: {"theirs": "a"}, 4: {"theirs": "b"}}
+    options = commands.UpOptions(services="external", kv_url="redis://127.0.0.1:6391")
+    with pytest.raises(commands.DevError, match="no two empty database indexes"):
+        commands.up(_ctx(root, environ), options)
+    assert (ctx.state_dir / "dev.json").read_text(encoding="utf-8") == before
+    assert fake_stack.keys == {3: {"theirs": "a"}, 4: {"theirs": "b"}}
+    state = load_state(ctx.state_dir)
+    assert state is not None and state.external["kv_url"] == "redis://127.0.0.1:6390"
+    assert state.checkouts[str(wt)].indexes == (3, 4)
+
+
 def test_a_changed_keyed_server_rewrites_the_blocks_of_every_other_checkout(
     tmp_path: Path,
     environ: dict[str, str],

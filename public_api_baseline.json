@@ -3581,6 +3581,9 @@
     }
   },
   "sandloom.driverkit.shared_endpoints": {
+    "DEFAULT_REDIS_PORT": {
+      "kind": "value"
+    },
     "Role": {
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"

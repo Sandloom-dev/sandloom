@@ -108,7 +108,6 @@ def test_redis_driver_hook_matches_the_harness_layout(
         {},
         {"url": None},
         {"url": "memory://"},
-        {"url": "redis:///var/run/redis.sock"},  # not a plain index
         {"url": 3},
     ],
 )
@@ -134,9 +133,106 @@ def test_the_layout_keeps_everything_but_the_index() -> None:
         redis_isolation.worker_redis_url("rediss://h:1/3?x=1", 1, stride)
         == "rediss://h:1/35?x=1"
     )
-    # a socket path is no plain index: it is left as it is
+    # a URL of another family is not the mover's to read
     sock = "redis+unix:///var/run/redis.sock"
-    assert redis_isolation.worker_redis_url(sock, 0, stride) == sock
+    layout = redis_isolation.WorkerLayout()
+    assert redis_isolation.moved_redis_url(sock, 0, layout) == sock
+
+
+_SECRET_DB = "Db5ecretPw"
+#: Databases redis-py reads another way than the mover: a ``db`` query wins over
+#: the path, and the path loses every '/' and its percent-escapes.
+_UNPLAIN_URLS = [
+    "redis://h:6379/0?db=3",
+    "redis://h:6379?db=3",
+    f"redis://:{_SECRET_DB}@h:6379/2?x=1&db=3",
+    "rediss://h:6379/1?db=3",
+    "redis://h:6379/3/",  # db 3 for redis-py
+    "redis://h:6379/%33",  # db 3
+    "redis://h:6379/1/5",  # db 15
+    "redis://h:6379/x",  # no number: db 0
+    "redis://h:6379/-1",
+    "redis:///var/run/redis.sock",
+    f"redis://:{_SECRET_DB}/cd@h:6379/1",  # an unencoded '/' in the password
+]
+
+
+@pytest.mark.parametrize("url", _UNPLAIN_URLS)
+def test_the_mover_refuses_a_url_whose_database_it_reads_otherwise_than_redis_py(
+    url: str,
+) -> None:
+    """Moving the path alone would leave every worker on the database redis-py
+    reads, so the URL is refused (never moved, never passed on), whichever way
+    the mover is reached, and the message holds no password."""
+    mapping = {0: [0, 1], 1: [2, 3], 2: [4, 5]}
+    calls = (
+        lambda: redis_isolation.worker_redis_url(
+            url, 0, redis_isolation.DEFAULT_STRIDE
+        ),
+        lambda: redis_isolation.mapped_redis_url(url, 0, mapping),
+        lambda: redis_isolation.moved_redis_url(url, 1, redis_isolation.WorkerLayout()),
+    )
+    for call in calls:
+        with pytest.raises(ValueError, match="plain decimal|'db' query") as caught:
+            call()
+        assert _SECRET_DB not in str(caught.value)
+        assert "cd@h" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("url", "leaked"),
+    [
+        ("redis://:7391/Zq4@host:6379/1", "7391"),  # the password read as a port
+        ("redis://Pw8Zx/y@h/1", "Pw8Zx"),  # the password read as the host
+        ("redis://usr9Q:pa/ss@host/1", "usr9Q"),  # the user name read as the host
+    ],
+)
+def test_the_refusal_of_a_url_with_a_split_netloc_names_no_piece_of_its_credentials(
+    url: str, leaked: str
+) -> None:
+    """An unencoded ``/`` in the password ends the netloc there: what urlsplit
+    then calls host and port is a piece of the user name or password."""
+    with pytest.raises(ValueError, match="plain decimal|'db' query") as caught:
+        redis_urls.refuse_unplain_database(url)
+    message = str(caught.value)
+    assert leaked not in message
+    assert "<no host>" not in message
+    assert "but redis:// has" in message
+
+
+@pytest.mark.parametrize(
+    ("url", "moved"),
+    [
+        ("redis://h/1?db=", "redis://h/17?db="),  # an empty db: redis-py ignores it
+        ("redis://h/1?database=3&x=1", "redis://h/17?database=3&x=1"),
+        ("redis://h/01", "redis://h/17"),
+        ("redis://h", "redis://h/16"),
+    ],
+)
+def test_the_mover_moves_a_url_that_redis_py_and_it_read_alike(
+    url: str, moved: str
+) -> None:
+    assert (
+        redis_isolation.worker_redis_url(url, 0, redis_isolation.DEFAULT_STRIDE)
+        == moved
+    )
+
+
+def test_the_redis_drivers_hook_refuses_an_unplain_url() -> None:
+    for url in ("redis://h:6379/0?db=3", "redis:///var/run/redis.sock"):
+        with pytest.raises(ValueError, match="plain decimal|'db' query"):
+            redis_cache.RedisCacheProvider.test_isolation({"url": url}, "gw1")
+
+
+@pytest.mark.parametrize("url", ["redis://h:6379/0?db=3", "redis://h:6379/%33"])
+def test_an_unplain_url_is_refused_where_the_run_claims_and_allocates_it(
+    url: str,
+) -> None:
+    infra = json.dumps({"cache": {"default": {"url": url}}})
+    with pytest.raises(ValueError, match="plain decimal|'db' query"):
+        redis_urls.infra_redis_urls(infra)
+    with pytest.raises(ValueError, match="plain decimal|'db' query"):
+        redis_family.FAMILY.slot_bases({"X": url}, "owner", {})
 
 
 def test_replacement_workers_get_the_spares_then_a_shared_slot(
@@ -706,16 +802,11 @@ _HOSTILE = f"redis://user:{_SECRET}@host{chr(0xFF03)}x:6379/1"
 
 def _hostile_calls() -> dict[str, Any]:
     from sandloom_redis import broadcast
-    from sandloom_redis.testing import (
-        family,
-        isolation,
-        resources,
-    )
+    from sandloom_redis.testing import isolation, resources
 
     return {
         "broadcast prefix": lambda: broadcast._database_prefix(_HOSTILE),
         "worker_redis_url": lambda: isolation.worker_redis_url(_HOSTILE, 0, 16),
-        "same_database": lambda: family.FAMILY.same_database(_HOSTILE, _HOSTILE),
         "server_url": lambda: resources._server_url(_HOSTILE),
         "display": lambda: resources._display(_HOSTILE, 1),
         "index_of": lambda: resources._index_of(_HOSTILE),
