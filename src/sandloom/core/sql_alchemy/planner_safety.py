@@ -90,6 +90,25 @@ def _session_probe() -> Session:
     return probe
 
 
+#: The tenant guard's own session listeners the optimized executor may ignore: the
+#: ``after_soft_rollback`` hook that forgets the stamp of a rolled-back insert
+#: (``sandloom.core.tenant._forget_rolled_back_inserts``). It touches only the
+#: ``info`` of instances a flush inserted; the optimized executor reads rows
+#: through no Session, so it has no instance to stamp.
+_TENANT_GUARD_SESSION_LISTENERS = frozenset({"_forget_rolled_back_inserts"})
+
+
+def _has_custom_session_listener(probe: Session) -> bool:
+    return any(
+        not (
+            getattr(listener, "__module__", "") == "sandloom.core.tenant"
+            and getattr(listener, "__qualname__", "") in _TENANT_GUARD_SESSION_LISTENERS
+        )
+        for name in _SESSION_EVENTS
+        for listener in getattr(probe.dispatch, name)
+    )
+
+
 def policy_reason(engine: Any, mappers: Sequence[Any]) -> str | None:
     """Never skip user-installed row filters, load hooks or SQL policies.
 
@@ -108,7 +127,7 @@ def policy_reason(engine: Any, mappers: Sequence[Any]) -> str | None:
                 == "install_tenant_guard.<locals>._apply_tenant_criteria"
             ):
                 return "custom ORM execute listener requires the general executor"
-        if any(tuple(getattr(probe.dispatch, name)) for name in _SESSION_EVENTS):
+        if _has_custom_session_listener(probe):
             return "custom ORM session listener requires the general executor"
         dispatch = engine.sync_engine.dispatch
         if any(tuple(getattr(dispatch, name)) for name in _ENGINE_EVENTS):

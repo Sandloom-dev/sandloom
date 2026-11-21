@@ -51,7 +51,7 @@ from sandloom.sdk.projections import (
     full_state,
     tombstone,
 )
-from sandloom.sdk.tenant import bind_tenant
+from sandloom.sdk.tenant import bind_tenant, unscoped
 from sandloom.sdk.testing.fixtures import *  # noqa: F403
 
 DB_LAWS = settings(
@@ -176,9 +176,10 @@ async def index_db(db: Any) -> AsyncIterator[Any]:
     """``db`` with the read model's table (created in the rolled-back test)."""
 
     def create(sync: Any) -> None:
-        _LawsBase.metadata.create_all(
-            sync.connection(), tables=[cast(Table, LawsItemIndex.__table__)]
-        )
+        with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
+            _LawsBase.metadata.create_all(
+                sync.connection(), tables=[cast(Table, LawsItemIndex.__table__)]
+            )
 
     await db.run_sync(create)
     yield db

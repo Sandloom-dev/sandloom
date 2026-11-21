@@ -182,42 +182,48 @@ async def env(
         if not url:
             pytest.fail("DATABASE_URL not set: the guard test needs a PostgreSQL URL")
     engine = create_async_engine(url)
-    install_write_admission(engine)  # the cursor rule every kernel engine carries
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.drop_all)
-        await conn.run_sync(_Base.metadata.create_all)
-    state = _Env(
-        engine=engine,
-        maker=async_sessionmaker(engine, expire_on_commit=False),
-        tenant_a=uuid.uuid4(),
-        tenant_b=uuid.uuid4(),
-        other_id=uuid.uuid4(),
-        mirror_id=uuid.uuid4(),
-        leaf_id=uuid.uuid4(),
-        sink_id=uuid.uuid4(),
-        orm_sink_id=uuid.uuid4(),
-    )
-    async with state.maker() as session:
-        with unscoped():
-            session.add_all(
-                [
-                    _Item(id=A_ITEM_ID, tenant_id=state.tenant_a, name="a-row"),
-                    _Item(id=B_ITEM_ID, tenant_id=state.tenant_b, name="b-row"),
-                    _Other(id=state.other_id, name="other"),
-                    _Other(id=state.mirror_id, name="b-row"),
-                    _Sink(id=state.sink_id, value="x", stamped="seed"),
-                    _OrmSink(id=state.orm_sink_id, value="x", stamped="seed"),
-                ]
-            )
-            await session.flush()
-            session.add(_Leaf(id=state.leaf_id, other_id=state.mirror_id, name="b-row"))
-            await session.commit()
-    try:
+    try:  # the engine is released whether setup, the test or the drop fails
+        install_write_admission(engine)  # the cursor rule every kernel engine carries
+        with unscoped():  # schema DDL names every table: system work (ADR-0018)
+            async with engine.begin() as conn:
+                await conn.run_sync(_Base.metadata.drop_all)
+                await conn.run_sync(_Base.metadata.create_all)
+        state = _Env(
+            engine=engine,
+            maker=async_sessionmaker(engine, expire_on_commit=False),
+            tenant_a=uuid.uuid4(),
+            tenant_b=uuid.uuid4(),
+            other_id=uuid.uuid4(),
+            mirror_id=uuid.uuid4(),
+            leaf_id=uuid.uuid4(),
+            sink_id=uuid.uuid4(),
+            orm_sink_id=uuid.uuid4(),
+        )
+        async with state.maker() as session:
+            with unscoped():
+                session.add_all(
+                    [
+                        _Item(id=A_ITEM_ID, tenant_id=state.tenant_a, name="a-row"),
+                        _Item(id=B_ITEM_ID, tenant_id=state.tenant_b, name="b-row"),
+                        _Other(id=state.other_id, name="other"),
+                        _Other(id=state.mirror_id, name="b-row"),
+                        _Sink(id=state.sink_id, value="x", stamped="seed"),
+                        _OrmSink(id=state.orm_sink_id, value="x", stamped="seed"),
+                    ]
+                )
+                await session.flush()
+                session.add(
+                    _Leaf(id=state.leaf_id, other_id=state.mirror_id, name="b-row")
+                )
+                await session.commit()
         yield state
     finally:
-        async with engine.begin() as conn:
-            await conn.run_sync(_Base.metadata.drop_all)
-        await engine.dispose()
+        try:
+            with unscoped():
+                async with engine.begin() as conn:
+                    await conn.run_sync(_Base.metadata.drop_all)
+        finally:
+            await engine.dispose()
 
 
 def _b_name() -> Any:
@@ -485,10 +491,11 @@ async def test_insert_values_cannot_copy_another_tenants_row(
 ) -> None:
     planted, unbound = uuid.uuid4(), uuid.uuid4()
     await _run(env, build(planted, _b_name()), env.tenant_a)
-    copied = await _scalar_unscoped(
-        env, select(_Other.name).where(_Other.id == planted)
-    )
-    assert copied is None  # B's item is invisible to A: the subquery is NULL
+    rows = await _unscoped(env, select(_Other.name).where(_Other.id == planted))
+    assert len(rows) == 1  # the bound INSERT wrote its row ...
+    assert (
+        rows[0][0] is None
+    )  # ... and B's item is invisible to A: the subquery is NULL
     with pytest.raises(MissingTenantError):
         await _run(env, build(unbound, _b_name()), None)
     # the copy is real: unscoped() copies B's value
@@ -556,6 +563,51 @@ async def test_a_raw_default_reading_a_tenant_table_is_refused(env: _Env) -> Non
         env, select(_Sink.stamped).where(_Sink.id == env.sink_id)
     )
     assert stamped == "b-row"
+
+
+@pytest.mark.asyncio
+async def test_a_default_the_statement_sets_itself_is_never_rendered(
+    env: _Env,
+) -> None:
+    """A column the statement sets leaves its reading default unrendered, so the
+    statement reads nothing; a row that omits the column renders it and is refused."""
+    first, second, third = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await _run(env, insert(_Sink).values(id=first, stamped="mine"), env.tenant_a)
+    await _run(
+        env,
+        update(_Sink).values(stamped="changed").where(_Sink.id == first),
+        env.tenant_a,
+    )
+    await _run(
+        env,
+        insert(_Sink).values(
+            [{"id": second, "stamped": "a"}, {"id": third, "stamped": "b"}]
+        ),
+        env.tenant_a,
+    )
+    rows = await _unscoped(env, select(_Sink.id, _Sink.stamped))
+    assert {row.id: row.stamped for row in rows} == {
+        env.sink_id: "seed",
+        first: "changed",
+        second: "a",
+        third: "b",
+    }
+    # one row that omits the column renders the default: refused
+    with pytest.raises(UnsafeTenantOperationError):
+        await _run(
+            env,
+            insert(_Sink).values(
+                [{"id": uuid.uuid4(), "stamped": "a"}, {"id": uuid.uuid4()}]
+            ),
+            env.tenant_a,
+        )
+    # a statement that sets another column leaves this default in play
+    with pytest.raises(UnsafeTenantOperationError):
+        await _run(
+            env,
+            insert(_Sink).values(id=uuid.uuid4(), value="v"),
+            env.tenant_a,
+        )
 
 
 @pytest.mark.asyncio

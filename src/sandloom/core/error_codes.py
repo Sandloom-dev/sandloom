@@ -413,7 +413,7 @@ exemption (no matching table any more) also fails.
         "check",
         "runtime raw SQL / Core table access can bypass the tenant guard",
         "use ORM entities, or an explicit unscoped() block for trusted system work",
-        "text(), exec_driver_sql and Model.__table__ statements are not "
+        "text(), DDL(), exec_driver_sql and Model.__table__ statements are not "
         "tenant-filtered by the ORM guard.",
     ),
     ErrorCode(
@@ -829,9 +829,11 @@ still refuses a name no loaded module declares.
         "a module uses `unscoped` other than as the context expression of a "
         "`with` block, or yields inside that block, letting the tenant bypass "
         "outlive it",
-        "write `with unscoped():` (or `async with`) directly and keep the block "
-        "free of `yield`: collect what it reads, leave the block, then yield; "
-        "never wrap, alias, store or pass `unscoped` around",
+        "write `with unscoped():` directly, in an `async def` too (it is a "
+        "synchronous context manager), and keep the block free of `yield`: "
+        "collect what it reads, leave the block, then yield; never rebind, "
+        "store, pass or wrap `unscoped` (an imported alias used directly as the "
+        "`with` item is fine)",
         """
 unscoped() lifts the tenant guard for the code inside its `with` block, and
 only a `with` block ends it. Anything that lets the bypass outlive its block
@@ -843,18 +845,23 @@ holds the manager. A route that iterates such a generator, or enters such a
 wrapper, and queries on its own reads every tenant's rows.
 
 sandloom check, over every file of a business module, accepts `unscoped` only
-as the direct context expression of a `with` or `async with` item
-(`with unscoped():`, `with lock, tc.unscoped():`) and reports:
+as the direct context expression of a `with` item (`with unscoped():`,
+`with lock, tc.unscoped():`; `unscoped()` is a synchronous context manager,
+so an `async def` writes `with` too) and reports:
 
-- a `yield` / `yield from` anywhere inside such a block, in a plain generator
-  and in a `@contextmanager` / `@asynccontextmanager` function alike, there is
-  no decorator exemption;
+- a `yield` / `yield from` anywhere inside such a block, or in the context
+  expression of a later item of the same `with`, in a plain generator and in a
+  `@contextmanager` / `@asynccontextmanager` function alike, there is no
+  decorator exemption;
 - every other use of the name, of an attribute named `unscoped`, or of the
   string "unscoped": an alias, a variable, an argument, a return value, a
   decorator, `getattr(sdk, "unscoped")`, `functools.partial(unscoped)`, a
   `__dict__["unscoped"]` lookup.
 
-An aliased import is followed. The kernel's own files are not scanned: the
+An aliased import used directly as the `with` item is followed. The default
+expressions and decorators of a nested function run in the enclosing block and
+are checked there; its body does not inherit the block. The kernel's own files
+are not scanned: the
 rule is for modules. Not seen: a name built at run time (`getattr(sdk, name)`
 with a variable).
 """,
@@ -886,7 +893,8 @@ that open such a connection, not one spelling of them:
   `async_engine_from_config`, `create_mock_engine`, `create_pool_from_url`
   and the `Engine` classes, by name, by attribute, through an aliased import,
   through `getattr(sqlalchemy, "create_engine")` or a `vars()` / `__dict__`
-  lookup;
+  lookup, also on a name bound to a constant
+  `importlib.import_module("sqlalchemy")` or `__import__("sqlalchemy")`;
 - `sqlalchemy.pool` and everything from it, and `sqlalchemy.engine` beyond its
   result and URL types (`CursorResult`, `Result`, `Row`, `RowMapping`,
   `Connection`, `URL`, `make_url`, which stay allowed);

@@ -82,6 +82,22 @@ _YIELD_BAD = {
         "from contextlib import contextmanager as cm\n"
         "@cm\ndef scope():\n    with unscoped():\n        yield\n"
     ),
+    # the earlier item is entered before a later item's expression runs
+    "a later item of the same with": (
+        "def rows(db, lock):\n    with unscoped(), lock((yield 1)):\n        pass\n"
+    ),
+    # a default runs when the ``def`` is evaluated, inside the block: it suspends
+    # the ENCLOSING generator
+    "a default of a nested function": (
+        "def rows(db):\n    with unscoped():\n"
+        "        def later(x=(yield 1)):\n            return x\n"
+        "        return later\n"
+    ),
+    "a default of a lambda": (
+        "def rows(db):\n    with unscoped():\n"
+        "        later = lambda x=(yield 1): x\n"
+        "        return later\n"
+    ),
 }
 
 _YIELD_OK = {
@@ -126,6 +142,14 @@ _YIELD_OK = {
     "async with, then a plain with": (
         "async def f(db, lock):\n    async with unscoped():\n"
         "        with lock:\n            return await db.rows()\n"
+    ),
+    # an earlier item's expression runs BEFORE ``unscoped()`` is entered
+    "an earlier item of the same with": (
+        "def rows(db, lock):\n    with lock((yield 1)), unscoped():\n        pass\n"
+    ),
+    "a default evaluated outside the block": (
+        "def rows(db):\n    def later(x=(yield 1)):\n        return x\n"
+        "    with unscoped():\n        return later\n"
     ),
 }
 
@@ -219,7 +243,9 @@ def test_an_aliased_unscoped_import_is_followed(tmp_path: Path) -> None:
         "from sandloom.core.di import unscoped as system_scope\n"
         "def rows():\n    with system_scope():\n        yield 1\n"
     )
-    assert find_yield_inside_unscoped(path)
+    found = find_yield_inside_unscoped(path)
+    # one finding, the yield (line 4): `with system_scope():` itself is not one
+    assert len(found) == 1 and found[0].startswith("Line 4: yield inside"), found
 
 
 def test_an_aliased_unscoped_is_reported_outside_a_with_item(tmp_path: Path) -> None:
@@ -228,7 +254,9 @@ def test_an_aliased_unscoped_is_reported_outside_a_with_item(tmp_path: Path) -> 
         "from sandloom.core.di import unscoped as system_scope\n"
         "def rows():\n    return system_scope\n"
     )
-    assert find_yield_inside_unscoped(path)
+    found = find_yield_inside_unscoped(path)
+    # one finding, the returned reference (line 3), not the import
+    assert len(found) == 1 and found[0].startswith("Line 3: `unscoped` may appear")
 
 
 _ENGINE_BAD = {
@@ -295,6 +323,23 @@ _ENGINE_BAD = {
     "the sqlalchemy pool by a constant import_module": (
         "import importlib\nmod = importlib.import_module('sqlalchemy.pool')\n"
     ),
+    # a constant dynamic import of sqlalchemy is sqlalchemy
+    "create_engine on a constant import_module": (
+        "import importlib\n"
+        "engine = importlib.import_module('sqlalchemy').create_engine('sqlite://')\n"
+    ),
+    "create_engine on a constant __import__": (
+        "engine = __import__('sqlalchemy').create_engine('sqlite://')\n"
+    ),
+    "create_async_engine on a name bound to an import_module": (
+        "import importlib\n"
+        "sa = importlib.import_module('sqlalchemy.ext.asyncio')\n"
+        "engine = sa.create_async_engine('sqlite+aiosqlite://')\n"
+    ),
+    "getattr on a constant import_module of sqlalchemy": (
+        "import importlib\n"
+        "build = getattr(importlib.import_module('sqlalchemy'), 'create_engine')\n"
+    ),
     "raw_connection": "def f(session):\n    return session.get_bind().raw_connection()\n",
     "get_raw_connection": (
         "async def f(conn):\n    return await conn.get_raw_connection()\n"
@@ -339,7 +384,25 @@ _ENGINE_OK = {
         "def f(worker):\n    return worker.pool\n"
     ),
     "getattr on a model": "def f(model):\n    return getattr(model, 'name')\n",
+    "a constant import_module of sqlalchemy used for a select": (
+        "import importlib\n"
+        "sa = importlib.import_module('sqlalchemy')\n"
+        "statement = sa.select(1)\n"
+    ),
+    "a create_engine method of a constant import_module of another package": (
+        "import importlib\n"
+        "factory = importlib.import_module('acme.tools').create_engine()\n"
+    ),
     "a module named like a driver prefix": "from acme import sqlite3_helpers\n",
+    # a result / URL type is a value: reflecting on it is no factory lookup
+    "getattr on an allowed result type": (
+        "from sqlalchemy.engine import Row\n"
+        "def f():\n    return getattr(Row, '__name__')\n"
+    ),
+    "vars of an aliased allowed result type": (
+        "from sqlalchemy.engine import CursorResult as Cursor\n"
+        "def f():\n    return vars(Cursor)\n"
+    ),
 }
 
 

@@ -9,7 +9,7 @@ title: "ADR-0018: The tenant guard at the cursor"
 - **Status:** Accepted (2026-11-21, by the owner, in the review of PR #342)
 - **Date:** 2026-11-21
 - **Origin:** three red-team rounds of the tenant guard, the last with 29 open bypasses
-- **Implemented by:** the tm task `tenant-guard-read-paths`
+- **Implemented by:** the tm task `tenant-guard-read-paths` (PR #342, two fix rounds after review)
 
 ## Context
 
@@ -42,30 +42,48 @@ SQL is about to be sent.
 compiled statement: which tables does it name?
 
 The engine's statement compiler records the table names it renders (`ReachRecorder`, installed
-per dialect by `install_reach_recorder`). It sees every `visit_table`, the identifiers of a
-`text()` or `literal_column()` fragment, the target of an INSERT, UPDATE or DELETE and the
-string a custom `@compiles` element returns. SQLAlchemy caches the compiled object. An execution
-of a statement that names no tenant table costs two set checks.
+per dialect by `install_reach_recorder`). It sees every `visit_table`, the target of an INSERT,
+UPDATE or DELETE, the string a custom `@compiles` element returns and every bare word of a
+`text()` or `literal_column()` fragment. SQLAlchemy caches the compiled object. An execution of a
+statement that names no tenant table costs two set checks.
+
+A fragment is read from its raw text and no quoting rule is applied, so nothing a dialect's
+quoting hides is skipped: dollar quotes, an `E'...'` string with an escaped quote, a comment, a
+quoted identifier. A PostgreSQL `U&"..."` identifier spells its name in escapes no scan can read, so
+it counts as reaching every tenant table. A statement the recorder did not compile (a `DDL()`
+element, a compiled object of a dialect without the recorder, a compiler a driver swaps in) has its
+rendered string read the same way, and is refused when it names a tenant table.
 
 Outside `unscoped()`, a statement that names a tenant table is refused
 (`UnsafeTenantOperationError`, `MissingTenantError` when no tenant is bound), with two exceptions:
 
-- the ORM guard stamped the execution (decision 2);
+- the ORM guard approved this statement (decision 2);
 - it is a flush write of rows the mapper events verified (decision 4).
 
 Tables are matched by name, not by object. A second `Table` of the same name, `table("name")` and a
 `text()` fragment are the same table. The match ignores the schema, so a same-named table in
-another schema is refused. That is a superset, and it fails closed.
+another schema is refused. The scan is a superset, and it fails closed: a literal that spells a
+tenant table's name counts as reaching it.
 
-### 2. The scoped stamp
+Schema work names tenant tables too. `metadata.create_all`, `DDL(...)` and an index of a tenant
+table run inside `unscoped()`; `ensure_model_schema` does so at startup, and so do the test
+fixtures that build tables.
 
-The `do_orm_execute` guard writes the execution option `sandloom_tenant_scoped` with a private
-token only after it attached the criteria, verified a column load, or saw a `text()` the caller
-sent. A caller cannot forge it: the same option with another value is no stamp.
+### 2. The approval
 
-A stamped statement must still carry the bound tenant. `TENANT_CRITERIA_PARAM` is the one bind
-parameter of the criterion. Any execution whose caller parameters, or a later listener, set it to
-another value is refused. The cursor re-checks it for every compiled parameter set, including
+The `do_orm_execute` guard records the statement it checked in a private weak map, `_APPROVED`,
+with one of two kinds: `criterion`, when it attached the tenant criterion, and `trusted`, when it
+verified a column load or saw a `text()` the caller sent. The cursor admits a statement only when
+`context.invoked_statement` is in the map. Nothing is written to the statement or to its execution
+options. A statement a later `do_orm_execute` listener swaps in, a follow-up loader statement
+(`selectinload`, `subqueryload`, `immediateload`) and a copy of the options carry no approval, so
+each is checked on its own. A later listener that rewrites a tenant statement is therefore refused.
+
+The approval is not single-use. The same statement object, run again, is approved again, and the
+guard re-checks it. A `criterion` approval alone admits nothing: it needs the criterion's bind
+parameter at the cursor. `TENANT_CRITERIA_PARAM` is the one bind parameter of the criterion. An
+execution whose caller parameters, or a later listener, set it to another value is refused, and so
+is a statement that lost it. The cursor re-checks it for every compiled parameter set, including
 `executemany` and streaming.
 
 ### 3. What the ORM annotation protects
@@ -81,40 +99,72 @@ table. That is a documented superset: the walk cannot say which statement the SQ
 
 ### 4. Flush writes and column loads need a stamped instance
 
-A flush UPDATE or DELETE, and the load of a deferred or expired column, are admitted only for an
-instance whose `tenant_id` was read from the database under the bound tenant. The `load` and
-`refresh` events record it in `InstanceState.info`. A verified flush INSERT records it too.
+A flush write is an allowlist. The statement is admitted only when every part of it is accounted
+for:
+
+- a flush is running, a tenant is bound, and the statement is the plain Core INSERT, UPDATE or
+  DELETE the persistence layer builds. A statement a column default or a listener wrote on the
+  flush connection is not;
+- nothing it renders reads a tenant table, and it names none that no scan can read;
+- an INSERT writes a table that a verified insert of this flush writes, and carries an explicit
+  `tenant_id` equal to the bound tenant in every parameter set. A missing or computed value is no
+  value;
+- an UPDATE or DELETE pins its rows by primary key (`pk = :param`), and every parameter set names a
+  `(table, primary key)` the mapper events verified in this flush. An UPDATE never sets another
+  tenant's `tenant_id`.
+
+A column load of an instance, and the flush UPDATE or DELETE of one, needs the stamp of the
+instance: the `tenant_id` the row carried when it was read from the database, or when a flush
+inserted it. The `load` and `refresh` events record it in `InstanceState.info`. A flush records
+the stamp of an inserted instance only after the flush succeeded, and `after_soft_rollback`
+clears it for an instance whose insert rolled back, so a failed insert leaves nothing to
+re-attach with.
 
 `merge(load=False)`, unpickling and `make_transient_to_detached` give no stamp. Flushing or
-refreshing such an instance is refused. `Session.get`, `Query.get`, `get_one` and a many-to-one lazy
-load answer from the identity map only for a stamped instance of the bound tenant
-(`Session._identity_lookup`). For any other they run the scoped query. Column defaults are judged
-per rendered column.
+refreshing such an instance is refused. So is a deferred column load of an instance a `load_only()`
+or `defer()` projection left without its `tenant_id`: the load is refused until the projection
+includes the column. `Session.get`, `Query.get`, `get_one` and a many-to-one lazy load answer from
+the identity map only for a stamped instance of the bound tenant (`Session._identity_lookup`). For
+any other they run the scoped query. An expired instance of another tenant raises the refusal
+where an unexpired one runs the scoped query: nothing crosses either way. Column defaults are
+judged per rendered column.
 
 ### 5. What a module may write
 
 The cursor rule needs every connection to come through the framework's engine, and no bypass to
-outlive its block. Two `sandloom check` rules say it for business modules.
+outlive its block. Three `sandloom check` rules say it for business modules.
 
-- **SANDLOOM-C036.** `unscoped` appears only as the direct context expression of a `with` or
-  `async with` item, with no `yield` inside the block. There is no decorator exemption: a
-  `@contextmanager` wrapper hands the bypass to its caller, as do an alias, a variable,
-  `ExitStack.enter_context`, `functools.partial` and `getattr`. The kernel's own files are not scanned.
+- **SANDLOOM-C036.** `unscoped` appears only as the direct context expression of a `with` item
+  (`with unscoped():`, also in an `async def`: `unscoped()` is a synchronous context manager), with
+  no `yield` inside the block, including the context expression of a later item of the same `with`.
+  There is no decorator exemption: a `@contextmanager` wrapper hands the bypass to its caller, as do
+  an alias bound to a variable, `ExitStack.enter_context`, `functools.partial` and `getattr`. An
+  imported alias used directly as the `with` item is followed. The kernel's own files are not scanned.
 - **SANDLOOM-C037.** The rule lists capabilities, not spellings. A module may not build an engine
   or a pool, import `sqlalchemy.pool` or most of `sqlalchemy.engine`, star-import from `sqlalchemy`,
-  import a DBAPI driver, or call `raw_connection()`. `CursorResult`, `Row`, `URL` and the other
-  result and URL types stay allowed.
+  import a DBAPI driver, or call `raw_connection()`. A name bound to a constant dynamic import of
+  `sqlalchemy` (`sa = importlib.import_module("sqlalchemy")`) counts as `sqlalchemy`. `CursorResult`,
+  `Row`, `URL` and the other result and URL types stay allowed.
+- **SANDLOOM-C015.** The `unsafe-tenant-sql` rule flags `DDL(...)` outside `with unscoped():` the
+  way it flags `text()`, because a `DDL()` string that names a tenant table is refused at the cursor.
 
 ## Consequences
 
-- Every statement that reaches a tenant table without the ORM guard is refused at the cursor, on
-  SQLite and on PostgreSQL, with or without row-level security. The statement walk stays: it
+- Every compiled statement that names a tenant table, and that the ORM guard did not approve
+  or the unit of work did not verify, is refused at the cursor, on SQLite and on PostgreSQL, with
+  or without row-level security. The seams below are the exceptions. The statement walk stays: it
   decides what the guard scopes, and the cursor decides what runs.
 - Some statements that were harmless are refused: a same-named table in another schema, a
-  non-tenant polymorphic base with a tenant subclass, a mapper with raw tenant SQL. Each has a
-  recorded reason and a way out: `unscoped()`, or the ORM entity.
-- A flush writes a loaded instance as before. An instance built by `merge(load=False)` or by
-  unpickling needs a load first, or `unscoped()`.
+  non-tenant polymorphic base with a tenant subclass, a mapper with raw tenant SQL, a literal or a
+  comment that spells a tenant table's name, `DDL()` and `metadata.create_all` over a tenant table
+  outside `unscoped()`. Each has a recorded reason and a way out: `unscoped()`, or the ORM entity.
+  **Upgrade:** schema DDL that names a tenant table runs in `unscoped()`. `ensure_model_schema` does
+  it for the app; test fixtures that create or drop the tables of a tenant model do it themselves.
+- A flush writes a loaded or newly inserted instance as before. An instance built by
+  `merge(load=False)` or by unpickling needs a load first, or `unscoped()`.
+- The guard registers one session event, `after_soft_rollback`. The planner's custom-listener probe
+  (`planner_safety.policy_reason`) treats a session listener as custom and takes the general
+  executor; it exempts this one, so a session with only the kernel's listeners keeps its fused path.
 - The test harness's schema reset (`sandloom.core.testing.database.reset_schema`) names every
   table of a disposable test database in its probe, `DELETE`, `TRUNCATE` and sequence rewind. It
   runs inside `unscoped()`. A custom `@compiles` element is read for the fragment it returns, not
@@ -123,12 +173,15 @@ outlive its block. Two `sandloom check` rules say it for business modules.
 - The mapper events add a listener call to each flushed instance, and the load events one
   dictionary write to each loaded instance.
 - Some seams stay with the caller or with the database, in the order they are named:
-  - a hidden raw reference inside a stamped statement that the ORM walk cannot see;
+  - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;
-  - a `text()` passed straight to `session.execute`, which the ORM guard stamps as the caller's;
-  - a private SQLAlchemy API, which stays reachable but yields an unstamped statement the
-    cursor refuses;
-  - a column load of a stamped instance when no tenant is bound.
+  - a `text()` passed straight to `session.execute`, which the ORM guard approves as the caller's:
+    `scoped()`, the `unsafe-tenant-sql` check and row-level security hold it;
+  - a column load of a stamped instance when no tenant is bound: the instance was read under a
+    tenant, and the load goes to the same row;
+  - private APIs: the guard's own state (the `sandloom.tenant_id` key of `InstanceState.info`,
+    `sandloom.core.tenant._APPROVED`) and a private SQLAlchemy API are reachable by code that
+    imports or writes them. No cursor rule stops the code that edits the guard itself.
 - Two C037 cases are not seen: a dynamic import of a non-constant name, and `getattr` with a
   variable name on `sqlalchemy`.
 

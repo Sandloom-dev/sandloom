@@ -125,9 +125,10 @@ async def env() -> AsyncGenerator[_Env, None]:
     engine = create_async_engine(database_url)
     # the cursor hook every kernel-built engine carries (the drivers install it)
     install_write_admission(engine)
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.drop_all)
-        await conn.run_sync(_Base.metadata.create_all)
+    with unscoped():  # schema DDL names every table: system work (ADR-0018)
+        async with engine.begin() as conn:
+            await conn.run_sync(_Base.metadata.drop_all)
+            await conn.run_sync(_Base.metadata.create_all)
     state = _Env(
         engine=engine,
         maker=async_sessionmaker(engine, expire_on_commit=False),
@@ -150,8 +151,9 @@ async def env() -> AsyncGenerator[_Env, None]:
     try:
         yield state
     finally:
-        async with engine.begin() as conn:
-            await conn.run_sync(_Base.metadata.drop_all)
+        with unscoped():
+            async with engine.begin() as conn:
+                await conn.run_sync(_Base.metadata.drop_all)
         await engine.dispose()
 
 
@@ -671,7 +673,7 @@ async def test_the_cursor_refuses_a_dml_cte_the_statement_walk_refuses_first(
     async with env.maker() as session:
         with bind_tenant(env.tenant_a):
             connection = await session.connection()
-            with pytest.raises(UnsafeTenantOperationError):
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
                 await connection.execute(statement)
     assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
 

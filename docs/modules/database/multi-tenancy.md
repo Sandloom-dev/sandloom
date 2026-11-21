@@ -176,7 +176,8 @@ too. An event consumer's delivery always runs guarded, even when the bus task
 that runs it was first started inside an open `unscoped()`.
 
 In a module `unscoped` is written one way: as the direct context expression of
-a `with` or `async with` item, with no `yield` inside the block. A generator
+a `with` item, with no `yield` inside the block. It is a synchronous context
+manager, so write `with unscoped():` inside an `async def` too. A generator
 that yields inside `with unscoped():` keeps the guard off for its caller until
 the generator closes, because the block stays open across the `yield`.
 
@@ -199,39 +200,71 @@ where the tree hangs the reference: a loader option or a custom `@compiles`
 element still ends up in the compiled SQL.
 
 Outside `unscoped()`, a compiled statement that reaches a tenant table is
-refused. Two kinds pass: one the ORM guard has scoped, and a flush write of a
-row loaded under the bound tenant. A refusal is `UnsafeTenantOperationError`
+refused. Two kinds pass: a statement the ORM guard approved, and a flush write
+of rows the unit of work verified. A refusal is `UnsafeTenantOperationError`
 under a bound tenant and `MissingTenantError` with none.
 
 A tenant table is matched by name. A `Table` of another `MetaData`, a
 `table("name")` and `text("select ... from name")` reach it as much as the
 mapped class does. The match ignores the schema, so a same-named table in
-another schema is refused too. A data-modifying CTE is refused whichever table
-it targets, because the statement does not tell reliably which one. SELECT-only
-CTEs that reach no tenant table stay allowed.
+another schema is refused too.
+
+Raw fragments are read word by word, whatever their quoting. A literal or a
+comment that spells a tenant table's name counts. So does a PostgreSQL
+`U&"..."` identifier, for every tenant table at once, because its name is
+written in escapes. The cursor reads a `DDL()` element whole the same way.
+Schema work over a tenant table therefore runs in `unscoped()`. That covers
+`metadata.create_all`, `DDL(...)` and index creation. The framework's
+`ensure_model_schema` does this. A test fixture that creates the tables of a
+tenant model wraps its DDL too.
+
+A data-modifying CTE is refused whichever table it targets, because the
+statement does not tell reliably which one. SELECT-only CTEs that reach no
+tenant table stay allowed.
 
 What follows from it:
 
-- A statement the ORM guard scopes carries a private mark that a caller cannot
-  forge. A statement that carries the tenant criterion parameter itself, in its
-  parameters or from a later listener, is refused.
-- The mark covers the mapper's own table and its plain aliases. A tenant table
-  reached any other way inside that statement is refused: a raw `secondary`, or
-  a hand-written subquery.
-- A flushed UPDATE or DELETE is allowed only for an instance whose `tenant_id`
-  was read from the database under the bound tenant. So is the load of a
-  deferred or expired column. An instance built by `merge(load=False)`, by
-  unpickling or by `make_transient_to_detached` is refused at that point.
+- The ORM guard approves the statement it checked in a private map, so a caller
+  cannot forge the approval. A statement that a later `do_orm_execute` listener
+  replaced carries none, and neither does the follow-up statement of a
+  `selectinload`. The tenant criterion parameter must reach the cursor holding
+  the bound tenant. A value of the caller's, in the parameters or from a later
+  listener, is refused.
+- The approval covers the mapper's own table and its plain aliases. A tenant
+  table reached any other way inside that statement is refused: a raw
+  `secondary`, or a hand-written subquery.
+- A flush writes through an allowlist. An INSERT carries an explicit
+  `tenant_id` equal to the bound tenant. An UPDATE or DELETE names a row, by
+  primary key, that the unit of work verified in that flush. A statement that a
+  column default or a listener wrote on the flush connection is refused.
+- The load of a deferred or expired column, and the flush UPDATE or DELETE of an
+  instance, need a stamp of the bound tenant. The stamp is the `tenant_id` read
+  from the database, or the one a successful flush inserted the instance with.
+  A failed insert, or one that rolled back, leaves no stamp. An instance from
+  `merge(load=False)` or from unpickling is refused at that point, and so is one
+  that went through `make_transient_to_detached`. The same holds for a deferred
+  column of an instance that a
+  `load_only()` or `defer()` projection loaded without its `tenant_id`. Include
+  the column in the projection.
 - `Session.get`, `get_one` and a many-to-one lazy load answer from the identity
   map only for such an instance. For any other they run the scoped query.
 - `unscoped()` lifts all of it for its block.
 
-Three cases the check does not see. A `nesting=True` CTE below the top level is
-not in the compiled list, and PostgreSQL itself refuses a data-modifying
-statement there. `Connection.exec_driver_sql` sends a string with no compiled
-statement. A `text()` passed straight to `session.execute` is the caller's
-responsibility: write it with `scoped()`, or let the `unsafe-tenant-sql` check
-and [Row-Level Security](#postgresql-row-level-security-optional) hold it.
+Five cases the check does not see.
+
+- A `nesting=True` CTE below the top level is not in the compiled list, and
+  PostgreSQL itself refuses a data-modifying statement there.
+- `Connection.exec_driver_sql` sends a string with no compiled statement.
+- A `text()` passed straight to `session.execute` is the caller's
+  responsibility. Write it with `scoped()`, or let the `unsafe-tenant-sql` check
+  and [Row-Level Security](#postgresql-row-level-security-optional) hold it.
+- The load of a column of a stamped instance with no tenant bound is not
+  refused. The instance was read under a tenant, and the load goes to its own
+  row.
+- The guard's private state, the `sandloom.tenant_id` key of
+  `InstanceState.info`, and private SQLAlchemy APIs are open to code that writes
+  or imports them.
+
 Cross-tenant work uses `unscoped()`.
 
 `unscoped()` disables the ORM guard only. On a database with

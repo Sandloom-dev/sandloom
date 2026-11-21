@@ -31,8 +31,12 @@ It also carries the tenant rule (ADR-0018,
 :func:`sandloom.core.tenant.check_tenant_reach`): the engine's statement
 compiler records the table names each statement renders, and outside
 ``unscoped()`` a statement that names a ``TenantScoped`` table is admitted only
-when the ORM guard decided on it or it is a verified flush write. The recording
-compiler is installed here, per engine dialect.
+when the ORM guard approved that very statement (``context.invoked_statement``)
+or it is a flush write of rows the unit of work verified. A compiled statement
+the recorder did not compile (a ``DDL()`` element, a dialect without it) is read
+from its rendered SQL and refused when that names a tenant table. Raw driver SQL
+(``exec_driver_sql``) has no compiled statement and is not checked. The
+recording compiler is installed here, per engine dialect.
 
 **Classification is conservative** (:func:`is_write_statement`): a statement
 is read-only only if it provably is — the execution context reports none of
@@ -233,13 +237,18 @@ def _check_unit(info: dict[str, Any]) -> None:
 
 def _check_tenant(context: Any, compiled: Any) -> None:
     """The tenant rules of the cursor (module docstring)."""
-    if not isinstance(compiled, SQLCompiler):
+    if compiled is None:
+        # raw driver SQL (``exec_driver_sql``): no compiled statement to read;
+        # the ``unsafe-tenant-sql`` check flags it and the database's own
+        # row-level security is its backstop
         return
-    if compiled.ctes:
+    if isinstance(compiled, SQLCompiler) and compiled.ctes:
         # a DML CTE outside unscoped() (compiled: options, multi-row VALUES,
         # any table object; session, connection or engine execute)
         check_compiled_statement(compiled)
-    # a statement that names a tenant table, outside the tenant guard
+    # a statement that names a tenant table, outside the tenant guard (a
+    # compiled statement the recorder did not compile, a DDL element, is read
+    # from its rendered SQL)
     check_tenant_reach(context, compiled)
 
 

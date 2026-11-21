@@ -53,7 +53,7 @@ from sandloom.sdk.projections import (
     full_state,
     tombstone,
 )
-from sandloom.sdk.tenant import bind_tenant
+from sandloom.sdk.tenant import bind_tenant, unscoped
 
 KEYS = {"k1": "s" * 32}
 #: A waiting read returns as soon as its group catches up: the budget only
@@ -298,7 +298,10 @@ async def test_a_store_purge_deletes_old_tombstones_only(
 @pytest_asyncio.fixture
 async def index_db(db: Any) -> AsyncIterator[Any]:
     def create(sync: Any) -> None:
-        FixtureBase.metadata.create_all(sync.connection(), tables=[NoteIndex.__table__])
+        with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
+            FixtureBase.metadata.create_all(
+                sync.connection(), tables=[NoteIndex.__table__]
+            )
 
     await db.run_sync(create)
     yield db
@@ -649,21 +652,23 @@ async def committed_index(db_engine: Any) -> AsyncIterator[Any]:
     is what a waiting read must see (a session factory on the engine)."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    async with db_engine.begin() as conn:
-        await conn.run_sync(
-            lambda sync: FixtureBase.metadata.create_all(
-                sync, tables=[NoteIndex.__table__]
-            )
-        )
-    try:
-        yield async_sessionmaker(db_engine, expire_on_commit=False)
-    finally:
+    with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
         async with db_engine.begin() as conn:
             await conn.run_sync(
-                lambda sync: FixtureBase.metadata.drop_all(
+                lambda sync: FixtureBase.metadata.create_all(
                     sync, tables=[NoteIndex.__table__]
                 )
             )
+    try:
+        yield async_sessionmaker(db_engine, expire_on_commit=False)
+    finally:
+        with unscoped():
+            async with db_engine.begin() as conn:
+                await conn.run_sync(
+                    lambda sync: FixtureBase.metadata.drop_all(
+                        sync, tables=[NoteIndex.__table__]
+                    )
+                )
 
 
 async def test_a_waiting_relational_read_reloads_the_rows_it_already_holds(

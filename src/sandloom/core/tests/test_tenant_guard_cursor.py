@@ -27,6 +27,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import (
+    DDL,
     Column,
     ForeignKey,
     Integer,
@@ -50,6 +51,7 @@ from sqlalchemy import (
     update,
     values,
 )
+from sqlalchemy.dialects import sqlite as sqlite_dialect
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import DBAPIError, IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import (
@@ -66,12 +68,16 @@ from sqlalchemy.orm import (
     aliased,
     column_property,
     deferred,
+    immediateload,
     joinedload,
+    load_only,
     make_transient_to_detached,
     mapped_column,
     query_expression,
     registry,
     relationship,
+    selectinload,
+    subqueryload,
     undefer,
     with_loader_criteria,
     with_polymorphic,
@@ -88,6 +94,7 @@ from sandloom.core.di import (
     unscoped,
 )
 from sandloom.core.orm import TenantScoped
+from sandloom.core.sql_alchemy import model_schema
 from sandloom.core.sql_alchemy.write_admission import install_write_admission
 from sandloom.core.tenant import TENANT_CRITERIA_PARAM
 from sandloom.core.testing import database as harness
@@ -393,6 +400,57 @@ class _Right(_Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
 
+class _Holder(_Base):
+    """Not tenant-scoped; a many-to-one to a model whose own load reads the tenant
+    table raw (``_OtherCP``): the child loader statements inherit its options."""
+
+    __tablename__ = "tgcur_holders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column()
+    cp_id: Mapped[int] = mapped_column(ForeignKey("tgcur_other_cp.id"))
+    cp: Mapped[_OtherCP] = relationship(_OtherCP)
+
+
+#: the tenant a flush-window default plants a row for (set by the test)
+_PLANT_FOR: list[uuid.UUID] = []
+_PLANTED_ID = 99
+
+
+def _delete_b_item_on_the_flush_connection(ctx: Any) -> int:
+    ctx.connection.execute(delete(ITEMS).where(ITEMS.c.id == B_ITEM_ID))
+    return 7
+
+
+def _plant_a_row_for_b_on_the_flush_connection(ctx: Any) -> int:
+    ctx.connection.execute(
+        insert(ITEMS).values(id=_PLANTED_ID, name="planted", tenant_id=_PLANT_FOR[0])
+    )
+    return 7
+
+
+class _Wiper(_Base):
+    """Not tenant-scoped; a Python default that deletes a tenant row (Core, flush connection)."""
+
+    __tablename__ = "tgcur_wipers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    v: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=_delete_b_item_on_the_flush_connection
+    )
+
+
+class _Planter(_Base):
+    """Not tenant-scoped; a Python default that inserts a row into a tenant table."""
+
+    __tablename__ = "tgcur_planters"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    v: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=_plant_a_row_for_b_on_the_flush_connection
+    )
+
+
 @dataclass
 class _Env:
     engine: AsyncEngine
@@ -421,10 +479,24 @@ async def env(
         if not url:
             pytest.fail("DATABASE_URL not set: the guard test needs a PostgreSQL URL")
     engine = create_async_engine(url)
+    try:  # the engine is released whether setup, the test or the drop fails
+        state = await _seed(engine)
+        yield state
+    finally:
+        try:
+            with unscoped():
+                async with engine.begin() as conn:
+                    await conn.run_sync(_Base.metadata.drop_all)
+        finally:
+            await engine.dispose()
+
+
+async def _seed(engine: AsyncEngine) -> _Env:
     install_write_admission(engine)  # the cursor rule every kernel engine carries
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.drop_all)
-        await conn.run_sync(_Base.metadata.create_all)
+    with unscoped():  # schema DDL names every table: system work (ADR-0018)
+        async with engine.begin() as conn:
+            await conn.run_sync(_Base.metadata.drop_all)
+            await conn.run_sync(_Base.metadata.create_all)
     state = _Env(
         engine=engine,
         maker=async_sessionmaker(engine, expire_on_commit=False),
@@ -466,6 +538,8 @@ async def env(
                 ]
             )
             await session.flush()
+            session.add(_Holder(id=1, item_id=A_ITEM_ID, cp_id=1))
+            await session.flush()
             await session.execute(
                 insert(IMP),
                 [
@@ -474,12 +548,7 @@ async def env(
                 ],
             )
             await session.commit()
-    try:
-        yield state
-    finally:
-        async with engine.begin() as conn:
-            await conn.run_sync(_Base.metadata.drop_all)
-        await engine.dispose()
+    return state
 
 
 def _fetch(result: Any) -> list[Any]:
@@ -597,6 +666,20 @@ def _values_over(inner: Any) -> Any:
     return select(named.c.n)
 
 
+#: SQL that names the tenant table where a scan that skips quoted text would not
+#: see it (PostgreSQL's dollar quotes, E strings, a unicode-escaped identifier:
+#: ``\0074`` is ``t``), each returning tenant B's value on PostgreSQL.
+_QUOTE_FRAGMENTS = {
+    "dollar quotes": "$q$'$q$ || (SELECT max(secret) FROM tgcur_items) || $q$'$q$",
+    "an E string": "E'\\'' || (SELECT max(secret) FROM tgcur_items) || ''",
+    "a unicode-escaped identifier": '(SELECT max(secret) FROM U&"\\0074gcur_items")',
+}
+
+
+def _hidden_in_quotes(fragment: str) -> Any:
+    return select(_Other.id, literal_column(fragment))
+
+
 #: shape -> statement (leaking tenant B's value when nothing guards it) -- the
 #: rt342-a cells, one statement each; ``True``: it runs on both dialects inside
 #: ``unscoped()`` and returns B's value (a named ``VALUES`` is PostgreSQL-only).
@@ -683,6 +766,22 @@ _REFUSED: dict[str, tuple[Callable[[_Env], Any], bool]] = {
     ),
     # 14: a TenantScoped class mapped imperatively
     "an imperatively mapped tenant table": (lambda e: select(IMP.c.name), True),
+    # closure round: SQL the recorder did not compile, or a scan that quoting fools
+    "DDL() with an UPDATE": (
+        lambda e: DDL("UPDATE tgcur_items SET name = 'pwned'"),
+        False,
+    ),
+    "DDL() with a DELETE of a quoted name": (
+        lambda e: DDL('DELETE FROM "tgcur_items"'),
+        False,
+    ),
+    **{
+        f"literal_column hiding the table behind {name}": (
+            lambda e, fragment=fragment: _hidden_in_quotes(fragment),
+            False,
+        )
+        for name, fragment in _QUOTE_FRAGMENTS.items()
+    },
 }
 
 
@@ -751,15 +850,17 @@ async def test_a_tenant_class_mapped_imperatively_after_the_caches_were_built_is
     reg = registry()
     reg.map_imperatively(_LateImp, late)
     try:
-        async with env.engine.begin() as conn:
-            await conn.run_sync(late.create)
+        with unscoped():  # schema DDL names the table: system work (ADR-0018)
+            async with env.engine.begin() as conn:
+                await conn.run_sync(late.create)
         with pytest.raises(UnsafeTenantOperationError):
             await _bound(env, select(late.c.name))
         with pytest.raises(MissingTenantError):
             await _unbound(env, select(late.c.name))
     finally:
-        async with env.engine.begin() as conn:
-            await conn.run_sync(late.drop)
+        with unscoped():
+            async with env.engine.begin() as conn:
+                await conn.run_sync(late.drop)
         reg.dispose()
 
 
@@ -1418,3 +1519,416 @@ async def test_the_harness_schema_reset_runs_over_tenant_tables(
         await harness.reset_schema(env.engine, metadata)
     rows = await _unscoped(env, select(func.count()).select_from(_Item))
     assert rows[0][0] == 0
+
+
+# ============================================ closure round (rt342-closure) ===
+# Each test below is one probe of the closure report that bypassed the first
+# round of the cursor rule, run on SQLite and PostgreSQL; a control inside
+# ``unscoped()`` shows the refused statement really does the damage.
+async def _b_damaged(env: _Env) -> bool:
+    """Tenant B's item was deleted, renamed or retargeted, or a row was planted."""
+    rows = await _unscoped(env, select(ITEMS.c.id, ITEMS.c.name, ITEMS.c.tenant_id))
+    by_id = {row.id: row for row in rows}
+    return (
+        B_ITEM_ID not in by_id
+        or by_id[B_ITEM_ID].name != "b-name"
+        or by_id[B_ITEM_ID].tenant_id != env.b
+        or _PLANTED_ID in by_id
+    )
+
+
+# M1: SQL compiled by something other than the recorder is read whole
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bound", [False, True])
+async def test_a_ddl_element_through_a_connection_is_refused(
+    env: _Env, bound: bool
+) -> None:
+    async with env.engine.connect() as connection:
+        with bind_tenant(env.a) if bound else nullcontext():
+            with pytest.raises(
+                UnsafeTenantOperationError if bound else MissingTenantError
+            ):
+                await connection.execute(DDL("DELETE FROM tgcur_items"))
+    await _assert_b_untouched(env)
+
+
+@pytest.mark.asyncio
+async def test_a_ddl_element_naming_a_tenant_table_really_rewrites_it_unscoped(
+    env: _Env,
+) -> None:
+    await _unscoped(env, DDL("UPDATE tgcur_items SET name = 'pwned'"))
+    assert (await _b_item(env)).name == "pwned"
+
+
+@pytest.mark.asyncio
+async def test_a_ddl_element_naming_no_tenant_table_stays_allowed(env: _Env) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            await session.execute(DDL("SELECT 1"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bound", [False, True])
+async def test_creating_a_tenant_table_outside_unscoped_is_refused(
+    env: _Env, bound: bool
+) -> None:
+    async with env.engine.connect() as connection:
+        with bind_tenant(env.a) if bound else nullcontext():
+            with pytest.raises(
+                UnsafeTenantOperationError if bound else MissingTenantError
+            ):
+                await connection.run_sync(
+                    lambda sync: ITEMS.create(sync, checkfirst=False)
+                )
+        # control: unscoped, the statement is real (the table exists already)
+        with unscoped(), pytest.raises(DBAPIError):
+            await connection.run_sync(lambda sync: ITEMS.create(sync, checkfirst=False))
+
+
+@pytest.mark.asyncio
+async def test_the_schema_build_from_the_models_runs_with_no_tenant_bound(
+    env: _Env,
+) -> None:
+    """``ensure_model_schema`` builds every tenant table at startup, where no
+    tenant is bound: its ``create_all`` is system work."""
+    with unscoped():
+        async with env.engine.begin() as connection:
+            await connection.run_sync(_Base.metadata.drop_all)
+    async with env.engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync: model_schema._create_all(sync, _Base.metadata)
+        )
+    rows = await _unscoped(env, select(func.count()).select_from(_Item))
+    assert rows[0][0] == 0
+
+
+# M1: a compiled statement from a compiler that is no recorder (a dialect a driver
+# built without it, an extension's compiler) is read whole, whatever it is
+@pytest.mark.parametrize("renders", ["a tenant table", "no tenant table"])
+def test_a_statement_compiled_without_the_recorder_is_scanned_whole(
+    renders: str,
+) -> None:
+    statement = select(ITEMS.c.secret if renders == "a tenant table" else _Leaf.name)
+    compiled = statement.compile(dialect=sqlite_dialect.dialect())
+    assert not isinstance(compiled, tenant_mod.ReachRecorder)  # the setup is real
+    if renders == "no tenant table":
+        with bind_tenant(uuid.uuid4()):
+            tenant_mod.check_tenant_reach(None, compiled)
+        return
+    with bind_tenant(uuid.uuid4()):
+        with pytest.raises(UnsafeTenantOperationError):
+            tenant_mod.check_tenant_reach(None, compiled)
+    with pytest.raises(MissingTenantError):
+        tenant_mod.check_tenant_reach(None, compiled)
+    with unscoped():
+        tenant_mod.check_tenant_reach(None, compiled)
+
+
+# M4: PostgreSQL quoting that hides the table name from a scan that skips quotes
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", list(_QUOTE_FRAGMENTS))
+async def test_a_connection_text_hiding_the_table_behind_quoting_is_refused(
+    env: _Env, name: str
+) -> None:
+    async with env.engine.connect() as connection:
+        with pytest.raises(MissingTenantError):
+            await connection.execute(text("SELECT " + _QUOTE_FRAGMENTS[name]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", list(_QUOTE_FRAGMENTS))
+async def test_the_quoting_shapes_really_reach_tenant_bs_row(
+    env: _Env, name: str
+) -> None:
+    """Control: on PostgreSQL the shapes read B's value inside ``unscoped()``;
+    SQLite reads none of that quoting, so there the database itself rejects them
+    (the refusals above are the guard's on both)."""
+    statement = _hidden_in_quotes(_QUOTE_FRAGMENTS[name])
+    if env.engine.dialect.name == "postgresql":
+        assert "b-secret" in repr(await _unscoped(env, statement))
+    else:
+        with pytest.raises(DBAPIError):
+            await _unscoped(env, statement)
+
+
+# M3: a child loader statement gets no approval of its own from its parent
+_CHILD_LOADERS = {
+    "selectinload": selectinload,
+    "immediateload": immediateload,
+    "subqueryload": subqueryload,
+}
+
+
+def _holders_of_tenant_items(loader: str) -> Any:
+    return (
+        select(_Holder)
+        .join(_Item, _Item.id == _Holder.item_id)
+        .options(_CHILD_LOADERS[loader](_Holder.cp))
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loader", list(_CHILD_LOADERS))
+async def test_a_child_loader_statement_does_not_inherit_the_parents_approval(
+    env: _Env, loader: str
+) -> None:
+    with pytest.raises(UnsafeTenantOperationError):
+        await _bound(env, _holders_of_tenant_items(loader))
+    await _assert_b_untouched(env)
+    # controls: the parent alone is allowed; unscoped, the child load reads B's value
+    parents = await _bound(
+        env, select(_Holder).join(_Item, _Item.id == _Holder.item_id)
+    )
+    assert [row[0].id for row in parents] == [1]
+    loaded = await _unscoped(env, _holders_of_tenant_items(loader))
+    assert loaded[0][0].cp.peer == "b-secret"
+
+
+# M2: the flush window admits the rows the flush verified, nothing else it runs
+def _rewrite_every_item(_mapper: Any, connection: Any, _target: Any) -> None:
+    connection.execute(update(ITEMS).values(name="pwned-by-a-listener"))
+
+
+def _update_b_item_by_primary_key(_mapper: Any, connection: Any, _target: Any) -> None:
+    connection.execute(
+        update(ITEMS).where(ITEMS.c.id == B_ITEM_ID).values(name="pwned-by-pk")
+    )
+
+
+_FLUSH_MODELS: dict[str, Any] = {
+    "a Python default deleting B's row": _Wiper,
+    "a Python default inserting a row for B": _Planter,
+}
+_FLUSH_LISTENERS: dict[str, Callable[[Any, Any, Any], None]] = {
+    "an after_insert listener updating every row": _rewrite_every_item,
+    "an after_insert listener updating B's row by primary key": (
+        _update_b_item_by_primary_key
+    ),
+}
+
+
+async def _flush_beside_a_writer(env: _Env, kind: str, scope: Any) -> None:
+    """Flush a new row of tenant A together with the writer ``kind`` names."""
+    listener = _FLUSH_LISTENERS.get(kind)
+    if listener is not None:
+        event.listen(_Item, "after_insert", listener)
+    try:
+        async with env.maker() as session:
+            with scope:
+                session.add(_Item(id=3, tenant_id=env.a, name="mine"))
+                if listener is None:
+                    session.add(_FLUSH_MODELS[kind](id=1))
+                await session.commit()
+    finally:
+        if listener is not None:
+            event.remove(_Item, "after_insert", listener)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", [*_FLUSH_MODELS, *_FLUSH_LISTENERS])
+async def test_the_flush_window_admits_only_the_rows_the_flush_verified(
+    env: _Env, kind: str
+) -> None:
+    _PLANT_FOR[:] = [env.b]
+    with pytest.raises((UnsafeTenantOperationError, StatementError)) as raised:
+        await _flush_beside_a_writer(env, kind, bind_tenant(env.a))
+    assert _is_refusal(raised.value)
+    assert not await _b_damaged(env)
+    ids = {row.id for row in await _unscoped(env, select(ITEMS.c.id))}
+    assert ids == {A_ITEM_ID, B_ITEM_ID}  # the whole flush went with the refusal
+    # control: inside unscoped() the same writer does its damage (the parent row
+    # that references B's item goes first: PostgreSQL enforces the foreign key)
+    await _unscoped(env, delete(_Parent))
+    await _flush_beside_a_writer(env, kind, unscoped())
+    assert await _b_damaged(env)
+
+
+# (b): a do_orm_execute listener registered after the guard replaces its statement
+@pytest.mark.asyncio
+async def test_a_later_listener_replacing_the_guarded_statement_is_refused(
+    env: _Env,
+) -> None:
+    def swap(state: Any) -> None:
+        if state.is_select and not state.is_column_load:
+            state.statement = select(_Item.name)
+
+    assert [r.name for r in await _bound(env, select(_Item.name))] == ["a-name"]
+    event.listen(Session, "do_orm_execute", swap)
+    try:
+        with pytest.raises(UnsafeTenantOperationError):
+            await _bound(env, select(_Item.name))
+    finally:
+        event.remove(Session, "do_orm_execute", swap)
+
+
+@pytest.mark.asyncio
+async def test_a_criterion_approval_needs_the_criterion_parameter(env: _Env) -> None:
+    """The cursor re-reads the parameter of an approved criterion statement: one
+    that holds no tenant criterion (it lost it after the guard looked) is refused."""
+    statement = select(ITEMS.c.secret)
+    tenant_mod._approve(statement, tenant_mod._CRITERION)
+    async with env.engine.connect() as connection:
+        with bind_tenant(env.a):
+            with pytest.raises(UnsafeTenantOperationError, match="criterion"):
+                await connection.execute(statement)
+
+
+@pytest.mark.asyncio
+async def test_nothing_a_listener_can_read_back_admits_a_statement(env: _Env) -> None:
+    """A module's ``do_orm_execute`` listener sees every execution option of a
+    guarded statement; replaying them on its own Core statement admits nothing."""
+    seen: dict[str, Any] = {}
+
+    def spy(state: Any) -> None:
+        seen.update(state.execution_options)
+        seen.update(state.local_execution_options)
+
+    event.listen(Session, "do_orm_execute", spy)
+    try:
+        await _bound(env, select(_Item.name))
+    finally:
+        event.remove(Session, "do_orm_execute", spy)
+    async with env.engine.connect() as connection:
+        with bind_tenant(env.a):
+            with pytest.raises(UnsafeTenantOperationError):
+                await connection.execute(select(ITEMS.c.secret), execution_options=seen)
+
+
+# (c): a stamp does not outlive the INSERT that never happened or was rolled back
+@pytest.mark.asyncio
+@pytest.mark.parametrize("write", ["update", "delete"])
+async def test_a_failed_insert_leaves_no_stamp_to_reattach_with(
+    env: _Env, write: str
+) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            ghost = _Item(id=B_ITEM_ID, tenant_id=env.a, name="x")  # B owns the id
+            session.add(ghost)
+            with pytest.raises(IntegrityError):
+                await session.flush()
+            await session.rollback()
+            make_transient_to_detached(ghost)
+            session.add(ghost)
+            if write == "update":
+                ghost.name = "pwned"
+            else:
+                await session.delete(ghost)
+            with pytest.raises(UnsafeTenantOperationError):
+                await session.commit()
+    await _assert_b_untouched(env)
+
+
+@pytest.mark.asyncio
+async def test_a_rolled_back_insert_loses_its_stamp(env: _Env) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            row = _Item(id=3, name="mine")
+            session.add(row)
+            await session.flush()  # inserted, so stamped ...
+            await session.rollback()  # ... and gone again
+            make_transient_to_detached(row)
+            session.add(row)
+            row.name = "renamed"
+            with pytest.raises(UnsafeTenantOperationError):
+                await session.commit()
+    await _assert_b_untouched(env)
+
+
+# A #10: a verdict memoized under a cache key that does not fix the SQL. The
+# closure variable of an untracked lambda is not part of the key, so two
+# statements with one key can render different SQL: a "safe" verdict of the first
+# would bless a raw tenant subquery in the second. SQLAlchemy keeps a lambda per
+# code object, so each variant below is a function of its own.
+def _untracked_criteria(holder: list[Any]) -> Any:
+    return select(_Leaf.id).options(
+        with_loader_criteria(
+            _Leaf, lambda cls: cls.name == holder[0], track_closure_variables=False
+        )
+    )
+
+
+def _tracked_criteria(holder: list[Any]) -> Any:
+    return select(_Leaf.id).options(
+        with_loader_criteria(
+            _Leaf, lambda cls: cls.name == holder[0], track_closure_variables=True
+        )
+    )
+
+
+def test_a_statement_with_an_untracked_closure_gets_no_memoized_verdict() -> None:
+    tenant_mod._invalidate_guard_caches()
+    statement = _untracked_criteria([literal("zzz")])
+    assert not tenant_mod._verdict_cacheable(statement)
+    tenant_mod._unsafe_core_reference(statement)
+    tenant_mod._references_tenant_scoped(statement)
+    assert not tenant_mod._unsafe_core_cache
+    assert not tenant_mod._reference_cache
+
+
+def test_a_statement_with_a_tracked_closure_keeps_its_memoized_verdict() -> None:
+    """Control: the same two checks do store a verdict where the key fixes the SQL."""
+    tenant_mod._invalidate_guard_caches()
+    statement = _tracked_criteria([literal("zzz")])
+    assert tenant_mod._verdict_cacheable(statement)
+    tenant_mod._unsafe_core_reference(statement)
+    tenant_mod._references_tenant_scoped(statement)
+    assert tenant_mod._unsafe_core_cache
+    assert tenant_mod._reference_cache
+
+
+def _untracked_raw_criteria(holder: list[Any]) -> Any:
+    # A function of its own: SQLAlchemy's lambda cache is per code object, so a
+    # lambda shared with the benign variant above would replay that variant's SQL.
+    return select(_Leaf.id).options(
+        with_loader_criteria(
+            _Leaf, lambda cls: cls.name == holder[0], track_closure_variables=False
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_untracked_closure_holding_a_raw_tenant_subquery_is_refused(
+    env: _Env,
+) -> None:
+    with pytest.raises(UnsafeTenantOperationError):
+        await _bound(env, _untracked_raw_criteria([_B_SECRET_RAW]), compiled_cache=None)
+    await _assert_b_untouched(env)
+
+
+# Behaviours the docs name: a projection without tenant_id carries no stamp, and the
+# identity lookup of an EXPIRED foreign instance raises where an unexpired one misses.
+@pytest.mark.asyncio
+async def test_a_deferred_load_needs_the_tenant_id_a_projection_left_out(
+    env: _Env,
+) -> None:
+    def projection(*columns: Any) -> Any:
+        return select(_Item).where(_Item.id == A_ITEM_ID).options(load_only(*columns))
+
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            bare = (await session.execute(projection(_Item.name))).scalar_one()
+            with pytest.raises(UnsafeTenantOperationError, match="column load"):
+                await session.refresh(bare, ["secret"])
+    async with env.maker() as session:  # the control: the column is in the projection
+        with bind_tenant(env.a):
+            kept = (
+                await session.execute(projection(_Item.name, _Item.tenant_id))
+            ).scalar_one()
+            await session.refresh(kept, ["secret"])
+            assert kept.secret == "a-secret"
+
+
+@pytest.mark.asyncio
+async def test_the_identity_lookup_of_an_expired_foreign_instance_is_refused(
+    env: _Env,
+) -> None:
+    async with env.maker() as session:
+        with unscoped():
+            held = await session.get(_Item, B_ITEM_ID)
+        assert held is not None
+        with bind_tenant(env.a):
+            assert await session.get(_Item, B_ITEM_ID) is None  # unexpired: a miss
+            session.expire(held)
+            with pytest.raises(UnsafeTenantOperationError, match="column load"):
+                await session.get(_Item, B_ITEM_ID)  # expired: the refresh refuses
+    await _assert_b_untouched(env)

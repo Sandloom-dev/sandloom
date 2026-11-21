@@ -24,11 +24,13 @@ cross-tenant system work use the explicit ``unscoped()`` context.
 
 from __future__ import annotations
 
+import functools
 import re
 import types
 import uuid
 import weakref
 from collections.abc import Iterable, Iterator
+from contextlib import suppress
 from contextvars import ContextVar
 from typing import Any
 
@@ -52,11 +54,18 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.orm.strategy_options import Load
 from sqlalchemy.orm.util import LoaderCriteriaOption
-from sqlalchemy.sql import visitors
+from sqlalchemy.sql import operators, visitors
 from sqlalchemy.sql.base import Executable
-from sqlalchemy.sql.compiler import SQLCompiler
-from sqlalchemy.sql.dml import Insert, Update, ValuesBase
-from sqlalchemy.sql.elements import ClauseElement, ColumnClause, TextClause
+from sqlalchemy.sql.compiler import Compiled, SQLCompiler
+from sqlalchemy.sql.dml import Delete, Insert, Update, ValuesBase
+from sqlalchemy.sql.elements import (
+    BinaryExpression,
+    BindParameter,
+    BooleanClauseList,
+    ClauseElement,
+    ColumnClause,
+    TextClause,
+)
 from sqlalchemy.sql.lambdas import LambdaElement
 from sqlalchemy.sql.schema import ColumnElementColumnDefault, Table
 from sqlalchemy.sql.selectable import (
@@ -159,6 +168,7 @@ def _is_tenant_class(cls: Any) -> bool:
 _GUARD_CACHE_MAX = 2048
 _tenant_tables_cache: frozenset[Any] | None = None
 _tenant_names_cache: frozenset[str] | None = None
+_reach_names_cache: frozenset[str] | None = None
 _reference_cache: dict[Any, bool] = {}
 _unsafe_core_cache: dict[Any, bool] = {}
 #: Every constructed mapper of a TenantScoped class, imperatively mapped ones
@@ -169,9 +179,10 @@ guard_cache_stats: dict[str, int] = {"walks": 0, "hits": 0}
 
 
 def _invalidate_guard_caches() -> None:
-    global _tenant_tables_cache, _tenant_names_cache
+    global _tenant_tables_cache, _tenant_names_cache, _reach_names_cache
     _tenant_tables_cache = None
     _tenant_names_cache = None
+    _reach_names_cache = None
     _reference_cache.clear()
     _unsafe_core_cache.clear()
     _mapper_sql_cache.clear()
@@ -216,6 +227,25 @@ def _tenant_names() -> frozenset[str]:
         return cached
     result = frozenset(str(table.name).lower() for table in _tenant_tables())
     _tenant_names_cache = result
+    return result
+
+
+#: Stands in a fragment's identifiers for a name no scan can read (a PostgreSQL
+#: ``U&"..."`` identifier spells its characters as escapes).
+_UNREADABLE = 'u&"'
+
+
+def _reach_names() -> frozenset[str]:
+    """What reaching a tenant table means at the cursor: the tenant table names
+    and the :data:`_UNREADABLE` marker; empty while no TenantScoped model is
+    mapped (nothing to guard: the cursor rule costs one set check)."""
+    global _reach_names_cache
+    cached = _reach_names_cache
+    if cached is not None:
+        return cached
+    names = _tenant_names()
+    result = names | {_UNREADABLE} if names else names
+    _reach_names_cache = result
     return result
 
 
@@ -310,7 +340,7 @@ def _unsafe_core_reference(statement: Any) -> bool:
                 return _unsafe_core_cache[key]
         except Exception:  # noqa: BLE001 - an uncacheable statement is still checked
             key = None
-    walk = _UnsafeCoreWalk(_tenant_names(), Alias, SelectBase)
+    walk = _UnsafeCoreWalk(_reach_names(), Alias, SelectBase)
 
     try:
         verdict = walk.unsafe(statement, frozenset())
@@ -363,22 +393,65 @@ def check_compiled_statement(compiled: SQLCompiler) -> None:
         )
 
 
-#: Execution option the ``do_orm_execute`` guard sets on an execution it decided
-#: on: scoped by its loader criterion, a verified column load, or the caller's
-#: own ``text()``. At the cursor a statement that reaches a tenant table is
-#: admitted only with it (or as a flush write, below). The value is a private
-#: token: the same option name with any other value is no stamp.
-_SCOPED_OPTION = "sandloom_tenant_scoped"
-_SCOPED: Any = object()
+#: What the ``do_orm_execute`` guard decided on, by STATEMENT: a private weak map
+#: from the statement object the guard checked to the kind of approval. At the
+#: cursor a statement that reaches a tenant table is admitted only when
+#: ``context.invoked_statement`` is in it (or as a flush write, below). Nothing
+#: is written to the statement or its execution options, so no execution
+#: inherits, reads or replays an approval it was not given: a statement a later
+#: listener swapped in, a follow-up loader execution, a copy of the options.
+_APPROVED: weakref.WeakKeyDictionary[Any, int] = weakref.WeakKeyDictionary()
+#: Approval kinds. ``_CRITERION``: the guard attached its tenant criterion, so
+#: the statement must carry the criterion's bound tenant at the cursor.
+#: ``_TRUSTED``: a column load of a stamped instance, or the caller's own
+#: ``text()`` (their responsibility: ``scoped()`` / the ``unsafe-tenant-sql``
+#: check / RLS).
+_CRITERION = 1
+_TRUSTED = 2
 #: ``InstanceState.info`` key: the ``tenant_id`` the row carried when the
-#: instance was READ from the database (or was inserted by a verified flush).
-#: A forged, merged-without-load or unpickled instance carries none.
+#: instance was READ from the database, or when a flush that inserted it
+#: succeeded. A forged, merged-without-load or unpickled instance carries none;
+#: a rolled-back insert loses it.
 _STAMP = "sandloom.tenant_id"
-#: Tables a flush may write: names of the TenantScoped mappers whose rows the
-#: mapper events verified during THIS flush (``None``: no flush is running).
-_flush_tables: ContextVar[set[str] | None] = ContextVar(
-    "sandloom_flush_tables", default=None
+
+
+class _FlushWindow:
+    """What ONE ``Session._flush`` may write at the cursor: the rows the mapper
+    events verified during it, and nothing else.
+
+    * ``tables``: names of the tables a verified INSERT may write;
+    * ``rows``: ``(table name, primary key)`` of every row a verified UPDATE or
+      DELETE may write (the keys the events read, never a parameter);
+    * ``inserted``: the instances the flush inserts, with the tenant verified
+      for each. They are stamped when the flush succeeds, never before.
+    """
+
+    __slots__ = ("inserted", "rows", "tables")
+
+    def __init__(self) -> None:
+        self.tables: set[str] = set()
+        self.rows: set[tuple[str, tuple[Any, ...]]] = set()
+        self.inserted: dict[Any, uuid.UUID] = {}
+
+
+#: The running flush (``None``: no flush is running).
+_flush_window: ContextVar[_FlushWindow | None] = ContextVar(
+    "sandloom_flush_window", default=None
 )
+
+
+def _approve(statement: Any, kind: int) -> None:
+    # a statement that cannot be weakly referenced is never approved: the cursor
+    # refuses it (every SQLAlchemy statement can be referenced)
+    with suppress(TypeError):
+        _APPROVED[statement] = kind
+
+
+def _approval_of(statement: Any) -> int | None:
+    try:
+        return _APPROVED.get(statement)
+    except TypeError:  # ``None`` or a statement that cannot be referenced
+        return None
 
 
 class ReachRecorder(SQLCompiler):
@@ -429,6 +502,60 @@ class ReachRecorder(SQLCompiler):
             self.reads |= _identifiers(str(column.name))
         return super().visit_column(column, **kw)
 
+    @functools.cached_property
+    def persistence_shaped(self) -> bool:
+        """The statement is a plain Core ``Insert`` / ``Update`` / ``Delete`` of
+        the class the persistence layer builds: no dialect subclass
+        (``ON CONFLICT``, ``ON DUPLICATE KEY``), no prefix (``OR REPLACE``,
+        ``IGNORE``), no post-values clause. Anything else is not a flush's own
+        write, whatever it targets. Memoized with the compiled statement."""
+        statement = self.statement
+        if (
+            not isinstance(statement, (Insert, Update, Delete))
+            or type(statement) not in (Insert, Update, Delete)
+            or statement._prefixes
+        ):
+            return False
+        return not (isinstance(statement, Insert) and statement._post_values_clause)
+
+    @functools.cached_property
+    def row_pins(self) -> tuple[str, ...] | None:
+        """The parameter keys that pin the primary key of the row an UPDATE /
+        DELETE writes, in primary-key order; ``None`` when the statement does not
+        pin every primary-key column of its table with ``column = :param``
+        (read from the top-level AND terms of its WHERE: a term can only narrow
+        the rows). Memoized with the compiled statement."""
+        statement = self.statement
+        if not isinstance(statement, (Update, Delete)):
+            return None
+        table = statement.table
+        if not isinstance(table, Table):
+            return None
+        binds: dict[str, str] = {}
+        for criterion in statement._where_criteria:
+            for term in _and_terms(criterion):
+                if (
+                    isinstance(term, BinaryExpression)
+                    and term.operator is operators.eq
+                    and isinstance(term.left, ColumnClause)
+                    and term.left.table is table
+                    and isinstance(term.right, BindParameter)
+                ):
+                    if term.left.name in binds:
+                        return None  # the same column pinned twice: not a row key
+                    binds[term.left.name] = term.right.key
+        pins = tuple(binds.get(column.name, "") for column in table.primary_key)
+        return pins if pins and all(pins) else None
+
+
+def _and_terms(clause: Any) -> Iterator[Any]:
+    """The terms of a WHERE criterion that are ANDed at its top level."""
+    if isinstance(clause, BooleanClauseList) and clause.operator is operators.and_:
+        for term in clause.clauses:
+            yield from _and_terms(term)
+    else:
+        yield clause
+
 
 _recorder_classes: dict[type, type] = {}
 
@@ -449,25 +576,101 @@ def _params_of(context: Any) -> list[dict[str, Any]]:
     return context.compiled_parameters or []
 
 
-def _flush_write_admitted(context: Any, compiled: ReachRecorder, names: Any) -> bool:
-    """A flush INSERT/UPDATE/DELETE of rows the mapper events verified: its
-    tenant targets were registered for this flush, nothing it renders READS a
-    tenant table (a default or ``onupdate`` subquery would), and every row it
-    writes carries the bound tenant."""
-    tables = _flush_tables.get()
+def _value_keys(values: Any) -> set[str]:
+    """The column names a ``.values()`` mapping sets (a key is a name or a column)."""
+    return {
+        key.key if isinstance(key, ColumnClause) else key
+        for key in values
+        if isinstance(key, (str, ColumnClause))
+    }
+
+
+def _sets_tenant_id(statement: Any) -> bool:
+    """An UPDATE whose ``.values()`` names the ``tenant_id`` column (the
+    persistence layer passes a column's plain value as a parameter, never so)."""
+    values = statement._values
+    return bool(values) and "tenant_id" in _value_keys(values)
+
+
+def _columns_set_by_every_row(statement: ValuesBase) -> set[str]:
+    """The columns EVERY row of ``statement.values(...)`` sets itself: their
+    SQL-expression defaults are never rendered. Nothing is known when the values
+    arrive with the execution (``insert(Model)`` with a parameter list) or as
+    positional rows, so the set is empty then and every default counts."""
+    rows = [statement._values] if statement._values else []
+    rows.extend(row for batch in statement._multi_values for row in batch)
+    if not rows or not all(isinstance(row, dict) for row in rows):
+        return set()
+    return set.intersection(*(_value_keys(row) for row in rows))
+
+
+def _flush_write_admitted(
+    context: Any,
+    compiled: ReachRecorder,
+    names: frozenset[str],
+    reach: frozenset[str],
+) -> bool:
+    """A flush write of rows the mapper events verified: an ALLOWLIST, every
+    part of the statement must be accounted for.
+
+    * a flush is running, a tenant is bound, and the statement is the plain Core
+      INSERT / UPDATE / DELETE the persistence layer builds
+      (:attr:`ReachRecorder.persistence_shaped`), not one a column default or an
+      event listener wrote on the flush connection;
+    * nothing it renders READS a tenant table (a default or ``onupdate``
+      subquery would) or names one no scan can read;
+    * an INSERT writes a table a verified insert of this flush writes and, where
+      that table has a ``tenant_id`` column, carries it EXPLICITLY, equal to the
+      bound tenant, in every parameter set (a missing or computed value is no
+      value);
+    * an UPDATE / DELETE pins its rows by primary key (``pk = :param``) and every
+      parameter set names a ``(table, primary key)`` the events verified in this
+      flush; an UPDATE never sets another tenant's ``tenant_id``.
+    """
+    window = _flush_window.get()
     tid = _current_tenant.get()
     if (
-        tables is None
+        window is None
         or tid is None
-        or not (context.isinsert or context.isupdate or context.isdelete)
-        or not names.isdisjoint(compiled.reads)
-        or not (compiled.targets & names) <= tables
+        or not compiled.persistence_shaped
+        or not reach.isdisjoint(compiled.reads)
     ):
         return False
-    return all(params.get("tenant_id", tid) == tid for params in _params_of(context))
+    params = _params_of(context)
+    statement = compiled.statement
+    if not params or not isinstance(statement, (Insert, Update, Delete)):
+        return False
+    table = statement.table
+    if isinstance(statement, Insert):
+        if not (compiled.targets & names) <= window.tables:
+            return False
+        return "tenant_id" not in table.c or all(
+            row.get("tenant_id") == tid for row in params
+        )
+    pins = compiled.row_pins
+    if (
+        pins is None
+        or not isinstance(table, Table)  # row_pins is only set for a plain Table
+        or (isinstance(statement, Update) and _sets_tenant_id(statement))
+    ):
+        return False
+    name = str(table.name).lower()
+    return all(
+        all(key in row for key in pins)
+        and (name, tuple(row[key] for key in pins)) in window.rows
+        and (not isinstance(statement, Update) or row.get("tenant_id", tid) == tid)
+        for row in params
+    )
 
 
-def check_tenant_reach(context: Any, compiled: SQLCompiler) -> None:
+def _shown(hits: Iterable[str]) -> str:
+    return ", ".join(
+        'an identifier no scan can read (U&"...")' if hit == _UNREADABLE else hit
+        for hit in sorted(hits)
+    )
+
+
+def check_tenant_reach(context: Any, compiled: Compiled) -> None:
     """Refuse, at the cursor, a statement that reaches a tenant table unscoped.
 
     The ``do_orm_execute`` guard sees what a caller hands the session; SQL also
@@ -479,49 +682,90 @@ def check_tenant_reach(context: Any, compiled: SQLCompiler) -> None:
     a statement that names a tenant table (:func:`_tenant_names`) is admitted
     only when
 
-    * the ORM guard stamped the execution (:data:`_SCOPED_OPTION`): it attached
-      the tenant criterion, verified a column load, or the caller sent its own
-      ``text()`` (their responsibility: ``scoped()`` / the ``unsafe-tenant-sql``
-      check / RLS); or
+    * the ORM guard approved THIS statement (:data:`_APPROVED`, matched against
+      ``context.invoked_statement``): it attached the tenant criterion, verified
+      a column load, or the caller sent its own ``text()`` (their
+      responsibility: ``scoped()`` / the ``unsafe-tenant-sql`` check / RLS); or
     * it is a flush write of rows the mapper events verified
       (:func:`_flush_write_admitted`).
 
-    A stamped statement's criteria parameter must still hold the bound tenant:
-    a caller-supplied value never wins. A statement that names no tenant table
+    A criterion approval also needs the criterion's bound parameter to hold the
+    bound tenant: a caller-supplied value never wins, a missing one is refused.
+    A statement the recorder did not compile (a DDL element, a compiled object
+    from another dialect) is no ``ReachRecorder``: its rendered SQL is read
+    whole (:func:`_check_unrecorded`). A statement that names no tenant table
     costs two set checks.
     """
-    if not isinstance(compiled, ReachRecorder):
+    reach = _reach_names()
+    if not reach:
         return
-    names = _tenant_names()
-    if names.isdisjoint(compiled.reads) and names.isdisjoint(compiled.targets):
+    if not isinstance(compiled, ReachRecorder):
+        _check_unrecorded(compiled, reach)
+        return
+    if reach.isdisjoint(compiled.reads) and reach.isdisjoint(compiled.targets):
         return
     if bypass_active():
         return
-    if context.execution_options.get(_SCOPED_OPTION) is _SCOPED:
-        _check_criteria_params(context)
+    approval = _approval_of(context.invoked_statement)
+    if approval == _CRITERION:
+        _check_criterion(context)
         return
-    if _flush_write_admitted(context, compiled, names):
+    if approval == _TRUSTED:
         return
-    shown = ", ".join(sorted(names & (compiled.reads | compiled.targets)))
+    names = _tenant_names()
+    if _flush_write_admitted(context, compiled, names, reach):
+        return
+    shown = _shown(reach & (compiled.reads | compiled.targets))
     if _current_tenant.get() is None:
         raise _missing_tenant("a statement", shown)
     raise UnsafeTenantOperationError(
         f"a statement that reaches TenantScoped table {shown} ran outside the tenant "
-        "guard (the ORM execute guard did not scope it: Core on "
+        "guard (the ORM execute guard did not approve this statement: Core on "
         "session.connection(), a column default or a mapper-level SQL expression "
-        "reading the table, a statement through a connection). Use ORM statements "
-        "over the entity, or explicit unscoped() for trusted system access"
+        "reading the table, a statement through a connection, a statement a later "
+        "do_orm_execute listener replaced). Use ORM statements over the entity, or "
+        "explicit unscoped() for trusted system access"
     )
 
 
-def _check_criteria_params(context: Any) -> None:
+def _check_unrecorded(compiled: Compiled, reach: frozenset[str]) -> None:
+    """A compiled statement that is no :class:`ReachRecorder` reports no names:
+    a DDL element (``DDL("UPDATE ...")``), a compiled object from a dialect
+    without the recorder, any compiler a driver or an extension swaps in. Fail
+    closed: its rendered SQL is read whole, and it is refused outside
+    ``unscoped()`` when that names a tenant table."""
+    hits = reach & _identifiers(compiled.string)
+    if not hits or bypass_active():
+        return
+    shown = _shown(hits)
+    if _current_tenant.get() is None:
+        raise _missing_tenant("a statement compiled outside the guard", shown)
+    raise UnsafeTenantOperationError(
+        f"a {type(compiled).__name__} statement that reaches TenantScoped table "
+        f"{shown} (a DDL element, a compiled object from another dialect) cannot "
+        "be tenant-scoped: it is neither an ORM statement nor a statement the "
+        "guard's compiler read. Use ORM statements over the entity, or explicit "
+        "unscoped() for trusted system access (schema DDL included)"
+    )
+
+
+def _check_criterion(context: Any) -> None:
+    """A criterion approval holds only while the criterion's bound parameter is
+    in the statement and holds the BOUND tenant: the bind's callable read it for
+    this execution, a parameter of the caller cannot replace it, and a statement
+    that lost the parameter after the guard looked at it is no longer scoped."""
     tid = _current_tenant.get()
-    for params in _params_of(context):
-        if params.get(TENANT_CRITERIA_PARAM, tid) != tid:
-            raise UnsafeTenantOperationError(
-                "the tenant criterion of a guarded statement carries a value other "
-                "than the bound tenant (parameters of an execution cannot override it)"
-            )
+    params = _params_of(context)
+    if (
+        tid is None
+        or not params
+        or any(row.get(TENANT_CRITERIA_PARAM) != tid for row in params)
+    ):
+        raise UnsafeTenantOperationError(
+            "the tenant criterion of a guarded statement is missing or carries a "
+            "value other than the bound tenant (parameters of an execution cannot "
+            "override it)"
+        )
 
 
 def _source_owned(source: Any, names: frozenset[str]) -> bool:
@@ -620,15 +864,18 @@ def _option_expressions(option: Any) -> Iterator[ClauseElement]:
 
 
 def _table_default_expressions(
-    table: Any, *, onupdate: bool
+    table: Any, *, onupdate: bool, set_by_statement: set[str]
 ) -> Iterator[ClauseElement]:
     """The SQL-expression defaults a table's INSERT (``default``) or UPDATE
-    (``onupdate``) renders for the columns the statement does not set itself."""
+    (``onupdate``) renders for the columns the statement does not set itself
+    (``set_by_statement``: the columns every row of its ``.values()`` sets)."""
     if not isinstance(table, Table):
         return
     for column in table.c:
         default = column.onupdate if onupdate else column.default
-        if isinstance(default, ColumnElementColumnDefault):
+        if isinstance(default, ColumnElementColumnDefault) and (
+            column.key not in set_by_statement
+        ):
             yield default.arg
 
 
@@ -657,27 +904,36 @@ def _hidden_expressions(node: Any) -> Iterator[ClauseElement]:
         yield from _row_expressions(node._data)
     if isinstance(node, (Insert, Update)):
         yield from _table_default_expressions(
-            node.table, onupdate=isinstance(node, Update)
+            node.table,
+            onupdate=isinstance(node, Update),
+            set_by_statement=_columns_set_by_every_row(node),
         )
 
 
-#: Identifiers of a SQL fragment; comments and string literals are skipped, a
-#: quoted identifier (double quote, backtick, bracket) is read unquoted.
-_SQL_TOKEN = re.compile(
-    r"--[^\n]*|/\*.*?\*/|'(?:[^']|'')*'"
-    r'|"((?:[^"]|"")*)"|`((?:[^`]|``)*)`|\[([^\]]*)\]'
-    r"|([A-Za-z_][A-Za-z0-9_$]*)",
-    re.S,
-)
+#: Every bare word of a SQL fragment, read from the RAW text: no quoting rule is
+#: applied, so nothing a dialect's quoting hides (dollar quotes, ``E'..'``
+#: strings with escaped quotes, comments, a word inside a literal) is skipped.
+#: A superset by design: a literal that spells a tenant table's name counts.
+_BARE_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
+#: A quoted identifier (double quote, backtick, bracket), read whole too: a
+#: table named ``"my items"`` is one name, not two words.
+_QUOTED_IDENTIFIER = re.compile(r'"((?:[^"]|"")*)"|`((?:[^`]|``)*)`|\[([^\]]*)\]')
+#: A PostgreSQL unicode identifier, ``U&"\0070gq_items"``: its characters are
+#: escapes, so no scan reads the name it spells.
+_UNICODE_IDENTIFIER = re.compile(r'u&"', re.IGNORECASE)
 
 
 def _identifiers(sql: str) -> frozenset[str]:
-    """The lower-cased identifiers a SQL fragment names."""
-    found: set[str] = set()
-    for match in _SQL_TOKEN.finditer(sql):
-        name = match.group(1) or match.group(2) or match.group(3) or match.group(4)
+    """The lower-cased words a SQL fragment names (see :data:`_BARE_WORD`), plus
+    the :data:`_UNREADABLE` marker when it holds a ``U&"`` identifier (treated as
+    reaching every tenant table)."""
+    found = {word.lower() for word in _BARE_WORD.findall(sql)}
+    for match in _QUOTED_IDENTIFIER.finditer(sql):
+        name = match.group(1) or match.group(2) or match.group(3)
         if name:
-            found.add(name.lower())
+            found.add(name.replace('""', '"').lower())
+    if _UNICODE_IDENTIFIER.search(sql):
+        found.add(_UNREADABLE)
     return frozenset(found)
 
 
@@ -772,7 +1028,7 @@ def _mapper_sql_reaches_raw_tenant(mapper: Mapper[Any]) -> bool:
     verdict = _mapper_sql_cache.get(mapper)
     if verdict is None:
         own = frozenset(mapper.tables)
-        walk = _UnsafeCoreWalk(_tenant_names(), Alias, SelectBase)
+        walk = _UnsafeCoreWalk(_reach_names(), Alias, SelectBase)
         verdict = False
         for prop in mapper.iterate_properties:
             parts: list[ClauseElement]
@@ -801,7 +1057,7 @@ def _walk_references_tenant_scoped(statement: Any) -> bool:  # noqa: C901
     """
 
     guard_cache_stats["walks"] += 1
-    names = _tenant_names()
+    names = _reach_names()
     if not names:
         return False
 
@@ -943,7 +1199,9 @@ def _install_identity_map_guard() -> None:
 
 def _install_flush_window() -> None:
     """Open a flush window around ``Session._flush``: the mapper events record
-    in it which tenant tables the flush may write (:func:`check_tenant_reach`)."""
+    in it which rows the flush may write (:func:`check_tenant_reach`). The
+    instances it inserted are stamped when the flush SUCCEEDED: one that fails
+    (and rolls back) stamps nothing."""
     global _original_flush
     if _original_flush is not None:
         return
@@ -951,11 +1209,14 @@ def _install_flush_window() -> None:
     _original_flush = original
 
     def _flush(self: Session, objects: Any = None) -> None:
-        token = _flush_tables.set(set())
+        window = _FlushWindow()
+        token = _flush_window.set(window)
         try:
             original(self, objects)
         finally:
-            _flush_tables.reset(token)
+            _flush_window.reset(token)
+        for state, tenant in window.inserted.items():
+            state.info[_STAMP] = tenant
 
     _flush.__doc__ = original.__doc__
     Session._flush = _flush  # type: ignore[method-assign]
@@ -1123,11 +1384,6 @@ def _build_tenant_criteria() -> Any:
 _tenant_criteria: Any = None
 
 
-def _stamp_execution(state: Any) -> None:
-    """Mark this execution as decided by the guard (:func:`check_tenant_reach`)."""
-    state.update_execution_options(**{_SCOPED_OPTION: _SCOPED})
-
-
 def _params_override_tenant(parameters: Any) -> bool:
     """The caller's parameters name the guard's tenant bind: SQLAlchemy lets a
     passed parameter win over the bind's callable, so it would pick the tenant."""
@@ -1146,11 +1402,17 @@ def _verify_column_load(state: Any) -> None:
     (it is keyed on the primary key of an instance already loaded), so the
     instance must be one whose ``tenant_id`` was read from the database (the
     stamp), and the bound tenant's. A forged detached instance, a
-    ``merge(load=False)`` result or an unpickled one has no stamp."""
+    ``merge(load=False)`` result or an unpickled one has no stamp. A row the
+    RUNNING flush inserts is not stamped yet (that waits for the flush to
+    succeed): its verified tenant stands in for the stamp, so a refresh of
+    server-side defaults right after the INSERT is admitted."""
     refreshed = state.load_options._refresh_state
     if refreshed is None or not issubclass(refreshed.class_, TenantScoped):
         return
     stamp = refreshed.info.get(_STAMP)
+    if stamp is None:
+        window = _flush_window.get()
+        stamp = window.inserted.get(refreshed) if window is not None else None
     tid = _current_tenant.get()
     if stamp is None or (tid is not None and stamp != tid):
         raise UnsafeTenantOperationError(
@@ -1159,7 +1421,7 @@ def _verify_column_load(state: Any) -> None:
             "merged-without-load or other tenant's instance); load it through a "
             "scoped query, or use explicit unscoped() for trusted system access"
         )
-    _stamp_execution(state)
+    _approve(state.statement, _TRUSTED)
 
 
 def _stamp_loaded(state: Any, context: Any) -> None:
@@ -1179,7 +1441,10 @@ def _verified_flush_row(operation: str) -> Any:
     after the guard's own check): a TenantScoped row must carry the bound tenant,
     an UPDATE / DELETE only a row whose ``tenant_id`` was read from the database
     (a forged identity would otherwise write another tenant's row by primary
-    key). It also opens the flush window for the tables the flush may write."""
+    key). It also fills the flush window with what the flush may write: the
+    tables of a verified INSERT, the ``(table, primary key)`` of a verified UPDATE
+    / DELETE (:func:`_flush_write_admitted`). An inserted row is stamped only
+    when the whole flush succeeded (the ``Session._flush`` wrapper)."""
 
     def handler(mapper: Mapper[Any], _connection: Any, state: Any) -> None:
         names = _tenant_names()
@@ -1197,26 +1462,53 @@ def _verified_flush_row(operation: str) -> Any:
             return
         tid = current_tenant_id()
         instance = state.obj()
-        if operation == "insert":
-            if instance.tenant_id is None:
-                instance.tenant_id = tid
-            state.info[_STAMP] = instance.tenant_id
+        if operation == "insert" and instance.tenant_id is None:
+            instance.tenant_id = tid
         if instance.tenant_id != tid:
             raise TenantMismatchError(
                 f"{mapper.class_.__name__}.tenant_id does not match the bound tenant"
             )
-        if state.info.get(_STAMP) != tid:
+        if operation != "insert" and state.info.get(_STAMP) != tid:
             raise UnsafeTenantOperationError(
                 f"{operation.upper()} of a {mapper.class_.__name__} whose tenant_id "
                 "was not read from the database under the bound tenant (a forged or "
                 "merged-without-load instance writes by primary key, so another "
                 "tenant's row could be rewritten); load it through a scoped query"
             )
-        tables = _flush_tables.get()
-        if tables is not None:
-            tables.update(table_names)
+        window = _flush_window.get()
+        if window is None:
+            return
+        if operation == "insert":
+            window.tables.update(table_names)
+            window.inserted[state] = tid
+        else:
+            row_key = state.key[1]  # the committed primary key a WHERE pins
+            window.rows.update((name, row_key) for name in table_names)
 
     return handler
+
+
+def _record_inserted_row(mapper: Mapper[Any], _connection: Any, state: Any) -> None:
+    """``after_insert``: the primary key of a row the flush just inserted joins
+    the window, so a later statement of the same flush (a ``post_update``
+    UPDATE) may pin it. Only a row ``before_insert`` verified is recorded."""
+    window = _flush_window.get()
+    if window is None or state not in window.inserted:
+        return
+    row_key = tuple(mapper.primary_key_from_instance(state.obj()))
+    window.rows.update((name, row_key) for name in _mapper_table_names(mapper))
+
+
+def _forget_rolled_back_inserts(session: Session, previous_transaction: Any) -> None:
+    """``after_soft_rollback``: a row inserted in a transaction that was rolled
+    back does not exist, so the stamp its flush gave the instance goes with it
+    (``make_transient_to_detached`` could otherwise carry it to an UPDATE or
+    DELETE of whatever row now holds that primary key). A failed flush stamps
+    nothing (the ``Session._flush`` wrapper), and a nested rollback undoes the
+    inserts of its own savepoint."""
+    for state in tuple(previous_transaction._new):
+        if issubclass(state.class_, TenantScoped):
+            state.info.pop(_STAMP, None)
 
 
 def install_tenant_guard() -> None:  # noqa: C901
@@ -1291,7 +1583,7 @@ def install_tenant_guard() -> None:  # noqa: C901
             # ``text()`` is the caller's responsibility (``scoped()`` /
             # ``tenant_filter()``, the ``unsafe-tenant-sql`` check).
             if is_text:
-                _stamp_execution(state)  # the caller's own SQL: their responsibility
+                _approve(state.statement, _TRUSTED)  # the caller's own SQL
             elif _references_tenant_scoped(state.statement):
                 if _current_tenant.get() is None:
                     raise _missing_tenant(
@@ -1341,7 +1633,7 @@ def install_tenant_guard() -> None:  # noqa: C901
             )
         # Shared structure; the VALUE is read from the context per execution.
         state.statement = state.statement.options(_tenant_criteria)
-        _stamp_execution(state)
+        _approve(state.statement, _CRITERION)
 
     @event.listens_for(Session, "before_flush")
     def _enforce_tenant_writes(
@@ -1369,12 +1661,16 @@ def install_tenant_guard() -> None:  # noqa: C901
     # The stamp: which instances had their tenant_id READ from the database.
     event.listen(TenantScoped, "load", _stamp_loaded, propagate=True, raw=True)
     event.listen(TenantScoped, "refresh", _stamp_refreshed, propagate=True, raw=True)
+    # An insert's stamp waits for its flush to succeed (the ``_flush`` wrapper)
+    # and goes with a rollback of the transaction that inserted the row.
+    event.listen(Session, "after_soft_rollback", _forget_rolled_back_inserts)
     # Per-row re-verification inside the flush (every mapper: a non-TenantScoped
     # one over a tenant table is refused here), after any later before_flush.
     for operation in ("insert", "update", "delete"):
         event.listen(
             Mapper, f"before_{operation}", _verified_flush_row(operation), raw=True
         )
+    event.listen(Mapper, "after_insert", _record_inserted_row, raw=True)
     _install_identity_map_guard()
     _install_flush_window()
     _install_legacy_bulk_guard()

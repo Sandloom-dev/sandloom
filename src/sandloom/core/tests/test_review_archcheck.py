@@ -29,6 +29,44 @@ def test_raw_tenant_sql_requires_explicit_system_scope(
     assert analyzers.find_unsafe_tenant_sql(source) == []
 
 
+@pytest.mark.parametrize(
+    ("imports", "expression"),
+    [
+        ("from sqlalchemy import DDL", "DDL('drop table notes')"),
+        ("from sqlalchemy.schema import DDL as Ddl", "Ddl('drop table notes')"),
+        ("import sqlalchemy as sa", "sa.DDL('drop table notes')"),
+    ],
+)
+def test_a_ddl_element_needs_explicit_system_scope_like_text(
+    tmp_path: Path, imports: str, expression: str
+) -> None:
+    source = tmp_path / "service.py"
+    source.write_text(f"{imports}\ndef query(db):\n    return {expression}\n")
+    assert analyzers.find_unsafe_tenant_sql(source)
+    source.write_text(
+        f"{imports}\nfrom sandloom.core.di import unscoped\n"
+        f"def query(db):\n    with unscoped():\n        return {expression}\n"
+    )
+    assert analyzers.find_unsafe_tenant_sql(source) == []
+
+
+def test_the_attribute_spelling_of_unscoped_admits_raw_sql_like_the_bare_name(
+    tmp_path: Path,
+) -> None:
+    """C036 accepts ``with tc.unscoped():``; C015 must not report raw SQL in it."""
+    source = tmp_path / "service.py"
+    source.write_text(
+        "import sandloom.sdk.tenant as tc\nfrom sqlalchemy import text\n"
+        "def query(db):\n    with tc.unscoped():\n        return text('select 1')\n"
+    )
+    assert analyzers.find_unsafe_tenant_sql(source) == []
+    source.write_text(
+        "import sandloom.sdk.tenant as tc\nfrom sqlalchemy import text\n"
+        "def query(db):\n    with tc.scoped():\n        return text('select 1')\n"
+    )
+    assert analyzers.find_unsafe_tenant_sql(source)
+
+
 def test_raw_sql_declaration_defaults_do_not_need_a_runtime_scope(
     tmp_path: Path,
 ) -> None:
