@@ -40,8 +40,9 @@ from sqlalchemy.orm import Mapped, Mapper, Session, mapped_column, with_loader_c
 from sqlalchemy.orm.strategy_options import Load
 from sqlalchemy.orm.util import LoaderCriteriaOption
 from sqlalchemy.sql import visitors
+from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.compiler import SQLCompiler
-from sqlalchemy.sql.dml import Insert, Update
+from sqlalchemy.sql.dml import Insert, Update, ValuesBase
 from sqlalchemy.sql.elements import ClauseElement, TextClause
 from sqlalchemy.sql.schema import ColumnElementColumnDefault, Table
 from sqlalchemy.sql.selectable import Alias, SelectBase
@@ -369,14 +370,16 @@ def _hidden_expressions(node: Any) -> Iterator[ClauseElement]:
     expressions, the rows of a multi-row ``VALUES`` and the SQL-expression
     defaults of an INSERT/UPDATE target. A guard that stops at ``get_children``
     reads past each of them."""
-    for option in getattr(node, "_with_options", None) or ():
-        yield from _option_expressions(option)
-    for rows in getattr(node, "_multi_values", None) or ():
-        for row in rows:
-            for value in row.values() if isinstance(row, dict) else row:
-                clause = _as_clause(value)
-                if clause is not None:
-                    yield clause
+    if isinstance(node, Executable):
+        for option in node._with_options:
+            yield from _option_expressions(option)
+    if isinstance(node, ValuesBase):
+        for rows in node._multi_values:
+            for row in rows:
+                for value in row.values() if isinstance(row, dict) else row:
+                    clause = _as_clause(value)
+                    if clause is not None:
+                        yield clause
     if isinstance(node, (Insert, Update)):
         yield from _table_default_expressions(
             node.table, onupdate=isinstance(node, Update)
