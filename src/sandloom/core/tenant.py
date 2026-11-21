@@ -55,15 +55,13 @@ from sqlalchemy.orm.util import LoaderCriteriaOption
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.compiler import SQLCompiler
-from sqlalchemy.sql.dml import Delete, Insert, Update, ValuesBase
+from sqlalchemy.sql.dml import Insert, Update, ValuesBase
 from sqlalchemy.sql.elements import ClauseElement, ColumnClause, TextClause
 from sqlalchemy.sql.lambdas import LambdaElement
 from sqlalchemy.sql.schema import ColumnElementColumnDefault, Table
 from sqlalchemy.sql.selectable import (
     Alias,
-    CompoundSelect,
     Join,
-    Select,
     SelectBase,
     TableClause,
     Values,
