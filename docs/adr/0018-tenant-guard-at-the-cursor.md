@@ -106,19 +106,30 @@ for:
   DELETE the persistence layer builds. A statement a column default or a listener wrote on the
   flush connection is not;
 - nothing it renders reads a tenant table, and it names none that no scan can read;
+- it is written over a `Table` object (by identity, not by name) of a mapper whose event verified a
+  row of this flush. A second `Table` of the same name, with other columns or another primary key,
+  is none of them;
 - an INSERT writes a table that a verified insert of this flush writes, and carries an explicit
   `tenant_id` equal to the bound tenant in every parameter set. A missing or computed value is no
   value;
-- an UPDATE or DELETE pins its rows by primary key (`pk = :param`), and every parameter set names a
-  `(table, primary key)` the mapper events verified in this flush. An UPDATE never sets another
-  tenant's `tenant_id`.
+- an UPDATE or DELETE pins its rows by primary key (`pk = :param`, the parameter typed as the
+  column itself), and every parameter set names a `(table, primary key)` the mapper events
+  verified in this flush, the key listed in the table's own column order. An UPDATE never sets
+  another tenant's `tenant_id`;
+- an INSERT or UPDATE never carries values of its own that name the `tenant_id` column
+  (`.values(tenant_id=...)`, a SQL expression for it, a key that spells another column's name, a
+  positional row). The persistence layer sets that column only through the execution parameters the
+  checks above read, so a statement a listener built with its own value is refused whatever its
+  parameters say.
 
 A column load of an instance, and the flush UPDATE or DELETE of one, needs the stamp of the
 instance: the `tenant_id` the row carried when it was read from the database, or when a flush
 inserted it. The `load` and `refresh` events record it in `InstanceState.info`. A flush records
-the stamp of an inserted instance only after the flush succeeded, and `after_soft_rollback`
-clears it for an instance whose insert rolled back, so a failed insert leaves nothing to
-re-attach with.
+the stamp of an inserted instance only after the flush succeeded, and the stamp stays only once
+the ROOT transaction committed. A rollback clears it (`after_soft_rollback`, savepoints
+included), and so does the end of a root transaction that never committed
+(`after_transaction_end`): `session.close()` rolls the database back without a soft rollback. A
+failed or abandoned insert leaves nothing to re-attach with.
 
 `merge(load=False)`, unpickling and `make_transient_to_detached` give no stamp. Flushing or
 refreshing such an instance is refused. So is a deferred column load of an instance a `load_only()`
@@ -127,7 +138,10 @@ includes the column. `Session.get`, `Query.get`, `get_one` and a many-to-one laz
 the identity map only for a stamped instance of the bound tenant (`Session._identity_lookup`). For
 any other they run the scoped query. An expired instance of another tenant raises the refusal
 where an unexpired one runs the scoped query: nothing crosses either way. Column defaults are
-judged per rendered column.
+judged per rendered column: a column the statement sets itself (`values()`, `ordered_values()`,
+the target list of an `INSERT ... FROM SELECT`) renders no default. SQLAlchemy leaves the
+`include_insert_from_select_defaults` flag out of a statement's cache key, so the verdict of an
+`INSERT ... FROM SELECT` that renders no defaults is never cached under that shared key.
 
 ### 5. What a module may write
 
@@ -139,14 +153,22 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   no `yield` inside the block, including the context expression of a later item of the same `with`.
   There is no decorator exemption: a `@contextmanager` wrapper hands the bypass to its caller, as do
   an alias bound to a variable, `ExitStack.enter_context`, `functools.partial` and `getattr`. An
-  imported alias used directly as the `with` item is followed. The kernel's own files are not scanned.
+  imported alias used directly as the `with` item is followed. The `as` target of the `unscoped()`
+  item is evaluated inside the block, so a `yield` there is reported. The kernel's own files are
+  not scanned.
 - **SANDLOOM-C037.** The rule lists capabilities, not spellings. A module may not build an engine
   or a pool, import `sqlalchemy.pool` or most of `sqlalchemy.engine`, star-import from `sqlalchemy`,
   import a DBAPI driver, or call `raw_connection()`. A name bound to a constant dynamic import of
-  `sqlalchemy` (`sa = importlib.import_module("sqlalchemy")`) counts as `sqlalchemy`. `CursorResult`,
-  `Row`, `URL` and the other result and URL types stay allowed.
-- **SANDLOOM-C015.** The `unsafe-tenant-sql` rule flags `DDL(...)` outside `with unscoped():` the
-  way it flags `text()`, because a `DDL()` string that names a tenant table is refused at the cursor.
+  `sqlalchemy` (`sa = importlib.import_module("sqlalchemy")`) counts as `sqlalchemy`, and so does a
+  name assigned from such a name (`other = sa`, however long the chain). `CursorResult`, `Row`,
+  `URL` and the other result and URL types stay allowed.
+- **SANDLOOM-C015.** The `unsafe-tenant-sql` rule flags `DDL(...)` and `literal_column(...)`
+  outside `with unscoped():` the way it flags `text()`, because a `DDL()` string that names a
+  tenant table is refused at the cursor and a `literal_column()` text is rendered as written into
+  any statement. The portability marker `# sandloom: raw-sql` reviews dialect text, not tenant
+  reach, so it never lifts this rule. The attribute spelling `X.unscoped()` lifts it only when `X`
+  (or the root of a dotted `X`) is a name the file binds only by an import of a `sandloom` module;
+  a parameter, a local object or another package's module named `tc` does not.
 
 ## Consequences
 
@@ -162,9 +184,12 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   it for the app; test fixtures that create or drop the tables of a tenant model do it themselves.
 - A flush writes a loaded or newly inserted instance as before. An instance built by
   `merge(load=False)` or by unpickling needs a load first, or `unscoped()`.
-- The guard registers one session event, `after_soft_rollback`. The planner's custom-listener probe
-  (`planner_safety.policy_reason`) treats a session listener as custom and takes the general
-  executor; it exempts this one, so a session with only the kernel's listeners keeps its fused path.
+- The guard registers three session events: `after_soft_rollback`, `after_commit` and
+  `after_transaction_end`, which keep the stamp of an inserted instance exactly as long as its row
+  can exist. The planner's custom-listener probe (`planner_safety.policy_reason`) treats a session
+  listener as custom and takes the general executor; it exempts the two it probes
+  (`after_soft_rollback`, `after_transaction_end`), so a session with only the kernel's listeners
+  keeps its fused path.
 - The test harness's schema reset (`sandloom.core.testing.database.reset_schema`) names every
   table of a disposable test database in its probe, `DELETE`, `TRUNCATE` and sequence rewind. It
   runs inside `unscoped()`. A custom `@compiles` element is read for the fragment it returns, not
@@ -179,11 +204,23 @@ outlive its block. Three `sandloom check` rules say it for business modules.
     `scoped()`, the `unsafe-tenant-sql` check and row-level security hold it;
   - a column load of a stamped instance when no tenant is bound: the instance was read under a
     tenant, and the load goes to the same row;
+  - SQL the database builds on its own, from text no scan of the statement can read: PostgreSQL
+    dynamic SQL (`query_to_xml('select ... ' || name, ...)` with a concatenated name,
+    `table_to_xml(oid::regclass)`, a `DO $$ ... EXECUTE ... $$` block), and a view, function or
+    trigger over a tenant table, which a statement reaches by naming only the view or the function.
+    The cursor reads the SQL it is sent, not what the database runs on its behalf: row-level
+    security is the boundary;
+  - the stamp of an inserted instance after a rollback the session never sees: a session bound to
+    a connection whose OUTER transaction the caller rolls back after `session.commit()`. The
+    session saw the commit and keeps the stamp, and the database later discards the row. Re-attaching
+    such an instance after another tenant took its primary key is the case the stamp lifecycle
+    cannot close; row-level security is the boundary;
   - private APIs: the guard's own state (the `sandloom.tenant_id` key of `InstanceState.info`,
     `sandloom.core.tenant._APPROVED`) and a private SQLAlchemy API are reachable by code that
     imports or writes them. No cursor rule stops the code that edits the guard itself.
-- Two C037 cases are not seen: a dynamic import of a non-constant name, and `getattr` with a
-  variable name on `sqlalchemy`.
+- Some C037 cases are not seen: a dynamic import of a non-constant name, `getattr` with a variable
+  name on `sqlalchemy`, and a name bound to `sqlalchemy` by anything but a plain assignment of a
+  name that holds it (unpacking, a container, a call result).
 
 ## Out of scope
 

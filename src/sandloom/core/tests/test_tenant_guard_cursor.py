@@ -1638,10 +1638,10 @@ async def test_the_schema_build_from_the_models_runs_with_no_tenant_bound(
     with unscoped():
         async with env.engine.begin() as connection:
             await connection.run_sync(_Base.metadata.drop_all)
-    async with env.engine.begin() as connection:
-        await connection.run_sync(
-            lambda sync: model_schema._create_all(sync, _Base.metadata)
-        )
+    drift = await model_schema.ensure_model_schema(
+        env.engine, _Base.metadata, where="the guard test database"
+    )
+    assert drift == []
     rows = await _unscoped(env, select(func.count()).select_from(_Item))
     assert rows[0][0] == 0
 

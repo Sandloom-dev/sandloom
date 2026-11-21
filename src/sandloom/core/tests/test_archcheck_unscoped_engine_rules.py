@@ -98,6 +98,14 @@ _YIELD_BAD = {
         "        later = lambda x=(yield 1): x\n"
         "        return later\n"
     ),
+    # the ``as`` target is evaluated AFTER the item's context manager is entered
+    "an as target of the unscoped item": (
+        "def rows(db, sinks):\n    with unscoped() as sinks[(yield 1)]:\n        pass\n"
+    ),
+    "an as target of the unscoped item, second item": (
+        "def rows(db, lock, sinks):\n"
+        "    with lock, unscoped() as sinks[(yield 1)]:\n        pass\n"
+    ),
 }
 
 _YIELD_OK = {
@@ -150,6 +158,15 @@ _YIELD_OK = {
     "a default evaluated outside the block": (
         "def rows(db):\n    def later(x=(yield 1)):\n        return x\n"
         "    with unscoped():\n        return later\n"
+    ),
+    # an earlier item's ``as`` target is evaluated BEFORE ``unscoped()`` is entered
+    "an as target of an earlier item": (
+        "def rows(db, lock, sinks):\n"
+        "    with lock as sinks[(yield 1)], unscoped():\n        pass\n"
+    ),
+    "an as target after the block": (
+        "def rows(db, sinks):\n    with unscoped():\n        pass\n"
+        "    with db as sinks[(yield 1)]:\n        pass\n"
     ),
 }
 
@@ -352,6 +369,28 @@ _ENGINE_BAD = {
     "the pool of a connection's engine": (
         "def f(conn):\n    return conn.engine.pool.connect()\n"
     ),
+    # a name assigned from a name that holds sqlalchemy holds it too
+    "an alias of sqlalchemy": (
+        "import sqlalchemy as sa\nalias = sa\nengine = alias.create_engine('sqlite://')\n"
+    ),
+    "an annotated alias of sqlalchemy": (
+        "import sqlalchemy as sa\nalias: object = sa\n"
+        "engine = alias.create_engine('sqlite://')\n"
+    ),
+    "an alias chain written in reverse order": (
+        "import sqlalchemy as sa\nthird = second\nsecond = first\nfirst = sa\n"
+        "engine = third.create_engine('sqlite://')\n"
+    ),
+    "an alias of a constant import_module of sqlalchemy": (
+        "import importlib\nsa = importlib.import_module('sqlalchemy')\nalias = sa\n"
+        "engine = alias.create_engine('sqlite://')\n"
+    ),
+    "getattr on an alias of sqlalchemy": (
+        "import sqlalchemy as sa\nalias = sa\nmake = getattr(alias, 'create_engine')\n"
+    ),
+    "the pool of an alias of sqlalchemy": (
+        "import sqlalchemy as sa\nalias = sa\nqueue = alias.pool.QueuePool(lambda: None)\n"
+    ),
 }
 
 _ENGINE_OK = {
@@ -402,6 +441,20 @@ _ENGINE_OK = {
     "vars of an aliased allowed result type": (
         "from sqlalchemy.engine import CursorResult as Cursor\n"
         "def f():\n    return vars(Cursor)\n"
+    ),
+    # an alias is followed only from a name that holds sqlalchemy
+    "an alias of sqlalchemy used for a select": (
+        "import sqlalchemy as sa\nalias = sa\nstatement = alias.select(1)\n"
+    ),
+    "an alias of another package's module": (
+        "from acme import tools\nalias = tools\nfactory = alias.create_engine()\n"
+    ),
+    "an alias of a parameter": (
+        "def f(factory):\n    alias = factory\n    return alias.create_engine()\n"
+    ),
+    "an alias chain that never reaches sqlalchemy": (
+        "from acme import tools\nthird = second\nsecond = first\nfirst = tools\n"
+        "factory = third.create_engine()\n"
     ),
 }
 

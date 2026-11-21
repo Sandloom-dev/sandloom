@@ -413,8 +413,11 @@ exemption (no matching table any more) also fails.
         "check",
         "runtime raw SQL / Core table access can bypass the tenant guard",
         "use ORM entities, or an explicit unscoped() block for trusted system work",
-        "text(), DDL(), exec_driver_sql and Model.__table__ statements are not "
-        "tenant-filtered by the ORM guard.",
+        "text(), DDL(), literal_column(), exec_driver_sql and Model.__table__ "
+        "statements are not tenant-filtered by the ORM guard. The portability "
+        "marker `# sandloom: raw-sql` reviews dialect text only and does not lift "
+        "this check; an unscoped() block does (the module-qualified spelling "
+        "`tc.unscoped()` counts only when `tc` is an import of a sandloom module).",
     ),
     ErrorCode(
         "SANDLOOM-C016",

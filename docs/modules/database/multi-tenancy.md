@@ -138,9 +138,13 @@ bound, the statement raises `MissingTenantError` or
 `UnsafeTenantOperationError`.
 
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
-recognised tenant table is refused when it cannot be safely scoped, and
-runtime raw SQL in a business module needs an explicit `unscoped()` admission
-([SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015)). Use the explicit helpers
+recognised tenant table is refused when it cannot be safely scoped. Runtime
+raw SQL in a business module (`text()`, `DDL()`, `literal_column()`)
+needs an explicit `unscoped()` admission
+([SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015)). The portability
+marker `# sandloom: raw-sql` reviews dialect text, not tenant reach, so it does
+not lift that check. The attribute spelling `tc.unscoped()` counts only when `tc`
+is an import of a `sandloom` module. Use the explicit helpers
 there, or enable [row-level security](#postgresql-row-level-security-optional).
 For explicit, hard-to-misuse reads:
 
@@ -233,37 +237,60 @@ What follows from it:
 - The approval covers the mapper's own table and its plain aliases. A tenant
   table reached any other way inside that statement is refused: a raw
   `secondary`, or a hand-written subquery.
-- A flush writes through an allowlist. An INSERT carries an explicit
-  `tenant_id` equal to the bound tenant. An UPDATE or DELETE names a row, by
-  primary key, that the unit of work verified in that flush. A statement that a
-  column default or a listener wrote on the flush connection is refused.
+- A flush writes through an allowlist, over the `Table` objects of the mappers
+  the unit of work verified in that flush. A second `Table` of the same name is
+  none of them. An INSERT carries an explicit `tenant_id` equal to the bound
+  tenant. An UPDATE or DELETE names a row, by primary key, that the unit of work
+  verified in that flush. A statement that a column default or a listener wrote
+  on the flush connection is refused. So is an INSERT or UPDATE that sets
+  `tenant_id` through values of its own: `.values(tenant_id=...)`, an
+  expression, a positional row.
 - The load of a deferred or expired column, and the flush UPDATE or DELETE of an
   instance, need a stamp of the bound tenant. The stamp is the `tenant_id` read
   from the database, or the one a successful flush inserted the instance with.
-  A failed insert, or one that rolled back, leaves no stamp. An instance from
-  `merge(load=False)` or from unpickling is refused at that point, and so is one
-  that went through `make_transient_to_detached`. The same holds for a deferred
-  column of an instance that a
-  `load_only()` or `defer()` projection loaded without its `tenant_id`. Include
-  the column in the projection.
+  An insert keeps its stamp only once the root transaction committed. A failed
+  or rolled back insert leaves none, and neither does one the session closed
+  without committing. An instance from `merge(load=False)` or from unpickling
+  is refused at that point, and so is one that went through
+  `make_transient_to_detached`. The same holds for a deferred column of an
+  instance that a `load_only()` or `defer()` projection loaded without its
+  `tenant_id`. Include the column in the projection.
 - `Session.get`, `get_one` and a many-to-one lazy load answer from the identity
   map only for such an instance. For any other they run the scoped query.
 - `unscoped()` lifts all of it for its block.
 
-Five cases the check does not see.
+Cases the check does not see.
 
 - A `nesting=True` CTE below the top level is not in the compiled list, and
   PostgreSQL itself refuses a data-modifying statement there.
+- A raw reference to a tenant table hidden inside a statement the ORM guard
+  approved, which the ORM walk cannot see.
 - `Connection.exec_driver_sql` sends a string with no compiled statement.
+- SQL the database builds from text no scan can read. That covers PostgreSQL
+  dynamic SQL: `query_to_xml('select ... ' || name, ...)` with a concatenated
+  name, `table_to_xml(oid::regclass)`, a `DO $$ ... EXECUTE ... $$` block. It
+  also covers a view, function or trigger over a tenant table, reached by naming
+  only the view or the function. The cursor reads the SQL it is sent.
+  [Row-Level Security](#postgresql-row-level-security-optional) holds these.
 - A `text()` passed straight to `session.execute` is the caller's
   responsibility. Write it with `scoped()`, or let the `unsafe-tenant-sql` check
   and [Row-Level Security](#postgresql-row-level-security-optional) hold it.
-- The load of a column of a stamped instance with no tenant bound is not
-  refused. The instance was read under a tenant, and the load goes to its own
-  row.
 - The guard's private state, the `sandloom.tenant_id` key of
   `InstanceState.info`, and private SQLAlchemy APIs are open to code that writes
   or imports them.
+
+Two more cases concern the stamp. The load of a column of a stamped instance
+with no tenant bound is not refused. The instance was read under a tenant, and
+the load goes to its own row. A rollback the session never sees keeps the stamp
+of an inserted instance. This happens when the session is bound to a connection
+whose outer transaction the caller rolls back after `session.commit()`. The
+database discards the row, and Row-Level Security holds that case.
+
+The `sandloom check` rules are static and miss some spellings. SANDLOOM-C037
+does not see a dynamic import of a name that is not a constant, or `getattr` with
+a variable name on `sqlalchemy`. It does not follow a name bound to `sqlalchemy`
+by unpacking, a container or a call result either. It does follow a plain
+assignment of a name that holds it, however long the chain.
 
 Cross-tenant work uses `unscoped()`.
 

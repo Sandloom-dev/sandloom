@@ -194,9 +194,11 @@ guarantees:
   - tenant-scoped-models
 - id: G-TENANT-17
   statement: sandloom check rule unsafe-tenant-sql reports runtime raw SQL in business modules (text(), DDL(),
-    Model.__table__, exec_driver_sql, including deferred lambdas/generators) unless it executes inside an
-    explicit unscoped() block, spelled unscoped() or as an attribute call such as tc.unscoped();
-    declaration-time defaults are exempt.
+    literal_column(), Model.__table__, exec_driver_sql, including deferred lambdas/generators) unless it
+    executes inside an explicit unscoped() block, spelled unscoped() or as an attribute call such as
+    tc.unscoped() where tc is a name the file binds only by an import of a sandloom module (a parameter,
+    a local object or another package's module of that name does not count); the portability marker
+    sandloom raw-sql never admits it; declaration-time defaults are exempt.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
@@ -205,6 +207,9 @@ guarantees:
   - src/sandloom/core/tests/test_review_archcheck.py::test_raw_sql_declaration_defaults_do_not_need_a_runtime_scope
   - src/sandloom/core/tests/test_review_archcheck.py::test_a_ddl_element_needs_explicit_system_scope_like_text
   - src/sandloom/core/tests/test_review_archcheck.py::test_the_attribute_spelling_of_unscoped_admits_raw_sql_like_the_bare_name
+  - src/sandloom/core/tests/test_review_archcheck.py::test_unscoped_on_a_framework_module_admits_raw_sql
+  - src/sandloom/core/tests/test_review_archcheck.py::test_unscoped_on_a_look_alike_receiver_does_not_admit_raw_sql
+  - src/sandloom/core/tests/test_review_archcheck.py::test_a_literal_column_needs_explicit_system_scope_and_no_marker_admits_it
   - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   rules:
   - unsafe-tenant-sql
@@ -273,7 +278,10 @@ guarantees:
     the bound tenant; a raw tenant-table reference in any of them, a bare func.* executable that reaches
     a tenant table, and an INSERT/UPDATE on a non-tenant table whose SQL-expression default/onupdate reads
     a tenant table (statement or flush) are refused. With no tenant bound the same shapes raise
-    MissingTenantError or UnsafeTenantOperationError.
+    MissingTenantError or UnsafeTenantOperationError. Not covered, by design - a caller-authored custom
+    @compiles element that renders a tenant table inside an ORM statement the guard approved (the walk
+    cannot see it and the cursor admits the statement on the criterion parameter; the caller's
+    responsibility, held by row-level security), like the text() carve-out above.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
@@ -294,11 +302,13 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_read_paths.py::test_a_bare_function_cannot_read_a_tenant_table
   - src/sandloom/core/tests/test_tenant_guard_read_paths.py::test_a_bare_function_without_a_tenant_reference_stays_allowed
   - src/sandloom/core/tests/test_tenant_guard_read_paths.py::test_a_default_the_statement_sets_itself_is_never_rendered
+  - src/sandloom/core/tests/test_tenant_guard_read_paths.py::test_an_update_setting_the_column_through_ordered_values_renders_no_default
+  - src/sandloom/core/tests/test_tenant_guard_read_paths.py::test_an_insert_from_select_renders_only_the_defaults_it_leaves_to_the_table
 - id: G-TENANT-23
   statement: sandloom check rule yield-inside-unscoped accepts unscoped in a business module only as the
     direct context expression of a with item (unscoped() is a synchronous manager, so an async def writes
-    with too) and reports a yield or yield from anywhere inside such a block or in the context expression
-    of a later item of the same with, a @contextmanager or @asynccontextmanager function included (it hands
+    with too) and reports a yield or yield from anywhere inside such a block (the as target of its item
+    included) or in the context expression of a later item of the same with, a @contextmanager or @asynccontextmanager function included (it hands
     the bypass to its caller); every other use of the name, of an attribute named unscoped or of the string
     unscoped (an alias bound to a variable, an argument, a decorator, ExitStack.enter_context,
     functools.partial, getattr, a __dict__ lookup) is reported; a nested function or lambda body does not
@@ -320,7 +330,8 @@ guarantees:
   statement: sandloom check rule engine-in-module reports a business module that reaches a database around
     the framework's engine, by capability and not by spelling - an engine or pool factory or class (under
     any alias, as an attribute, through getattr or a vars / __dict__ lookup, also on a name bound to a
-    constant import_module or __import__ of sqlalchemy), a star import from sqlalchemy,
+    constant import_module or __import__ of sqlalchemy, or assigned from such a name, however long
+    the chain), a star import from sqlalchemy,
     sqlalchemy.pool, sqlalchemy.engine beyond its result and URL types, a DBAPI driver (also through a
     constant import_module), raw_connection and its kin, and an engine's .pool - because such a connection
     skips write admission, the cursor tenant check and the tenant_rls session setup that every framework-built
@@ -393,14 +404,21 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_tracked_lambda_statement_keeps_its_memoized_verdict
 - id: G-TENANT-26
   statement: A flush write is an allowlist - the plain Core INSERT, UPDATE or DELETE the persistence layer
-    builds, reading no tenant table, an INSERT with an explicit tenant_id equal to the bound tenant, an
-    UPDATE or DELETE pinned to a (table, primary key) the mapper events verified in that flush - and the
+    builds, reading no tenant table, over the Table object (by identity, not by name) of a mapper the
+    events verified in that flush - an INSERT with an explicit tenant_id equal to the bound tenant, an
+    UPDATE or DELETE pinned (primary key = a parameter typed as the column) to a (table, primary key) the
+    mapper events verified in that flush, in the table's own key order; an INSERT or UPDATE whose own
+    values name the tenant_id column (a literal, an expression, a key spelling another column's name, a
+    positional row) is refused whatever its parameters say - and the
     load of a deferred, expired or polymorphic column runs only for an instance that carries a stamp of
     the bound tenant, the tenant_id read from the database (the load and refresh events) or the one a
-    flush inserted it with (set when the flush succeeded, cleared when its transaction rolls back). So an
+    flush inserted it with (set when the flush succeeded, kept only once the root transaction committed,
+    cleared when a transaction rolls back and when the session closes or ends its root transaction
+    without committing). So an
     instance forged, merged without load or unpickled cannot write or read another tenant's row, an
-    insert that failed leaves nothing to re-attach with, and a flush default that reads a tenant table is
-    refused. A column load with no tenant bound is the exception, since the instance was read under a tenant
+    insert that failed or was never committed leaves nothing to re-attach with, and a flush default that
+    reads a tenant table is refused. Not covered, by design - a rollback of an OUTER connection transaction
+    after the session committed, which the session never sees (row-level security holds it). A column load with no tenant bound is the exception, since the instance was read under a tenant
     and the load goes to its own row. Session.get, Query.get, get_one and a many-to-one lazy load answer from
     the identity map only for an instance stamped with the bound tenant (another tenant's falls through to
     the scoped query, no tenant bound fails closed), and a late before_flush or before_insert listener
@@ -430,6 +448,16 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_rolled_back_insert_loses_its_stamp
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_deferred_load_needs_the_tenant_id_a_projection_left_out
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_the_identity_lookup_of_an_expired_foreign_instance_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_flush_listener_cannot_write_through_what_its_statement_brings
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_listener_update_of_the_row_being_flushed_by_its_key_is_admitted
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_primary_key_change_of_the_tenants_own_row_flushes
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_the_values_a_statement_carries_name_the_tenant_column_by_name
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_the_tenant_column_of_a_table_is_found_by_name_not_by_key
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_mapper_with_a_reversed_primary_key_lists_each_tables_key_in_table_order
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_reversed_composite_key_flushes_updates_and_deletes
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_listener_update_of_a_just_inserted_reversed_key_is_admitted
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_closed_session_leaves_no_stamp_on_an_insert_that_never_committed
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_committed_insert_keeps_its_stamp_when_the_session_closes
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees

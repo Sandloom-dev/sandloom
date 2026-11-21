@@ -373,7 +373,7 @@ Slug: `unsafe-tenant-sql` · kind: check · status: active
 
 **What happened and why it matters**
 
-text(), DDL(), exec_driver_sql and Model.__table__ statements are not tenant-filtered by the ORM guard.
+text(), DDL(), literal_column(), exec_driver_sql and Model.__table__ statements are not tenant-filtered by the ORM guard. The portability marker `# sandloom: raw-sql` reviews dialect text only and does not lift this check; an unscoped() block does (the module-qualified spelling `tc.unscoped()` counts only when `tc` is an import of a sandloom module).
 
 **Fix:** use ORM entities, or an explicit unscoped() block for trusted system work
 

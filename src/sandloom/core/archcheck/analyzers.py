@@ -2115,20 +2115,68 @@ def find_unsafe_tenant_sql(file_path: Path) -> list[str]:
     tree = parse_file(file_path)
     sql_text_names, sqlalchemy_names, unscoped_names = _tenant_sql_import_names(tree)
     found: list[str] = []
-    _TenantSqlVisitor(sql_text_names, sqlalchemy_names, unscoped_names, found).visit(
-        tree
-    )
+    _TenantSqlVisitor(
+        sql_text_names,
+        sqlalchemy_names,
+        unscoped_names,
+        _framework_module_names(tree),
+        found,
+    ).visit(tree)
     return found
 
 
 # Factories whose argument is raw SQL text the tenant guard cannot see into: a
 # ``text()`` and a ``DDL()`` element (which the cursor rule refuses when its
-# string names a tenant table, ADR-0018).
-_RAW_TENANT_SQL_FACTORIES = frozenset({"text", "DDL"})
+# string names a tenant table, ADR-0018), and a ``literal_column()`` (its text is
+# rendered as written into whatever statement carries it). The portability
+# marker ``# sandloom: raw-sql`` reviews dialect text, not tenant reach: it is
+# never read here.
+_RAW_TENANT_SQL_FACTORIES = frozenset({"text", "DDL", "literal_column"})
+
+
+def _non_import_bindings(tree: ast.AST) -> set[str]:
+    """Names the file binds other than by an import: an assignment, a parameter,
+    a ``def`` / ``class``, an ``except ... as`` target. Flow-insensitive: a name
+    that is ever bound otherwise no longer names the module it was imported as."""
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ) or (isinstance(node, ast.ExceptHandler) and node.name):
+            bound.add(str(node.name))
+    return bound
+
+
+def _framework_module_names(tree: ast.AST) -> set[str]:
+    """Names an import binds to a framework module or to something from one
+    (``import sandloom.sdk.tenant as tc``, ``import sandloom.sdk``,
+    ``from sandloom.sdk import tenant``), unless the file also binds the name
+    some other way: the receivers an attribute-style ``X.unscoped()`` is accepted
+    on. A parameter, a local object or another package's module is none of them."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(
+                alias.asname or "sandloom"
+                for alias in node.names
+                if alias.name.split(".")[0] == "sandloom"
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and (node.module or "").split(".")[0] == "sandloom"
+        ):
+            names.update(a.asname or a.name for a in node.names if a.name != "*")
+    return names - _non_import_bindings(tree)
 
 
 def _tenant_sql_import_names(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
-    """Names bound to ``sqlalchemy.text`` / ``DDL``, ``sqlalchemy`` and ``unscoped``."""
+    """Names bound to ``sqlalchemy``'s raw SQL factories, ``sqlalchemy`` and
+    ``unscoped``."""
     sql_text_names: set[str] = set()
     sqlalchemy_names: set[str] = set()
     unscoped_names = {"unscoped"}
@@ -2156,14 +2204,36 @@ class _TenantSqlVisitor(ast.NodeVisitor):
         sql_text_names: set[str],
         sqlalchemy_names: set[str],
         unscoped_names: set[str],
+        framework_names: set[str],
         found: list[str],
     ) -> None:
         self.sql_text_names = sql_text_names
         self.sqlalchemy_names = sqlalchemy_names
         self.unscoped_names = unscoped_names
+        self.framework_names = framework_names
         self.found = found
         self.function_depth = 0
         self.system_depth = 0
+
+    def _is_system_scope(self, expr: ast.expr) -> bool:
+        """``unscoped()`` by name, or ``X.unscoped()`` where ``X`` (or the root of
+        a dotted ``X``) is a name bound to a framework module. C036 accepts the
+        attribute spelling on any receiver; here it lifts the raw SQL check, so a
+        local helper or a parameter that merely has an ``unscoped`` attribute
+        does not count."""
+        if not isinstance(expr, ast.Call):
+            return False
+        func = expr.func
+        if isinstance(func, ast.Name):
+            return func.id in self.unscoped_names
+        if isinstance(func, ast.Attribute) and func.attr == "unscoped":
+            receiver = func.value
+            while isinstance(receiver, ast.Attribute):
+                receiver = receiver.value
+            return (
+                isinstance(receiver, ast.Name) and receiver.id in self.framework_names
+            )
+        return False
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         old_system = self.system_depth
@@ -2209,18 +2279,7 @@ class _TenantSqlVisitor(ast.NodeVisitor):
             # Context expressions run left-to-right, before that context
             # is entered. Earlier contexts already protect later ones.
             self.visit(item.context_expr)
-            # the same forms C036 admits: ``unscoped()`` and ``tc.unscoped()``
-            system = isinstance(item.context_expr, ast.Call) and (
-                (
-                    isinstance(item.context_expr.func, ast.Name)
-                    and item.context_expr.func.id in self.unscoped_names
-                )
-                or (
-                    isinstance(item.context_expr.func, ast.Attribute)
-                    and item.context_expr.func.attr == "unscoped"
-                )
-            )
-            self.system_depth += int(system)
+            self.system_depth += int(self._is_system_scope(item.context_expr))
             if item.optional_vars is not None:
                 self.visit(item.optional_vars)
         for statement in node.body:
@@ -2336,10 +2395,12 @@ class _UnscopedUseVisitor(ast.NodeVisitor):
                 self.admitted.add(id(expr.func))
                 system = True
             self.visit(expr)
-            if item.optional_vars is not None:
-                self.visit(item.optional_vars)
+            # ``unscoped()`` is entered BEFORE the ``as`` target is evaluated
+            # (``with unscoped() as sinks[(yield 1)]:``)
             entered += int(system)
             self.depth += int(system)
+            if item.optional_vars is not None:
+                self.visit(item.optional_vars)
         for statement in node.body:
             self.visit(statement)
         self.depth -= entered
@@ -2473,15 +2534,20 @@ def _sqlalchemy_bound_names(tree: ast.AST, sa_imports: set[int]) -> set[str]:
     """Local names bound to ``sqlalchemy`` or something imported from it (a
     submodule imported with ``from sqlalchemy.ext import asyncio as aio``
     cannot be told from a class, so both count), or assigned a constant dynamic
-    import of it (``sa = importlib.import_module("sqlalchemy")``)."""
+    import of it (``sa = importlib.import_module("sqlalchemy")``), or re-bound
+    from such a name by a plain assignment (``other = sa``), however long the
+    chain and in whatever order it is written."""
     names: set[str] = set()
+    aliases: list[tuple[str, str]] = []  # (target, the bound name it is assigned)
     for node in ast.walk(tree):
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             if isinstance(node.value, ast.Call) and id(node.value) in sa_imports:
-                targets = (
-                    node.targets if isinstance(node, ast.Assign) else [node.target]
-                )
                 names.update(t.id for t in targets if isinstance(t, ast.Name))
+            elif isinstance(node.value, ast.Name):
+                aliases.extend(
+                    (t.id, node.value.id) for t in targets if isinstance(t, ast.Name)
+                )
         elif isinstance(node, ast.Import):
             names.update(
                 alias.asname or "sqlalchemy"
@@ -2500,6 +2566,13 @@ def _sqlalchemy_bound_names(tree: ast.AST, sa_imports: set[int]) -> set[str]:
                 for a in node.names
                 if a.name != "*" and a.name not in _ENGINE_VALUE_TYPES
             )
+    grown = True
+    while grown:  # an alias chain is followed whatever order ``ast.walk`` visits it
+        grown = False
+        for target, source in aliases:
+            if source in names and target not in names:
+                names.add(target)
+                grown = True
     return names
 
 
