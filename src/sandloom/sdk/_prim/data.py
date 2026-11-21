@@ -9,6 +9,7 @@ session (the portable SQL forms, SANDLOOM-C028).
 
 from __future__ import annotations
 
+import sys
 from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 
@@ -19,6 +20,7 @@ from sandloom.core.di import db_session
 from sandloom.core.orm import ConflictInsert, MoneyLedger, Page, TenantScoped
 from sandloom.core.orm import conflict_insert as _conflict_insert
 from sandloom.core.orm import transaction_lock as _transaction_lock
+from sandloom.sdk._unit import open_uow_for_module
 
 
 def db() -> AsyncSession:
@@ -44,8 +46,26 @@ def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSe
 
     One transaction, committed on success and rolled back on an exception,
     with the transactional outbox for the events it publishes.
+
+    Without ``database`` the unit opens on the primary database of the module
+    that calls ``open_uow`` (the one its migration chain lives on, as its
+    contracts' units do). Code that belongs to no loaded module, such as a
+    script, gets ``"default"``; so does a module whose ``define_module(name=)``
+    differs from its package: pass the database name there.
+
+    A module that requires several databases, ``default`` not among them, and
+    declares no ``migrations_database`` has no primary one: ``open_uow()``
+    then raises ``MigrationTargetError`` on entering the block; pass
+    ``database``. A module that requires ``default`` and another database gets
+    ``default``.
+
+    The database of a call without ``database`` is resolved when the block is
+    entered, against the core active then (as ``db_session`` does), not when
+    ``open_uow()`` is called.
     """
-    return db_session(database or "default")
+    if database is None:
+        return open_uow_for_module(sys._getframe(1).f_globals.get("__name__"))
+    return db_session(database)
 
 
 __all__ = ["MoneyLedger", "Page", "TenantScoped", "db", "open_uow"]

@@ -735,6 +735,22 @@ async with open_uow() as session:
 One transaction, committed on success and rolled back on an exception,
 with the transactional outbox for the events it publishes.
 
+Without `database` the unit opens on the primary database of the module
+that calls `open_uow` (the one its migration chain lives on, as its
+contracts' units do). Code that belongs to no loaded module, such as a
+script, gets `"default"`; so does a module whose `define_module(name=)`
+differs from its package: pass the database name there.
+
+A module that requires several databases, `default` not among them, and
+declares no `migrations_database` has no primary one: `open_uow()`
+then raises `MigrationTargetError` on entering the block; pass
+`database`. A module that requires `default` and another database gets
+`default`.
+
+The database of a call without `database` is resolved when the block is
+entered, against the core active then (as `db_session` does), not when
+`open_uow()` is called.
+
 ### `Page`
 
 ```python
