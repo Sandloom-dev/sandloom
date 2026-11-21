@@ -9716,6 +9716,7 @@ adr_sections:
     - G-TENANT-24
     "Consequences": informational
     "Out of scope": informational
+    "Related": informational
 planned_adrs:
   0012-kernel-boundary.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-03 edge register, KB-06, KB-07,
     KB-08 sandloom-standard, KB-09 revocation applier), W1 (KB-40), W2 (KB-41); CLI phase KB-60, KB-61'
