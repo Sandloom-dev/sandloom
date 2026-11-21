@@ -292,8 +292,8 @@ is raw env).
   composition's selection, `streams` under `sandloom_standard`, never
   `memory`; the volatile `memory` / `broadcast`
   (Pub/Sub) drivers are refused in prod unless the risk `volatile_event_bus`
-  is accepted; required/durable consumers on Pub/Sub also need it outside
-  prod), `OUTBOX_RELAY_ENABLED` (auto/on/off/delegated; auto = prod only;
+  is accepted, and even then never as the default bus; required/durable
+  consumers on Pub/Sub also need it outside prod), `OUTBOX_RELAY_ENABLED` (auto/on/off/delegated; auto = prod only;
   under gunicorn only one elected worker runs it, the others get `delegated`;
   `off` in a prod app process is refused unless the risk `relay_disabled` is
   accepted), `OUTBOX_RELAY_MAX_ATTEMPTS`,
