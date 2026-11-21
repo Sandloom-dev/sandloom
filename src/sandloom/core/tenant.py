@@ -36,6 +36,7 @@ from sqlalchemy.sql.compiler import SQLCompiler
 from sqlalchemy.sql.dml import ValuesBase
 from sqlalchemy.sql.elements import ClauseElement, TextClause
 from sqlalchemy.sql.selectable import Alias, SelectBase, TableClause
+from sqlalchemy.sql.visitors import ExternallyTraversible
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
@@ -248,7 +249,9 @@ def _tenant_table_names() -> dict[str, frozenset[str | None]]:
     return result
 
 
-def _walk_with_hidden_children(root: Any) -> Iterator[Any]:
+def _walk_with_hidden_children(
+    root: ExternallyTraversible,
+) -> Iterator[ExternallyTraversible]:
     """Every node under ``root``, including what ``get_children`` skips.
 
     ``visitors.iterate`` does not descend into the rows of a multi-row
@@ -270,7 +273,7 @@ def _walk_with_hidden_children(root: Any) -> Iterator[Any]:
                         )
 
 
-def _tenant_table_in_dml_cte(element: Any) -> str | None:
+def _tenant_table_in_dml_cte(element: ExternallyTraversible) -> str | None:
     """The name of a TenantScoped table a DML CTE element reaches, else ``None``.
 
     Fail closed on what cannot be read: ``text()`` anywhere in the DML and
@@ -314,7 +317,7 @@ def check_compiled_statement(compiled: SQLCompiler) -> None:
     """
     if bypass_active() or not _tenant_tables():
         return
-    for cte in compiled.ctes:
+    for cte in compiled.ctes or ():
         element = cte.element
         if isinstance(element, SelectBase):
             continue
