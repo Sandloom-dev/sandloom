@@ -822,6 +822,56 @@ still refuses a name no loaded module declares.
 """,
         docs="docs/modules/background/tasks.md",
     ),
+    _entry(
+        "SANDLOOM-C036",
+        "yield-inside-unscoped",
+        "check",
+        "a generator yields inside `with unscoped():`, handing the tenant "
+        "bypass to its caller",
+        "collect what the block reads, leave the block, then yield; a function "
+        "that is meant to hand the bypass over is a context manager "
+        "(`@contextmanager` / `@asynccontextmanager`)",
+        """
+unscoped() lifts the tenant guard for the code inside its `with` block. A
+generator that yields inside the block suspends there with the guard still
+off: the consumer's own statements, between two items, run unguarded, for as
+long as the generator is held open (a dropped async generator only until the
+loop finalizes it). A route that iterates such a generator and queries on its
+own reads every tenant's rows.
+
+sandloom check refuses a `yield` / `yield from` lexically inside a
+`with unscoped():` (or `async with`) in any function that is not decorated
+`@contextmanager` / `@asynccontextmanager`; a context manager hands the
+bypass over on purpose and is closed by its caller's `with`. The usual
+rewrite reads everything inside the block into a list and yields from it
+after the block. Not seen: a bypass entered through an ExitStack, or a
+generator handed to a helper that yields inside.
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
+    _entry(
+        "SANDLOOM-C037",
+        "engine-in-module",
+        "check",
+        "a business module builds its own database engine",
+        "use the module's session (`get_db`, the unit of work); a database is "
+        "declared in INFRA and built by a driver, never with create_engine / "
+        "create_async_engine / engine_from_config in module code",
+        """
+Every engine the framework builds gets install_write_admission (write
+admission and the compiled-statement check that refuses a data-modifying CTE
+outside unscoped()) and, on a tenant_rls database, the per-transaction tenant
+setting that row-level security reads. An engine a module builds itself gets
+none of them: its statements skip the compiled check and write admission, and
+the tenant setting is never set for it. sandloom check refuses a call to
+create_engine, create_async_engine, engine_from_config or
+async_engine_from_config (by name, by attribute, or through an aliased import)
+in a business module. A database a module needs is declared in INFRA and built
+by a driver (a driver package is not a module); module code reaches it through
+its session.
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
     # ------------------------------------------------------------- boot time
     _entry(
         "SANDLOOM-B001",

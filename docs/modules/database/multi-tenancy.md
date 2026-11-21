@@ -107,6 +107,36 @@ is refused. Normal ORM inserts inherit the current tenant and reject a
 conflicting `tenant_id`. Bulk inserts and bulk ownership changes are reserved
 for explicit `unscoped()` system work.
 
+The legacy `Session.bulk_save_objects` and `Session.bulk_insert_mappings` plant
+rows. `Session.bulk_update_mappings` rewrites them by primary key. None of the
+three runs the ORM-execute guard or the flush ownership check. On a
+`TenantScoped` model, or any mapper over its table, each is refused outside
+`unscoped()`, with or without a bound tenant. On other models they are
+untouched.
+
+The guard also reads SQL that a statement carries inside itself, which
+`get_children()` does not list:
+
+- `with_loader_criteria(...)` and the extra criteria of a relationship option
+  such as `selectinload(Parent.children.and_(...))`. A subquery in them is
+  scoped to the bound tenant like any other.
+- `insert(Other).values(...)` in every form: dict, keyword arguments, a list of
+  rows. A subquery reading a `TenantScoped` model is scoped. One reading its raw
+  `Table` is refused.
+- `with_expression(...)`. SQLAlchemy strips the annotation the tenant criterion
+  needs from its expression. A subquery that reaches a `TenantScoped` table is
+  refused outside `unscoped()`, whichever tenant's row it reads.
+- A bare `func.f(...)` executable, which is none of select, insert, update or
+  delete. It is refused when it reaches a `TenantScoped` table.
+- A SQL-expression column `default=` or `onupdate=` that reads a `TenantScoped`
+  table, on a table that is not itself tenant-scoped. It is refused on an
+  INSERT or UPDATE statement and, at `before_flush`, on a flushed object. Set
+  such a value in Python, or run the write inside `unscoped()`.
+
+Each refusal is `UnsafeTenantOperationError` under a bound tenant. With none
+bound, the statement raises `MissingTenantError` or
+`UnsafeTenantOperationError`.
+
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
 recognised tenant table is refused when it cannot be safely scoped, and
 runtime raw SQL in a business module needs an explicit `unscoped()` admission
@@ -148,7 +178,10 @@ that runs it was first started inside an open `unscoped()`.
 A generator that yields inside `with unscoped():` keeps the guard off for its
 caller until the generator closes, because the block stays open across the
 `yield`. Do not yield inside the block: collect the rows in the block and yield
-them after it. A static rule for this is tracked separately.
+them after it. `sandloom check` reports it
+([SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036)). A function
+decorated `@contextmanager` or `@asynccontextmanager` is exempt, because it hands
+the bypass to its caller's `with` on purpose.
 
 The guard does not scope a data-modifying CTE. Its tenant criteria apply to the
 SELECTs of a statement, not to a write carried as a CTE. So the check reads the
@@ -325,6 +358,8 @@ mistakes, not against malicious Python or SQL inside its process.
 | [SANDLOOM-C014](../../reference/error-codes.md#sandloom-c014) | a per-tenant table that is not `TenantScoped` |
 | [SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015) | runtime raw SQL or Core table access that can bypass the tenant guard |
 | [SANDLOOM-C024](../../reference/error-codes.md#sandloom-c024) | a raw query on a non-relational store outside `unscoped()` |
+| [SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036) | a `yield` inside `with unscoped():` that hands the bypass to the caller |
+| [SANDLOOM-C037](../../reference/error-codes.md#sandloom-c037) | a module that builds its own SQLAlchemy engine, skipping the write-admission hook |
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | no tenant bound where one is required (`400`) |
 | [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026) | `tenant_rls` or the system channel on a database without row security |
 
@@ -332,6 +367,9 @@ mistakes, not against malicious Python or SQL inside its process.
 
     - Fail-closed scoping of every ORM path, inserts inheriting the bound
       tenant (G-TENANT-01 to G-TENANT-08 and related entries).
+    - The legacy `Session.bulk_*` methods are refused on tenant models, and
+      SQL hidden in loader options, `values()` or column defaults is scoped or
+      refused (G-TENANT-21, G-TENANT-22).
     - A missing tenant is `400 tenant_required`, also when the error
       reaches the request boundary (G-TENANT-12).
     - RLS policies are fail-closed, forced and without bypass; the role checks

@@ -62,6 +62,8 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
 | [`SANDLOOM-C034`](#sandloom-c034) | `handwritten-access-check` | check | a hand-written Requirement calls a declared access check with other tier, category or risk than its declaration | active |
 | [`SANDLOOM-C035`](#sandloom-c035) | `task-enqueue-ownership` | check | a module enqueues a task by name that is not a string literal naming one of its own tasks | active |
+| [`SANDLOOM-C036`](#sandloom-c036) | `yield-inside-unscoped` | check | a generator yields inside `with unscoped():`, handing the tenant bypass to its caller | active |
+| [`SANDLOOM-C037`](#sandloom-c037) | `engine-in-module` | check | a business module builds its own database engine | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -797,6 +799,57 @@ still refuses a name no loaded module declares.
 **Fix:** enqueue your own task through the task object (`await my_task.enqueue(payload)`), or name it with a string literal under your package (`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in another module, publish an event or call its contract
 
 **More:** `docs/modules/background/tasks.md`
+
+### SANDLOOM-C036
+
+**a generator yields inside `with unscoped():`, handing the tenant bypass to its caller**
+
+Slug: `yield-inside-unscoped` · kind: check · status: active
+
+**What happened and why it matters**
+
+unscoped() lifts the tenant guard for the code inside its `with` block. A
+generator that yields inside the block suspends there with the guard still
+off: the consumer's own statements, between two items, run unguarded, for as
+long as the generator is held open (a dropped async generator only until the
+loop finalizes it). A route that iterates such a generator and queries on its
+own reads every tenant's rows.
+
+sandloom check refuses a `yield` / `yield from` lexically inside a
+`with unscoped():` (or `async with`) in any function that is not decorated
+`@contextmanager` / `@asynccontextmanager`; a context manager hands the
+bypass over on purpose and is closed by its caller's `with`. The usual
+rewrite reads everything inside the block into a list and yields from it
+after the block. Not seen: a bypass entered through an ExitStack, or a
+generator handed to a helper that yields inside.
+
+**Fix:** collect what the block reads, leave the block, then yield; a function that is meant to hand the bypass over is a context manager (`@contextmanager` / `@asynccontextmanager`)
+
+**More:** `docs/modules/database/multi-tenancy.md`
+
+### SANDLOOM-C037
+
+**a business module builds its own database engine**
+
+Slug: `engine-in-module` · kind: check · status: active
+
+**What happened and why it matters**
+
+Every engine the framework builds gets install_write_admission (write
+admission and the compiled-statement check that refuses a data-modifying CTE
+outside unscoped()) and, on a tenant_rls database, the per-transaction tenant
+setting that row-level security reads. An engine a module builds itself gets
+none of them: its statements skip the compiled check and write admission, and
+the tenant setting is never set for it. sandloom check refuses a call to
+create_engine, create_async_engine, engine_from_config or
+async_engine_from_config (by name, by attribute, or through an aliased import)
+in a business module. A database a module needs is declared in INFRA and built
+by a driver (a driver package is not a module); module code reaches it through
+its session.
+
+**Fix:** use the module's session (`get_db`, the unit of work); a database is declared in INFRA and built by a driver, never with create_engine / create_async_engine / engine_from_config in module code
+
+**More:** `docs/modules/database/multi-tenancy.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 
