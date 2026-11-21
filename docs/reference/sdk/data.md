@@ -745,6 +745,12 @@ async with open_uow() as session:
 One transaction, committed on success and rolled back on an exception,
 with the transactional outbox for the events it publishes.
 
+Without `database` the unit opens on the primary database of the module
+that calls `open_uow` (the one its migration chain lives on, as its
+contracts' units do). Code that belongs to no loaded module, such as a
+script, gets `"default"`; so does a module whose `define_module(name=)`
+differs from its package: pass the database name there.
+
 ### `Page`
 
 ```python

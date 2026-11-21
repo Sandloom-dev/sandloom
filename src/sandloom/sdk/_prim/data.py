@@ -9,6 +9,7 @@ session (the portable SQL forms, SANDLOOM-C028).
 
 from __future__ import annotations
 
+import sys
 from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 
@@ -19,6 +20,7 @@ from sandloom.core.di import db_session
 from sandloom.core.orm import ConflictInsert, MoneyLedger, Page, TenantScoped
 from sandloom.core.orm import conflict_insert as _conflict_insert
 from sandloom.core.orm import transaction_lock as _transaction_lock
+from sandloom.core.runtime import get_active_core
 
 
 def db() -> AsyncSession:
@@ -44,8 +46,25 @@ def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSe
 
     One transaction, committed on success and rolled back on an exception,
     with the transactional outbox for the events it publishes.
+
+    Without ``database`` the unit opens on the primary database of the module
+    that calls ``open_uow`` (the one its migration chain lives on, as its
+    contracts' units do). Code that belongs to no loaded module, such as a
+    script, gets ``"default"``; so does a module whose ``define_module(name=)``
+    differs from its package: pass the database name there.
     """
-    return db_session(database or "default")
+    if database is None:
+        database = _calling_module_database(sys._getframe(1).f_globals.get("__name__"))
+    return db_session(database)
+
+
+def _calling_module_database(import_name: object) -> str:
+    """The primary database of the loaded module that holds ``import_name``,
+    ``"default"`` where there is none (no active core, a script)."""
+    core = get_active_core()
+    if core is None or not isinstance(import_name, str):
+        return "default"
+    return core.database_of_import(import_name) or "default"
 
 
 __all__ = ["MoneyLedger", "Page", "TenantScoped", "db", "open_uow"]

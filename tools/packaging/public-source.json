@@ -2988,6 +2988,7 @@
         "tests/sdk/l1_modules/sdkfix_stats/contracts.py",
         "tests/sdk/l1_modules/sdkfix_stats/events.py",
         "tests/sdk/test_conflict_insert_tenant.py",
+        "tests/sdk/test_open_uow_module_database.py",
         "tests/sdk/test_sdk_columns.py",
         "tests/sdk/test_sdk_contract_dtos.py",
         "tests/sdk/test_sdk_contracts.py",
