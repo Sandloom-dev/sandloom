@@ -46,20 +46,21 @@ function stateURL() {
   params.set('view',currentView); if(selectedId) {params.set('selected',selectedId);params.set('selection-kind',selectedKind);}
   try { history.replaceState(null,'','#'+params.toString()); } catch { /* file: exports can still be inspected */ }
 }
+const viewOrder=['overview','coupling','sequence','changes'];
 function selectView(view, save=true) {
   currentView=view;
-  for(const v of ['overview','sequence','changes']) {
+  for(const v of viewOrder) {
     byId('panel-'+v).hidden=v!==view; byId('tab-'+v).setAttribute('aria-selected',String(v===view)); byId('tab-'+v).tabIndex=v===view?0:-1;
   }
   if(view==='sequence') drawProcess();
   if(save) stateURL();
 }
-for(const v of ['overview','sequence','changes']) {
+for(const v of viewOrder) {
   byId('tab-'+v).onclick=()=>selectView(v);
   byId('tab-'+v).onkeydown=e=>{
-    const order=['overview','sequence','changes']; let next=order.indexOf(v);
-    if(e.key==='ArrowRight') next=(next+1)%3; else if(e.key==='ArrowLeft') next=(next+2)%3; else if(e.key==='Home') next=0; else if(e.key==='End') next=2; else return;
-    e.preventDefault(); selectView(order[next]); byId('tab-'+order[next]).focus();
+    const last=viewOrder.length-1; let next=viewOrder.indexOf(v);
+    if(e.key==='ArrowRight') next=(next+1)%viewOrder.length; else if(e.key==='ArrowLeft') next=(next+last)%viewOrder.length; else if(e.key==='Home') next=0; else if(e.key==='End') next=last; else return;
+    e.preventDefault(); selectView(viewOrder[next]); byId('tab-'+viewOrder[next]).focus();
   };
 }
 function owners(item) {
@@ -218,6 +219,11 @@ function inspection(item, kind='entity') {
     if(chain&&(typeof chain!=='object'||Object.keys(chain).length))fact(list,'Database chain',chain);
     fact(list,'Tables',module.models?.map(m=>m.table).join(', ')||module.model_count);
     if(module.routes?.length)routes=routeDetails(module);
+    const sync=syncOf(item.id);
+    if(sync) {
+      fact(list,'Synchronous depth',depthLabel(sync));fact(list,'Synchronous fan-in',sync.fan_in);
+      if(sync.longest_chain.length>1)fact(list,'Longest synchronous chain',sync.longest_chain.map(name).join(' → '));
+    }
   }
   const ownerIds=homeModules(item); for(const owner of ownerIds) {
     const evidence=data.evidence?.[owner]; fact(list,'Source · '+name(owner),evidence?.source_root || 'Installed distribution; local implementation unavailable');
@@ -494,6 +500,32 @@ function drawChanges() {
     byId('changes').append(el('pre','sandloom graph diff main --format html > architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector.','notice'));
   }
 }
+// Synchronous contract coupling: an upper bound from declared requires, never measured calls.
+function syncOf(id) { return (data.sync_coupling?.modules||[]).find(m=>m.module_id===id); }
+function depthLabel(m) { return m.in_cycle?'cycle':m.reaches_cycle?m.depth+' + cycle':String(m.depth); }
+function couplingOrder() {
+  return [...(data.sync_coupling?.modules||[])].sort((a,b)=>(b.in_cycle-a.in_cycle)||((b.depth??0)-(a.depth??0))||(b.fan_in-a.fan_in)||name(a.module_id).localeCompare(name(b.module_id)));
+}
+function drawCoupling() {
+  const coupling=data.sync_coupling, body=byId('coupling-rows'), notes=byId('coupling-notes');
+  body.replaceChildren();notes.replaceChildren();
+  if(!coupling) { byId('coupling-summary').textContent='Synchronous coupling is not part of this export.';return; }
+  const ordered=couplingOrder();
+  byId('coupling-summary').textContent=coupling.meaning+'. Riskiest modules first: contract cycles, then the longest chains.';
+  for(const m of ordered) {
+    const row=el('tr',undefined,m.in_cycle?'risk':''), first=el('th'), open=button(name(m.module_id),()=>{selectView('overview');const node=nodes.get(m.module_id);if(node)goTo(node);});
+    first.scope='row';first.append(open);
+    const depends=m.depends_on.map(d=>name(d.module_id)+(d.required?'':' (optional)')).join(', ')||'none';
+    const depth=el('td',depthLabel(m));if(m.longest_chain.length>1)depth.title=m.longest_chain.map(name).join(' → ');
+    row.append(first,el('td',depends),depth,el('td',String(m.fan_in)));
+    body.append(row);
+  }
+  const deepest=ordered.find(m=>!m.in_cycle&&m.depth===coupling.max_depth);
+  if(deepest&&coupling.max_depth>0)notes.append(el('p','Longest chain (depth '+coupling.max_depth+'): '+deepest.longest_chain.map(name).join(' → ')));
+  if(coupling.critical.length)notes.append(el('p','Most depended on: '+coupling.critical.map(c=>name(c.module_id)+' (fan-in '+c.fan_in+')').join(', ')));
+  for(const m of ordered.filter(m=>m.in_cycle))notes.append(el('p',name(m.module_id)+' is in a synchronous contract cycle with '+m.cycle_module_ids.filter(id=>id!==m.module_id).map(name).join(', ')+'. Declared, not proof of deadlock.'));
+  notes.hidden=!notes.childElementCount;
+}
 function save(text,type,filename) { const url=URL.createObjectURL(new Blob([text],{type})), a=el('a'); a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),0); }
 byId('download').onclick=()=>save(json(envelope),'application/json','sandloom-architecture.json');
 byId('save-svg').onclick=()=>{ const svg=byId('diagram').cloneNode(true); svg.setAttribute('xmlns',ns); svg.style.width='';svg.style.height='';svg.setAttribute('width',diagramBounds[2]);svg.setAttribute('height',diagramBounds[3]); const css=getComputedStyle(document.documentElement); const style=svgEl('style',{},document.querySelector('style').textContent); svg.prepend(style); svg.style.color=css.getPropertyValue('--text');for(const key of ['--text','--raised','--border','--accent','--muted','--event','--panel']) svg.style.setProperty(key,css.getPropertyValue(key)); save(new XMLSerializer().serializeToString(svg),'image/svg+xml','sandloom-architecture.svg'); };
@@ -523,7 +555,7 @@ relationOptions();if([...byId('relation').options].some(o=>o.value===params.get(
 const initial=params.get('view') || (['sequence','state'].includes(envelope.kind)?'sequence':['impact','diff'].includes(envelope.kind)?'changes':'overview');
 if(envelope.selection?.process_id&&!params.has('process')) byId('process').value=envelope.selection.process_id;
 if(envelope.kind==='state'&&!params.has('process-view')) byId('process-view').value='state';
-drawChanges();renderOverview();selectView(['overview','sequence','changes'].includes(initial)?initial:'overview',false);
+drawChanges();drawCoupling();renderOverview();selectView(viewOrder.includes(initial)?initial:'overview',false);
 const initialSelected=params.get('selected');
 if(initialSelected) {
   const selection=resolveSelection(initialSelected,params.get('selection-kind'));

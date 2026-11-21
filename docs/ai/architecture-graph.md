@@ -89,6 +89,76 @@ reported separately. An event feedback loop may be intentional; a declared cycle
 is not proof of deadlock. The graph never claims an event causes an RPC merely
 because both touch one module.
 
+## Synchronous coupling
+
+A contract call is synchronous: the caller waits for the provider. A provider
+that is slow or down hurts every caller. The graph counts these dependencies
+from the declared contract requires, both required and optional. The count is an
+upper bound. A declared require may never be called on a given path, and the
+graph measures no calls.
+
+```bash
+uv run sandloom graph --runtime-risks          # table after the module map
+uv run sandloom graph notes --runtime-risks    # the module and its neighbors
+uv run sandloom explore                        # the Coupling tab
+uv run sandloom graph --format json            # data.sync_coupling
+```
+
+The flag is text only. JSON always carries `data.sync_coupling` and the HTML
+viewer always has the **Coupling** tab. So `--runtime-risks` with `--format json`
+or `html`, or with `impact`, `diff`, `sequence` or `state`, is a usage error
+(exit 2). The table has one row per module in scope:
+
+```text
+Module    Synchronous dependencies                Depth  Fan-in
+tickets   billing (optional), tenancy (optional)  2      0
+billing   tenancy (optional)                      1      1
+tenancy   -                                       0      2
+identity  -                                       0      0
+Longest chain (depth 2): tickets → billing → tenancy
+Most depended on: tenancy (fan-in 2), billing (fan-in 1)
+```
+
+- **Synchronous dependencies** are the modules this one requires a contract
+  from. `(optional)` marks a dependency the caller can lose and still run.
+- **Depth** is the longest chain of contract hops this module can start: a
+  request entering at `tickets` may wait on `billing`, which waits on `tenancy`.
+  Each hop adds latency and one more provider whose outage reaches the caller.
+- **Fan-in** is how many modules require this one. A high fan-in marks a module
+  whose outage reaches many callers.
+- **cycle** in the depth column: the module sits in a contract cycle, so it has
+  no finite depth. `2 + cycle` means the longest chain is two hops and at least
+  one branch reaches a contract cycle (the hop into the cycle is counted). Rows
+  are ordered cycles first, then by depth, then by fan-in. A cycle is declared,
+  not proof of deadlock, but a call that returns to its caller is the first thing
+  to remove.
+- With a focus (`graph MODULE --runtime-risks`), depth and fan-in are computed
+  over the selected neighbourhood only, not the whole application.
+
+What to change, in this order:
+
+1. **A cycle.** Break it where one side only needs to be told something
+   happened: replace that require with an [event](../modules/between/events.md)
+   the other side consumes.
+2. **A deep chain** (depth 3 or more, or a required hop at the end of a long
+   one). Ask what the first module needs from the last. If it only reads data
+   to answer a request, keep a [projection](../modules/between/projections.md)
+   of it in the caller. The provider's events feed it, and the contract call
+   goes. If the call starts work whose result the caller does not wait for,
+   publish an event instead.
+3. **A high fan-in** on a module in the middle of chains. Keep its contracts
+   small and its optional callers optional, and look at its callers for reads a
+   projection can serve. A leaf with a high fan-in, such as an identity or
+   tenancy module, is a normal shape: do not rewrite it for the count alone.
+
+An event or a projection trades the immediate answer for eventual consistency.
+Replace a call only where the caller can live with data that is briefly behind.
+A multi-step operation that must be undone as a whole is a
+[saga](../modules/between/sagas.md), not an event chain.
+
+The Coupling tab lists the same rows. Selecting a module name opens its
+inspector, which shows that module's depth, fan-in and longest chain.
+
 ## Processes: sequence and state
 
 ```bash

@@ -8,7 +8,7 @@
 <div id="problems" class="problems" role="status" hidden></div>
 <main id="workspace">
 <h1 class="sr-only">Architecture explorer</h1>
-<nav class="views" role="tablist" aria-label="Architecture view"><button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button><button role="tab" id="tab-sequence" aria-controls="panel-sequence" aria-selected="false" tabindex="-1">Processes</button><button role="tab" id="tab-changes" aria-controls="panel-changes" aria-selected="false" tabindex="-1">Changes</button></nav>
+<nav class="views" role="tablist" aria-label="Architecture view"><button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button><button role="tab" id="tab-coupling" aria-controls="panel-coupling" aria-selected="false" tabindex="-1">Coupling</button><button role="tab" id="tab-sequence" aria-controls="panel-sequence" aria-selected="false" tabindex="-1">Processes</button><button role="tab" id="tab-changes" aria-controls="panel-changes" aria-selected="false" tabindex="-1">Changes</button></nav>
 <button id="inspect-selection" hidden>View selected details</button>
 <div class="workspace">
 <div class="content">
@@ -20,6 +20,7 @@
 <div class="lists"><section><h2>Entities <span id="entity-count"></span></h2><div id="nodes" class="entity-list"></div></section><section><h2>Relationships <span id="relation-count"></span></h2><div id="rows" class="relation-list"></div></section></div>
 <details class="uncertainty"><summary id="uncertainty-title">Model limits</summary><div id="uncertainty"></div></details>
 </section>
+<section id="panel-coupling" role="tabpanel" aria-labelledby="tab-coupling" hidden><h2>Synchronous coupling</h2><p id="coupling-summary" class="count" role="status"></p><div class="table-wrap"><table id="coupling-table"><caption class="sr-only">Modules by synchronous contract depth and fan-in</caption><thead><tr><th scope="col">Module</th><th scope="col">Synchronous dependencies</th><th scope="col">Depth</th><th scope="col">Fan-in</th></tr></thead><tbody id="coupling-rows"></tbody></table></div><div id="coupling-notes" class="notice"></div></section>
 <section id="panel-sequence" role="tabpanel" aria-labelledby="tab-sequence" hidden>
 <div class="filters"><label>Declared process<select id="process"><option value="">Choose a saga or route</option></select></label><label>Representation<select id="process-view"><option value="sequence">Forward sequence</option><option value="compensation">Compensation alternative</option><option value="state">Saga states</option></select></label></div><p id="process-summary" class="count" role="status"></p><div class="canvas-card"><div class="process-canvas"><svg id="sequence-diagram" role="img" aria-label="Declared process; numbered text equivalent below"></svg></div></div><h2 id="steps-title">Process steps</h2><div id="steps"></div><div id="process-notes" class="notice"></div>
 </section>

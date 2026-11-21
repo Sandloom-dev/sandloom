@@ -15,7 +15,13 @@ import pytest
 
 from sandloom.core.archcheck.manifest import ArchRules
 from sandloom.core.cli.generated import Generated, apply
-from sandloom.core.cli.inspection import collect, generation, graph, processes
+from sandloom.core.cli.inspection import (
+    collect,
+    generation,
+    graph,
+    processes,
+    terminal,
+)
 from sandloom.core.cli.inspection.cli import main
 from sandloom.core.cli.inspection.model import INDEX, RECEIPT, encode
 from sandloom.core.cli.inspection.queries import _sources_by_path
@@ -1311,6 +1317,93 @@ def test_graph_terminal_and_pipe_formats(
         assert "Freshness: verified" in text and "├─" in text
         assert "stats.quota.v1" in text and "stats.changed.v1" in text
         assert "archive" not in text
+
+
+def test_runtime_risks_adds_the_coupling_table_only_when_asked(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc, plain, _ = run(project, capsys, "graph", "--format", "text")
+    assert rc == 0 and "Synchronous coupling" not in plain
+    for scope in ([], ["notes"]):
+        rc, text, err = run(
+            project, capsys, "graph", *scope, "--format", "text", "--runtime-risks"
+        )
+        assert rc == 0 and not err
+        lines = text.splitlines()
+        header = next(i for i, line in enumerate(lines) if line.startswith("Module "))
+        assert lines[header - 1].startswith("Synchronous coupling: upper bound")
+        assert lines[header].split() == [
+            "Module",
+            "Synchronous",
+            "dependencies",
+            "Depth",
+            "Fan-in",
+        ]
+        rows = {
+            r.split()[0]: r.split()[1:]
+            for r in lines[header + 1 :]
+            if not r.startswith(("Longest", "Most"))
+        }
+        assert rows["notes"] == ["stats", "1", "0"]
+        assert rows["stats"] == ["-", "0", "1"]
+        assert "Longest chain (depth 1): notes → stats" in text
+        assert "Most depended on: stats (fan-in 1)" in text
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--format", "json"], ["--format", "html"], ["impact", "x", "--format", "text"]],
+)
+def test_runtime_risks_refuses_outputs_that_would_ignore_it(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str], extra: list[str]
+) -> None:
+    rc = main("graph", ["--root", str(project.root), "--runtime-risks", *extra])
+    out, err = capsys.readouterr()
+    assert rc == 2
+    if "json" in extra:
+        assert json.loads(out)["diagnostics"][0]["kind"] == "usage"
+    else:
+        assert out == "" and "--runtime-risks applies to graph" in err
+
+
+def test_runtime_risks_table_ranks_cycles_then_depth_and_marks_optional() -> None:
+    # x -> y <-> z (cycle), x -> w (optional), p -> x.
+    links = [
+        _sync("required", "x", "y"),
+        _sync("required", "y", "z"),
+        _sync("required", "z", "y"),
+        _sync("optional", "x", "w"),
+        _sync("required", "p", "x"),
+    ]
+    ids = ["p", "w", "x", "y", "z"]
+    nodes = [{"id": i, "name": i.upper()} for i in ids]
+    data = {"nodes": nodes, "sync_coupling": graph.sync_coupling(links, ids)}
+    lines = terminal._risks(data)
+    rows = [line.split() for line in lines[2:7]]
+    assert [r[0] for r in rows] == ["Y", "Z", "P", "X", "W"]
+    assert rows[0][-2:] == ["cycle", "2"] and rows[1][-2:] == ["cycle", "1"]
+    assert rows[2] == ["P", "X", "2", "+", "cycle", "0"]
+    assert rows[3] == ["X", "W", "(optional),", "Y", "1", "+", "cycle", "1"]
+    assert "Longest chain (depth 2): P → X → W" in lines[-2]
+
+
+def test_viewer_carries_the_coupling_view_and_its_data(
+    project: SimpleNamespace,
+) -> None:
+    rendered = graph.viewer(
+        graph.build(
+            reader := Reader(project.root),
+            selector=None,
+            hops=1,
+            discovery=False,
+            detail="compact",
+            require=False,
+        ),
+        reader,
+    )
+    assert 'id="tab-coupling"' in rendered and 'id="panel-coupling"' in rendered
+    assert "function drawCoupling()" in rendered
+    assert '"sync_coupling"' in rendered and "declared_requires" in rendered
 
 
 def test_module_and_interface_ids_match_logical_selectors(

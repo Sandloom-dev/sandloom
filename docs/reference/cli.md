@@ -22,6 +22,7 @@ Available in `sandloom>=0.7.0a16,<0.8`. <!-- sandloom-release -->
 | `sandloom graph diff REV_OR_FILE` | Compare the committed or saved inspection index. |
 | `sandloom graph sequence [ID]` | List readable process names or inspect saga/route phases; names and stable IDs are accepted. |
 | `sandloom graph state ID` | Conditional saga state transitions. |
+| `sandloom graph [MODULE] --runtime-risks` | Add the synchronous contract coupling table (dependencies, depth, fan-in) to the text map. |
 | `sandloom graph --format html > architecture.html` | Save the offline viewer. |
 | `sandloom explore [MODULE]` | Experimental: generate, save and open the offline viewer. |
 
@@ -39,6 +40,14 @@ basis evidence. `graph MODULE --hops N --direction incoming|outgoing|both` scope
 a neighborhood (default one hop, both directions). These flags apply only to
 `graph [MODULE]`. Use `module:NAME` to disambiguate modules named `impact`, `diff`,
 `sequence` or `state`.
+
+`graph [MODULE] --runtime-risks` appends a table to the text map. Each row is a
+module, what it calls synchronously, and two counts: depth and fan-in. The numbers
+are an upper bound from declared requires. JSON always carries them as
+`data.sync_coupling`, and the HTML viewer has a Coupling tab. So the flag is a
+usage error (exit 2) with any format but `text`, and with any action
+other than `graph [MODULE]`. How to read the table:
+[synchronous coupling](../ai/architecture-graph.md#synchronous-coupling).
 
 A diff baseline is a project-relative saved file when it exists, ends in `.json`
 or starts with `./`; otherwise it is a local Git revision. Existing files win

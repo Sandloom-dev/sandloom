@@ -85,6 +85,14 @@ def parser_for(command: str) -> Parser:
             default=LIMIT,
             help=f"complete JSON byte budget (default {LIMIT})",
         )
+        parser.add_argument(
+            "--runtime-risks",
+            action="store_true",
+            help=(
+                "text only: add the synchronous contract coupling table "
+                "(dependencies, depth, fan-in) to graph [MODULE]"
+            ),
+        )
         parser.add_argument("--direction", choices=("both", "incoming", "outgoing"))
         parser.add_argument(
             "--hops", type=int, help="module-neighbor distance; default 1 with a focus"
@@ -132,6 +140,13 @@ def _arguments(command: str, argv: list[str]) -> argparse.Namespace:
         raise InspectionError(
             "usage", "--detail and --max-bytes require graph JSON", code=2
         )
+    if args.runtime_risks and (args.action != "graph" or args.format != "text"):
+        raise InspectionError(
+            "usage",
+            "--runtime-risks applies to graph [MODULE] text output; JSON and HTML "
+            "already carry sync_coupling",
+            code=2,
+        )
     args.direction = args.direction or "both"
     return args
 
@@ -151,7 +166,9 @@ def _json_requested(command: str, argv: list[str]) -> bool:
 def _graph_text(envelope: Doc, args: argparse.Namespace, reader: Reader) -> str:
     if args.format == "text":
         return terminal.render(
-            envelope, overview=args.action == "graph" and args.target is None
+            envelope,
+            overview=args.action == "graph" and args.target is None,
+            risks=args.runtime_risks,
         )
     if args.format == "mermaid":
         return (
