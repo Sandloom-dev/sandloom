@@ -74,6 +74,14 @@ def _cache(endpoint: str | None = _CACHE) -> None:
         ("redis://host", "host:6379/0"),
         ("redis://host:6379/", "host:6379/0"),
         ("redis://host/?db=4", "host:6379/4"),
+        # redis-py: a non-empty db query wins over the path, an empty one does not
+        ("redis://host/2?db=4", "host:6379/4"),
+        ("redis://host/2?db=", "host:6379/2"),
+        # the path loses every '/' and its percent-escapes, as in redis-py
+        ("redis://host/%33", "host:6379/3"),
+        ("redis://host/1/5", "host:6379/15"),
+        # an absolute name is not the relative one: the dot stays
+        ("redis://Host.:6379/1", "host.:6379/1"),
         ("redis://:pw@host:6379/1", "host:6379/1"),
         ("rediss://user:pw@host:6379/1?ssl_cert_reqs=none", "host:6379/1"),
         ("memory://", None),

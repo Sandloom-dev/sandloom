@@ -122,18 +122,26 @@ def test_the_family_owns_the_redis_urls_only(url: str, owned: bool) -> None:
         ("redis://h:6380/00", "redis://h:6380/0", True),  # same index, as slot_bases
         ("redis://h:6380/01", "redis://h:6380/1", True),
         ("redis://h:6380/x", "redis://h:6380/x", True),
-        ("redis://h:6380/x", "redis://h:6380/0", False),
+        # redis-py reads a path that is no number as database 0
+        ("redis://h:6380/x", "redis://h:6380/0", True),
+        # and drops every '/' and decodes the path
+        ("redis://h:6380/%33", "redis://h:6380/3", True),
+        ("redis://h:6380/1/5", "redis://h:6380/15", True),
+        ("redis://h:6380/1/5", "redis://h:6380/1", False),
         ("redis://h:6380/1", "redis://h:6380/2", False),
         ("redis://h:6380/1", "redis://other:6380/1", False),
         ("redis://h:6380/1", "rediss://h:6380/1", False),
         ("redis://h:6380/1?x=1", "redis://h:6380/1", False),
-        # the host is case-insensitive, a trailing dot names the same host
+        # the host is case-insensitive; a trailing dot makes an absolute name
+        # that the resolver may not complete the way the other one is: different
         ("redis://Redis.EXAMPLE:6380/1", "redis://redis.example:6380/1", True),
-        ("redis://redis.example.:6380/1", "redis://redis.example:6380/1", True),
+        ("redis://redis.example.:6380/1", "redis://redis.example:6380/1", False),
+        ("redis://redis.example.:6380/1", "redis://redis.example.:6380/1", True),
         ("redis://redis.example:6380/1", "redis://other.example:6380/1", False),
         # no port is 6379
         ("redis://h/1", "redis://h:6379/1", True),
-        ("redis://h:6379", "redis://H./0", True),
+        ("redis://h:6379", "redis://H/0", True),
+        ("redis://h:6379", "redis://H./0", False),
         ("redis://h/1", "redis://h:6380/1", False),
         # credentials stay part of the identity, and case-sensitive
         ("redis://:Pw@h/1", "redis://:pw@h/1", False),
@@ -154,6 +162,32 @@ def test_the_family_owns_the_redis_urls_only(url: str, owned: bool) -> None:
 )
 def test_the_family_names_the_same_database(stated: str, base: str, same: bool) -> None:
     assert redis_family.FAMILY.same_database(stated, base) is same
+
+
+_SECRET = "S3CRETpw"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://h:99999/1",  # port out of range
+        "redis://h:notaport/1",
+        f"redis://:{_SECRET}/cd@h:6379/1",  # an unencoded '/' in the password
+        f"redis://:{_SECRET}?x@h:6379/1",  # an unencoded '?'
+        "redis://::1/1",  # an IPv6 host without brackets
+        # a character that NFKC-normalises to '#': urlsplit refuses the netloc
+        f"redis://user:{_SECRET}@host{chr(0xFF03)}x:6379/1",
+        "memory://",
+    ],
+)
+def test_a_url_that_names_no_endpoint_is_the_same_as_nothing_never_an_error(
+    url: str,
+) -> None:
+    """``redis_endpoint`` reads none of these: ``False`` against any URL, itself
+    included, and no error that could quote the password."""
+    for other in (url, "redis://h:6379/1", "redis://h:99999/1"):
+        assert redis_family.FAMILY.same_database(url, other) is False
+        assert redis_family.FAMILY.same_database(other, url) is False
 
 
 def test_a_parallel_run_asks_for_allocated_indexes_when_it_can_reach_a_redis(

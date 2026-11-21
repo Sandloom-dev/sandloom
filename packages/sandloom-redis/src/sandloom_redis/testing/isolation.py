@@ -52,7 +52,7 @@ from sandloom_redis.testing.urls import (
     REDIS_SCHEMES,
     instance_redis_options,
     redis_client_installed,
-    refuse_db_query,
+    refuse_unplain_database,
 )
 
 #: The name of this harness family (``RedisFamily.name``): the key of its URL
@@ -84,22 +84,19 @@ class WorkerLayout:
     mapping: Mapping[int, Sequence[int]] | None = None
 
 
-def _plain_index(url: str) -> tuple[SplitResult, int] | None:
-    refuse_db_query(url)  # redis-py reads ?db=N over the path the mover rewrites
+def _plain_index(url: str) -> tuple[SplitResult, int]:
+    """The split ``url`` and its database index. A URL whose database redis-py
+    reads from a ``db`` query or from a path that is not ``/<digits>`` is
+    refused (``ValueError``), not left on the index the mover cannot move."""
+    refuse_unplain_database(url)
     parts = split_url(url)
     raw = parts.path.lstrip("/")
-    try:
-        return parts, (int(raw) if raw else 0)
-    except ValueError:
-        return None  # not a plain index (unix socket path, ...)
+    return parts, (int(raw) if raw else 0)
 
 
 def worker_redis_url(url: str, number: int, stride: int) -> str:
     """``url`` with its database index offset by ``stride * (number + 1)``."""
-    found = _plain_index(url)
-    if found is None:
-        return url
-    parts, index = found
+    parts, index = _plain_index(url)
     return urlunsplit(parts._replace(path=f"/{index + stride * (number + 1)}"))
 
 
@@ -107,10 +104,7 @@ def mapped_redis_url(
     url: str, number: int, mapping: Mapping[int, Sequence[int]]
 ) -> str:
     """``url`` moved to worker ``number``'s allocated index (``auto``)."""
-    found = _plain_index(url)
-    if found is None:
-        return url
-    parts, index = found
+    parts, index = _plain_index(url)
     indexes = mapping.get(index)
     if not indexes:
         known = ";".join(

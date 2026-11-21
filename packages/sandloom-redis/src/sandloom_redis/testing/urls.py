@@ -12,15 +12,16 @@ Redis to isolate.
 from __future__ import annotations
 
 import importlib.util
+import re
 from collections.abc import Mapping
-from urllib.parse import parse_qs
+from urllib.parse import SplitResult, parse_qs
 
 from sandloom.driverkit.testing_family import (
     INFRA_VAR,
     INSTANCE_URL_OPTIONS,
     parse_infra,
 )
-from sandloom.driverkit.url_split import redact, split_url
+from sandloom.driverkit.url_split import split_url
 
 #: The URL schemes of a Redis server.
 REDIS_SCHEMES = ("redis://", "rediss://")
@@ -30,22 +31,49 @@ def is_redis_url(url: str) -> bool:
     return url.startswith(REDIS_SCHEMES)
 
 
-def refuse_db_query(url: str) -> None:
-    """Refuse a Redis ``url`` carrying a non-empty ``db`` query option.
+#: The database path of a test URL: ``/3``, ``/03`` or none (database 0).
+_PLAIN_INDEX_PATH = re.compile(r"/?[0-9]{0,9}")
 
-    redis-py reads ``?db=N`` over the URL path, while the claim, the allocation,
-    the worker mover and the flush of this harness key on the path index: a URL
-    naming both would be isolated on one index and used on another, and the
-    workers would share data (or the flush would empty the wrong database).
-    The index of a test URL goes in the path (``redis://host:6379/3``).
+
+def refuse_unplain_database(url: str) -> None:
+    """Refuse a Redis ``url`` that names its database in a way the harness does
+    not read as redis-py does.
+
+    redis-py reads a non-empty ``?db=N`` over the URL path, and takes the path
+    with every ``/`` dropped and percent-escapes decoded (``/3/``, ``/%33`` and
+    ``/1/5`` are databases 3, 3 and 15). The claim, the allocation, the worker
+    mover and the flush of this harness key on the plain path index: a URL
+    naming its database another way would be isolated on one index and used on
+    another, and the workers would share data (or the flush would empty the
+    wrong database). The index of a test URL is the whole path, ``/<digits>``
+    (``redis://host:6379/3``). The message names no path, query or password.
     """
-    if "db" in parse_qs(split_url(url).query):
-        raise ValueError(
-            f"a Redis test URL names its database index in the path, not in a "
-            f"'db' query option: {redact(url)} (use redis://host:port/<index>); "
-            "redis-py reads ?db=N over the path, so the per-worker isolation "
-            "would leave every worker on the same database"
-        )
+    parts = split_url(url)
+    plain = _PLAIN_INDEX_PATH.fullmatch(parts.path) is not None
+    if plain and "db" not in parse_qs(parts.query):
+        return
+    reason = (
+        "a 'db' query option"
+        if plain
+        else "a database path that is not a plain decimal index"
+    )
+    raise ValueError(
+        f"a Redis test URL names its database index as /<digits> in the path "
+        f"(redis://host:port/3), but {_where(parts)} has {reason}: redis-py "
+        "reads it another way than the per-worker isolation does, so the "
+        "workers would share one database"
+    )
+
+
+def _where(parts: SplitResult) -> str:
+    """``scheme://host:port`` of a URL, for a message (never a credential, path
+    or query: a password with an unencoded ``/``, ``?`` or ``#`` lands there)."""
+    host = parts.hostname or "<no host>"
+    try:
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        port = ""
+    return f"{parts.scheme}://{host}{port}"
 
 
 def redis_client_installed() -> bool:
@@ -80,7 +108,7 @@ def infra_redis_urls(raw: str | None) -> list[str]:
         for option in instance_redis_options(spec)
     ]
     for url in found:
-        refuse_db_query(url)
+        refuse_unplain_database(url)
     return found
 
 
@@ -98,6 +126,6 @@ __all__ = [
     "instance_redis_options",
     "is_redis_url",
     "redis_client_installed",
-    "refuse_db_query",
     "redis_urls",
+    "refuse_unplain_database",
 ]

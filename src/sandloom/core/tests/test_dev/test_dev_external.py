@@ -642,9 +642,10 @@ def _row_of_another_checkout(
     ("stored", "named"),
     [
         ("redis://127.0.0.1:6390", "redis://127.0.0.1:6390"),
-        ("redis://127.0.0.1:6390", "redis://127.0.0.1.:6390"),  # trailing dot
-        ("redis://cache.local:6379", "redis://CACHE.local"),  # case, default port
-        ("redis://cache.local.:6379", "redis://cache.local"),
+        # regression guards: the stack's parser lower-cases the host and fills the
+        # default port, so these never counted as another server
+        ("redis://cache.local:6379", "redis://CACHE.local"),
+        ("redis://cache.local", "redis://cache.local:6379"),
     ],
 )
 def test_naming_the_same_keyed_server_keeps_the_rows_without_a_recheck(
@@ -667,6 +668,35 @@ def test_naming_the_same_keyed_server_keeps_the_rows_without_a_recheck(
     assert state.checkouts[str(wt)].indexes == (3, 4)
     assert state.external["kv_url"] == named
     assert fake_stack.keys == {3: {"mine": "a"}, 4: {"mine": "b"}}
+
+
+@pytest.mark.parametrize(
+    ("stored", "named"),
+    [
+        ("redis://cache.local:6390", "redis://cache.local.:6390"),
+        ("redis://cache.local.:6390", "redis://cache.local:6390"),
+    ],
+)
+def test_a_trailing_dot_names_another_keyed_server_and_the_rows_are_rechecked(
+    tmp_path: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    fake_stack: FakeStack,
+    stored: str,
+    named: str,
+) -> None:
+    """``cache.local.`` is an absolute name, ``cache.local`` may be completed by
+    the resolver's search list: the connection keeps the dot, so the two may be
+    two servers. Equal keys must mean one server, so the pair is checked again
+    and, holding keys there, replaced (``reset`` and ``prune`` flush it)."""
+    root, wt, ctx = _row_of_another_checkout(tmp_path, environ, monkeypatch, stored)
+    fake_stack.keys = {3: {"theirs": "a"}, 4: {"theirs": "b"}}
+    options = commands.UpOptions(services="external", kv_url=named)
+    assert commands.up(_ctx(root, environ), options) == 0
+    state = load_state(ctx.state_dir)
+    assert state is not None
+    assert not set(state.checkouts[str(wt)].indexes) & {3, 4}
+    assert fake_stack.keys == {3: {"theirs": "a"}, 4: {"theirs": "b"}}
 
 
 def test_naming_another_keyed_server_with_free_indexes_updates_the_row_state(

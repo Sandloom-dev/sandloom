@@ -19,6 +19,7 @@ from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Protocol, runtime_checkable
 from urllib.parse import parse_qs, urlunsplit
 
+from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.testing_family import (
     INFRA_VAR,
     OWNER_ENV,
@@ -32,11 +33,8 @@ from sandloom_redis.testing.urls import (
     is_redis_url,
     redis_client_installed,
     redis_urls,
-    refuse_db_query,
+    refuse_unplain_database,
 )
-
-#: The port a ``redis://`` URL without one reaches.
-_DEFAULT_PORT = 6379
 
 
 @runtime_checkable
@@ -46,28 +44,31 @@ class _RedisClientSource(Protocol):
     async def redis_client(self) -> object: ...
 
 
-def _index(path: str) -> int | str:
-    """The database index a URL path names (no path: 0); a path that is not a
-    number is kept as text, so it matches only itself."""
-    raw = path.strip("/") or "0"
-    return int(raw) if raw.isdigit() else raw
+def _identity(url: str) -> tuple[object, ...] | None:
+    """What makes two Redis URLs the same database, or ``None`` for a URL that
+    names none (``redis_endpoint`` reads no endpoint: a malformed port, an
+    unencoded ``/`` in the password, an unbracketed IPv6 host, a scheme that is
+    not Redis's).
 
-
-def _identity(url: str) -> tuple[object, ...]:
-    """What makes two Redis URLs the same database: scheme, credentials, host
-    (case and a trailing dot ignored), port (6379 when absent), the database
-    index as redis-py reads it (a non-empty ``db`` query wins over the path) and
-    the other query options."""
+    The server and database are ``redis_endpoint``'s, the one reader of them
+    (host lower-cased, port 6379 when absent, the database as redis-py reads
+    it). A host spelled with a trailing dot stays a different one: it is an
+    absolute name, the other may be completed by the resolver. The scheme, the
+    credentials and the query options other than ``db`` are added. The ``db``
+    option is left out of those options only so that a URL still carrying one
+    compares on the database it names; every entry point that claims or moves a
+    URL refuses it.
+    """
+    endpoint = redis_endpoint(url)
+    if endpoint is None:
+        return None
     parts = split_url(url)
-    host = (parts.hostname or "").rstrip(".")
     query = parse_qs(parts.query, keep_blank_values=True)
-    db = next((v for v in query.pop("db", []) if v), None)
+    query.pop("db", None)
     return (
         parts.scheme,
         parts.netloc.rpartition("@")[0],
-        host,
-        parts.port or _DEFAULT_PORT,
-        _index(parts.path) if db is None else _index(db),
+        endpoint,
         sorted((k, tuple(v)) for k, v in query.items()),
     )
 
@@ -105,7 +106,7 @@ class RedisFamily:
         if not plain or not redis_client_installed():
             return {}  # no Redis URL, or no client: this run reaches no Redis
         for url in plain:
-            refuse_db_query(url)
+            refuse_unplain_database(url)
         from sandloom_redis.testing import isolation
 
         environ.setdefault(isolation.REDIS_STRIDE_ENV, "auto")
@@ -180,11 +181,14 @@ class RedisFamily:
     def same_database(self, stated: str, base: str) -> bool:
         """Same scheme, credentials, host, port and database index (a URL without
         a path is database 0; ``/00`` and ``/0`` are the same index, as
-        ``slot_bases`` reads them; ``?db=N`` names the index as redis-py reads it,
-        over the path), and the same other query options. The host's case, a
-        trailing dot on it and the implicit port 6379 do not tell two URLs
-        apart."""
-        return _identity(stated) == _identity(base)
+        ``slot_bases`` reads them), and the same other query options. The host
+        is compared as the connection uses it: its case and the implicit port
+        6379 do not tell two URLs apart, a trailing dot does. A URL that names
+        no endpoint (a malformed port, an unbracketed IPv6 host, a password with
+        an unencoded ``/``) is the same as none: ``False``, whatever the other
+        is."""
+        a, b = _identity(stated), _identity(base)
+        return a is not None and a == b
 
     def parallel_env(self) -> dict[str, str]:
         if not redis_client_installed():
