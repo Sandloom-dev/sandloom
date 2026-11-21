@@ -1136,6 +1136,8 @@ def _mapper_row_layout(
         key_props = [mapper.get_property_by_column(col) for col in mapper.primary_key]
         placed: list[tuple[Table, tuple[int, ...]]] = []
         for table in mapper.tables:
+            if not isinstance(table, Table):
+                continue
             try:
                 positions = [
                     next(
@@ -1150,7 +1152,7 @@ def _mapper_row_layout(
                 ]
             except UnmappedColumnError:
                 continue
-            if isinstance(table, Table) and -1 not in positions:
+            if -1 not in positions:
                 placed.append((table, tuple(positions)))
         layout = tuple(placed)
         _mapper_layout_cache[mapper] = layout
