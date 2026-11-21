@@ -127,10 +127,13 @@ Most depended on: tenancy (fan-in 2), billing (fan-in 1)
 - **Fan-in** is how many modules require this one. A high fan-in marks a module
   whose outage reaches many callers.
 - **cycle** in the depth column: the module sits in a contract cycle, so it has
-  no finite depth. `2 + cycle` means the chain runs two hops and then enters a
-  cycle. Rows are ordered cycles first, then by depth, then by fan-in. A cycle is
-  declared, not proof of deadlock, but a call that returns to its caller is the
-  first thing to remove.
+  no finite depth. `2 + cycle` means the longest chain is two hops and at least
+  one branch reaches a contract cycle (the hop into the cycle is counted). Rows
+  are ordered cycles first, then by depth, then by fan-in. A cycle is declared,
+  not proof of deadlock, but a call that returns to its caller is the first thing
+  to remove.
+- With a focus (`graph MODULE --runtime-risks`), depth and fan-in are computed
+  over the selected neighbourhood only, not the whole application.
 
 What to change, in this order:
 
