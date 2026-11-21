@@ -20,7 +20,8 @@ CONCURRENTLY (autocommit block): no write lock on the tables.
 Measurements: docs/design/sql-profile-2026-10-21.md.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
 from alembic import op
 
@@ -36,15 +37,40 @@ _INDEXES = (
 )
 
 
+@contextmanager
+def _no_lock_timeout() -> Iterator[None]:
+    """A concurrent build or drop waits for every older snapshot of the database,
+    and the runner's ``lock_timeout`` would cut that wait (leaving an INVALID
+    index). The wait blocks no traffic: lift the timeout, put it back."""
+    bind = op.get_bind()
+    previous = bind.exec_driver_sql("SHOW lock_timeout").scalar()
+    bind.exec_driver_sql("SET lock_timeout = 0")
+    try:
+        yield
+    finally:
+        bind.exec_driver_sql(f"SET lock_timeout = '{previous}'")
+
+
+def _drop_if_invalid(name: str) -> None:
+    """``IF NOT EXISTS`` skips an INVALID index a failed build left: drop it."""
+    invalid = op.get_bind().exec_driver_sql(
+        "SELECT 1 FROM pg_index WHERE indexrelid = to_regclass(%s) AND NOT indisvalid",
+        (name,),
+    )
+    if invalid.first() is not None:
+        op.execute(f"DROP INDEX CONCURRENTLY {name}")
+
+
 def upgrade() -> None:
-    with op.get_context().autocommit_block():
+    with op.get_context().autocommit_block(), _no_lock_timeout():
         for name, _table, _column in _INDEXES:
             op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {name}")
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
+    with op.get_context().autocommit_block(), _no_lock_timeout():
         for name, table, column in _INDEXES:
+            _drop_if_invalid(name)
             op.execute(
                 f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON {table} ({column})"
             )

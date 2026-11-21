@@ -104,6 +104,12 @@ required module is fatal. A concurrent run waits on the per-database lock at
 most `--lock-timeout` seconds (`MIGRATION_LOCK_TIMEOUT_SECONDS`, default 300)
 and logs the holder.
 
+Once a run holds the lock, each chain's PostgreSQL connection sets
+`lock_timeout` from `MIGRATION_DDL_LOCK_TIMEOUT_MS` (default 5000) and
+`statement_timeout` from `MIGRATION_STATEMENT_TIMEOUT_MS` (default 0, none).
+DDL queued behind a long transaction then fails instead of blocking the table.
+See [Zero-downtime migrations](zero-downtime-migrations.md).
+
 The migrator resolves the module set through the composition root
 (`SANDLOOM_COMPOSITION_ROOT`), so it migrates exactly the modules the app loads.
 

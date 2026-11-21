@@ -235,7 +235,16 @@ query start, from `pg_locks` + `pg_stat_activity` (migration runners connect
 as `application_name='sandloom-migrate'`). The timeout error carries the same <!-- stale-ok: runtime application_name -->
 line. A stuck holder is usually a crashed CI job's open session: let it
 finish, or `SELECT pg_terminate_backend(<pid>)` after checking it is not a
-live migration. `sandloom migrate ensure-outbox` is
+live migration.
+
+Separately, once the runner holds that lock, each chain's PostgreSQL
+connection sets `lock_timeout` (`MIGRATION_DDL_LOCK_TIMEOUT_MS`, default 5000)
+and `statement_timeout` (`MIGRATION_STATEMENT_TIMEOUT_MS`, default 0, none).
+DDL that waits longer for a table lock fails with an error naming the setting
+to raise. It no longer queues behind a long transaction and blocks the table
+([Zero-downtime migrations](../modules/database/zero-downtime-migrations.md)).
+
+`sandloom migrate ensure-outbox` is
 a dev/repair tool (refused in prod without `--force` plus the accepted risk
 `unversioned_ddl_repair` in `SANDLOOM_ACCEPTED_RISKS`). Each database that
 publishes events owns its own transactional outbox; the audit log lives in the

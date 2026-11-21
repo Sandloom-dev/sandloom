@@ -12,8 +12,8 @@
     "reason": "ops: `sandloom migrate extract-module` copies data between PostgreSQL databases (URL check, lock_not_available pgcode); refused on SQLite (B028)"
   },
   "core/migrations/alembic_support.py": {
-    "sites": 2,
-    "reason": "migrations: a chain is PostgreSQL's DDL history; the autogenerate renderer writes the dialect's type import (postgresql.CITEXT()); SQLite never runs a chain (B028)"
+    "sites": 5,
+    "reason": "migrations: a chain is PostgreSQL's DDL history; the autogenerate renderer writes the dialect's type import (postgresql.CITEXT()); the chain connection's lock_timeout / statement_timeout are PostgreSQL session settings, and a timeout error is told from NOWAIT and a cancel by its SQLSTATE (pgcode for psycopg2, sqlstate for psycopg 3); SQLite never runs a chain (B028)"
   },
   "core/migrations/migrations.py": {
     "sites": 5,

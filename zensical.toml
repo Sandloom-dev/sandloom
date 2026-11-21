@@ -108,6 +108,7 @@ Modules = [
     "modules/database/migrations.md",
     "modules/database/write-migration.md",
     "modules/database/run-migrations.md",
+    "modules/database/zero-downtime-migrations.md",
     "modules/http/route-policy.md",
     "modules/http/authorization.md",
     "modules/http/idempotent-write.md",
@@ -321,6 +322,7 @@ Modules = [
         { "How migrations work" = "modules/database/migrations.md" },
         { "Write a migration" = "modules/database/write-migration.md" },
         { "Run migrations" = "modules/database/run-migrations.md" },
+        { "Zero-downtime migrations" = "modules/database/zero-downtime-migrations.md" },
     ] },
     { "HTTP and access" = [
         { "Route policy and sessions" = "modules/http/route-policy.md" },
