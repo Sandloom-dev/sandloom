@@ -70,7 +70,7 @@ names; `tm` finds its store through the machine's registry, `~/.tm/tm.yaml`.
   first, not the git log.
 - A task is claimed before the first edit (`task_start`) and handed over with
   `task_done`; what may be taken next is `get_active_front`.
-- Where the tm MCP server only reads (under OpenCode, agy and pi), the
+- Where the tm MCP server only reads (under OpenCode, agy, pi and Kimi), the
   tracker is changed in the shell, whose commands carry the session:
   `tm task start <alias|id>`, `tm task done <alias|id>`.
 - How any of it is done: the tm skills — `tm-implement`, `tm-plan`,

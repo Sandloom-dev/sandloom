@@ -29,10 +29,10 @@
     "skills/tm-memory/SKILL.md": "d4a1d6b46869a6409e6a420c6a7f42b568044881ccd0e8ad335640ff9a893539",
     "skills/tm-plan/SKILL.md": "f0038fb8527968df7603d6a864fd6641788557c5a8cfc20b4fdda451a0277d1f",
     "skills/tm-review/SKILL.md": "773943dcfdeb03dacaa484e3a24d63b628eb511b6cd83e76777529d78339dac0",
-    "skills/tm/SKILL.md": "5ed5863f8a12b971e5536b56ef0029610e65eaaf2598d26760c69962242118ab"
+    "skills/tm/SKILL.md": "e3dc44276745c28a6b345cb0500a763f392e7ceec25b3ac56cf4e38ebbb385e7"
   },
   "created": [
     "hooks.json"
   ],
-  "installedBy": "dist-v0.3.2"
+  "installedBy": "dist-v0.4.0"
 }
