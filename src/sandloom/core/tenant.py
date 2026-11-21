@@ -234,29 +234,29 @@ def _dml_cte_reaches_tenant(statement: Any) -> bool:
     wherever it hangs (``add_cte`` of any statement, ``.cte()`` in FROM / WHERE,
     CTEs of subqueries, CTEs inside CTEs); any element that is not a SELECT is
     DML, and DML that touches a TenantScoped table (its target or a subquery of
-    it) is refused. Memoized like the other verdicts; unprovable means refused.
+    it) is refused. Memoized like the other verdicts. A walk that cannot read
+    the statement raises out of the listener, so the statement never runs.
     """
 
-    try:
-        cache_key = statement._generate_cache_key()
-        key = cache_key.key if cache_key is not None else None
-        if key is not None and key in _dml_cte_cache:
+    cache_key = statement._generate_cache_key()
+    key = cache_key.key if cache_key is not None else None
+    if key is not None:
+        try:
             return _dml_cte_cache[key]
-    except Exception:  # noqa: BLE001 - an uncacheable statement is still checked
-        key = None
+        except KeyError:
+            pass
+        except TypeError:  # unhashable structural key: never cache, just walk
+            key = None
     tables = _tenant_tables()
-    try:
-        verdict = any(
-            isinstance(node, CTE)
-            and not isinstance(node.element, SelectBase)
-            and any(
-                inner in tables or _tenant_annotated(inner)
-                for inner in visitors.iterate(node.element)
-            )
-            for node in visitors.iterate(statement)
+    verdict = any(
+        isinstance(node, CTE)
+        and not isinstance(node.element, SelectBase)
+        and any(
+            inner in tables or _tenant_annotated(inner)
+            for inner in visitors.iterate(node.element)
         )
-    except Exception:  # noqa: BLE001 - fail closed: an unreadable DML CTE is refused
-        verdict = True
+        for node in visitors.iterate(statement)
+    )
     if key is not None:
         if len(_dml_cte_cache) >= _GUARD_CACHE_MAX:
             _dml_cte_cache.clear()

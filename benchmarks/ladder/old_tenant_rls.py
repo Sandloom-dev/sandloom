@@ -13,7 +13,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from sandloom.core.sql_alchemy.rls import TENANT_SETTING
-from sandloom.core.tenant_context import _bypass, _current_tenant
+from sandloom.core.tenant_context import _current_tenant, bypass_active
 
 logger = logging.getLogger("sandloom.tenant_rls")
 
@@ -63,7 +63,7 @@ def _sync(
     desired = _desired()
     if (
         not desired
-        and _bypass.get()
+        and bypass_active()
         and not conn.info.get(_WARNED_KEY)
         and not getattr(conn.engine, _SYSTEM_ATTR, False)
     ):

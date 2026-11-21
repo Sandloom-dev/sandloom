@@ -2759,6 +2759,7 @@
         "tests/fixtures/settings_modules/kb_inventory_bad_import/__init__.py",
         "tests/fixtures/settings_modules/kb_inventory_dup/__init__.py",
         "tests/fixtures/specs/api10-ledger-delta-H0.md",
+        "tests/fixtures/specs/api10-ledger-delta-tenant-guard-cte-dml.md",
         "tests/fixtures/specs/api10-ledger-delta-H1.md",
         "tests/fixtures/specs/api10-ledger-delta-H2.md",
         "tests/fixtures/specs/api10-ledger-delta-H2b.md",
