@@ -71,7 +71,6 @@ from sandloom.core.claims import (
     NO_AUTHORITIES,
     Authority,
     ClaimAuthorities,
-    LegacyClaimsTokens,
 )
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.descriptors.module_names import (
@@ -95,8 +94,7 @@ LEAN_ROOT = "sandloom.main"
 
 
 class ClaimAuthorityError(ValueError):
-    """A ``claim_authorities`` entry that is not ``{str: str | Authority}``,
-    or a ``legacy_tokens`` that is not an absolute UTC time."""
+    """A ``claim_authorities`` entry that is not ``{str: str | Authority}``."""
 
 
 class UnprotectedClaimReader(RuntimeError):
@@ -219,23 +217,6 @@ def _previous_entry(key: str, previous: Any) -> tuple[str, str]:
                 f"module={previous.module!r})"
             )
     return previous.module, previous.name
-
-
-def legacy_until(legacy_tokens: Any) -> float | None:
-    """``legacy_tokens.until`` as a POSIX time (``None``: no compatibility
-    mode); a :class:`ClaimAuthorityError` when it is not an absolute UTC
-    time. Never derived, moved or extended here (G-RISK-14)."""
-    if legacy_tokens is None:
-        return None
-    if not isinstance(legacy_tokens, LegacyClaimsTokens):
-        raise ClaimAuthorityError(
-            f"legacy_tokens={legacy_tokens!r}: pass "
-            "LegacyClaimsTokens(until='<UTC time>')"
-        )
-    try:
-        return legacy_tokens.until_timestamp()
-    except (TypeError, ValueError) as exc:
-        raise ClaimAuthorityError(str(exc)) from exc
 
 
 def _declared_fail_safe(key: str, value: Any) -> bool:
@@ -703,9 +684,6 @@ def install_claim_authorities(
     default_claim_authorities: Mapping[str, AuthorityEntry] | None,
     bindings: Mapping[str, Mapping[str, Any]],
     log: logging.Logger,
-    legacy_tokens: LegacyClaimsTokens | None = None,
-    lifetime_seconds: float = 0.0,
-    leeway_seconds: float = 0.0,
     booted_root: str | None = None,
 ) -> ClaimAuthorities:
     """Resolve, check and assign the composition's claim authorities.
@@ -713,11 +691,8 @@ def install_claim_authorities(
     Raises :class:`ConfigurationError` (SANDLOOM-B035) naming every problem;
     on success the facade's mint check applies the result, and the trusted
     view (:mod:`sandloom.core.auth.claims_view`) reads it from this moment on
-    (``effective_at``). ``legacy_tokens`` turns on the bounded compatibility
-    mode of the initial ``cpv`` enablement (G-RISK-14); past its window end
-    it is off by itself and a WARNING asks to remove it. ``booted_root``
-    (``SANDLOOM_COMPOSITION_ROOT``, ``None``: the lean root) only words a
-    refusal.
+    (``effective_at``). ``booted_root`` (``SANDLOOM_COMPOSITION_ROOT``,
+    ``None``: the lean root) only words a refusal.
     """
     descriptors = list(loaded_descriptors)
     loaded = {module_name(str(d.name)): str(d.name) for d in descriptors}
@@ -741,10 +716,8 @@ def install_claim_authorities(
             declared=core_facade._declared_fail_safe(),
             readers=_contract_check.generated_claim_keys(),
         )
-        until = legacy_until(legacy_tokens)
     except ClaimAuthorityError as exc:
         problems = [str(exc)]
-        until = None
     else:
         problems = claim_authority_problems(
             authorities,
@@ -779,10 +752,7 @@ def install_claim_authorities(
             authorities.issuer,
             dict(sorted(authorities.authorities.items())),
         )
-    now = time.time()
-    authorities = replace(authorities, legacy_until=until, effective_at=now)
-    if until is not None:
-        _log_legacy_mode(log, until + lifetime_seconds + leeway_seconds, now)
+    authorities = replace(authorities, effective_at=time.time())
     core_facade._assign_claim_authorities(authorities)
     _recheck_claim_readers(core_facade, authorities, log)
     return authorities
@@ -817,26 +787,6 @@ def _recheck_claim_readers(
     core_facade.add_startup_task(recheck_claim_readers, critical=True, phase="infra")
 
 
-def _log_legacy_mode(log: logging.Logger, window_end: float, now: float) -> None:
-    """Startup WARNING of the compatibility mode (on, or ended)."""
-    end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(window_end))
-    if now >= window_end:
-        log.warning(
-            "claim authorities: the legacy_tokens window ended at %s: tokens "
-            "without cpv give no rights; remove legacy_tokens from the "
-            "composition root",
-            end,
-        )
-    else:
-        log.warning(
-            "claim authorities: legacy_tokens compatibility mode is ON (accepted "
-            "risk G-RISK-14): tokens without cpv are trusted per key until %s "
-            "(%d s left)",
-            end,
-            int(window_end - now),
-        )
-
-
 __all__ = [
     "CODE",
     "LEAN_ROOT",
@@ -849,5 +799,4 @@ __all__ = [
     "declared_policy",
     "filter_to_composition",
     "install_claim_authorities",
-    "legacy_until",
 ]

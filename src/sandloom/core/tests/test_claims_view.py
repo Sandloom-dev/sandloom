@@ -3,8 +3,8 @@
 Unit level: :func:`sandloom.core.auth.claims_view.apply_view` over payloads,
 no app. The one condition (allowed, ``cpv`` digest, kept source), the
 ``previous=`` rollout, the identity -> acme_identity key change matrix
-(steps 0-3, rollback a-c, negative rows), the ``legacy_tokens`` window and
-its end, the 401 / 503 split, and the one platform admission.
+(steps 0-3, rollback a-c, negative rows), a token without a usable ``cpv``
+(no rights, always), the 401 / 503 split, and the one platform admission.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from sandloom.core.claims import ClaimAuthorities, cpv_digest
 from sandloom.core.tests._entry_points_support import installed_entry_points
 
 LIFETIME = 900.0
-LEEWAY = 10.0
 NOW = 2_000_000_000.0
 ID = "sandloom_identity"
 ACME = "acme.modules.acme_identity"
@@ -43,7 +42,6 @@ def policy(
     roles: tuple[str, str] = (ID, "identity"),
     previous: tuple[str, str] | None = None,
     *,
-    legacy_until: float | None = None,
     effective_at: float = NOW - 3600,
 ) -> ClaimAuthorities:
     path, owner = roles
@@ -54,7 +52,6 @@ def policy(
         assigned=True,
         previous={"roles": previous[0]} if previous else {},
         previous_owners={"roles": previous[1]} if previous else {},
-        legacy_until=legacy_until,
         effective_at=effective_at,
     )
 
@@ -83,12 +80,8 @@ def token(
     return payload
 
 
-def apply(
-    payload: dict[str, Any], pol: ClaimAuthorities, now: float = NOW
-) -> dict[str, Any]:
-    view.apply_view(
-        payload, pol, now=now, lifetime_seconds=LIFETIME, leeway_seconds=LEEWAY
-    )
+def apply(payload: dict[str, Any], pol: ClaimAuthorities) -> dict[str, Any]:
+    view.apply_view(payload, pol)
     return payload
 
 
@@ -220,40 +213,7 @@ def test_changing_one_key_leaves_the_others_trusted() -> None:
     assert out["roles"] == ["admin"] and "permissions" not in out
 
 
-# --- the initial enablement: legacy_tokens (G-RISK-14) -------------------
-UNTIL = NOW + 600
-
-
-@pytest.mark.parametrize(
-    ("payload", "now", "trusted"),
-    [
-        (token(sources=["identity"], digest_of=None), NOW, True),
-        (token(sources=[], digest_of=None), NOW, False),
-        (token(sources=["identity"], digest_of=None, iat=UNTIL), UNTIL + 1, False),
-        (
-            token(sources=["identity"], digest_of=None, exp=NOW + LIFETIME + 1),
-            NOW,
-            False,
-        ),
-        (
-            token(sources=["identity"], digest_of=None, iat=UNTIL - 1),
-            UNTIL + LIFETIME + LEEWAY,
-            False,
-        ),
-    ],
-    ids=[
-        "inside",
-        "authority-absent",
-        "iat-at-until",
-        "lifetime-exceeded",
-        "window-end",
-    ],
-)
-def test_the_compatibility_window(
-    payload: dict[str, Any], now: float, trusted: bool
-) -> None:
-    out = apply(payload, policy(legacy_until=UNTIL), now=now)
-    assert ("roles" in out) is trusted
+# --- a token without a usable cpv gives no rights (stage 3, always) --------
 
 
 @pytest.mark.parametrize(
@@ -261,35 +221,20 @@ def test_the_compatibility_window(
     [{"v": 999, "k": {}}, {}, None, "invalid"],
     ids=["unknown-version", "missing-version", "null", "invalid-type"],
 )
-def test_present_cpv_cannot_use_the_compatibility_window(cpv: Any) -> None:
+def test_a_cpv_that_is_not_the_current_version_is_outdated(cpv: Any) -> None:
     payload = token(sources=["identity"], digest_of=None, cpv=cpv)
-    valid_until, legacy_keys = view.apply_view(
-        payload,
-        policy(legacy_until=UNTIL),
-        now=NOW,
-        lifetime_seconds=LIFETIME,
-        leeway_seconds=LEEWAY,
-    )
+    view.apply_view(payload, policy())
     assert "roles" not in payload
     assert view.untrusted_reasons(payload)["roles"] == view.OUTDATED
-    assert valid_until == float("inf")
-    assert not legacy_keys
 
 
-def test_the_compatibility_view_expires_at_the_window_end() -> None:
-    until, keys = view.apply_view(
-        token(sources=["identity"], digest_of=None),
-        policy(legacy_until=UNTIL),
-        now=NOW,
-        lifetime_seconds=LIFETIME,
-        leeway_seconds=LEEWAY,
-    )
-    assert until == UNTIL + LIFETIME + LEEWAY and keys == ("roles",)
+def test_a_token_without_cpv_is_outdated_even_for_an_authority_that_ran() -> None:
+    out = apply(token(sources=["identity"], digest_of=None), policy())
+    assert "roles" not in out
+    assert roles_reason(out) == view.OUTDATED
 
 
-def test_without_legacy_tokens_a_token_without_cpv_is_outdated_even_for_absent_keys() -> (
-    None
-):
+def test_a_token_without_cpv_is_outdated_even_for_absent_keys() -> None:
     payload = token(sources=["identity"], digest_of=None)
     del payload["roles"]
     out = apply(payload, policy())
@@ -322,10 +267,9 @@ def test_platform_admission_admits_a_trusted_admin_whatever_the_issuer_is_named(
     view.platform_admission(out["roles"], view.untrusted_reasons(out))
 
 
-# --- the window end (G-RISK-14), the argument still written --------------
-WINDOW_END = UNTIL + LIFETIME + LEEWAY
+# --- forged claims in a token without cpv (ADR-0014 decision 4, stage 3) ---
 FORGED = {"roles": ["admin"], "tenant_ids": ["t-foreign"], "tenant_id": "t-foreign"}
-WINDOW_MAP = {
+FORGED_MAP = {
     "issuer": ID,
     "roles": ID,
     "permissions": ID,
@@ -333,17 +277,17 @@ WINDOW_MAP = {
 }
 
 
-def window_policy(placement: str) -> ClaimAuthorities:
-    """The verifier with ``legacy_tokens`` still written: the monolith (both
-    authorities loaded) or a split service running neither."""
+def forged_policy(placement: str) -> ClaimAuthorities:
+    """The verifier: the monolith (both authorities loaded) or a split
+    service running neither."""
     loaded = (
         {"identity": ID, "tenancy": "sandloom_tenancy"} if placement == "mono" else {}
     )
     bindings = {} if placement == "mono" else {"tenancy.claims.v1": {"service_id": "t"}}
     policy = filter_to_composition(
-        build_claim_authorities(WINDOW_MAP), loaded=loaded, bindings=bindings
+        build_claim_authorities(FORGED_MAP), loaded=loaded, bindings=bindings
     )
-    return dataclasses.replace(policy, legacy_until=UNTIL, effective_at=NOW - 3600)
+    return dataclasses.replace(policy, effective_at=NOW - 3600)
 
 
 def forged_token(iat: float) -> dict[str, Any]:
@@ -351,31 +295,16 @@ def forged_token(iat: float) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("placement", ["mono", "split"])
-def test_inside_the_window_a_token_without_cpv_is_trusted(placement: str) -> None:
-    """The control: the same token inside the window keeps its claims."""
-    out = apply(forged_token(UNTIL - 1), window_policy(placement), now=UNTIL)
-    assert out["roles"] == ["admin"] and out["tenant_ids"] == ["t-foreign"]
-
-
-@pytest.mark.parametrize("placement", ["mono", "split"])
 @pytest.mark.parametrize(
-    ("iat", "now"),
-    [
-        (UNTIL - 1, WINDOW_END),
-        (UNTIL - 1, WINDOW_END + 86_400),
-        (UNTIL, UNTIL + 1),
-        (UNTIL + 5, UNTIL + 10),
-    ],
-    ids=["at-window-end", "after-window-end", "iat-at-until", "iat-after-until"],
+    "iat",
+    [NOW - 7200, NOW - 60, NOW + 5],
+    ids=["before-the-map", "after-the-map", "in-the-future"],
 )
-def test_a_token_without_cpv_gives_no_rights_outside_the_window(
-    placement: str, iat: float, now: float
-) -> None:
+def test_a_token_without_cpv_gives_no_rights(placement: str, iat: float) -> None:
     """Forged ``roles`` / ``tenant_ids`` / ``tenant_id`` in a token without
-    ``cpv`` give no rights at or after the window end, nor with ``iat`` at or
-    after ``until``, while ``legacy_tokens`` is still written (ADR-0014
-    decision 4, G-RISK-14)."""
-    out = apply(forged_token(iat), window_policy(placement), now=now)
+    ``cpv`` give no rights, whatever its ``iat`` (ADR-0014 decision 4, stage
+    3)."""
+    out = apply(forged_token(iat), forged_policy(placement))
     for key in FORGED:
         assert key not in out, key
     reasons = view.untrusted_reasons(out)

@@ -386,10 +386,14 @@ minutes. Wait for the first completed run before sending checkout or portal
 traffic. An issued checkout can still return its stored URL after checking
 authorization and expiry. See the [Billing HTTP API](../modules/batteries/billing.md#http-api).
 
-The standard composition leaves `legacy_tokens` disabled. An existing
-deployment that needs its old access tokens can explicitly enable the timed
-rollout window. The window applies only to tokens with no `cpv` field.
-Follow the [issuer and verifier rollout](../adr/0014-claims-trust-and-authorization-portability.md#4-cpv-per-key-with-an-issuer-verifier-rollout-and-rollback-matrix).
+A token with no `cpv` field gives no rights. There is no compatibility mode:
+`create_app(legacy_tokens=...)` and `LegacyClaimsTokens` are removed. A client
+holding such a token gets 401 `token_policy_outdated` where a policy needs a
+protected claim. One refresh at an issuer returns a token with `cpv`. Roll out
+the issuers and verifiers of one deployment from the same release. No issuer
+that stamps no `cpv` may run behind a verifier of this release. A key change
+still uses `previous=`. See the
+[issuer and verifier rollout](../adr/0014-claims-trust-and-authorization-portability.md#4-cpv-per-key-with-an-issuer-verifier-rollout-and-rollback-matrix).
 
 ## Declare optional driver dependencies
 

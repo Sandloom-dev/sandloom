@@ -16,6 +16,15 @@ search:
   [the amendment](#amendment-2026-11-09-the-cpv-identity-of-an-authority)).
   Applied 2026-11-09 (KB-34): the kernel's domain atoms, live adapters and fact-owner table are
   removed (see [the amendment](#amendment-2026-11-09-kb-34-the-kernel-domain-atoms-are-removed)).
+  Amended 2026-11-21 by the owner (tm `legacy-tokens-remove`): decision 4's `legacy_tokens`
+  compatibility mode (`LegacyClaimsTokens`, G-RISK-14, its diagnostics, `sandloom doctor` check,
+  metric and deploy-profile agreement) is removed, because no user holds a token without `cpv`.
+  A verifier always behaves as stage 3 (enforce): a token without `cpv` gives no rights where a
+  policy needs the key and no branch allows; one refresh at an issuer returns a token with
+  `cpv`. `previous=` and the issuer's `cpv` stamping are unchanged. The text of decision 4 and
+  the sections below that describe the mode, its stages 1 and 2, its window and its protections
+  are kept as the record of the decision at the time, and no longer describe the code;
+  G-RISK-14 is retired in the ledger.
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision C: part (a) trust, alternative TA-1; part (b)

@@ -33,7 +33,6 @@ import base64
 import hashlib
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any
 from uuid import UUID
@@ -125,45 +124,6 @@ class Authority:
     fail_safe: bool = False
 
 
-@dataclass(frozen=True)
-class LegacyClaimsTokens:
-    """The bounded compatibility mode of the initial ``cpv`` enablement
-    (ADR-0014 decision 4; an accepted temporary risk, G-RISK-14).
-
-    ``until`` (an absolute UTC time, required, no default, no setting) is the
-    end of the transition: the time by which the last issuer that stamps no
-    ``cpv`` stopped. A verifier then trusts a token without ``cpv`` per key
-    when the key's authority ran at its mint and was kept, its ``iat`` is
-    before ``until`` and its ``exp - iat`` does not exceed
-    ``ACCESS_TOKEN_EXPIRE_MINUTES``; from ``until + ACCESS_TOKEN_EXPIRE_MINUTES
-    + JWT_LEEWAY_SECONDS`` on the mode is off by itself (fail closed). The
-    framework never moves or extends ``until``: a later one is a new operator
-    decision written in the composition root.
-    """
-
-    until: str | datetime
-
-    def until_timestamp(self) -> float:
-        """``until`` as a POSIX timestamp; a ``ValueError`` when it is not an
-        absolute UTC time (a naive time or an offset other than UTC)."""
-        value = self.until
-        if isinstance(value, str):
-            text = value.strip()
-            if text.endswith(("Z", "z")):
-                text = text[:-1] + "+00:00"
-            value = datetime.fromisoformat(text)
-        if not isinstance(value, datetime) or value.utcoffset() is None:
-            raise ValueError(
-                f"LegacyClaimsTokens(until={self.until!r}): an absolute UTC time "
-                "is required (e.g. '2026-12-01T00:00Z')"
-            )
-        if value.utcoffset() != UTC.utcoffset(None):
-            raise ValueError(
-                f"LegacyClaimsTokens(until={self.until!r}): write the time in UTC"
-            )
-        return value.timestamp()
-
-
 def cpv_digest(key: str, identity: str) -> str:
     """The ``cpv`` entry of ``key`` under the authority ``identity`` (its
     import path): 64 bits of SHA-256, URL-safe base64 (11 characters)."""
@@ -206,9 +166,6 @@ class ClaimAuthorities:
     #: also accepts during a rollout (decision 4), and its short name.
     previous: Mapping[str, str] = field(default_factory=dict)
     previous_owners: Mapping[str, str] = field(default_factory=dict)
-    #: The end of the initial enablement's transition (POSIX time) when the
-    #: root passed ``legacy_tokens=LegacyClaimsTokens(until=...)``.
-    legacy_until: float | None = None
     #: When this map took effect in this process (POSIX time): a token with
     #: a ``cpv`` this map does not accept, issued before it, is outdated (a
     #: refresh fixes it); one issued after it is a mismatch.
@@ -299,7 +256,6 @@ class ClaimAuthorities:
                         # share a cached view.
                         sorted(verified_owners.items()),
                         sorted(previous_owners.items()),
-                        self.legacy_until,
                         self.effective_at,
                         self.assigned,
                         # The protected set decides what the view removes.
