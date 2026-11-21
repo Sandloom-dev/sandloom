@@ -631,7 +631,7 @@ tenant is bound. Deliberate cross-tenant access requires an explicit
 loads and `Session.get()`. It reads the SQL inside loader options and `values()`,
 and it refuses the legacy `Session.bulk_*` methods on tenant models. The cursor of
 every engine the framework builds then refuses any compiled statement that names a
-tenant table without the ORM guard's mark, outside `unscoped()`
+tenant table without the ORM guard's approval, outside `unscoped()`
 ([ADR-0018](../adr/0018-tenant-guard-at-the-cursor.md)). Optional
 PostgreSQL Row-Level Security
 (`tenant_rls` database option + `enable_tenant_rls` in migrations) enforces the

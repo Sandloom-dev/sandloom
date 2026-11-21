@@ -33,7 +33,7 @@ from sandloom.core.projections.purge import PurgeFloor, purge_tombstones
 from sandloom.core.sql_alchemy.models.projection_watermark import ProjectionWatermark
 from sandloom.core.sql_alchemy.projection_watermarks import RelationalWatermarkStore
 from sandloom.sdk.projections import Projection
-from sandloom.sdk.tenant import bind_tenant
+from sandloom.sdk.tenant import bind_tenant, unscoped
 
 pytestmark = pytest.mark.asyncio
 
@@ -55,13 +55,14 @@ Opener = Callable[[], Any]
 async def units(db_engine: Any) -> AsyncIterator[Opener]:
     """Committing units on the test database (the race needs two)."""
     async with db_engine.begin() as conn:
-        await conn.run_sync(
-            FixtureBase.metadata.create_all, tables=[NoteIndex.__table__]
-        )
-        await conn.run_sync(
-            ProjectionWatermark.metadata.create_all,
-            tables=[ProjectionWatermark.__table__],
-        )
+        with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
+            await conn.run_sync(
+                FixtureBase.metadata.create_all, tables=[NoteIndex.__table__]
+            )
+            await conn.run_sync(
+                ProjectionWatermark.metadata.create_all,
+                tables=[ProjectionWatermark.__table__],
+            )
     maker = async_sessionmaker(db_engine, expire_on_commit=False)
 
     @asynccontextmanager

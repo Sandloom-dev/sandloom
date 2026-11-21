@@ -29,7 +29,7 @@ import re
 import types
 import uuid
 import weakref
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
 from contextvars import ContextVar
 from typing import Any
@@ -597,9 +597,11 @@ def _columns_set_by_every_row(statement: ValuesBase) -> set[str]:
     SQL-expression defaults are never rendered. Nothing is known when the values
     arrive with the execution (``insert(Model)`` with a parameter list) or as
     positional rows, so the set is empty then and every default counts."""
-    rows = [statement._values] if statement._values else []
+    rows: list[Mapping[Any, Any] | Sequence[Any]] = []
+    if statement._values:
+        rows.append(statement._values)
     rows.extend(row for batch in statement._multi_values for row in batch)
-    if not rows or not all(isinstance(row, dict) for row in rows):
+    if not rows or not all(isinstance(row, Mapping) for row in rows):
         return set()
     return set.intersection(*(_value_keys(row) for row in rows))
 
