@@ -73,9 +73,9 @@ def encode_index(doc: Doc) -> str:
     """The tracked index text: the document as lines, one record each.
 
     Every list item and every entry of a map is its own line, tagged with its
-    section, in one order; a section is declared by a header line. A record
-    another module's records never touch is a line no other module's change
-    touches. ``scope.module_ids`` is derived from ``modules`` and not stored."""
+    section, in one order; a section is declared by a header line. A module's
+    records are lines no other module's change touches. ``scope.module_ids`` is
+    derived from ``modules`` and not stored."""
     doc = dict(doc)
     scope = doc.get("scope")
     if isinstance(scope, dict) and scope.get("module_ids") == _module_ids(doc):
@@ -139,17 +139,16 @@ def _sections(rows: list[list[Any]]) -> tuple[Doc, dict[str, str]]:
 
 
 def _fill(doc: Doc, kinds: dict[str, str], row: list[Any]) -> None:
-    section = doc.get(row[0])
     kind = kinds.get(row[0])
     if kind == "@list" and len(row) == 2:
-        section.append(row[1])
+        doc[row[0]].append(row[1])
     elif (
         kind == "@map"
         and len(row) == 3
         and isinstance(row[1], str)
-        and row[1] not in section
+        and row[1] not in doc[row[0]]
     ):
-        section[row[1]] = row[2]
+        doc[row[0]][row[1]] = row[2]
     else:
         raise _invalid()
 
