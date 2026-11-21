@@ -119,6 +119,79 @@ def _overview(data: Doc) -> list[str]:
     return lines or ["No modules in this scope."]
 
 
+def _depth_label(module: Doc) -> str:
+    if module["in_cycle"]:
+        return "cycle"
+    return (
+        f"{module['depth']} + cycle"
+        if module["reaches_cycle"]
+        else str(module["depth"])
+    )
+
+
+def _risks(data: Doc) -> list[str]:
+    """Synchronous contract coupling as a table, riskiest modules first."""
+    coupling = data["sync_coupling"]
+    names = {n["id"]: n.get("name", n["id"]) for n in data["nodes"]}
+
+    def label(module_id: str) -> str:
+        return _safe(names.get(module_id, module_id.removeprefix("module:")))
+
+    ordered = sorted(
+        coupling["modules"],
+        key=lambda m: (
+            not m["in_cycle"],
+            -(m["depth"] or 0),
+            -m["fan_in"],
+            label(m["module_id"]),
+        ),
+    )
+    rows = [("Module", "Synchronous dependencies", "Depth", "Fan-in")]
+    for module in ordered:
+        depends = ", ".join(
+            label(d["module_id"]) + ("" if d["required"] else " (optional)")
+            for d in module["depends_on"]
+        )
+        rows.append(
+            (
+                label(module["module_id"]),
+                depends or "-",
+                _depth_label(module),
+                str(module["fan_in"]),
+            )
+        )
+    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    lines = [
+        "Synchronous coupling: " + coupling["meaning"],
+        *(
+            "  ".join(row[i].ljust(widths[i]) for i in range(4)).rstrip()
+            for row in rows
+        ),
+    ]
+    deepest = next(
+        (
+            m
+            for m in ordered
+            if not m["in_cycle"] and m["depth"] == coupling["max_depth"]
+        ),
+        None,
+    )
+    if deepest and coupling["max_depth"] > 0:
+        lines.append(
+            f"Longest chain (depth {coupling['max_depth']}): "
+            + " → ".join(label(i) for i in deepest["longest_chain"])
+        )
+    if coupling["critical"]:
+        lines.append(
+            "Most depended on: "
+            + ", ".join(
+                f"{label(c['module_id'])} (fan-in {c['fan_in']})"
+                for c in coupling["critical"]
+            )
+        )
+    return lines
+
+
 def _messages(title: str, messages: list[Doc]) -> list[str]:
     lines = [title]
     for message in messages:
@@ -133,17 +206,17 @@ def _messages(title: str, messages: list[Doc]) -> list[str]:
     return lines
 
 
-def render(envelope: Doc, *, overview: bool = False) -> str:
+def render(envelope: Doc, *, overview: bool = False, risks: bool = False) -> str:
     data, kind = envelope["data"], envelope["kind"]
     lines = [
         HEADER,
         "Freshness: " + freshness_label(envelope["freshness"]["state"]),
         "",
     ]
-    if kind == "graph" and overview:
-        lines += _overview(data)
-    elif kind in {"graph", "modules"}:
-        lines += _topology(data)
+    if kind in {"graph", "modules"}:
+        lines += _overview(data) if kind == "graph" and overview else _topology(data)
+        if kind == "graph" and risks:
+            lines += ["", *_risks(data)]
     elif kind == "impact":
         lines += [
             "Potential impact: " + data["item"]["id"],

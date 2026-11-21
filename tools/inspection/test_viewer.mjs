@@ -273,3 +273,55 @@ test('Route lifecycle wraps full labels at narrow widths instead of truncating t
   const text=group.children.filter(e=>e.tag==='text').map(e=>e.textContent).join(' ');
   assert.ok(text.includes(context.messages[0].label));assert.ok(!text.includes('…'));
 });
+test('Coupling view lists modules by synchronous depth and opens the module inspector',()=>{
+  const page=livePage('examples/helpdesk');
+  try {
+    const panel=page.byId('panel-coupling');
+    assert.equal(panel.hidden,true);
+    page.byId('tab-coupling').click();
+    assert.equal(panel.hidden,false);
+    assert.equal(page.byId('panel-overview').hidden,true);
+    const rows=[...page.byId('coupling-rows').querySelectorAll('tr')].map(r=>[...r.children].map(c=>c.textContent));
+    assert.deepEqual(rows.map(r=>r[0]),['tickets','billing','tenancy','identity']);
+    assert.deepEqual(rows[0].slice(1),['billing (optional), tenancy (optional)','2','0']);
+    assert.deepEqual(rows[2].slice(1),['none','0','2']);
+    assert.match(page.byId('coupling-summary').textContent,/upper bound .* not measured calls/);
+    assert.match(page.byId('coupling-notes').textContent,/Longest chain \(depth 2\): tickets → billing → tenancy/);
+    assert.match(page.byId('coupling-notes').textContent,/Most depended on: tenancy \(fan-in 2\), billing \(fan-in 1\)/);
+    page.byId('coupling-rows').querySelectorAll('button')[1].click();
+    assert.equal(page.byId('panel-overview').hidden,false);
+    assert.equal(page.byId('inspector-content').querySelector('h2').textContent,'billing');
+    const facts=page.byId('inspector-content').textContent;
+    assert.ok(facts.includes('Synchronous depth')&&facts.includes('Longest synchronous chain'));
+    assert.ok(facts.includes('billing → tenancy'));
+  } finally {page.dom.window.close();}
+});
+test('Coupling view opens from the URL fragment and marks contract cycles',()=>{
+  const page=livePage('examples/helpdesk','#view=coupling');
+  try {
+    assert.equal(page.byId('panel-coupling').hidden,false);
+    const coupling=page.data.sync_coupling, inCycle=['module:billing','module:tenancy'];
+    page.dom.window.cyclic={...coupling,max_depth:0,critical:[],modules:coupling.modules.map(m=>inCycle.includes(m.module_id)?{...m,in_cycle:true,depth:null,longest_chain:[],cycle_module_ids:inCycle}:m)};
+    vm.runInContext('data.sync_coupling=cyclic;drawCoupling()',page.dom.getInternalVMContext());
+    const rows=[...page.byId('coupling-rows').querySelectorAll('tr')];
+    assert.deepEqual(rows.slice(0,2).map(r=>r.className),['risk','risk']);
+    assert.equal(rows[0].children[2].textContent,'cycle');
+    assert.equal(rows[3].className,'');
+    assert.match(page.byId('coupling-notes').textContent,/billing is in a synchronous contract cycle with tenancy/);
+  } finally {page.dom.window.close();}
+});
+test('Tabs move with the arrow keys across every view, Coupling included',()=>{
+  const page=livePage('examples/helpdesk');
+  try {
+    const key=(id,k)=>page.byId(id).dispatchEvent(new page.dom.window.KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}));
+    const selected=id=>page.byId(id).getAttribute('aria-selected');
+    key('tab-overview','ArrowRight');
+    assert.equal(selected('tab-coupling'),'true');
+    key('tab-coupling','End');
+    assert.equal(selected('tab-changes'),'true');
+    key('tab-changes','ArrowRight');
+    assert.equal(selected('tab-overview'),'true');
+    key('tab-overview','ArrowLeft');
+    assert.equal(selected('tab-changes'),'true');
+  } finally {page.dom.window.close();}
+});
