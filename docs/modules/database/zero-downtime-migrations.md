@@ -42,10 +42,11 @@ chain's included.
 | `MIGRATION_DDL_LOCK_TIMEOUT_MS` | `5000` | `lock_timeout`: how long a statement of the run waits for a lock before it fails |
 | `MIGRATION_STATEMENT_TIMEOUT_MS` | `0` | `statement_timeout`: how long one statement may run; `0` is no limit |
 
-- They are written with `SET` right after the runner takes its advisory lock.
-  Waiting for another migrator is a different setting,
-  `MIGRATION_LOCK_TIMEOUT_SECONDS` (see
-  [Run migrations](run-migrations.md#2-apply-everything)). Raising one of the
+- They are written with `SET` right after the runner takes its advisory lock,
+  so they do not bound the wait for that lock. `sandloom migrate` bounds it
+  with `MIGRATION_LOCK_TIMEOUT_SECONDS` (see
+  [Run migrations](run-migrations.md#2-apply-everything)); a direct
+  `alembic upgrade` waits for the lock without a limit. Raising one of the
   settings does nothing for the other.
 - A value of `0` is written too. It switches off a `lock_timeout` or
   `statement_timeout` that the server, the database or the role sets by
@@ -60,13 +61,15 @@ chain's included.
 - `lock_timeout` covers row locks as well as table locks. A backfill batch
   that waits on a locked row for longer than the timeout also fails.
 
-When the lock timeout fires, the run stops with an error that names
-`MIGRATION_DDL_LOCK_TIMEOUT_MS` and how to lift it. The statement timeout does
-the same for `MIGRATION_STATEMENT_TIMEOUT_MS` when it is above `0`. Any other
-database error reaches you unchanged.
+When the lock timeout fires, the run stops with an error. It carries
+PostgreSQL's message and names `MIGRATION_DDL_LOCK_TIMEOUT_MS`, with the way
+to lift it. The statement timeout does the same for
+`MIGRATION_STATEMENT_TIMEOUT_MS` when it is above `0`. Any other database
+error reaches you unchanged. That includes a failed `NOWAIT` and a query
+cancelled with `pg_cancel_backend`.
 
 ```text
-a migration statement waited longer than MIGRATION_DDL_LOCK_TIMEOUT_MS=5000 for a table lock: ...
+canceling statement due to lock timeout: a migration statement waited longer than MIGRATION_DDL_LOCK_TIMEOUT_MS=5000 for a lock, ...
 ```
 
 ### Lift the lock timeout for one revision
@@ -81,8 +84,13 @@ lifts the timeout for its own transaction:
 `SET LOCAL` lasts until the transaction ends. One run of a chain applies all
 its pending revisions in one transaction. The lift therefore also covers the
 revisions after this one in the same run. Keep a revision that lifts it on its
-own. Inside `op.get_context().autocommit_block()` there is no transaction:
-use `SET lock_timeout = 0`, which holds for the rest of the connection.
+own.
+
+Inside `op.get_context().autocommit_block()` there is no transaction, and
+`SET LOCAL` does nothing there. Use `SET lock_timeout = 0`, which holds for the
+rest of the connection, and put the old value back when the block ends. The
+[concurrent index](#create-an-index-without-blocking-writes) revision below
+shows the pattern.
 
 To lift it for a whole run, set `MIGRATION_DDL_LOCK_TIMEOUT_MS=0`.
 
@@ -132,11 +140,22 @@ the block outside a transaction and opens a new one. The framework's own
 revisions do the same: `0006_identity_users_search_trgm.py` and
 `0007_identity_drop_redundant_indexes.py` in `sandloom_identity`. Keep the
 block to the statements that need it, and give it a revision of its own.
+The runner's session settings outlive the block.
 
-A concurrent build that fails leaves an `INVALID` index under its name. A lock
-timeout, a cancel or a duplicate in a unique index all do this.
-`if_not_exists=True` then skips the index on the retry. Drop the invalid index
-first with `DROP INDEX CONCURRENTLY IF EXISTS ix_notes_owner_id`.
+A concurrent build waits for every transaction and snapshot older than itself,
+in the whole database, not only on this table. The wait blocks no traffic: the
+build holds a lock that reads and writes do not conflict with. A
+`lock_timeout` would cut it short, so the revision lifts the timeout for the
+build and puts the old value back (`no_lock_timeout` above). Without that, a
+session that holds an old snapshot for longer than five seconds makes the
+build fail.
+
+A concurrent build that fails leaves an `INVALID` index under its name. A
+cancel or a duplicate in a unique index does this too. `if_not_exists=True`
+then skips the index on the retry, and the revision would be recorded as
+applied with a broken index. The revision above drops an invalid index of that
+name first (`drop_if_invalid`). The framework's own `sandloom_identity`
+revisions carry the same two helpers.
 
 Declare the index in the model as well. The chain must still match the models
 (SANDLOOM-T006), and every model index must exist in a migration

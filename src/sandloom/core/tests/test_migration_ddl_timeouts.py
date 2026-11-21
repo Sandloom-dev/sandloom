@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from sqlalchemy.exc import DBAPIError
 
 from sandloom.core.config.settings import settings
 from sandloom.core.migrations.pg_sync import psycopg2
@@ -305,3 +306,143 @@ def test_the_two_step_constraint_revisions_add_it_not_valid_then_validate_it(
         scratch_database,
     )
     assert run_sql(scratch_database, state) == [(True,)]
+
+
+# What the runner's settings do inside autocommit_block() and to other errors.
+
+
+def _autocommit(url: str, sql: str) -> None:
+    conn = psycopg2.connect(url)
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+    finally:
+        conn.close()
+
+
+def _index_validity(url: str) -> list[tuple[bool]]:
+    return run_sql(
+        url,
+        "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+        "WHERE c.relname = 'ix_notes_owner_id'",
+    )
+
+
+def test_the_settings_survive_autocommit_block(
+    tmp_path: Path, scratch_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "migration_ddl_lock_timeout_ms", 1234)
+    monkeypatch.setattr(settings, "migration_statement_timeout_ms", 56_000)
+    body = """\
+bind = op.get_bind()
+op.execute("CREATE TABLE seen (name text, value text)")
+with op.get_context().autocommit_block():
+    for name in ("lock_timeout", "statement_timeout"):
+        value = bind.exec_driver_sql(f"SHOW {name}").scalar()
+        op.execute(f"INSERT INTO seen VALUES ('{name}', '{value}')")
+"""
+
+    _upgrade(_chain(tmp_path / "chain", body), scratch_database)
+
+    assert _seen(scratch_database) == {
+        "lock_timeout": "1234ms",
+        "statement_timeout": "56s",
+    }
+
+
+def test_the_concurrent_index_revision_outwaits_an_old_snapshot(
+    tmp_path: Path, scratch_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _notes_table(scratch_database)
+    monkeypatch.setattr(settings, "migration_ddl_lock_timeout_ms", 300)
+    holder = psycopg2.connect(scratch_database)
+    with holder.cursor() as cur:
+        cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        cur.execute("SELECT count(*) FROM notes")  # takes the snapshot
+    # the build waits for that snapshot, longer than the runner's lock_timeout
+    release = threading.Timer(1.5, holder.rollback)
+    release.start()
+    started = time.monotonic()
+    try:
+        _upgrade(
+            _snippet_chain(tmp_path / "chain", "concurrent_index"), scratch_database
+        )
+        waited = time.monotonic() - started
+    finally:
+        release.join()
+        holder.close()
+
+    assert waited > 1.0
+    assert _index_validity(scratch_database) == [(True,)]
+
+
+def test_the_concurrent_index_revision_rebuilds_an_invalid_leftover(
+    tmp_path: Path, scratch_database: str
+) -> None:
+    _notes_table(scratch_database)
+    run_sql(scratch_database, "UPDATE notes SET owner_id = 1")
+    # a failed concurrent build leaves an INVALID index under its name
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        _autocommit(
+            scratch_database,
+            "CREATE UNIQUE INDEX CONCURRENTLY ix_notes_owner_id ON notes (owner_id)",
+        )
+    assert _index_validity(scratch_database) == [(False,)]
+
+    _upgrade(_snippet_chain(tmp_path / "chain", "concurrent_index"), scratch_database)
+
+    assert _index_validity(scratch_database) == [(True,)]
+
+
+def test_a_failed_nowait_is_not_rewritten(
+    tmp_path: Path, scratch_database: str
+) -> None:
+    run_sql(scratch_database, "CREATE TABLE held (id int)")
+    cfg = _chain(
+        tmp_path / "chain",
+        'op.execute("LOCK TABLE held IN ACCESS EXCLUSIVE MODE NOWAIT")',
+    )
+    holder = psycopg2.connect(scratch_database)
+    try:
+        with holder.cursor() as cur:
+            cur.execute("LOCK TABLE held IN ACCESS EXCLUSIVE MODE")
+        with pytest.raises(DBAPIError, match="could not obtain lock"):
+            _upgrade(cfg, scratch_database)
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def test_a_lock_timeout_the_revision_set_itself_is_not_rewritten_at_zero(
+    tmp_path: Path, scratch_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_sql(scratch_database, "CREATE TABLE held (id int)")
+    monkeypatch.setattr(settings, "migration_ddl_lock_timeout_ms", 0)
+    body = """\
+op.execute("SET LOCAL lock_timeout = 200")
+op.execute("ALTER TABLE held ADD COLUMN x int")
+"""
+    holder = psycopg2.connect(scratch_database)
+    try:
+        with holder.cursor() as cur:
+            cur.execute("SET idle_in_transaction_session_timeout = 8000")
+            cur.execute("LOCK TABLE held IN ACCESS EXCLUSIVE MODE")
+        with pytest.raises(DBAPIError, match="lock timeout"):
+            _upgrade(_chain(tmp_path / "chain", body), scratch_database)
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def test_a_cancelled_query_is_not_reported_as_a_statement_timeout(
+    tmp_path: Path, scratch_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "migration_statement_timeout_ms", 60_000)
+    cfg = _chain(
+        tmp_path / "chain",
+        'op.execute("SELECT pg_cancel_backend(pg_backend_pid())")',
+    )
+
+    with pytest.raises(DBAPIError, match="user request"):
+        _upgrade(cfg, scratch_database)
