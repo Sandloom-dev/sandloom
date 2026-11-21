@@ -92,10 +92,14 @@ def _session_probe() -> Session:
 
 #: The tenant guard's own session listeners the optimized executor may ignore: the
 #: ``after_soft_rollback`` hook that forgets the stamp of a rolled-back insert
-#: (``sandloom.core.tenant._forget_rolled_back_inserts``). It touches only the
-#: ``info`` of instances a flush inserted; the optimized executor reads rows
-#: through no Session, so it has no instance to stamp.
-_TENANT_GUARD_SESSION_LISTENERS = frozenset({"_forget_rolled_back_inserts"})
+#: (``sandloom.core.tenant._forget_rolled_back_inserts``) and the
+#: ``after_transaction_end`` hook that forgets the stamps of a root transaction
+#: that ended without committing (``_forget_uncommitted_inserts``). They touch
+#: only the ``info`` of instances a flush inserted; the optimized executor reads
+#: rows through no Session, so it has no instance to stamp.
+_TENANT_GUARD_SESSION_LISTENERS = frozenset(
+    {"_forget_rolled_back_inserts", "_forget_uncommitted_inserts"}
+)
 
 
 def _has_custom_session_listener(probe: Session) -> bool:

@@ -52,6 +52,7 @@ from sqlalchemy.orm import (
     mapped_column,
     with_loader_criteria,
 )
+from sqlalchemy.orm.exc import UnmappedColumnError
 from sqlalchemy.orm.strategy_options import Load
 from sqlalchemy.orm.util import LoaderCriteriaOption
 from sqlalchemy.sql import operators, visitors
@@ -268,6 +269,16 @@ def _path_hits_tenant(path: Any) -> bool:
     return False
 
 
+def _insert_select_without_defaults(statement: Any) -> bool:
+    """``insert(...).from_select(..., include_defaults=False)``: it renders no
+    client-side column default."""
+    return (
+        isinstance(statement, Insert)
+        and statement.select is not None
+        and not statement.include_insert_from_select_defaults
+    )
+
+
 def _verdict_cacheable(statement: Any) -> bool:
     """A verdict may be memoized under the statement's structural cache key only
     when that key fixes the SQL the statement renders.
@@ -276,8 +287,13 @@ def _verdict_cacheable(statement: Any) -> bool:
     (``track_closure_variables=False``, ``enable_tracking=False``) keeps one
     cache key for different SQL: the second statement would reuse the verdict of
     the first (a "safe" one could then bless a raw tenant subquery). Such a
-    statement is walked on every execution.
+    statement is walked on every execution. So is ``INSERT ... SELECT`` with
+    ``include_defaults=False``: the flag decides which column defaults render, yet
+    SQLAlchemy leaves it out of the cache key, so one key would stand for both
+    variants and a "safe" verdict of one could bless the other.
     """
+    if _insert_select_without_defaults(statement):
+        return False
     if isinstance(statement, LambdaElement) and _untracked(statement.opts):
         return False
     if isinstance(statement, Executable):
@@ -411,17 +427,25 @@ _TRUSTED = 2
 #: ``InstanceState.info`` key: the ``tenant_id`` the row carried when the
 #: instance was READ from the database, or when a flush that inserted it
 #: succeeded. A forged, merged-without-load or unpickled instance carries none;
-#: a rolled-back insert loses it.
+#: an insert loses it when its transaction ends without committing.
 _STAMP = "sandloom.tenant_id"
+#: Per session: the instances its open ROOT transaction inserted (and stamped)
+#: that no commit has made permanent yet. ``after_commit`` of the root drops the
+#: list, ``after_transaction_end`` of a root that did not commit un-stamps them.
+_uncommitted_inserts: weakref.WeakKeyDictionary[Session, list[Any]] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 class _FlushWindow:
     """What ONE ``Session._flush`` may write at the cursor: the rows the mapper
     events verified during it, and nothing else.
 
-    * ``tables``: names of the tables a verified INSERT may write;
-    * ``rows``: ``(table name, primary key)`` of every row a verified UPDATE or
-      DELETE may write (the keys the events read, never a parameter);
+    * ``tables``: the ``Table`` OBJECTS of the mappers whose INSERT was verified
+      (a statement over another ``Table`` object of the same name is none of them);
+    * ``rows``: ``(Table, primary key)`` of every row a verified UPDATE or DELETE
+      may write: the table object, and the key the events read in that table's
+      own primary-key order (never a parameter);
     * ``inserted``: the instances the flush inserts, with the tenant verified
       for each. They are stamped when the flush succeeds, never before.
     """
@@ -429,8 +453,8 @@ class _FlushWindow:
     __slots__ = ("inserted", "rows", "tables")
 
     def __init__(self) -> None:
-        self.tables: set[str] = set()
-        self.rows: set[tuple[str, tuple[Any, ...]]] = set()
+        self.tables: set[Table] = set()
+        self.rows: set[tuple[Table, tuple[Any, ...]]] = set()
         self.inserted: dict[Any, uuid.UUID] = {}
 
 
@@ -507,8 +531,9 @@ class ReachRecorder(SQLCompiler):
         """The statement is a plain Core ``Insert`` / ``Update`` / ``Delete`` of
         the class the persistence layer builds: no dialect subclass
         (``ON CONFLICT``, ``ON DUPLICATE KEY``), no prefix (``OR REPLACE``,
-        ``IGNORE``), no post-values clause. Anything else is not a flush's own
-        write, whatever it targets. Memoized with the compiled statement."""
+        ``IGNORE``), no post-values clause, no ``INSERT ... SELECT``. Anything
+        else is not a flush's own write, whatever it targets. Memoized with the
+        compiled statement."""
         statement = self.statement
         if (
             not isinstance(statement, (Insert, Update, Delete))
@@ -516,7 +541,13 @@ class ReachRecorder(SQLCompiler):
             or statement._prefixes
         ):
             return False
-        return not (isinstance(statement, Insert) and statement._post_values_clause)
+        return not (
+            isinstance(statement, Insert)
+            and (
+                statement._post_values_clause is not None
+                or statement.select is not None
+            )
+        )
 
     @functools.cached_property
     def row_pins(self) -> tuple[str, ...] | None:
@@ -524,7 +555,11 @@ class ReachRecorder(SQLCompiler):
         DELETE writes, in primary-key order; ``None`` when the statement does not
         pin every primary-key column of its table with ``column = :param``
         (read from the top-level AND terms of its WHERE: a term can only narrow
-        the rows). Memoized with the compiled statement."""
+        the rows). A pin carries the column's OWN type object, as the
+        persistence layer builds it (``bindparam(key, type_=column.type)``): a
+        parameter of another type (a ``TypeDecorator`` that rewrites the value
+        on its way to the database) is no pin of the verified key. Memoized with
+        the compiled statement."""
         statement = self.statement
         if not isinstance(statement, (Update, Delete)):
             return None
@@ -540,6 +575,7 @@ class ReachRecorder(SQLCompiler):
                     and isinstance(term.left, ColumnClause)
                     and term.left.table is table
                     and isinstance(term.right, BindParameter)
+                    and term.right.type is term.left.type
                 ):
                     if term.left.name in binds:
                         return None  # the same column pinned twice: not a row key
@@ -585,18 +621,65 @@ def _value_keys(values: Any) -> set[str]:
     }
 
 
-def _sets_tenant_id(statement: Any) -> bool:
-    """An UPDATE whose ``.values()`` names the ``tenant_id`` column (the
-    persistence layer passes a column's plain value as a parameter, never so)."""
-    values = statement._values
-    return bool(values) and "tenant_id" in _value_keys(values)
+#: The column that carries a row's tenant (``TenantScoped.tenant_id``).
+_TENANT_COLUMN = "tenant_id"
+
+
+def _tenant_column(table: Table) -> Column[Any] | None:
+    """The ``tenant_id`` column of ``table``, found by NAME: a column's key (the
+    name of its parameter) is no proof of which column it is."""
+    return next((column for column in table.c if column.name == _TENANT_COLUMN), None)
+
+
+def _supplied_keys(statement: ValuesBase) -> list[Any] | None:
+    """The keys the statement's own ``.values()`` / ``.ordered_values()`` assign
+    (``ordered_values()`` keeps its pairs in ``_values`` since SQLAlchemy 2.1);
+    ``None`` when a row is positional (it assigns every column of the table by
+    position). An ``INSERT ... SELECT`` never gets here: it is not
+    ``persistence_shaped``."""
+    keys: list[Any] = list(statement._values or ())
+    for batch in statement._multi_values:
+        for row in batch:
+            if not isinstance(row, Mapping):
+                return None
+            keys.extend(row)
+    return keys
+
+
+def _supplies_tenant_id(statement: ValuesBase) -> bool:
+    """The statement's own values name (or may name) the ``tenant_id`` column,
+    resolved by column NAME, not by the key a value is passed under. The
+    persistence layer never does: it passes a column's value as an execution
+    parameter, and ``tenant_id`` only ever as the bound tenant. A caller-built
+    statement that sets the column itself (a literal, an expression, a key that
+    spells another column's name) is refused whatever its parameters say.
+    Fails closed for a key it cannot resolve and for a positional row."""
+    keys = _supplied_keys(statement)
+    if keys is None:
+        return True
+    table = statement.table
+    for key in keys:
+        if isinstance(key, ColumnClause):
+            name = str(key.name)
+        elif isinstance(key, str):
+            column = table.c.get(key)
+            name = key if column is None else str(column.name)
+        else:
+            return True
+        if name == _TENANT_COLUMN:
+            return True
+    return False
 
 
 def _columns_set_by_every_row(statement: ValuesBase) -> set[str]:
     """The columns EVERY row of ``statement.values(...)`` sets itself: their
-    SQL-expression defaults are never rendered. Nothing is known when the values
-    arrive with the execution (``insert(Model)`` with a parameter list) or as
-    positional rows, so the set is empty then and every default counts."""
+    SQL-expression defaults are never rendered (``ordered_values()`` pairs live in
+    ``_values``). An ``INSERT ... SELECT`` sets the columns of its target list.
+    Nothing is known when the values arrive with the execution (``insert(Model)``
+    with a parameter list) or as positional rows, so the set is empty then and
+    every default counts."""
+    if isinstance(statement, Insert) and statement.select is not None:
+        return _value_keys(statement._select_names or ())
     rows: list[Mapping[Any, Any] | Sequence[Any]] = []
     if statement._values:
         rows.append(statement._values)
@@ -621,13 +704,20 @@ def _flush_write_admitted(
       event listener wrote on the flush connection;
     * nothing it renders READS a tenant table (a default or ``onupdate``
       subquery would) or names one no scan can read;
+    * it is written over a ``Table`` OBJECT of a mapper whose event verified a row
+      of this flush (a second ``Table`` of the same name, with other columns or
+      another primary key, is none of them);
     * an INSERT writes a table a verified insert of this flush writes and, where
       that table has a ``tenant_id`` column, carries it EXPLICITLY, equal to the
       bound tenant, in every parameter set (a missing or computed value is no
       value);
-    * an UPDATE / DELETE pins its rows by primary key (``pk = :param``) and every
-      parameter set names a ``(table, primary key)`` the events verified in this
-      flush; an UPDATE never sets another tenant's ``tenant_id``.
+    * an UPDATE / DELETE pins its rows by primary key (``pk = :param``, the
+      column's own type) and every parameter set names a ``(table, primary key)``
+      the events verified in this flush; an UPDATE never sets another tenant's
+      ``tenant_id``;
+    * an INSERT / UPDATE never carries values of its own that name the
+      ``tenant_id`` column (:func:`_supplies_tenant_id`): the persistence layer
+      sets it through the parameters the checks above read.
     """
     window = _flush_window.get()
     tid = _current_tenant.get()
@@ -644,23 +734,32 @@ def _flush_write_admitted(
         return False
     table = statement.table
     if isinstance(statement, Insert):
-        if not (compiled.targets & names) <= window.tables:
+        if (
+            not isinstance(table, Table)
+            or table not in window.tables
+            or not (compiled.targets & names)
+            <= {str(verified.name).lower() for verified in window.tables}
+            or _supplies_tenant_id(statement)
+        ):
             return False
-        return "tenant_id" not in table.c or all(
-            row.get("tenant_id") == tid for row in params
-        )
+        tenant = _tenant_column(table)
+        return tenant is None or all(row.get(tenant.key) == tid for row in params)
     pins = compiled.row_pins
     if (
         pins is None
         or not isinstance(table, Table)  # row_pins is only set for a plain Table
-        or (isinstance(statement, Update) and _sets_tenant_id(statement))
+        or (isinstance(statement, Update) and _supplies_tenant_id(statement))
     ):
         return False
-    name = str(table.name).lower()
+    tenant = _tenant_column(table)
     return all(
         all(key in row for key in pins)
-        and (name, tuple(row[key] for key in pins)) in window.rows
-        and (not isinstance(statement, Update) or row.get("tenant_id", tid) == tid)
+        and (table, tuple(row[key] for key in pins)) in window.rows
+        and (
+            not isinstance(statement, Update)
+            or tenant is None
+            or row.get(tenant.key, tid) == tid
+        )
         for row in params
     )
 
@@ -904,7 +1003,7 @@ def _hidden_expressions(node: Any) -> Iterator[ClauseElement]:
     if isinstance(node, Values):
         # ``values(...).data([...])``: the rows are not children of the node
         yield from _row_expressions(node._data)
-    if isinstance(node, (Insert, Update)):
+    if isinstance(node, (Insert, Update)) and not _insert_select_without_defaults(node):
         yield from _table_default_expressions(
             node.table,
             onupdate=isinstance(node, Update),
@@ -1014,6 +1113,57 @@ def _mapper_table_names(mapper: Mapper[Any]) -> frozenset[str]:
         cached = frozenset(str(table.name).lower() for table in mapper.tables)
         _mapper_names_cache[mapper] = cached
     return cached
+
+
+_mapper_layout_cache: weakref.WeakKeyDictionary[
+    Mapper[Any], tuple[tuple[Table, tuple[int, ...]], ...]
+] = weakref.WeakKeyDictionary()
+
+
+def _mapper_row_layout(
+    mapper: Mapper[Any],
+) -> tuple[tuple[Table, tuple[int, ...]], ...]:
+    """For each ``Table`` ``mapper`` writes, where the columns of that table's
+    primary key sit in the mapper's identity key (memoized).
+
+    An identity key follows the MAPPER's ``primary_key`` order, the WHERE of a
+    statement the TABLE's: ``Mapper(primary_key=[b, a])`` over a table keyed
+    ``(a, b)`` reverses them. A table with a key column the mapper does not map
+    to one of its key properties is left out, so no statement over it is ever
+    admitted (it fails closed)."""
+    layout = _mapper_layout_cache.get(mapper)
+    if layout is None:
+        key_props = [mapper.get_property_by_column(col) for col in mapper.primary_key]
+        placed: list[tuple[Table, tuple[int, ...]]] = []
+        for table in mapper.tables:
+            try:
+                positions = [
+                    next(
+                        (
+                            i
+                            for i, key in enumerate(key_props)
+                            if key is mapper.get_property_by_column(column)
+                        ),
+                        -1,
+                    )
+                    for column in table.primary_key.columns
+                ]
+            except UnmappedColumnError:
+                continue
+            if isinstance(table, Table) and -1 not in positions:
+                placed.append((table, tuple(positions)))
+        layout = tuple(placed)
+        _mapper_layout_cache[mapper] = layout
+    return layout
+
+
+def _row_keys(
+    mapper: Mapper[Any], identity: Sequence[Any]
+) -> Iterator[tuple[Table, tuple[Any, ...]]]:
+    """``(table, primary key)`` of the row ``identity`` names in each table of
+    ``mapper``, the key in that table's own primary-key order."""
+    for table, positions in _mapper_row_layout(mapper):
+        yield table, tuple(identity[i] for i in positions)
 
 
 def _mapper_sql_reaches_raw_tenant(mapper: Mapper[Any]) -> bool:
@@ -1203,7 +1353,9 @@ def _install_flush_window() -> None:
     """Open a flush window around ``Session._flush``: the mapper events record
     in it which rows the flush may write (:func:`check_tenant_reach`). The
     instances it inserted are stamped when the flush SUCCEEDED: one that fails
-    (and rolls back) stamps nothing."""
+    (and rolls back) stamps nothing. A stamp lasts while the row can exist: the
+    session remembers the instances of its open root transaction
+    (:data:`_uncommitted_inserts`) until that transaction commits."""
     global _original_flush
     if _original_flush is not None:
         return
@@ -1217,8 +1369,11 @@ def _install_flush_window() -> None:
             original(self, objects)
         finally:
             _flush_window.reset(token)
-        for state, tenant in window.inserted.items():
-            state.info[_STAMP] = tenant
+        if window.inserted and self.in_transaction():
+            # no open transaction (it cannot happen after a flush): no stamp
+            _uncommitted_inserts.setdefault(self, []).extend(window.inserted)
+            for state, tenant in window.inserted.items():
+                state.info[_STAMP] = tenant
 
     _flush.__doc__ = original.__doc__
     Session._flush = _flush  # type: ignore[method-assign]
@@ -1481,11 +1636,13 @@ def _verified_flush_row(operation: str) -> Any:
         if window is None:
             return
         if operation == "insert":
-            window.tables.update(table_names)
+            window.tables.update(
+                table for table in mapper.tables if isinstance(table, Table)
+            )
             window.inserted[state] = tid
         else:
-            row_key = state.key[1]  # the committed primary key a WHERE pins
-            window.rows.update((name, row_key) for name in table_names)
+            # the committed primary key a WHERE pins, per table in its own key order
+            window.rows.update(_row_keys(mapper, state.key[1]))
 
     return handler
 
@@ -1497,8 +1654,7 @@ def _record_inserted_row(mapper: Mapper[Any], _connection: Any, state: Any) -> N
     window = _flush_window.get()
     if window is None or state not in window.inserted:
         return
-    row_key = tuple(mapper.primary_key_from_instance(state.obj()))
-    window.rows.update((name, row_key) for name in _mapper_table_names(mapper))
+    window.rows.update(_row_keys(mapper, mapper.primary_key_from_instance(state.obj())))
 
 
 def _forget_rolled_back_inserts(session: Session, previous_transaction: Any) -> None:
@@ -1510,6 +1666,25 @@ def _forget_rolled_back_inserts(session: Session, previous_transaction: Any) -> 
     inserts of its own savepoint."""
     for state in tuple(previous_transaction._new):
         if issubclass(state.class_, TenantScoped):
+            state.info.pop(_STAMP, None)
+
+
+def _commit_inserted_rows(session: Session) -> None:
+    """``after_commit``: the ROOT transaction committed, so the rows its flushes
+    inserted exist and their stamps stay. The event also fires when a savepoint
+    is released; then a nested transaction is still open and nothing is decided."""
+    if session.get_nested_transaction() is None:
+        _uncommitted_inserts.pop(session, None)
+
+
+def _forget_uncommitted_inserts(session: Session, transaction: Any) -> None:
+    """``after_transaction_end``: a ROOT transaction ended. Every insert still
+    listed (:data:`_uncommitted_inserts`) was never committed: ``session.close()``
+    rolls the database back WITHOUT ``after_soft_rollback``, and a stamp that
+    outlived the row would let the held instance, re-attached after another
+    tenant took its primary key, write or read that tenant's row."""
+    if transaction.parent is None:
+        for state in _uncommitted_inserts.pop(session, ()):
             state.info.pop(_STAMP, None)
 
 
@@ -1666,6 +1841,8 @@ def install_tenant_guard() -> None:  # noqa: C901
     # An insert's stamp waits for its flush to succeed (the ``_flush`` wrapper)
     # and goes with a rollback of the transaction that inserted the row.
     event.listen(Session, "after_soft_rollback", _forget_rolled_back_inserts)
+    event.listen(Session, "after_commit", _commit_inserted_rows)
+    event.listen(Session, "after_transaction_end", _forget_uncommitted_inserts)
     # Per-row re-verification inside the flush (every mapper: a non-TenantScoped
     # one over a tenant table is refused here), after any later before_flush.
     for operation in ("insert", "update", "delete"):

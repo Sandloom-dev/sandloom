@@ -35,6 +35,7 @@ from sqlalchemy import (
     func,
     insert,
     inspect,
+    literal,
     select,
     update,
 )
@@ -606,6 +607,70 @@ async def test_a_default_the_statement_sets_itself_is_never_rendered(
         await _run(
             env,
             insert(_Sink).values(id=uuid.uuid4(), value="v"),
+            env.tenant_a,
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_update_setting_the_column_through_ordered_values_renders_no_default(
+    env: _Env,
+) -> None:
+    """``ordered_values()`` keeps its pairs in ``_values`` (SQLAlchemy 2.1): the
+    column it sets leaves its ``onupdate`` unrendered, like ``values()``."""
+    await _run(
+        env,
+        update(_Sink)
+        .ordered_values((_Sink.value, "v"), (_Sink.stamped, "ordered"))
+        .where(_Sink.id == env.sink_id),
+        env.tenant_a,
+    )
+    stamped = await _scalar_unscoped(
+        env, select(_Sink.stamped).where(_Sink.id == env.sink_id)
+    )
+    assert stamped == "ordered"
+    # the control: an ordered update that omits the column renders the default
+    with pytest.raises(UnsafeTenantOperationError):
+        await _run(
+            env,
+            update(_Sink)
+            .ordered_values((_Sink.value, "w"))
+            .where(_Sink.id == env.sink_id),
+            env.tenant_a,
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_insert_from_select_renders_only_the_defaults_it_leaves_to_the_table(
+    env: _Env,
+) -> None:
+    """``from_select`` assigns the columns of its target list, and
+    ``include_defaults=False`` renders no client-side default at all."""
+    supplied, no_defaults = uuid.uuid4(), uuid.uuid4()
+    await _run(
+        env,
+        insert(_Sink).from_select(
+            ["id", "stamped"], select(literal(supplied, Uuid()), literal("chosen"))
+        ),
+        env.tenant_a,
+    )
+    await _run(
+        env,
+        insert(_Sink).from_select(
+            ["id"], select(literal(no_defaults, Uuid())), include_defaults=False
+        ),
+        env.tenant_a,
+    )
+    rows = await _unscoped(env, select(_Sink.id, _Sink.stamped))
+    assert {row.id: row.stamped for row in rows} == {
+        env.sink_id: "seed",
+        supplied: "chosen",
+        no_defaults: None,
+    }
+    # the control: a target list that omits the column, defaults on, renders it
+    with pytest.raises(UnsafeTenantOperationError):
+        await _run(
+            env,
+            insert(_Sink).from_select(["id"], select(literal(uuid.uuid4(), Uuid()))),
             env.tenant_a,
         )
 

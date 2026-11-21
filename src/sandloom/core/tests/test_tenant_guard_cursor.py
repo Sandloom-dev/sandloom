@@ -35,8 +35,10 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    TypeDecorator,
     Uuid,
     bindparam,
+    cast,
     column,
     delete,
     event,
@@ -262,6 +264,46 @@ class _Shadow:
 
 
 registry().map_imperatively(_Shadow, _SHADOW_TABLE)
+
+#: Second ``Table`` objects over the tenant table that no mapper owns (closure 2,
+#: N1): one declares ``other_id`` as its primary key, one swaps the KEYS of
+#: ``name`` and ``tenant_id`` (the parameter named ``tenant_id`` feeds ``name``).
+_FAKE_KEY_ITEMS = Table(
+    "tgcur_items",
+    MetaData(),
+    Column("id", Integer),
+    Column("other_id", Integer, primary_key=True),
+    Column("name", Text),
+    Column("tenant_id", Uuid),
+)
+_KEY_SWAPPED_ITEMS = Table(
+    "tgcur_items",
+    MetaData(),
+    Column("id", Integer, primary_key=True),
+    Column("name", Uuid, key="tenant_id"),
+    Column("tenant_id", Uuid, key="tid"),
+    Column("other_id", Integer),
+)
+
+#: A tenant model whose mapper lists its primary key in the REVERSE of the
+#: table's order: the identity key is ``(b, a)``, a statement's WHERE ``(a, b)``.
+REVERSED = Table(
+    "tgcur_reversed",
+    _Base.metadata,
+    Column("a", Integer, primary_key=True, autoincrement=False),
+    Column("b", Integer, primary_key=True, autoincrement=False),
+    Column("tenant_id", Uuid, nullable=False),
+    Column("note", Text),
+)
+
+
+class _Reversed(TenantScoped):
+    """Mapped imperatively with ``primary_key=[b, a]``."""
+
+
+registry(metadata=_Base.metadata).map_imperatively(
+    _Reversed, REVERSED, primary_key=[REVERSED.c.b, REVERSED.c.a]
+)
 
 
 class _Parent(_Base):
@@ -1982,3 +2024,490 @@ async def test_the_identity_lookup_of_an_expired_foreign_instance_is_refused(
             with pytest.raises(UnsafeTenantOperationError, match="column load"):
                 await session.get(_Item, B_ITEM_ID)  # expired: the refresh refuses
     await _assert_b_untouched(env)
+
+
+# ================================ final round (closure 2: N1 and N2) =============
+# N1: a flush write is admitted only when it is what the PERSISTENCE LAYER builds
+# over a ``Table`` a mapper verified in this flush. A listener (or a context-aware
+# Python default) runs Core on the flush connection while the window is open:
+# whatever the statement BRINGS (its own Table object, the types of its
+# parameters, values that name ``tenant_id``) must not be believed.
+_Hook = Callable[[Any, Any, Any], None]
+
+
+class _RewritesToB(TypeDecorator[int]):
+    """Turns whatever a parameter holds into tenant B's item id on the way to the
+    database: the raw value a guard reads is not the value the row is pinned by."""
+
+    impl = Integer
+    cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> int:
+        return B_ITEM_ID
+
+
+def _tenant_literal(tenant: uuid.UUID) -> Any:
+    """A tenant id as a SQL literal no execution parameter carries."""
+    return cast(literal_column(f"'{tenant.hex}'"), Uuid())
+
+
+def _n1_second_table_update(_env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            update(_FAKE_KEY_ITEMS)
+            .where(_FAKE_KEY_ITEMS.c.other_id == bindparam("p"))
+            .values(name="pwned-by-a-second-table"),
+            {"p": A_ITEM_ID},  # the verified id, but the ``other_id`` of B's row too
+        )
+
+    return hook
+
+
+def _n1_second_table_delete(_env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            delete(_FAKE_KEY_ITEMS).where(_FAKE_KEY_ITEMS.c.other_id == bindparam("p")),
+            {"p": A_ITEM_ID},
+        )
+
+    return hook
+
+
+def _n1_second_table_insert(env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        # a row that looks like tenant A's own, written through a Table no mapper owns
+        connection.execute(
+            insert(_FAKE_KEY_ITEMS),
+            {"id": 99, "other_id": 1, "name": "second-table", "tenant_id": env.a},
+        )
+
+    return hook
+
+
+def _n1_typed_pin(_env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            update(ITEMS)
+            .where(ITEMS.c.id == bindparam("p", type_=_RewritesToB()))
+            .values(name="pwned-by-a-typed-pin"),
+            {"p": A_ITEM_ID},  # verified; the database receives B's id
+        )
+
+    return hook
+
+
+def _n1_key_swapped_insert(env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        # the key ``tenant_id`` is the column ``name``; the tenant column is ``tid``
+        connection.execute(
+            insert(_KEY_SWAPPED_ITEMS).values(
+                id=98, tenant_id=env.a, tid=env.b, other_id=1
+            )
+        )
+
+    return hook
+
+
+def _n1_key_swapped_update(env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            update(_KEY_SWAPPED_ITEMS)
+            .where(_KEY_SWAPPED_ITEMS.c.id == bindparam("p"))
+            .values(tid=env.b),
+            {"p": A_ITEM_ID},
+        )
+
+    return hook
+
+
+def _n1_bind_named_tenant_id(env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        # the parameter NAMED tenant_id holds A; the column is set to B by a literal
+        connection.execute(
+            insert(ITEMS).values(
+                id=97,
+                tenant_id=_tenant_literal(env.b),
+                name=bindparam("tenant_id", type_=Uuid()),
+            ),
+            {"tenant_id": env.a},
+        )
+
+    return hook
+
+
+def _n1_bind_named_tenant_id_multi_values(env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            insert(ITEMS).values(
+                [
+                    {
+                        "id": 96,
+                        "tenant_id": _tenant_literal(env.b),
+                        "name": bindparam("tenant_id", type_=Uuid()),
+                    }
+                ]
+            ),
+            {"tenant_id": env.a},
+        )
+
+    return hook
+
+
+def _n1_insert_from_select(env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            insert(ITEMS).from_select(
+                ["id", "name", "tenant_id"],
+                select(
+                    literal(95),
+                    bindparam("tenant_id", env.a, type_=Uuid()),
+                    _tenant_literal(env.b),
+                ),
+            )
+        )
+
+    return hook
+
+
+def _n1_update_setting_tenant_id(env: _Env) -> _Hook:
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            update(ITEMS)
+            .where(ITEMS.c.id == bindparam("p"))
+            .values(tenant_id=_tenant_literal(env.b)),
+            {"p": A_ITEM_ID},
+        )
+
+    return hook
+
+
+def _n1_executemany_with_a_foreign_key(_env: _Env) -> _Hook:
+    """One verified key does not admit a second one riding in the same execution."""
+
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            update(ITEMS).where(ITEMS.c.id == bindparam("p")).values(name="pwned-many"),
+            [{"p": A_ITEM_ID}, {"p": B_ITEM_ID}],
+        )
+
+    return hook
+
+
+_N1_SHAPES: dict[str, tuple[str, Callable[[_Env], _Hook]]] = {
+    "UPDATE through a second Table of the same name keyed on other_id": (
+        "after_update",
+        _n1_second_table_update,
+    ),
+    "DELETE through a second Table of the same name keyed on other_id": (
+        "after_update",
+        _n1_second_table_delete,
+    ),
+    "INSERT through a second Table of the same name carrying the bound tenant": (
+        "after_insert",
+        _n1_second_table_insert,
+    ),
+    "UPDATE pinned by a parameter whose type rewrites the verified key": (
+        "after_update",
+        _n1_typed_pin,
+    ),
+    "INSERT through a Table whose column keys are swapped": (
+        "after_insert",
+        _n1_key_swapped_insert,
+    ),
+    "UPDATE through a Table whose column keys are swapped": (
+        "after_update",
+        _n1_key_swapped_update,
+    ),
+    "INSERT whose bind named tenant_id is not the tenant column": (
+        "after_insert",
+        _n1_bind_named_tenant_id,
+    ),
+    "multi-row VALUES whose bind named tenant_id is not the tenant column": (
+        "after_insert",
+        _n1_bind_named_tenant_id_multi_values,
+    ),
+    "INSERT ... SELECT whose bind named tenant_id feeds another column": (
+        "after_insert",
+        _n1_insert_from_select,
+    ),
+    "UPDATE of a verified row that sets tenant_id itself": (
+        "after_update",
+        _n1_update_setting_tenant_id,
+    ),
+    "executemany of a verified key and a foreign one": (
+        "after_update",
+        _n1_executemany_with_a_foreign_key,
+    ),
+}
+
+
+async def _flush_with(env: _Env, trigger: str, hook: _Hook, scope: Any) -> None:
+    """One legitimate flush of tenant A (``after_insert``: a new item 3,
+    ``after_update``: a rename of item 1) with ``hook`` run on its connection."""
+    event.listen(_Item, trigger, hook)
+    try:
+        async with env.maker() as session:
+            with scope:
+                if trigger == "after_insert":
+                    session.add(_Item(id=3, tenant_id=env.a, name="mine"))
+                else:
+                    mine = await session.get(_Item, A_ITEM_ID)
+                    assert mine is not None
+                    mine.name = "a-touched"
+                await session.commit()
+    finally:
+        event.remove(_Item, trigger, hook)
+
+
+async def _item_rows(env: _Env) -> dict[int, tuple[str, uuid.UUID]]:
+    rows = await _unscoped(env, select(ITEMS.c.id, ITEMS.c.name, ITEMS.c.tenant_id))
+    return {row.id: (row.name, row.tenant_id) for row in rows}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", list(_N1_SHAPES))
+async def test_a_flush_listener_cannot_write_through_what_its_statement_brings(
+    env: _Env, kind: str
+) -> None:
+    trigger, build = _N1_SHAPES[kind]
+    seed = await _item_rows(env)
+    with pytest.raises((UnsafeTenantOperationError, StatementError)) as raised:
+        await _flush_with(env, trigger, build(env), bind_tenant(env.a))
+    assert _is_refusal(raised.value)
+    assert await _item_rows(env) == seed  # the whole flush went with the refusal
+    # control: inside unscoped() the same listener does its damage, so the refusal
+    # above is the guard's (the parent row that references B's item goes first:
+    # PostgreSQL enforces the foreign key)
+    await _unscoped(env, delete(_Parent))
+    await _flush_with(env, trigger, build(env), unscoped())
+    flush_alone = dict(seed)
+    if trigger == "after_insert":
+        flush_alone[3] = ("mine", env.a)
+    else:
+        flush_alone[A_ITEM_ID] = ("a-touched", env.a)
+    assert await _item_rows(env) != flush_alone
+
+
+@pytest.mark.asyncio
+async def test_a_listener_update_of_the_row_being_flushed_by_its_key_is_admitted(
+    env: _Env,
+) -> None:
+    """The statement shape the persistence layer builds itself (a ``post_update``
+    pins the row it just inserted by ``pk = :param``) still runs: the Table is the
+    mapper's own and an untyped parameter takes the column's own type."""
+
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            update(ITEMS).where(ITEMS.c.id == bindparam("pk")).values(name="renamed"),
+            {"pk": 3},
+        )
+
+    await _flush_with(env, "after_insert", hook, bind_tenant(env.a))
+    assert (await _item_rows(env))[3] == ("renamed", env.a)
+
+
+@pytest.mark.asyncio
+async def test_a_primary_key_change_of_the_tenants_own_row_flushes(env: _Env) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            mine = await session.get(_Item, A_ITEM_ID)
+            assert mine is not None
+            mine.id = 50
+            await session.commit()
+    rows = await _item_rows(env)
+    assert rows[50] == ("a-name", env.a)
+    assert rows[B_ITEM_ID] == ("b-name", env.b)
+
+
+_SOME_TENANT = uuid.uuid4()
+
+
+@pytest.mark.parametrize(
+    ("label", "statement", "supplies"),
+    [
+        ("no values", insert(ITEMS), False),
+        ("another column", insert(ITEMS).values(name="x"), False),
+        ("the column by key", insert(ITEMS).values(tenant_id=_SOME_TENANT), True),
+        (
+            "the column by object",
+            insert(ITEMS).values({ITEMS.c.tenant_id: _SOME_TENANT}),
+            True,
+        ),
+        (
+            "a column of another Table object",
+            update(ITEMS).values({_FAKE_KEY_ITEMS.c.tenant_id: _SOME_TENANT}),
+            True,
+        ),
+        (
+            "ordered_values",
+            update(ITEMS).ordered_values(
+                (ITEMS.c.name, "x"), (ITEMS.c.tenant_id, _SOME_TENANT)
+            ),
+            True,
+        ),
+        (
+            "a multi-row VALUES",
+            insert(ITEMS).values(
+                [{"id": 1, "name": "x"}, {"id": 2, "tenant_id": _SOME_TENANT}]
+            ),
+            True,
+        ),
+        (
+            "a positional row",
+            insert(ITEMS).values([(1, "x", None, None, _SOME_TENANT)]),
+            True,
+        ),
+        (
+            "the key of the tenant column when its NAME is tenant_id elsewhere",
+            insert(_KEY_SWAPPED_ITEMS).values(tid=_SOME_TENANT),
+            True,
+        ),
+        (
+            "the key tenant_id that belongs to another column",
+            insert(_KEY_SWAPPED_ITEMS).values(tenant_id=_SOME_TENANT),
+            False,
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else "",
+)
+def test_the_values_a_statement_carries_name_the_tenant_column_by_name(
+    label: str, statement: Any, supplies: bool
+) -> None:
+    assert tenant_mod._supplies_tenant_id(statement) is supplies, label
+
+
+def test_the_tenant_column_of_a_table_is_found_by_name_not_by_key() -> None:
+    assert tenant_mod._tenant_column(ITEMS) is ITEMS.c.tenant_id
+    assert tenant_mod._tenant_column(_KEY_SWAPPED_ITEMS) is _KEY_SWAPPED_ITEMS.c.tid
+    assert tenant_mod._tenant_column(_Other.__table__) is None  # type: ignore[arg-type]
+
+
+def test_a_mapper_with_a_reversed_primary_key_lists_each_tables_key_in_table_order() -> (
+    None
+):
+    assert list(tenant_mod._row_keys(inspect(_Reversed), (2, 1))) == [
+        (REVERSED, (1, 2))
+    ]
+    # the single-column control
+    assert list(tenant_mod._row_keys(inspect(_Item), (7,))) == [(ITEMS, (7,))]
+
+
+@pytest.mark.asyncio
+async def test_a_reversed_composite_key_flushes_updates_and_deletes(env: _Env) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(_Reversed(a=1, b=2, tenant_id=env.a, note="first"))
+            await session.commit()
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            row = (await session.execute(select(_Reversed))).scalar_one()
+            row.note = "second"
+            await session.commit()
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            row = (await session.execute(select(_Reversed))).scalar_one()
+            assert row.note == "second"
+            await session.delete(row)
+            await session.commit()
+    assert await _unscoped(env, select(REVERSED.c.a)) == []
+
+
+@pytest.mark.asyncio
+async def test_a_listener_update_of_a_just_inserted_reversed_key_is_admitted(
+    env: _Env,
+) -> None:
+    """``after_insert`` records the key of the row it inserted in the table's own
+    order, so a later statement of the flush (a ``post_update``) may pin it."""
+
+    def hook(_mapper: Any, connection: Any, _target: Any) -> None:
+        connection.execute(
+            update(REVERSED)
+            .where(REVERSED.c.a == bindparam("pa"), REVERSED.c.b == bindparam("pb"))
+            .values(note="post-updated"),
+            {"pa": 1, "pb": 2},
+        )
+
+    event.listen(_Reversed, "after_insert", hook)
+    try:
+        async with env.maker() as session:
+            with bind_tenant(env.a):
+                session.add(_Reversed(a=1, b=2, tenant_id=env.a, note="first"))
+                await session.commit()
+    finally:
+        event.remove(_Reversed, "after_insert", hook)
+    notes = await _unscoped(env, select(REVERSED.c.note))
+    assert [row.note for row in notes] == ["post-updated"]
+
+
+# N2: a stamp lives while the row can exist. ``session.close()`` rolls the database
+# back without ``after_soft_rollback``, so the stamp of an insert that never
+# committed went on vouching for a primary key another tenant may now hold.
+async def _insert_that_never_commits(env: _Env, shape: str, key: int) -> _Item:
+    """Flush tenant A's item ``key`` in a transaction the session's close ends."""
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            ghost = _Item(id=key, tenant_id=env.a, name="ghost")
+            if shape == "flush":
+                session.add(ghost)
+                await session.flush()
+            else:
+                # a root-level write first: pysqlite opens its transaction only at
+                # the first DML, and RELEASE of a savepoint that opened it COMMITS
+                session.add(_Item(id=key + 1000, tenant_id=env.a, name="root"))
+                await session.flush()
+                async with session.begin_nested():
+                    session.add(ghost)
+                    await session.flush()
+    return ghost  # the session closed: no commit, no rollback call
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shape", ["flush", "released savepoint"])
+@pytest.mark.parametrize("write", ["update", "delete", "refresh"])
+async def test_a_closed_session_leaves_no_stamp_on_an_insert_that_never_committed(
+    env: _Env, shape: str, write: str
+) -> None:
+    ghost = await _insert_that_never_commits(env, shape, 5)
+    assert 5 not in await _item_rows(env)  # the row is gone
+    async with env.maker() as session:  # tenant B takes the primary key
+        with bind_tenant(env.b):
+            session.add(_Item(id=5, tenant_id=env.b, name="b-five"))
+            await session.commit()
+    before = await _item_rows(env)
+    assert before[5] == ("b-five", env.b)
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(ghost)  # detached, with its key (and, once, its stamp)
+            with pytest.raises(UnsafeTenantOperationError):
+                if write == "refresh":
+                    await session.refresh(ghost)  # would READ B's row
+                elif write == "update":
+                    ghost.name = "pwned"
+                    await session.commit()
+                else:
+                    await session.delete(ghost)
+                    await session.commit()
+    assert await _item_rows(env) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shape", ["flush", "released savepoint"])
+async def test_a_committed_insert_keeps_its_stamp_when_the_session_closes(
+    env: _Env, shape: str
+) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            kept = _Item(id=6, tenant_id=env.a, name="kept")
+            if shape == "flush":
+                session.add(kept)
+            else:
+                async with session.begin_nested():
+                    session.add(kept)
+                    await session.flush()
+            await session.commit()
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(kept)
+            kept.name = "renamed"
+            await session.commit()  # the row exists and the stamp says it is A's
+    assert (await _item_rows(env))[6] == ("renamed", env.a)
