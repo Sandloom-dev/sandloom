@@ -127,6 +127,29 @@ def test_the_family_owns_the_redis_urls_only(url: str, owned: bool) -> None:
         ("redis://h:6380/1", "redis://other:6380/1", False),
         ("redis://h:6380/1", "rediss://h:6380/1", False),
         ("redis://h:6380/1?x=1", "redis://h:6380/1", False),
+        # the host is case-insensitive, a trailing dot names the same host
+        ("redis://Redis.EXAMPLE:6380/1", "redis://redis.example:6380/1", True),
+        ("redis://redis.example.:6380/1", "redis://redis.example:6380/1", True),
+        ("redis://redis.example:6380/1", "redis://other.example:6380/1", False),
+        # no port is 6379
+        ("redis://h/1", "redis://h:6379/1", True),
+        ("redis://h:6379", "redis://H./0", True),
+        ("redis://h/1", "redis://h:6380/1", False),
+        # credentials stay part of the identity, and case-sensitive
+        ("redis://:Pw@h/1", "redis://:pw@h/1", False),
+        ("redis://:pw@H/1", "redis://:pw@h:6379/1", True),
+        # redis-py reads ?db=N over the path
+        ("redis://h/0?db=3", "redis://h/3", True),
+        ("redis://h/5?db=3", "redis://h/3", True),
+        ("redis://h/3?db=5", "redis://h/3", False),
+        ("redis://h?db=3", "redis://h/3?db=03", True),
+        (
+            "redis://h/3?db=",
+            "redis://h/3",
+            True,
+        ),  # an empty db is ignored, as redis-py does
+        ("redis://h/3?db=5&x=1", "redis://h/5?x=1", True),
+        ("redis://h/3?db=5&x=1", "redis://h/5", False),
     ],
 )
 def test_the_family_names_the_same_database(stated: str, base: str, same: bool) -> None:

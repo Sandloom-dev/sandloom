@@ -139,6 +139,53 @@ def test_the_layout_keeps_everything_but_the_index() -> None:
     assert redis_isolation.worker_redis_url(sock, 0, stride) == sock
 
 
+_DB_QUERY_URLS = [
+    "redis://h:6379/0?db=3",
+    "redis://h:6379?db=3",
+    "redis://:pw@h:6379/2?x=1&db=3",
+    "rediss://h:6379/1?db=3",
+]
+
+
+@pytest.mark.parametrize("url", _DB_QUERY_URLS)
+def test_the_mover_refuses_a_url_that_names_its_database_in_a_db_query(
+    url: str,
+) -> None:
+    """redis-py reads ``?db=N`` over the path: moving the path alone would leave
+    every worker on db N, so the URL is refused (never moved, never passed on)."""
+    with pytest.raises(ValueError, match="'db' query") as caught:
+        redis_isolation.worker_redis_url(url, 0, redis_isolation.DEFAULT_STRIDE)
+    assert "pw" not in str(caught.value)
+    with pytest.raises(ValueError, match="'db' query"):
+        redis_isolation.mapped_redis_url(url, 0, {0: [0, 1], 1: [2, 3], 2: [4, 5]})
+    layout = redis_isolation.WorkerLayout()
+    with pytest.raises(ValueError, match="'db' query"):
+        redis_isolation.moved_redis_url(url, 1, layout)
+
+
+def test_the_mover_moves_a_url_whose_other_query_options_are_not_db() -> None:
+    # `db=` empty is ignored by redis-py (the path decides), as are other keys
+    stride = redis_isolation.DEFAULT_STRIDE
+    for url in ("redis://h/1?db=", "redis://h/1?database=3&x=1"):
+        moved = redis_isolation.worker_redis_url(url, 0, stride)
+        assert moved.split("?")[0] == "redis://h/17"
+
+
+def test_the_redis_drivers_hook_refuses_a_db_query_url() -> None:
+    with pytest.raises(ValueError, match="'db' query"):
+        redis_cache.RedisCacheProvider.test_isolation(
+            {"url": "redis://h:6379/0?db=3"}, "gw1"
+        )
+
+
+def test_a_db_query_url_is_refused_where_the_run_claims_and_allocates_it() -> None:
+    infra = json.dumps({"cache": {"default": {"url": "redis://h:6379/0?db=3"}}})
+    with pytest.raises(ValueError, match="'db' query"):
+        redis_urls.infra_redis_urls(infra)
+    with pytest.raises(ValueError, match="'db' query"):
+        redis_family.FAMILY.slot_bases({"X": "redis://h:6379/0?db=3"}, "owner", {})
+
+
 def test_replacement_workers_get_the_spares_then_a_shared_slot(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

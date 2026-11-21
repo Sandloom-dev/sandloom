@@ -52,6 +52,7 @@ from sandloom_redis.testing.urls import (
     REDIS_SCHEMES,
     instance_redis_options,
     redis_client_installed,
+    refuse_db_query,
 )
 
 #: The name of this harness family (``RedisFamily.name``): the key of its URL
@@ -84,6 +85,7 @@ class WorkerLayout:
 
 
 def _plain_index(url: str) -> tuple[SplitResult, int] | None:
+    refuse_db_query(url)  # redis-py reads ?db=N over the path the mover rewrites
     parts = split_url(url)
     raw = parts.path.lstrip("/")
     try:

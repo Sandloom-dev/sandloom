@@ -17,7 +17,7 @@ import os
 import sys
 from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Protocol, runtime_checkable
-from urllib.parse import urlunsplit
+from urllib.parse import parse_qs, urlunsplit
 
 from sandloom.driverkit.testing_family import (
     INFRA_VAR,
@@ -32,7 +32,11 @@ from sandloom_redis.testing.urls import (
     is_redis_url,
     redis_client_installed,
     redis_urls,
+    refuse_db_query,
 )
+
+#: The port a ``redis://`` URL without one reaches.
+_DEFAULT_PORT = 6379
 
 
 @runtime_checkable
@@ -47,6 +51,25 @@ def _index(path: str) -> int | str:
     number is kept as text, so it matches only itself."""
     raw = path.strip("/") or "0"
     return int(raw) if raw.isdigit() else raw
+
+
+def _identity(url: str) -> tuple[object, ...]:
+    """What makes two Redis URLs the same database: scheme, credentials, host
+    (case and a trailing dot ignored), port (6379 when absent), the database
+    index as redis-py reads it (a non-empty ``db`` query wins over the path) and
+    the other query options."""
+    parts = split_url(url)
+    host = (parts.hostname or "").rstrip(".")
+    query = parse_qs(parts.query, keep_blank_values=True)
+    db = next((v for v in query.pop("db", []) if v), None)
+    return (
+        parts.scheme,
+        parts.netloc.rpartition("@")[0],
+        host,
+        parts.port or _DEFAULT_PORT,
+        _index(parts.path) if db is None else _index(db),
+        sorted((k, tuple(v)) for k, v in query.items()),
+    )
 
 
 class RedisFamily:
@@ -81,6 +104,8 @@ class RedisFamily:
         plain = [u for u in urls.values() if is_redis_url(u)]
         if not plain or not redis_client_installed():
             return {}  # no Redis URL, or no client: this run reaches no Redis
+        for url in plain:
+            refuse_db_query(url)
         from sandloom_redis.testing import isolation
 
         environ.setdefault(isolation.REDIS_STRIDE_ENV, "auto")
@@ -153,16 +178,13 @@ class RedisFamily:
         return is_redis_url(url)
 
     def same_database(self, stated: str, base: str) -> bool:
-        """Same scheme, authority, query and database index (a URL without a path
-        is database 0; ``/00`` and ``/0`` are the same index, as ``slot_bases``
-        reads them)."""
-        a, b = split_url(stated), split_url(base)
-        return (a.scheme, a.netloc, _index(a.path), a.query) == (
-            b.scheme,
-            b.netloc,
-            _index(b.path),
-            b.query,
-        )
+        """Same scheme, credentials, host, port and database index (a URL without
+        a path is database 0; ``/00`` and ``/0`` are the same index, as
+        ``slot_bases`` reads them; ``?db=N`` names the index as redis-py reads it,
+        over the path), and the same other query options. The host's case, a
+        trailing dot on it and the implicit port 6379 do not tell two URLs
+        apart."""
+        return _identity(stated) == _identity(base)
 
     def parallel_env(self) -> dict[str, str]:
         if not redis_client_installed():

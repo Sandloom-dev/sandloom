@@ -273,6 +273,10 @@ claims each URL the hook returns. The layout is the harness's: the fixed stride
 or the `auto` allocation. It hands the layout to the drivers before the hooks
 run, so a hook and the harness give one answer.
 
+A Redis test URL puts its database index in the path (`redis://host:6379/3`), never in a
+`db` query. The harness refuses `?db=N` with a `ValueError`, because redis-py reads the
+query over the path and moving the path would leave every worker on database N.
+
 The Celery `broker` of `taskqueue.default` moves with the same layout. Nothing else in the
 harness rewrites a URL.
 
@@ -313,7 +317,7 @@ group when the first hook runs and calls every family:
 | `cap_workers(values, count)` | `-n auto`: workers capped to what the backend has room for |
 | `flush_owned(provider)` | empty the test database behind a cache provider, when it is this family's and this run owns it |
 | `owns_url(url)` | a `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` override is merged into `INFRA`: only a URL some family owns is a target (the override value and the `INFRA` URL it replaces); none owning it is `UnmatchedOverrideError` |
-| `same_database(stated, base)` | the same merge, for every other declared instance: it takes the override too when its URL and the replaced one, both owned by this family, name one server and database (a URL that leaves the database out names the backend's default) |
+| `same_database(stated, base)` | the same merge, for every other declared instance: it takes the override too when its URL and the replaced one, both owned by this family, name one server and database (a URL that leaves the database out names the backend's default; the Redis family ignores the host's case, a trailing dot and the implicit port 6379) |
 | `parallel_env()` | `sandloom test` starts an xdist step: the environment this family needs of a parallel run, set unless the caller already set the names; `{}` when it needs none |
 
 A family missing any hook is refused when the harness loads it.
