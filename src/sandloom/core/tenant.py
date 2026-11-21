@@ -24,31 +24,13 @@ cross-tenant system work use the explicit ``unscoped()`` context.
 
 from __future__ import annotations
 
-import copy
 import uuid
-from collections.abc import Iterator
 from typing import Any
 
-from sqlalchemy import (
-    Column,
-    PrimaryKeyConstraint,
-    UniqueConstraint,
-    Uuid,
-    and_,
-    bindparam,
-    event,
-)
+from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, Uuid, bindparam, event
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
-from sqlalchemy.sql.elements import (
-    BindParameter,
-    ClauseElement,
-    ColumnClause,
-    Grouping,
-    TextClause,
-)
 from sqlalchemy.sql.selectable import Alias, SelectBase
-from sqlalchemy.util import immutabledict
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
@@ -210,9 +192,7 @@ def _references_tenant_scoped(statement: Any) -> bool:
     return verdict
 
 
-def _unsafe_core_reference(
-    statement: Any, allowed: frozenset[Any] = frozenset()
-) -> bool:
+def _unsafe_core_reference(statement: Any) -> bool:
     """Reject raw tenant sources while preserving ORM aliases and subqueries.
 
     SQLAlchemy also exposes an implicit *raw* FROM table for a selected ORM
@@ -220,24 +200,19 @@ def _unsafe_core_reference(
     a raw alias of that table is a different source and remains unsafe. Nested
     SELECTs establish a fresh scope so an ORM source in a subquery cannot bless
     a raw tenant table in the outer query.
-
-    ``allowed`` sources (an upsert's own ``excluded`` alias) are not unsafe;
-    a walk with ``allowed`` is not cached.
     """
 
-    key = None
-    if not allowed:
-        try:
-            cache_key = statement._generate_cache_key()
-            key = cache_key.key if cache_key is not None else None
-            if key is not None and key in _unsafe_core_cache:
-                return _unsafe_core_cache[key]
-        except Exception:  # noqa: BLE001 - an uncacheable statement is still checked
-            key = None
+    try:
+        cache_key = statement._generate_cache_key()
+        key = cache_key.key if cache_key is not None else None
+        if key is not None and key in _unsafe_core_cache:
+            return _unsafe_core_cache[key]
+    except Exception:  # noqa: BLE001 - an uncacheable statement is still checked
+        key = None
     walk = _UnsafeCoreWalk(_tenant_tables(), Alias, SelectBase)
 
     try:
-        verdict = walk.unsafe(statement, allowed)
+        verdict = walk.unsafe(statement, frozenset())
     except Exception:  # noqa: BLE001 - fail closed for opaque tenant SQL
         verdict = True
     if key is not None:
@@ -402,326 +377,14 @@ def _mutation_keys(state: Any) -> set[str]:
             keys.extend(row.keys())
     names: set[str] = set()
     for key in keys:
-        names.update(_key_names(key))
+        if isinstance(key, str):
+            names.add(key)
+        else:
+            for attr in ("key", "name"):
+                value = getattr(key, attr, None)
+                if isinstance(value, str):
+                    names.add(value)
     return names
-
-
-def _key_names(key: Any) -> list[str]:
-    """The column names a mutation key stands for: a string, or a column /
-    attribute through its ``key`` and ``name``."""
-    if isinstance(key, str):
-        return [key]
-    return [
-        value
-        for attr in ("key", "name")
-        if isinstance(value := getattr(key, attr, None), str)
-    ]
-
-
-#: Bound-parameter name of the bound tenant in the WHERE of a conflict
-#: insert's ``DO UPDATE`` (read from the context at execution, like
-#: :data:`TENANT_CRITERIA_PARAM`).
-UPSERT_TENANT_PARAM = "sandloom_upsert_tenant__"
-
-#: Bound-parameter name of the bound tenant in a conflict insert's
-#: ``tenant_id`` slot. Reserved: a statement holding another bind of that name
-#: is refused (see :func:`_refuse_reserved_binds`).
-BOUND_TENANT_PARAM = "sandloom_bound_tenant__"
-
-
-def _is_conflict_insert(statement: Any) -> bool:
-    """An INSERT that carries an ``ON CONFLICT`` clause (what
-    ``conflict_insert(Model)`` builds with ``.on_conflict_do_nothing()`` /
-    ``.on_conflict_do_update()``). A plain INSERT has none."""
-    return getattr(statement, "_post_values_clause", None) is not None
-
-
-def _owned_by(value: Any, tid: uuid.UUID) -> bool:
-    """``value`` (a ``uuid.UUID`` or its string form) is ``tid``."""
-    if isinstance(value, str):
-        try:
-            value = uuid.UUID(value)
-        except ValueError:
-            return False
-    return isinstance(value, uuid.UUID) and value == tid
-
-
-def _mismatch(model: str) -> UnsafeTenantOperationError:
-    return UnsafeTenantOperationError(
-        f"INSERT ... ON CONFLICT on TenantScoped model {model} carries a "
-        "tenant_id that is not the bound tenant's, or not a plain value; "
-        "leave tenant_id out (the bound tenant is used) or pass the bound "
-        "tenant's id as a plain value in .values()"
-    )
-
-
-def _is_tenant_key(key: Any) -> bool:
-    """``key`` of a ``.values()`` row names the ``tenant_id`` column. On an ORM
-    entity ``.values()`` resolves an attribute to its column, so another
-    attribute mapped onto ``tenant_id`` (a ``column_property`` of it) arrives
-    here as the ``tenant_id`` column too."""
-    return "tenant_id" in _key_names(key)
-
-
-def _checked_plain_tenant(value: Any, tid: uuid.UUID, model: str) -> None:
-    """``value`` of a ``tenant_id`` slot in ``.values()`` is the bound tenant's
-    id as a plain Python value, or refused. ``.values(tenant_id=x)`` wraps a
-    plain ``x`` into an internal bound parameter; a bind the caller built
-    (``bindparam``, ``literal``, a callable-valued one) and every other
-    expression is refused, whatever it holds."""
-    if isinstance(value, BindParameter):
-        if not value._is_crud or value.callable is not None:
-            raise _mismatch(model)
-        value = value.value
-    elif isinstance(value, ClauseElement):
-        raise _mismatch(model)
-    if not _owned_by(value, tid):
-        raise _mismatch(model)
-
-
-def _tenant_row(
-    row: Any, tid: uuid.UUID, model: str, slot: BindParameter[Any]
-) -> dict[Any, Any]:
-    """One row of a multi-row ``.values()`` whose ``tenant_id`` is ``slot``:
-    absent is set, the bound tenant's own plain value is replaced by ``slot``,
-    anything else is refused."""
-    if not isinstance(row, dict):
-        raise UnsafeTenantOperationError(
-            f"INSERT ... ON CONFLICT on TenantScoped model {model} takes its "
-            "rows as dicts so tenant ownership can be checked"
-        )
-    checked: dict[Any, Any] = {}
-    seen = False
-    for key, value in row.items():
-        if _is_tenant_key(key):
-            seen = True
-            _checked_plain_tenant(value, tid, model)
-            value = slot
-        checked[key] = value
-    if not seen:
-        checked["tenant_id"] = slot
-    return checked
-
-
-def _insert_nodes(stmt: Any) -> Iterator[Any]:
-    """Every clause node of an INSERT. SQLAlchemy's traversal of an INSERT does
-    not enter the values of a multi-row ``.values()``: those are walked too."""
-    yield from visitors.iterate(stmt)
-    for rows in stmt._multi_values or ():
-        for row in rows:
-            for value in row.values():
-                if isinstance(value, ClauseElement):
-                    yield from visitors.iterate(value)
-
-
-def _own_excluded(stmt: Any) -> frozenset[Any]:
-    """The statement's own ``excluded`` alias (``stmt.excluded``, the row a
-    ``DO UPDATE`` proposes) as the ``DO UPDATE`` clause references it: an alias
-    named ``excluded`` of the insert's target table, nothing else."""
-    clause = stmt._post_values_clause
-    if getattr(clause, "update_values_to_set", None) is None:
-        return frozenset()
-    return frozenset(
-        table
-        for node in visitors.iterate(clause)
-        if isinstance(table := getattr(node, "table", None), Alias)
-        and table.name == "excluded"
-        and table.element is stmt.table
-    )
-
-
-def _refuse_unscopable(stmt: Any, models: str) -> Any:
-    """Refuse what the guard cannot scope in an ``INSERT ... ON CONFLICT``;
-    returns the ``DO UPDATE`` assignments (``None`` for ``DO NOTHING``)."""
-    if getattr(stmt, "select", None) is not None or any(
-        isinstance(node, SelectBase) for node in _insert_nodes(stmt)
-    ):
-        raise UnsafeTenantOperationError(
-            f"INSERT ... ON CONFLICT on TenantScoped model {models} cannot "
-            "contain a SELECT (from_select or a subquery): it would read "
-            "rows the guard cannot scope"
-        )
-    clause = stmt._post_values_clause
-    updates = getattr(clause, "update_values_to_set", None)
-    if updates is None and type(clause).__name__ != "OnConflictDoNothing":
-        raise UnsafeTenantOperationError(
-            f"{type(clause).__name__} on TenantScoped model {models} cannot be "
-            "scoped to the bound tenant; use on_conflict_do_nothing / "
-            "on_conflict_do_update"
-        )
-    for key in updates or ():
-        column = _set_target(key, stmt.table)
-        if column is None:
-            raise UnsafeTenantOperationError(
-                f"ON CONFLICT DO UPDATE on TenantScoped model {models}: set_ key "
-                f"{key!r} is not a column of the table (use a column name, a "
-                "column of the model or a model attribute); the guard cannot "
-                "tell what else it would write"
-            )
-        if column is stmt.table.c.tenant_id:
-            raise UnsafeTenantOperationError(
-                "ON CONFLICT DO UPDATE cannot change TenantScoped.tenant_id"
-            )
-    if updates is not None:
-        _refuse_raw_sql(updates, clause.update_whereclause, models)
-    return updates
-
-
-def _is_raw_sql(node: Any) -> bool:
-    """A fragment that renders as written: ``text()``, or a column that belongs
-    to no table (``literal_column()`` and a bare ``column()``)."""
-    return isinstance(node, TextClause) or (
-        isinstance(node, ColumnClause) and node.table is None
-    )
-
-
-def _refuse_raw_sql(updates: Any, where: Any, models: str) -> None:
-    """Refuse raw SQL in the ``DO UPDATE`` values and ``WHERE``. PostgreSQL runs
-    it as written, so ``literal_column("'x', tenant_id = '<B>'")`` would write
-    another tenant's id and ``text("true OR true")`` would open the ``WHERE``;
-    the guard cannot tell what it does. Columns of the table, binds, functions
-    and the ``excluded`` row are not raw."""
-    parts = [where, *updates.values()]
-    for part in parts:
-        if not isinstance(part, ClauseElement):
-            continue
-        for node in visitors.iterate(part):
-            if _is_raw_sql(node):
-                raise UnsafeTenantOperationError(
-                    f"ON CONFLICT DO UPDATE on TenantScoped model {models}: raw "
-                    f"SQL ({type(node).__name__}) in set_ or where= could write "
-                    "or read another tenant's row; raw SQL in a tenant upsert "
-                    "needs unscoped()"
-                )
-
-
-def _set_target(key: Any, table: Any) -> Any:
-    """The column of ``table`` a ``set_`` key names, or ``None`` for every
-    other key. Allow-list: a ``str`` that is a key of ``table.c``, or a column
-    of ``table`` (a model attribute arrives as one). A ``literal_column``, an
-    unknown ``str`` and a column of another table are not: the PostgreSQL
-    compiler renders them anyway, verbatim, so ``literal_column("TENANT_ID")``
-    would write ``tenant_id``."""
-    if isinstance(key, str):
-        return table.c.get(key)
-    if isinstance(key, Column):
-        column = table.c.get(key.key)
-        if column is not None and column.shares_lineage(key):
-            return column
-    return None
-
-
-def _scope_insert_rows(
-    stmt: Any, tid: uuid.UUID, models: str, slot: BindParameter[Any]
-) -> Any:
-    """``stmt`` with every row's ``tenant_id`` the bound tenant, as ``slot``:
-    absent is set, the bound tenant's own plain value is replaced, another
-    value is refused (``.values()`` and every row of a multi-row
-    ``.values()``)."""
-    scoped = stmt._generate()
-    values = dict(stmt._values or {})
-    named = False
-    for key, value in values.items():
-        if _is_tenant_key(key):
-            named = True
-            _checked_plain_tenant(value, tid, models)
-            values[key] = slot
-    if named:
-        scoped._values = immutabledict(values)
-    multi: tuple[list[dict[Any, Any]], ...] = ()
-    for rows in stmt._multi_values or ():
-        multi += ([_tenant_row(row, tid, models, slot) for row in rows],)
-    if multi:
-        scoped._multi_values = multi
-    elif not named:
-        scoped = scoped.values(tenant_id=slot)
-    return scoped
-
-
-def _refuse_reserved_binds(
-    stmt: Any, reserved: list[BindParameter[Any]], models: str
-) -> None:
-    """Refuse any bound parameter of ``stmt`` that carries the name of a bind
-    the guard added (the ``tenant_id`` slot, the ``DO UPDATE`` scope) and is
-    not that bind itself. SQLAlchemy renders binds of one name once, so a
-    caller's bind of that name, in ``set_``, a ``WHERE`` or another column,
-    would replace the guard's value."""
-    owned = {bind.key: bind for bind in reserved}
-    for node in _insert_nodes(stmt):
-        if isinstance(node, BindParameter) and owned.get(node.key, node) is not node:
-            raise UnsafeTenantOperationError(
-                f"INSERT ... ON CONFLICT on TenantScoped model {models}: the "
-                f"bound-parameter name {node.key!r} is reserved for the bound "
-                "tenant"
-            )
-
-
-def _admit_conflict_insert(state: Any, tenant_mappers: list[Any]) -> None:
-    """Admit ``INSERT ... ON CONFLICT`` of a TenantScoped model for the bound
-    tenant, or refuse it.
-
-    * no tenant bound: refused;
-    * any execution parameters (a params dict or list, even an empty one) are
-      refused: the rows go in ``.values()``;
-    * every row's ``tenant_id`` in ``.values()`` is absent (the bound tenant is
-      set) or the bound tenant's id as a plain value; a bind, literal or
-      expression, and another tenant's id, are refused;
-    * the ``tenant_id`` slot is a bind under the reserved name
-      :data:`BOUND_TENANT_PARAM`, and the statement may hold no other bind of
-      that name (nor of :data:`UPSERT_TENANT_PARAM`): nothing can override it;
-    * ``DO UPDATE`` stays tenant-scoped: its WHERE gains
-      ``tenant_id = <bound tenant>``, so a conflict with another tenant's row
-      updates nothing, the caller's own condition grouped under it;
-      ``set_`` naming ``tenant_id`` is refused;
-    * raw SQL (``text()``, ``literal_column()``, a table-less ``column()``) in
-      the ``DO UPDATE`` values or ``WHERE`` is refused: it needs ``unscoped()``;
-    * ``from_select``, a subquery in the statement and an upsert clause this
-      guard cannot scope (any but ``DO NOTHING`` and ``DO UPDATE``) are
-      refused: those could read or write another tenant's rows.
-    """
-    models = _model_names(tenant_mappers)
-    tid = _current_tenant.get()
-    if tid is None:
-        raise UnsafeTenantOperationError(
-            f"INSERT ... ON CONFLICT on TenantScoped model {models} ran with no "
-            "tenant bound; bind a tenant, or use explicit unscoped() for "
-            "trusted system imports"
-        )
-    if state.parameters is not None:
-        raise UnsafeTenantOperationError(
-            f"INSERT ... ON CONFLICT on TenantScoped model {models} takes no "
-            "execution parameters (a params dict or list): pass the rows in "
-            ".values()"
-        )
-    stmt = state.statement
-    if _unsafe_core_reference(stmt, _own_excluded(stmt)):
-        raise UnsafeTenantOperationError(
-            "Core statements on TenantScoped tables cannot be automatically "
-            "scoped; use the ORM entity or explicit unscoped() for trusted "
-            "system access"
-        )
-    updates = _refuse_unscopable(stmt, models)
-    slot = bindparam(BOUND_TENANT_PARAM, value=tid, type_=Uuid())
-    scoped = _scope_insert_rows(stmt, tid, models, slot)
-    # Both names are reserved under DO NOTHING too (the scope bind is only
-    # attached to a DO UPDATE): a caller's bind of either is refused always.
-    scope = bindparam(
-        UPSERT_TENANT_PARAM, callable_=_tenant_criteria_value, type_=Uuid()
-    )
-    reserved = [slot, scope]
-    if updates is not None:
-        owned = stmt.table.c.tenant_id == scope
-        clause = copy.copy(stmt._post_values_clause)
-        existing = clause.update_whereclause
-        # An explicit Grouping: not every element parenthesises itself under
-        # AND (a custom construct renders ``a OR b`` bare), and the scope must
-        # stay outside whatever the caller's condition is.
-        clause.update_whereclause = (
-            owned if existing is None else and_(Grouping(existing), owned)
-        )
-        scoped._post_values_clause = clause
-    _refuse_reserved_binds(scoped, reserved, models)
-    state.statement = scoped
 
 
 def _reject_unsafe_bulk_mutation(state: Any) -> None:
@@ -882,11 +545,6 @@ def install_tenant_guard() -> None:  # noqa: C901
             if isinstance(mapper.class_, type)
             and issubclass(mapper.class_, TenantScoped)
         ]
-        if state.is_insert and tenant_mappers and _is_conflict_insert(state.statement):
-            # Runs its own Core-reference walk: the upsert's ``excluded`` alias
-            # is raw by construction and admitted there, nothing else is.
-            _admit_conflict_insert(state, tenant_mappers)
-            return
         if (
             state.is_select or state.is_update or state.is_delete or state.is_insert
         ) and _unsafe_core_reference(state.statement):

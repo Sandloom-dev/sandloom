@@ -105,56 +105,7 @@ scalar subqueries, eager-load options, and relationship lazy/`selectin` loads.
 `Session.get()` is covered too — an identity-map hit for another tenant's row
 is refused. Normal ORM inserts inherit the current tenant and reject a
 conflicting `tenant_id`. Bulk inserts and bulk ownership changes are reserved
-for explicit `unscoped()` system work, except the upsert below.
-
-### Upsert on a tenant-scoped model
-
-`conflict_insert(Model, session=...)` with `on_conflict_do_nothing()` or
-`on_conflict_do_update()` is admitted under a bound tenant, for that tenant's
-rows only, in one form: the rows are in `.values()`.
-
-- the statement runs with no execution parameters. A params dict or list, even
-  an empty one (`session.execute(stmt, rows)`), raises
-  `UnsafeTenantOperationError`. Pass the rows in `.values()`: one dict for one
-  row, a list of dicts for several;
-- a row without `tenant_id` gets the bound tenant. A `tenant_id` in `.values()`
-  must be the bound tenant's id as a plain Python value (a `UUID` or its
-  string). Another tenant's id raises `UnsafeTenantOperationError`. So does a
-  `bindparam`, a `literal()`, a callable or any expression, whatever it holds.
-  Another attribute mapped onto the `tenant_id` column counts as `tenant_id`;
-- `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`,
-  with your own `where=` condition grouped in parentheses before it. A conflict
-  on another tenant's row (a unique key that does not lead with `tenant_id`)
-  then updates nothing and inserts nothing;
-- `on_conflict_do_nothing` skips such a row without an error: check the result
-  when a skipped row matters;
-- `set_` may read the proposed row through `stmt.excluded`, for example
-  `{"name": stmt.excluded.name}`. Its keys must be columns of the model: a
-  column name or a model attribute. Any other key, such as `literal_column()`
-  or an unknown name, is refused. It never changes `tenant_id`: `set_` that
-  names it, or is the whole `stmt.excluded`, is refused;
-- with no tenant bound it raises `UnsafeTenantOperationError`.
-
-The `set_` values and the `where=` of a `DO UPDATE` hold no raw SQL. A `text()`
-or a `literal_column()` raises `UnsafeTenantOperationError`, and so does a
-`column()` without a table, wherever it sits in the expression. PostgreSQL runs
-raw SQL as written. It could write another tenant's id or open the `WHERE`. Use
-column expressions, binds and functions, or run the upsert inside `unscoped()`.
-
-`from_select`, a subquery in the statement and a plain `INSERT` without an
-`ON CONFLICT` clause stay refused. Pass the model class: the `Table` of a
-tenant model is a Core statement and stays refused. A `text()` in
-`index_where=` is the partial index's own predicate, not part of the
-`DO UPDATE`. It is admitted; only its binds are checked against the reserved
-names below.
-
-Once admitted, the `tenant_id` of each row is a bind named
-`sandloom_bound_tenant__` that holds the bound tenant. The `DO UPDATE` scope is
-a bind named `sandloom_upsert_tenant__`. Both names are reserved. The statement
-is refused when it holds any other bind of either name, wherever it sits: a
-column value, `set_`, `where=`, `index_where=`, `returning()` or `text()`.
-SQLAlchemy renders binds of one name once. The caller's value would replace the
-guard's.
+for explicit `unscoped()` system work.
 
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
 recognised tenant table is refused when it cannot be safely scoped, and

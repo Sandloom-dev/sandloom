@@ -325,23 +325,6 @@ await db().execute(stmt)
 The database of `session` (default: `db`) writes it; one without
 `ON CONFLICT` refuses (SANDLOOM-R015).
 
-On a `TenantScoped` model (pass the model class) the upsert needs a
-bound tenant and writes that tenant's rows only. Put the rows in
-`.values()`: execution parameters (`session.execute(stmt, rows)`) are
-refused. A row without `tenant_id` gets the bound tenant; a
-`tenant_id` must be the bound tenant's id as a plain value, and another
-tenant's id, a bind, a literal or an expression is refused
-(`UnsafeTenantOperationError`). `on_conflict_do_update` gains
-`tenant_id = <bound tenant>` in its `WHERE`, so a conflict with
-another tenant's row updates nothing. `set_` keys must be columns of the
-model (a name or an attribute) and cannot name `tenant_id`; the `set_`
-values and `where=` hold no raw SQL (`text()`, `literal_column()`;
-it needs `unscoped()`),
-a bind named `sandloom_bound_tenant__` is reserved, and `from_select`
-or a subquery is refused. Without
-`on_conflict_do_nothing` / `on_conflict_do_update` the statement is a
-plain INSERT, which stays forbidden on a tenant-scoped model.
-
 ### `ConflictInsert`
 
 ```python
