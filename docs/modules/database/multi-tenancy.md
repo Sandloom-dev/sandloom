@@ -105,7 +105,24 @@ scalar subqueries, eager-load options, and relationship lazy/`selectin` loads.
 `Session.get()` is covered too — an identity-map hit for another tenant's row
 is refused. Normal ORM inserts inherit the current tenant and reject a
 conflicting `tenant_id`. Bulk inserts and bulk ownership changes are reserved
-for explicit `unscoped()` system work.
+for explicit `unscoped()` system work, except the upsert below.
+
+### Upsert on a tenant-scoped model
+
+`conflict_insert(Model, session=...)` with `on_conflict_do_nothing()` or
+`on_conflict_do_update()` is admitted under a bound tenant, for that tenant's
+rows only:
+
+- a row without `tenant_id` gets the bound tenant; one that names another
+  tenant raises `UnsafeTenantOperationError`;
+- `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`.
+  A conflict on another tenant's row (a unique key that does not lead with
+  `tenant_id`) then updates nothing and inserts nothing;
+- with no tenant bound it raises `UnsafeTenantOperationError`;
+- `set_` that names `tenant_id`, `from_select`, a subquery in the statement
+  and a plain `INSERT` without an `ON CONFLICT` clause stay refused;
+- pass the model class: the `Table` of a tenant model is a Core statement and
+  stays refused.
 
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
 recognised tenant table is refused when it cannot be safely scoped, and

@@ -1398,6 +1398,10 @@ def conflict_insert(table: Any, *, session: AsyncSession) -> ConflictInsert:
     returns the insert of that session's database, with ``.values()``,
     ``.returning()`` and ``.excluded``. A database without ``ON CONFLICT``
     refuses with :class:`UnsupportedSqlForm`.
+
+    On a ``TenantScoped`` model the tenant guard admits the statement once it
+    has ``.on_conflict_do_nothing()`` / ``.on_conflict_do_update()``, for the
+    bound tenant's rows only (``sandloom.core.tenant._admit_conflict_insert``).
     """
     return conflict_insert_for(session, table)
 

@@ -134,7 +134,7 @@ used to give, use the portable form; on PostgreSQL each renders the same SQL.
 | an email or another value compared without case | `CaseInsensitiveText` |
 | an index over some rows, or unique among them | `partial_index(name, *columns, where=..., unique=...)` |
 | substring search, `column.ilike("%term%")` | `search_index(name, *columns)` |
-| insert unless the row exists, or insert or update | `conflict_insert(Model).on_conflict_do_nothing(...)`, `.on_conflict_do_update(...)` |
+| insert unless the row exists, or insert or update | `conflict_insert(Model).on_conflict_do_nothing(...)`, `.on_conflict_do_update(...)` (on a `TenantScoped` model: [for the bound tenant's rows](multi-tenancy.md#upsert-on-a-tenant-scoped-model)) |
 | one transaction at a time through a section | `await transaction_lock(key)` |
 
 All but `Uuid` come from `sandloom.sdk.data`, and the two statements run on

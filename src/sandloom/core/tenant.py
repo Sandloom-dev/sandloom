@@ -24,12 +24,21 @@ cross-tenant system work use the explicit ``unscoped()`` context.
 
 from __future__ import annotations
 
+import copy
 import uuid
 from typing import Any
 
-from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, Uuid, bindparam, event
+from sqlalchemy import (
+    PrimaryKeyConstraint,
+    UniqueConstraint,
+    Uuid,
+    and_,
+    bindparam,
+    event,
+)
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
+from sqlalchemy.sql.elements import BindParameter
 from sqlalchemy.sql.selectable import Alias, SelectBase
 
 from sandloom.core import error_codes
@@ -377,14 +386,172 @@ def _mutation_keys(state: Any) -> set[str]:
             keys.extend(row.keys())
     names: set[str] = set()
     for key in keys:
-        if isinstance(key, str):
-            names.add(key)
-        else:
-            for attr in ("key", "name"):
-                value = getattr(key, attr, None)
-                if isinstance(value, str):
-                    names.add(value)
+        names.update(_key_names(key))
     return names
+
+
+def _key_names(key: Any) -> list[str]:
+    """The column names a mutation key stands for: a string, or a column /
+    attribute through its ``key`` and ``name``."""
+    if isinstance(key, str):
+        return [key]
+    return [
+        value
+        for attr in ("key", "name")
+        if isinstance(value := getattr(key, attr, None), str)
+    ]
+
+
+#: Bound-parameter name of the bound tenant in the WHERE of a conflict
+#: insert's ``DO UPDATE`` (read from the context at execution, like
+#: :data:`TENANT_CRITERIA_PARAM`).
+UPSERT_TENANT_PARAM = "sandloom_upsert_tenant__"
+
+
+def _is_conflict_insert(statement: Any) -> bool:
+    """An INSERT that carries an ``ON CONFLICT`` clause (what
+    ``conflict_insert(Model)`` builds with ``.on_conflict_do_nothing()`` /
+    ``.on_conflict_do_update()``). A plain INSERT has none."""
+    return getattr(statement, "_post_values_clause", None) is not None
+
+
+def _owned_by(value: Any, tid: uuid.UUID) -> bool:
+    """``value`` (a plain value or a literal bound parameter) is ``tid``."""
+    if isinstance(value, BindParameter):
+        value = value.value
+    if isinstance(value, str):
+        try:
+            value = uuid.UUID(value)
+        except ValueError:
+            return False
+    return isinstance(value, uuid.UUID) and value == tid
+
+
+def _is_unset(value: Any) -> bool:
+    """A tenant_id of ``None`` (a plain value or a literal bound parameter)
+    stands for an absent one, as on the ORM add path."""
+    if isinstance(value, BindParameter):
+        return value.value is None and value.callable is None
+    return value is None
+
+
+def _mismatch(model: str) -> UnsafeTenantOperationError:
+    return UnsafeTenantOperationError(
+        f"INSERT ... ON CONFLICT on TenantScoped model {model} carries a "
+        "tenant_id that is not the bound tenant's; leave tenant_id out (the "
+        "bound tenant is used) or pass the bound tenant's id"
+    )
+
+
+def _tenant_row(row: Any, tid: uuid.UUID, model: str) -> dict[Any, Any]:
+    """One INSERT row with its ``tenant_id`` the bound tenant: absent or
+    ``None`` is set, another tenant's id is refused."""
+    if not isinstance(row, dict):
+        raise UnsafeTenantOperationError(
+            f"INSERT ... ON CONFLICT on TenantScoped model {model} takes its "
+            "rows as dicts so tenant ownership can be checked"
+        )
+    checked: dict[Any, Any] = {}
+    seen = False
+    for key, value in row.items():
+        if "tenant_id" in _key_names(key):
+            seen = True
+            if _is_unset(value):
+                value = tid
+            elif not _owned_by(value, tid):
+                raise _mismatch(model)
+        checked[key] = value
+    if not seen:
+        checked["tenant_id"] = tid
+    return checked
+
+
+def _refuse_unscopable(stmt: Any, models: str) -> Any:
+    """Refuse what the guard cannot scope in an ``INSERT ... ON CONFLICT``;
+    returns the ``DO UPDATE`` assignments (``None`` for ``DO NOTHING``)."""
+    if getattr(stmt, "select", None) is not None or any(
+        isinstance(node, SelectBase) for node in visitors.iterate(stmt)
+    ):
+        raise UnsafeTenantOperationError(
+            f"INSERT ... ON CONFLICT on TenantScoped model {models} cannot "
+            "contain a SELECT (from_select or a subquery): it would read "
+            "rows the guard cannot scope"
+        )
+    clause = stmt._post_values_clause
+    updates = getattr(clause, "update_values_to_set", None)
+    if updates is None and type(clause).__name__ != "OnConflictDoNothing":
+        raise UnsafeTenantOperationError(
+            f"{type(clause).__name__} on TenantScoped model {models} cannot be "
+            "scoped to the bound tenant; use on_conflict_do_nothing / "
+            "on_conflict_do_update"
+        )
+    if updates is not None and any("tenant_id" in _key_names(key) for key in updates):
+        raise UnsafeTenantOperationError(
+            "ON CONFLICT DO UPDATE cannot change TenantScoped.tenant_id"
+        )
+    return updates
+
+
+def _scope_insert_rows(state: Any, stmt: Any, tid: uuid.UUID, models: str) -> Any:
+    """``stmt`` with every row's ``tenant_id`` the bound tenant (rows are
+    checked in ``.values()``, a multi-row ``.values()`` and the execution
+    parameters, which are replaced on ``state``)."""
+    scoped = stmt._generate()
+    for key, value in (stmt._values or {}).items():
+        if "tenant_id" in _key_names(key) and not (
+            _is_unset(value) or _owned_by(value, tid)
+        ):
+            raise _mismatch(models)
+    if stmt._multi_values:
+        scoped._multi_values = tuple(
+            [_tenant_row(row, tid, models) for row in rows]
+            for rows in stmt._multi_values
+        )
+    elif state.parameters:
+        params = state.parameters
+        if isinstance(params, (list, tuple)):
+            state.parameters = [_tenant_row(row, tid, models) for row in params]
+        else:
+            state.parameters = _tenant_row(params, tid, models)
+    else:
+        scoped = scoped.values(tenant_id=tid)
+    return scoped
+
+
+def _admit_conflict_insert(state: Any, tenant_mappers: list[Any]) -> None:
+    """Admit ``INSERT ... ON CONFLICT`` of a TenantScoped model for the bound
+    tenant, or refuse it.
+
+    * no tenant bound: refused;
+    * every row's ``tenant_id`` is absent (the bound tenant is set) or the
+      bound tenant's; another tenant's id is refused;
+    * ``DO UPDATE`` stays tenant-scoped: its WHERE gains
+      ``tenant_id = <bound tenant>``, so a conflict with another tenant's row
+      updates nothing; ``set_`` naming ``tenant_id`` is refused;
+    * ``from_select``, a subquery in the statement and an upsert clause this
+      guard cannot scope (any but ``DO NOTHING`` and ``DO UPDATE``) are
+      refused: those could read or write another tenant's rows.
+    """
+    models = _model_names(tenant_mappers)
+    tid = _current_tenant.get()
+    if tid is None:
+        raise UnsafeTenantOperationError(
+            f"INSERT ... ON CONFLICT on TenantScoped model {models} ran with no "
+            "tenant bound; bind a tenant, or use explicit unscoped() for "
+            "trusted system imports"
+        )
+    stmt = state.statement
+    updates = _refuse_unscopable(stmt, models)
+    scoped = _scope_insert_rows(state, stmt, tid, models)
+    if updates is not None:
+        owned = stmt.table.c.tenant_id == bindparam(
+            UPSERT_TENANT_PARAM, callable_=_tenant_criteria_value, type_=Uuid()
+        )
+        clause = copy.copy(stmt._post_values_clause)
+        existing = clause.update_whereclause
+        clause.update_whereclause = owned if existing is None else and_(existing, owned)
+        scoped._post_values_clause = clause
+    state.statement = scoped
 
 
 def _reject_unsafe_bulk_mutation(state: Any) -> None:
@@ -556,6 +723,9 @@ def install_tenant_guard() -> None:  # noqa: C901
                 "system access"
             )
         if state.is_insert and tenant_mappers:
+            if _is_conflict_insert(state.statement):
+                _admit_conflict_insert(state, tenant_mappers)
+                return
             raise UnsafeTenantOperationError(
                 "bulk INSERT of TenantScoped models is forbidden; use ORM "
                 "instances so tenant ownership is enforced, or explicit "
