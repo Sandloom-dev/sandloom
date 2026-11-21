@@ -781,11 +781,7 @@ _HOSTILE = f"redis://user:{_SECRET}@host{chr(0xFF03)}x:6379/1"
 
 def _hostile_calls() -> dict[str, Any]:
     from sandloom_redis import broadcast
-    from sandloom_redis.testing import (
-        family,
-        isolation,
-        resources,
-    )
+    from sandloom_redis.testing import isolation, resources
 
     return {
         "broadcast prefix": lambda: broadcast._database_prefix(_HOSTILE),
