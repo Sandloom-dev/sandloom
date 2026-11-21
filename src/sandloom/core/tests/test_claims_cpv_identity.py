@@ -326,7 +326,7 @@ OLD_MAP: dict[str, Any] = {"roles": ID}
 NEW_MAP: dict[str, Any] = {
     "roles": Authority(ACME, previous=Authority("identity", module=ID))
 }
-LIFETIME, LEEWAY = 900.0, 10.0
+LIFETIME = 900.0
 
 
 def _token(owner: str, path: str) -> dict[str, Any]:
@@ -352,9 +352,7 @@ def _verifier(
 
 
 def _roles_reason(payload: dict[str, Any], policy: ClaimAuthorities) -> str | None:
-    view.apply_view(
-        payload, policy, now=NOW, lifetime_seconds=LIFETIME, leeway_seconds=LEEWAY
-    )
+    view.apply_view(payload, policy)
     return view.untrusted_reasons(payload).get("roles")
 
 

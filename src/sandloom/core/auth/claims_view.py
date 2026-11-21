@@ -19,18 +19,16 @@ three parts (the one condition of decision 3):
 3. **verified source:** A's short name is in ``claims_sources`` and not in
    ``claims_sources_failed``.
 
-A token without ``cpv`` is checked against parts 1 and 3 only while the
-verifier runs the bounded compatibility mode (``legacy_tokens``, G-RISK-14):
-its ``iat`` before ``until``, its ``exp - iat`` within
-``ACCESS_TOKEN_EXPIRE_MINUTES``, and the time before the window end
-(``until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS``).
+A token without ``cpv`` gives no rights for a protected key: there is no
+compatibility mode (ADR-0014 decision 4, stage 3 always; the bounded
+``legacy_tokens`` mode was removed 2026-11-21).
 
 Reasons (:data:`OUTDATED` and :data:`MISMATCH` are indeterminate, the others
 a definite deny):
 
-* :data:`OUTDATED` (401 ``token_policy_outdated``): the token has no ``cpv``
-  outside the compatibility mode, or names for K a digest this map does not
-  accept and was issued before the map took effect: one refresh fixes it;
+* :data:`OUTDATED` (401 ``token_policy_outdated``): the token has no ``cpv``,
+  or names for K a digest this map does not accept and was issued before the
+  map took effect: one refresh fixes it;
 * :data:`MISMATCH` (503 ``claims_policy_mismatch``, logged at ERROR): the
   token was issued after the map took effect and still names another digest:
   issuer and verifier disagree, a refresh would loop;
@@ -45,7 +43,6 @@ from __future__ import annotations
 
 import logging
 import sys
-import time
 from collections.abc import Callable, Iterable, Mapping
 from functools import partial
 from typing import Any
@@ -72,9 +69,6 @@ SOURCE_ABSENT = "authority_absent"
 #: The reasons a refresh or a retry may change (an indeterminate decision).
 INDETERMINATE_REASONS: frozenset[str] = frozenset({OUTDATED, MISMATCH})
 
-#: Every acceptance of a token without ``cpv`` in the compatibility mode.
-LEGACY_METRIC = "claims_policy_legacy_tokens_total"
-
 #: The kernel test authority (a test composition only, the pytest plugin):
 #: its provenance name is not a valid module short name (a hyphen), so no
 #: module can be stamped under it. A token whose ``cpv`` is
@@ -85,12 +79,6 @@ TEST_AUTHORITY = "sandloom-test"
 TEST_CPV = "sandloom-test"
 
 _test_composition: list[bool] = [False]
-_INF = float("inf")
-
-
-def legacy_metric_name(key: str) -> str:
-    """The counter of compatibility-mode acceptances of ``key``."""
-    return f'{LEGACY_METRIC}{{key="{key}"}}'
 
 
 def enable_test_authority() -> None:
@@ -136,19 +124,13 @@ def _log_once(kind: str, key: str, value: Any) -> None:
             key,
             label,
         )
-    elif kind == OUTDATED:
+    else:
         logger.warning(
             "claim policy: a token minted under another policy names cpv "
             "%s=%s; the claim is untrusted until the client refreshes "
             "(token_policy_outdated, 401)",
             key,
             label,
-        )
-    else:
-        logger.warning(
-            "claim policy: a token without cpv was trusted for %r in the "
-            "legacy_tokens compatibility mode (G-RISK-14)",
-            key,
         )
 
 
@@ -194,36 +176,20 @@ def _time(payload: Mapping[str, Any], key: str) -> float:
         return 0.0
 
 
-def _reading(
-    payload: Mapping[str, Any],
-    policy: ClaimAuthorities,
-    now: float,
-    lifetime_seconds: float,
-    leeway_seconds: float,
-) -> tuple[Mapping[str, Any] | None, bool, float]:
-    """How the token's ``cpv`` is read: ``(entries, digestless, valid_until)``.
+def _reading(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None, bool]:
+    """How the token's ``cpv`` is read: ``(entries, digestless)``.
 
     ``entries`` are the per-key digests of a ``cpv`` token (``None``: none);
     ``digestless`` means parts 1 and 3 decide alone (a test-kit token in a
-    test composition, or a token without ``cpv`` inside the compatibility
-    window, whose end is then ``valid_until``).
+    test composition only).
     """
     cpv = payload.get(CPV_CLAIM)
     if isinstance(cpv, dict) and cpv.get("v") == CPV_VERSION:
         found = cpv.get("k")
-        return (found if isinstance(found, dict) else {}), False, _INF
+        return (found if isinstance(found, dict) else {}), False
     if _test_composition[0] and cpv == TEST_CPV:
-        return None, True, _INF
-    if CPV_CLAIM in payload:
-        return None, False, _INF
-    until = policy.legacy_until
-    if until is None:
-        return None, False, _INF
-    window_end = until + lifetime_seconds + leeway_seconds
-    iat, exp = _time(payload, "iat"), _time(payload, "exp")
-    if now < window_end and iat < until and 0 < exp - iat <= lifetime_seconds:
-        return None, True, window_end
-    return None, False, _INF
+        return None, True
+    return None, False
 
 
 def _test_authority_token(
@@ -255,32 +221,19 @@ def _selector_reasons(
         untrusted.update(dict.fromkeys(selectors, grant))
 
 
-def apply_view(
-    payload: dict[str, Any],
-    policy: ClaimAuthorities,
-    *,
-    now: float,
-    lifetime_seconds: float,
-    leeway_seconds: float,
-) -> tuple[float, tuple[str, ...]]:
+def apply_view(payload: dict[str, Any], policy: ClaimAuthorities) -> None:
     """Reduce the verified ``payload`` to its trusted view, in place.
 
-    Returns ``(valid_until, legacy_keys)``: the time from which the view must
-    be recomputed (the compatibility window's end when it trusted a key, else
-    infinity) and the keys it trusted in the compatibility mode (counted by
-    the caller). A token other than an access token is left as it is.
+    A token other than an access token is left as it is.
     """
     payload.pop(UNTRUSTED_KEY, None)
     if payload.get("token_type") != "access":
-        return _INF, ()
+        return
     sources = _names(payload.get("claims_sources"))
     failed = _names(payload.get("claims_sources_failed"))
     if _test_authority_token(payload, sources, failed):
-        return _INF, ()
-    entries, digestless, valid_until = _reading(
-        payload, policy, now, lifetime_seconds, leeway_seconds
-    )
-    legacy = valid_until != _INF
+        return
+    entries, digestless = _reading(payload)
     reason_of = partial(
         _key_reason,
         policy=policy,
@@ -291,15 +244,11 @@ def apply_view(
         issued_before=_time(payload, "iat") < policy.effective_at,
     )
     untrusted: dict[str, str] = {}
-    legacy_keys: list[str] = []
     for key in policy.protected:
         if key in payload:
             reason = reason_of(key)
             if reason is not None:
                 untrusted[key] = reason
-            elif legacy:
-                legacy_keys.append(key)
-                _log_once("legacy", key, None)
         elif entries is None and not digestless and key in policy.accepted:
             # An old token: a policy needing the key gets 401, never 403.
             untrusted[key] = OUTDATED
@@ -308,67 +257,6 @@ def apply_view(
         for key in untrusted:
             payload.pop(key, None)
         payload[UNTRUSTED_KEY] = untrusted
-    return valid_until, tuple(legacy_keys)
-
-
-#: The compatibility mode as diagnostics show it (G-RISK-14).
-LEGACY_OFF = "off"
-LEGACY_ON = "on"
-LEGACY_ENDED = "ended"
-
-
-def _utc(timestamp: float) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
-
-
-def legacy_accepted(metrics: Mapping[str, Any]) -> dict[str, int]:
-    """Per key, the compatibility-mode acceptances this process counted
-    (:data:`LEGACY_METRIC`), from the facade's metrics."""
-    prefix = f'{LEGACY_METRIC}{{key="'
-    out: dict[str, int] = {}
-    for name, value in metrics.items():
-        counted = isinstance(value, (int, float))
-        if counted and name.startswith(prefix) and name.endswith('"}'):
-            out[name[len(prefix) : -2]] = int(value)
-    return dict(sorted(out.items()))
-
-
-def legacy_tokens_state(
-    policy: ClaimAuthorities,
-    *,
-    now: float,
-    lifetime_seconds: float,
-    leeway_seconds: float,
-    metrics: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """The ``legacy_tokens`` mode for ``/diagnostics/core`` and ``sandloom
-    doctor`` (ADR-0014 decision 4, G-RISK-14).
-
-    ``mode`` is ``off`` (no ``legacy_tokens``: a token without ``cpv`` gives
-    no rights), ``on`` (until the window end, ``until +
-    ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS``) or ``ended`` (the
-    argument is still written, the mode is off by itself). ``accepted``
-    counts, per key, the tokens without ``cpv`` this process trusted.
-    ``cpv_version`` is the claim policy version this release stamps and
-    checks (the adoption release gate of the deploy-profile check, T014).
-    """
-    state: dict[str, Any] = {
-        "mode": LEGACY_OFF,
-        "cpv_version": CPV_VERSION,
-        "accepted": legacy_accepted(metrics or {}),
-    }
-    until = policy.legacy_until
-    if until is None:
-        return state
-    window_end = until + lifetime_seconds + leeway_seconds
-    state.update(
-        mode=LEGACY_ON if now < window_end else LEGACY_ENDED,
-        risk="G-RISK-14",
-        until=_utc(until),
-        window_end=_utc(window_end),
-        seconds_left=max(0, int(window_end - now)),
-    )
-    return state
 
 
 def untrusted_reasons(claims: Mapping[str, Any]) -> Mapping[str, str]:
@@ -407,10 +295,6 @@ def platform_admission(roles: Any, untrusted: Mapping[str, str]) -> None:
 
 __all__ = [
     "INDETERMINATE_REASONS",
-    "LEGACY_ENDED",
-    "LEGACY_METRIC",
-    "LEGACY_OFF",
-    "LEGACY_ON",
     "MISMATCH",
     "OUTDATED",
     "SOURCE_ABSENT",
@@ -420,9 +304,6 @@ __all__ = [
     "UNTRUSTED_KEY",
     "apply_view",
     "enable_test_authority",
-    "legacy_accepted",
-    "legacy_metric_name",
-    "legacy_tokens_state",
     "outdated_or_mismatch",
     "platform_admission",
     "test_authority_enabled",

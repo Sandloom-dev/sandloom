@@ -17,8 +17,9 @@ console's ``platform_operator`` and ``TenantScope``.
   order answers 503 ``claims_policy_mismatch``, never a 401 a refresh cannot
   fix);
 * the one-service sequence (issuer and verifier in one process);
-* the initial enablement, stages 1-3 and rollback, split and mono with mixed
-  old / new replicas (``legacy_tokens``, G-RISK-14);
+* the initial enablement (stage 3, no compatibility mode), split and mono
+  with mixed old / new replicas: a token without ``cpv`` gives no rights and
+  one refresh fixes it;
 * every client refreshes at most once per step change.
 
 The monolith rows of the same matrix are ``test_claims_view.py`` (the view
@@ -86,7 +87,7 @@ OK = dict.fromkeys(GATES, 200)
 ROLES_401 = {**dict.fromkeys(GATES[:4], 401), "/tenant": 200}
 ROLES_503 = {**dict.fromkeys(GATES[:4], 503), "/tenant": 200}
 ROLES_403 = {**dict.fromkeys(GATES[:4], 403), "/tenant": 200}
-#: Every protected key untrusted: a token without ``cpv``, no window.
+#: Every protected key untrusted: a token without ``cpv``.
 ALL_401 = dict.fromkeys(GATES, 401)
 
 
@@ -235,7 +236,6 @@ def verifier(
     mapping: dict[str, Any],
     *,
     deployed_at: float | None = None,
-    legacy_until: float | None = None,
     loaded: dict[str, str] | None = None,
 ) -> CoreFacade:
     """A verifying process (by default a service running neither authority)
@@ -248,7 +248,6 @@ def verifier(
         dataclasses.replace(
             policy,
             effective_at=time.time() if deployed_at is None else deployed_at,
-            legacy_until=legacy_until,
         )
     )
     return core
@@ -463,71 +462,57 @@ async def test_one_service_issuer_and_verifier_never_loops(
     assert client.refreshes == 1
 
 
-# --- the initial enablement (legacy_tokens, G-RISK-14) ------------------------
+# --- the initial enablement: stage 3 only (no compatibility mode) -------------
 @pytest.mark.asyncio
 @pytest.mark.parametrize("placement", ["split", "mono"])
-async def test_the_initial_enablement_stages_and_rollback(
+async def test_a_token_without_cpv_gives_no_rights_and_one_refresh_fixes_it(
     issuers: Callable[..., Issuer], placement: str
 ) -> None:
-    """Stages 1 -> 3 and back with the previous release's token. ``mono``:
-    one rolling deploy of three replicas, old (O) and new (N) mixed, each
-    issuer and verifier; ``split``: a verifier running neither authority."""
+    """The previous release's token (no ``cpv``) is refused wherever a gate
+    needs the key, at every verifier (``mono``: a rolling deploy of three
+    replicas, old (O) and new (N) mixed; ``split``: a verifier running
+    neither authority); one refresh at a new issuer returns a token that
+    reads."""
     user = uuid4()
     old, new = issuers(ID, old=True), issuers(ID)
-    until = time.time() + 3600
     loaded = {"identity": ID} if placement == "mono" else None
     t0 = await old.mint(user)
-    # stage 1 (+2 in a monolith: one deploy learns and stamps): N verifiers
-    # in the compatibility mode; replicas O, N, N. No 401 for any token.
-    stage1 = verifier(roles_map(ID), legacy_until=until, loaded=loaded)
+    verifier_ = verifier(roles_map(ID), loaded=loaded)
     replicas = [old, new, new] if placement == "mono" else [old, new]
     for issuer in replicas:
-        token = await issuer.mint(user)
-        assert await statuses(stage1, token) == OK, issuer.old
-    assert await statuses(stage1, t0) == OK
-    assert stage1.get_metric(view.legacy_metric_name("roles"))
-    # The old token without its authority in claims_sources gives no rights.
+        expected = ALL_401 if issuer.old else OK
+        assert await statuses(verifier_, await issuer.mint(user)) == expected, (
+            issuer.old
+        )
+    assert await statuses(verifier_, t0) == ALL_401
+    # Without its authority in claims_sources the token is no better.
     sourceless = await old.mint(user, claims_sources=["grants"])
-    assert await statuses(stage1, sourceless) == ROLES_403
-    # stage 3: legacy_tokens removed; one 401 and one refresh per client.
-    stage3 = verifier(roles_map(ID), loaded=loaded)
+    assert await statuses(verifier_, sourceless) == ALL_401
+    # One 401 and one refresh per client, then every gate answers.
     client = Client(user, t0)
     for gate in GATES:
-        assert await client.call(stage3, new, gate) == 200, gate
+        assert await client.call(verifier_, new, gate) == 200, gate
     assert client.refreshes == 1
-    # rollback 3 -> 2: verifiers redeployed with legacy_tokens: T0 reads again.
-    back = verifier(roles_map(ID), legacy_until=until, loaded=loaded)
-    assert await statuses(back, t0) == OK
-    # 2 -> 1: issuers back to O; the compatibility mode reads both.
-    assert await statuses(back, await old.mint(user)) == OK
-    assert await statuses(back, await new.mint(user)) == OK
 
 
 @pytest.mark.asyncio
-async def test_the_window_bounds_hold_on_real_tokens(
+async def test_a_long_lived_token_without_cpv_is_no_better(
     issuers: Callable[..., Issuer],
 ) -> None:
-    """A token without ``cpv`` issued at or after ``until``, or living longer
-    than ``ACCESS_TOKEN_EXPIRE_MINUTES``, gives no rights, ``legacy_tokens``
-    still written; inside the window the same claims read.
-
-    ``until`` in the past is the ``iat >= until`` bound (the token is minted
-    now), not the window END (``until + lifetime + leeway``): that one is
-    ``test_claims_window_end.py``, the view's clock controlled."""
+    """The bounds the removed compatibility mode checked (``iat``, lifetime)
+    open nothing: a token without ``cpv`` gives no rights, whatever its
+    lifetime."""
     user = uuid4()
     old = issuers(ID, old=True)
-    now = time.time()
-    issued_after_until = verifier(roles_map(ID), legacy_until=now - 5)
-    assert await statuses(issued_after_until, await old.mint(user)) == ALL_401
-    open_ = verifier(roles_map(ID), legacy_until=now + 3600)
+    verifier_ = verifier(roles_map(ID))
     claims = await old.claims(user)
     long_lived = tokens.create_access_token(
         {"sub": str(user), "token_type": "access"},
         expires_delta=settings.access_token_expire_minutes + 5,
         claims=sealed_claims({**claims, "cpv": None}),
     )
-    assert await statuses(open_, long_lived) == ALL_401
-    assert await statuses(open_, await old.mint(user)) == OK
+    assert await statuses(verifier_, long_lived) == ALL_401
+    assert await statuses(verifier_, await old.mint(user)) == ALL_401
 
 
 def test_the_stage_maps_are_the_root_maps() -> None:
