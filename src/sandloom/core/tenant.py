@@ -399,19 +399,18 @@ class ReachRecorder(SQLCompiler):
         # the statement is rendered inside ``super().__init__``
         self.reads: set[str] = set()
         self.targets: set[str] = set()
-        self.custom = False
         super().__init__(*args, **kwargs)
-        if self.custom and self.string:
-            # a ``@compiles`` function returns SQL no ``visit_*`` hook saw: read
-            # the rendered string as an opaque fragment
-            self.reads |= _identifiers(self.string)
 
     def process(self, obj: visitors.Visitable, **kwargs: Any) -> str:
+        rendered = super().process(obj, **kwargs)
         # ``sqlalchemy.ext.compiler.compiles`` sets this class attribute on an
-        # element that carries its own renderer; SQLAlchemy declares no type for it
+        # element that carries its own renderer (SQLAlchemy declares no type for
+        # it). Its function returns SQL no ``visit_*`` hook saw: read the
+        # fragment it rendered, and only that one (the statement's own target
+        # table is not a read of it), as an opaque fragment.
         if hasattr(obj, "_compiler_dispatcher"):
-            self.custom = True
-        return super().process(obj, **kwargs)
+            self.reads |= _identifiers(rendered)
+        return rendered
 
     def visit_table(self, table: TableClause, **kw: Any) -> str:  # type: ignore[override]
         (self.targets if kw.get("iscrud") else self.reads).add(str(table.name).lower())

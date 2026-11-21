@@ -334,7 +334,8 @@ guarantees:
     the schema ignored. The stamp is private, and a caller-supplied parameter for the tenant criterion, in
     the execution or from a later listener, is refused, executemany and streams included. The refusal is
     UnsafeTenantOperationError under a bound tenant and MissingTenantError with none. ORM statements over
-    tenant models and statements that name no tenant table stay allowed.
+    tenant models, flush writes whose default is a custom @compiles element that reads no table, and
+    statements that name no tenant table stay allowed. The test harness's schema reset runs inside unscoped().
   sources:
   - docs/modules/database/multi-tenancy.md
   - docs/adr/0018-tenant-guard-at-the-cursor.md
@@ -355,6 +356,8 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_bulk_path_that_reaches_a_tenant_table_is_refused
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_flush_through_a_shadow_mapper_cannot_plant_a_row
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_shadow_table_cannot_be_read_through_the_session
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_custom_compiled_default_that_reads_no_table_flushes
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_the_harness_schema_reset_runs_over_tenant_tables
 - id: G-TENANT-26
   statement: A flush UPDATE or DELETE, and the load of a deferred, expired or polymorphic column, runs
     only for an instance whose tenant_id was read from the database under the bound tenant (the load and

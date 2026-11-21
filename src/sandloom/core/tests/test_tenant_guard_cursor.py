@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator, Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,7 @@ from sqlalchemy import (
     values,
 )
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.exc import IntegrityError, StatementError
+from sqlalchemy.exc import DBAPIError, IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -76,7 +77,7 @@ from sqlalchemy.orm import (
     with_polymorphic,
 )
 from sqlalchemy.sql.base import Executable
-from sqlalchemy.sql.elements import ClauseElement
+from sqlalchemy.sql.elements import ClauseElement, ColumnElement
 
 from sandloom.core import tenant as tenant_mod
 from sandloom.core.di import (
@@ -89,6 +90,7 @@ from sandloom.core.di import (
 from sandloom.core.orm import TenantScoped
 from sandloom.core.sql_alchemy.write_admission import install_write_admission
 from sandloom.core.tenant import TENANT_CRITERIA_PARAM
+from sandloom.core.testing import database as harness
 from sandloom.core.testing import reload_test_env
 
 A_ITEM_ID = 1
@@ -319,6 +321,53 @@ class _CtxSink(_Base):
     )
     note: Mapped[str | None] = mapped_column(
         Text, nullable=True, onupdate=_steal_through_the_flush_connection
+    )
+
+
+class _Ticked(ColumnElement[str]):
+    """A custom ``@compiles`` expression that reads no table."""
+
+    inherit_cache = True
+    type = Text()
+
+
+class _CopiesB(ColumnElement[str]):
+    """A custom ``@compiles`` expression that reads tenant B's secret."""
+
+    inherit_cache = True
+    type = Text()
+
+
+@compiles(_Ticked)
+def _render_ticked(element: Any, compiler: Any, **kw: Any) -> str:
+    return "'ticked'"
+
+
+@compiles(_CopiesB)
+def _render_copies_b(element: Any, compiler: Any, **kw: Any) -> str:
+    return f"(SELECT secret FROM tgcur_items WHERE id = {B_ITEM_ID})"
+
+
+class _Stamped(TenantScoped, _Base):
+    """Tenant-scoped, with a custom default and onupdate that read no table."""
+
+    __tablename__ = "tgcur_stamped"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    touched: Mapped[str | None] = mapped_column(
+        Text, nullable=True, default=_Ticked(), onupdate=_Ticked()
+    )
+
+
+class _CustomSink(_Base):
+    """Not tenant-scoped; a custom ``@compiles`` default that reads a tenant table."""
+
+    __tablename__ = "tgcur_custom_sinks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stolen: Mapped[str | None] = mapped_column(
+        Text, nullable=True, default=_CopiesB(), onupdate=_CopiesB()
     )
 
 
@@ -1125,12 +1174,35 @@ async def test_a_tenant_joined_inheritance_subclass_inserts_updates_and_deletes(
             await session.commit()
 
 
+@pytest.mark.asyncio
+async def test_a_custom_compiled_default_that_reads_no_table_flushes(env: _Env) -> None:
+    """A ``@compiles`` element renders SQL no ``visit_*`` hook sees, so the cursor
+    reads the fragment it rendered. The statement's own target table is not part
+    of that fragment: an INSERT, an UPDATE (``onupdate``) and a DELETE of a row
+    whose default is such an element are flush writes like any other
+    (projecthub's ``PATCH`` with ``updated_at = clock_timestamp()``)."""
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            stamped = _Stamped(id=1, name="n")
+            session.add(stamped)
+            await session.commit()
+            stamped.name = "m"
+            await session.commit()
+            await session.refresh(stamped)
+            assert (stamped.name, stamped.touched) == ("m", "ticked")
+            await session.delete(stamped)
+            await session.commit()
+    rows = await _unscoped(env, select(func.count()).select_from(_Stamped))
+    assert rows[0][0] == 0
+
+
 # B5 - B7, FP3: a rendered default that reads a tenant table, at the flush cursor
 _SINK_MODELS: dict[str, Any] = {
     "a raw SQL-expression default": _RawSink,
     "a text() default": _TextSink,
     "a literal_column() default": _LiteralSink,
     "a Python default running Core on the flush connection": _CtxSink,
+    "a custom @compiles default": _CustomSink,
 }
 
 
@@ -1308,3 +1380,41 @@ async def test_a_merge_of_another_tenants_row_still_writes_nothing(env: _Env) ->
             with pytest.raises(IntegrityError):
                 await session.flush()
     await _assert_b_untouched(env)
+
+
+# ------------------------------------ the test harness's own reset statements ---
+async def _reset_that_fails(*args: Any, **kwargs: Any) -> None:
+    raise DBAPIError("reset", None, RuntimeError("boom"))
+
+
+#: the reset path -> what to break so the harness takes it
+_RESET_PATHS = ("dirty tables", "a table over the row limit", "all tables", "rebuild")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bound", [False, True])
+@pytest.mark.parametrize("path", _RESET_PATHS)
+async def test_the_harness_schema_reset_runs_over_tenant_tables(
+    env: _Env, monkeypatch: pytest.MonkeyPatch, path: str, bound: bool
+) -> None:
+    """``reset_schema`` probes, ``DELETE``s, ``TRUNCATE``s and rebuilds every table of
+    a metadata, the tenant-owned ones included, with a tenant bound or not: the
+    harness's own system work, so the cursor rule does not refuse it. (Without
+    ``unscoped()`` around it every test after the first failed in any app with a
+    ``TenantScoped`` model.)"""
+    metadata = _Base.metadata
+    await harness.reset_schema(env.engine, metadata)  # builds; later ones empty
+    async with env.maker() as session:
+        with unscoped():
+            session.add(_Item(id=9, tenant_id=env.a, name="x"))
+            await session.commit()
+    if path == "a table over the row limit":
+        monkeypatch.setattr(harness, "DELETE_ROW_LIMIT", 0)  # TRUNCATE on PostgreSQL
+    if path in ("all tables", "rebuild"):
+        monkeypatch.setattr(harness, "_truncate_dirty", _reset_that_fails)
+    if path == "rebuild":
+        monkeypatch.setattr(harness, "_truncate_all", _reset_that_fails)
+    with bind_tenant(env.a) if bound else nullcontext():
+        await harness.reset_schema(env.engine, metadata)
+    rows = await _unscoped(env, select(func.count()).select_from(_Item))
+    assert rows[0][0] == 0

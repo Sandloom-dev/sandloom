@@ -57,6 +57,7 @@ import sandloom.core.sql_alchemy.models.audit  # noqa: F401
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.nesting import pin_test_host
 from sandloom.core.sql_alchemy.portable import is_plain_index
+from sandloom.core.tenant_context import unscoped
 from sandloom.core.testing._driver_seams import (
     build_disposable_engine,
     schema_reset_for,
@@ -107,7 +108,18 @@ async def _truncate_all(engine: AsyncEngine, metadata: MetaData) -> None:
 
 
 async def reset_schema(engine: AsyncEngine, metadata: MetaData) -> None:
-    """Leave every table of ``metadata`` present and empty, sequences rewound."""
+    """Leave every table of ``metadata`` present and empty, sequences rewound.
+
+    The reset's own SQL (the dirty-table probe, ``DELETE``, ``TRUNCATE``, the
+    sequence rewind) names every table, the tenant-owned ones too: system work
+    on a disposable test database, never a tenant's statement. It runs inside
+    ``unscoped()``, so the cursor's tenant rule (ADR-0018) does not refuse it.
+    """
+    with unscoped(reason="test harness schema reset"):
+        await _reset_schema(engine, metadata)
+
+
+async def _reset_schema(engine: AsyncEngine, metadata: MetaData) -> None:
     key = _key(engine, metadata)
     reset = schema_reset_for(engine)
     if key in _built and metadata.sorted_tables:

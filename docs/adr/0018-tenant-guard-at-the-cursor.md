@@ -115,6 +115,11 @@ outlive its block. Two `sandloom check` rules say it for business modules.
   recorded reason and a way out: `unscoped()`, or the ORM entity.
 - A flush writes a loaded instance as before. An instance built by `merge(load=False)` or by
   unpickling needs a load first, or `unscoped()`.
+- The test harness's schema reset (`sandloom.core.testing.database.reset_schema`) names every
+  table of a disposable test database in its probe, `DELETE`, `TRUNCATE` and sequence rewind. It
+  runs inside `unscoped()`. A custom `@compiles` element is read for the fragment it returns, not
+  for the statement around it, so a flush `UPDATE` whose `onupdate` is such an element still names
+  only its own target.
 - The mapper events add a listener call to each flushed instance, and the load events one
   dictionary write to each loaded instance.
 - Some seams stay with the caller or with the database, in the order they are named:
