@@ -71,7 +71,7 @@ and take it from the marker if you do not have it.
 Who took part in a task — and so may not accept it — is read off the actors
 on its claims and submissions, so the actor is not cosmetic. An actor is a
 **role**: the program of the harness (`claude`, `opencode`, `pi`, `codex`,
-`agy`) or a name given on purpose, and any number of sessions sign as one. A
+`agy`, `kimi`) or a name given on purpose, and any number of sessions sign as one. A
 session is not leased a role; what a session holds is its claims. Over MCP, a
 server signs as its `--actor`, else as the program of its harness. On the CLI,
 a call in a harness session signs as that harness's role, and `--actor <name>`
