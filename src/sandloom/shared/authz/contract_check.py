@@ -885,10 +885,10 @@ def _absence_proven(ctx: AuthzContext, key: str, owner: str) -> bool:
       ``claims_sources`` and not in ``claims_sources_failed``;
     * the token's ``cpv`` entry for ``key`` is a digest the verifier accepts
       for ``owner`` (the issuer's policy is the verifier's). A token without
-      a ``cpv`` (a legacy token, the bounded compatibility window) proves
-      nothing. In a test composition a test-kit token is read as the view
-      reads it: vouched for by the kernel test authority, or its stated
-      provenance checked without a digest.
+      a ``cpv`` (a token minted before ``cpv`` existed) proves nothing. In a
+      test composition a test-kit token is read as the view reads it:
+      vouched for by the kernel test authority, or its stated provenance
+      checked without a digest.
 
     The caller has already ruled out a value, a view removal and a failed
     authority.

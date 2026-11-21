@@ -2154,9 +2154,11 @@ guarantees:
     answers 401 token_policy_outdated where one refresh fixes it, 503 claims_policy_mismatch where issuer
     and verifier disagree, else 403. require_platform_admin and the platform console''s operator gate share
     one admission: roles admin from the trusted view, never from a source named identity (ADR-0014 decision
-    3).'
+    3). A token without a usable cpv gives no rights for a protected key, whatever its iat and whether or
+    not the authority ran at its mint: there is no compatibility mode (ADR-0014 decision 4, stage 3 always).'
   sources:
   - 'docs/adr/0014-claims-trust-and-authorization-portability.md#3. Read: one trusted view per verified token'
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#4. `cpv` per key, with an issuer × verifier rollout and rollback matrix'
   tests:
   - src/sandloom/core/tests/test_claims_view.py::test_the_one_condition_trusts_the_current_authority
   - src/sandloom/core/tests/test_claims_view.py::test_a_part_missing_drops_the_key
@@ -2166,6 +2168,12 @@ guarantees:
   - src/sandloom/core/tests/test_claims_view.py::test_the_negative_rows_at_step_2
   - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_status
   - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_admits_a_trusted_admin_whatever_the_issuer_is_named
+  - src/sandloom/core/tests/test_claims_view.py::test_a_cpv_that_is_not_the_current_version_is_outdated
+  - src/sandloom/core/tests/test_claims_view.py::test_a_token_without_cpv_is_outdated_even_for_an_authority_that_ran
+  - src/sandloom/core/tests/test_claims_view.py::test_a_token_without_cpv_is_outdated_even_for_absent_keys
+  - src/sandloom/core/tests/test_claims_view.py::test_a_token_without_cpv_gives_no_rights
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_a_token_without_cpv_gives_no_rights_and_one_refresh_fixes_it
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_a_long_lived_token_without_cpv_is_no_better
   - tests/integration/replaceability/test_trust_rows.py::test_t1_the_assigned_replacement_issuer_grants_rights
   - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_key_change_steps_and_rollback_in_split
   - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_negative_rows_at_step_2
@@ -2229,8 +2237,7 @@ guarantees:
     contributors (claims_contributors). Subscribed, Feature and WithinLimit answer the trusted view's indeterminate for
     their key (401 token_policy_outdated, 503 claims_policy_mismatch), and read "authority failed at the
     mint" from the verifier's map. An installed previous= authority carries its own module name, and the
-    verifier marker covers the owner names. At and after the compatibility window's end a token without cpv
-    gives no rights at any gate (Role, Perm, require_platform_admin, platform_operator, TenantScope on a
+    verifier marker covers the owner names. A token without cpv gives no rights at any gate (Role, Perm, require_platform_admin, platform_operator, TenantScope on a
     forged tenant; Role | AlwaysAllow allows, ~Role never), and TenantScope never answers a grant the view
     dropped (ADR-0014 amendments "W2+W3 review fixes" and "no claim value from the caller").
   sources:
@@ -2248,8 +2255,7 @@ guarantees:
   - src/sandloom/core/tests/test_claims_trust.py::test_a_previous_authority_named_unlike_its_installed_module_is_refused
   - src/sandloom/core/tests/test_claims_trust.py::test_the_verifier_marker_covers_the_owners
   - src/sandloom/core/tests/test_claims_trust.py::test_a_key_the_authority_omitted_is_never_a_foreign_writers
-  - src/sandloom/core/tests/test_claims_window_end.py::test_at_and_after_the_window_end_no_token_without_cpv_gives_rights
-  - src/sandloom/core/tests/test_claims_window_end.py::test_inside_the_window_the_accepted_risk_reads_and_the_source_check_holds
+  - src/sandloom/core/tests/test_claims_no_cpv_gates.py::test_no_token_without_cpv_gives_rights_at_any_gate
   gap: 'A forged duck-typed issuer_session (or uncommitted rows in the issuer''s own tables) passed with
     the issuer''s contributor still yields the claims it forged: deliberate forgery or write access to the
     issuer''s tables, the bar of reading the JWT key (hostile in-process code, C-a6). T-9''s previous-release token is simulated (the current merge without cpv), not
@@ -5527,32 +5533,6 @@ guarantees:
   - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_admits_the_accepted_risk_outside_the_strict_profile
   - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_leaves_development_tests_and_postgresql_alone
   startup_checks: development_database_config_problem at create_app / enforce_configuration
-- id: G-RISK-14
-  statement: 'The legacy_tokens compatibility mode of the initial cpv enablement (ADR-0014 decision 4)
-    is an accepted temporary security risk, bounded and never extended by the framework: until is a required
-    absolute UTC time, the end of the actual transition (the last old issuer stopped), with no default,
-    setting or environment variable; a token without cpv is accepted only with iat before until and exp
-    - iat at most ACCESS_TOKEN_EXPIRE_MINUTES, and still only per key from an allowed authority that ran
-    and was kept; from the window end, until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS, the mode
-    accepts nothing even while the argument stays written, so an old token with forged roles or tenant_ids
-    grants no rights; a later until is a separate operator decision, a new acceptance of the risk. The
-    mode is shown with its time left in /diagnostics/core and sandloom doctor, counted per key, and one
-    mode per deploy profile (T014). It is a composition argument, not a SANDLOOM_ACCEPTED_RISKS id.'
-  sources:
-  - docs/adr/0014-claims-trust-and-authorization-portability.md#4. `cpv` per key, with an issuer × verifier rollout and rollback matrix
-  - design/kernel-boundary/migration-plan.md
-  tests:
-  - src/sandloom/core/tests/test_claims_view.py::test_a_token_without_cpv_gives_no_rights_outside_the_window
-  - src/sandloom/core/tests/test_claims_view.py::test_inside_the_window_a_token_without_cpv_is_trusted
-  - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_window
-  - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_view_expires_at_the_window_end
-  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_initial_enablement_stages_and_rollback
-  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_window_bounds_hold_on_real_tokens
-  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_on_until_the_window_end_with_the_time_left
-  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_ended_at_and_after_the_window_end
-  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_diagnostics_show_the_mode_and_count_each_acceptance
-  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_doctor_shows_the_mode
-  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_the_profile_keeps_one_mode
 - id: G-RISK-15
   statement: 'Kernel risk ids stay flat; a module''s accepted risk is <module>.<name>, declared in its settings
     model. After the modules load, the id of a loaded module is checked against what it declares and an
@@ -8731,6 +8711,18 @@ removed:
   approved_by: owner (ADR-0009 / ADR-0010 approval, 2026-10-25)
   date: '2026-10-26'
   replaced_by: G-REVOKE-21
+- id: G-RISK-14
+  statement: The legacy_tokens compatibility mode of the initial cpv enablement (ADR-0014 decision 4) is an
+    accepted temporary security risk, bounded by a required absolute UTC until and never extended by the
+    framework; a token without cpv is accepted only inside that window, per key from an authority that ran
+    and was kept, and from the window end it accepts nothing.
+  reason: 'the mode is removed, not kept (no user holds a token without cpv, so the risk it accepted
+    has no use): a verifier always behaves as ADR-0014 decision 4 stage 3 (enforce), so a token without
+    cpv gives no rights where a policy needs the key, enforced by G-AUTH-23 and G-AUTH-26; the ADR carries
+    a dated amendment (2026-11-21)'
+  approved_by: owner decision 2026-11-21 (option b, tm task legacy-tokens-remove)
+  date: '2026-11-21'
+  replaced_by: G-AUTH-23
 
 issued:
   C-AUTH: 9
@@ -9365,8 +9357,7 @@ adr_sections:
     "Decisions of the amendment": informational
   # Accepted 2026-11-08 (tm kb-adrs-accept), not built yet: the decision headings are
   # `planned` (planned_adrs names the waves); each PR of design/kernel-boundary/migration-plan.md
-  # maps the headings it implements to the ledger ids it adds or changes. ADR-0014 decision 4
-  # already maps to G-RISK-14, the accepted temporary risk of the legacy_tokens window.
+  # maps the headings it implements to the ledger ids it adds or changes.
   0012-kernel-boundary.md:
     "Context": informational
     "Decision": informational
@@ -9431,7 +9422,6 @@ adr_sections:
     "3. Read: one trusted view per verified token":
     - G-AUTH-23
     "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix":
-    - G-RISK-14
     - G-AUTH-24
     "5. Sealed mint, service tokens, test tokens":
     - G-AUTH-25

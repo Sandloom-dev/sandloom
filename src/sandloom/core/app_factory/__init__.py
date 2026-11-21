@@ -74,7 +74,7 @@ from sandloom.core.app_factory.pages import (
     _install_favicon,
     _install_start_page,
 )
-from sandloom.core.claims import Authority, LegacyClaimsTokens
+from sandloom.core.claims import Authority
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import ModuleLoadSummary
@@ -116,7 +116,6 @@ from sandloom.core.schema.registry import InMemorySchemaRegistry
 __all__ = [
     "Authority",
     "ConfigurationError",
-    "LegacyClaimsTokens",
     "ContractDiffRequest",
     "DEVELOPMENT_DATABASE_RISK",
     "POST_COMMIT_DRAIN_TIMEOUT_SECONDS",
@@ -164,7 +163,6 @@ def create_app(
     title: str = "Sandloom Framework",
     claim_authorities: Mapping[str, str | Authority] | None = None,
     default_claim_authorities: Mapping[str, str | Authority] | None = None,
-    legacy_tokens: LegacyClaimsTokens | None = None,
     access_providers: Mapping[str, str] | None = None,
     default_infra: DefaultInfra | None = None,
 ) -> FastAPI:
@@ -202,12 +200,6 @@ def create_app(
     A value may be an ``Authority(name, previous=Authority(old, module=...))``
     for one rollout of a key's authority. Every verifier reads protected
     claims only through the trusted view of this map (per-key ``cpv``).
-
-    ``legacy_tokens=LegacyClaimsTokens(until="<UTC time>")`` is the bounded
-    compatibility mode of the initial ``cpv`` enablement (an accepted
-    temporary risk, G-RISK-14): written for one upgrade, never by default,
-    off by itself at ``until + ACCESS_TOKEN_EXPIRE_MINUTES +
-    JWT_LEEWAY_SECONDS``.
 
     ``access_providers`` assigns an access-bearing contract to the module
     that provides it in-process (``{contract: import path or entry-point
@@ -299,9 +291,6 @@ def create_app(
         default_claim_authorities=default_claim_authorities,
         bindings=settings.service_bindings,
         log=main_logger,
-        legacy_tokens=legacy_tokens,
-        lifetime_seconds=settings.access_token_expire_minutes * 60,
-        leeway_seconds=settings.jwt_leeway_seconds,
         booted_root=settings.sandloom_composition_root,
     )
     # ADR-0014 decision 13: a route policy stating Account.bound_tenant()
