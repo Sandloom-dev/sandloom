@@ -19,6 +19,9 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from sqlalchemy import (
+    Column,
+    MetaData,
+    Table,
     Text,
     Uuid,
     bindparam,
@@ -27,6 +30,7 @@ from sqlalchemy import (
     func,
     insert,
     literal,
+    literal_column,
     select,
     text,
     type_coerce,
@@ -729,6 +733,89 @@ async def test_set_cannot_change_tenant_id(items) -> None:
             )
             with pytest.raises(UnsafeTenantOperationError, match="tenant_id"):
                 await session.execute(statement)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "form",
+    [
+        "literal_upper",
+        "literal_quoted",
+        "literal_plain",
+        "unknown_str",
+        "upper_str",
+        "other_table_column",
+    ],
+)
+async def test_a_set_key_that_is_not_a_column_of_the_table_is_refused(
+    items, form: str
+) -> None:
+    # PostgreSQL's compiler renders a ``set_`` key it cannot match, a
+    # ``literal_column`` verbatim: ``TENANT_ID`` folds to ``tenant_id``.
+    sessions, tenant_a, tenant_b, a_id = items
+    keys: dict[str, object] = {
+        "literal_upper": literal_column("TENANT_ID"),
+        "literal_quoted": literal_column('"tenant_id"'),
+        "literal_plain": literal_column("tenant_id"),
+        "unknown_str": "nope",
+        "upper_str": "TENANT_ID",
+        "other_table_column": Table(
+            "other", MetaData(), Column("tenant_id", Uuid())
+        ).c.tenant_id,
+    }
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            statement = (
+                conflict_insert(_Item, session=session)
+                .values(id=a_id, name="x")
+                .on_conflict_do_update(
+                    index_elements=["id"], set_={keys[form]: tenant_b}
+                )
+            )
+            with pytest.raises(UnsafeTenantOperationError, match="not a column"):
+                await session.execute(statement)
+    assert (await _rows(sessions))[a_id] == (tenant_a, "a-original")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("form", ["attribute", "column"])
+async def test_a_set_key_that_is_the_tenant_column_is_refused_in_every_spelling(
+    items, form: str
+) -> None:
+    sessions, tenant_a, tenant_b, a_id = items
+    key = _Item.tenant_id if form == "attribute" else _Item.__table__.c.tenant_id
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            statement = (
+                conflict_insert(_Item, session=session)
+                .values(id=a_id, name="x")
+                .on_conflict_do_update(index_elements=["id"], set_={key: tenant_b})
+            )
+            # A raw Column of the tenant table is also a Core reference, which
+            # the guard refuses first.
+            expected = "cannot change|Core statements"
+            with pytest.raises(UnsafeTenantOperationError, match=expected):
+                await session.execute(statement)
+    assert (await _rows(sessions))[a_id] == (tenant_a, "a-original")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("form", ["str", "attribute"])
+async def test_a_set_key_that_is_a_column_of_the_table_is_admitted(
+    items, form: str
+) -> None:
+    sessions, tenant_a, _, a_id = items
+    key = {"str": "name", "attribute": _Item.name}[form]
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            insert_ = conflict_insert(_Item, session=session).values(id=a_id, name="x")
+            await session.execute(
+                insert_.on_conflict_do_update(
+                    index_elements=["id"], set_={key: insert_.excluded.name}
+                )
+            )
+            await session.commit()
+    assert (await _rows(sessions))[a_id] == (tenant_a, "x")
 
 
 @pytest.mark.asyncio

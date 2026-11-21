@@ -333,7 +333,8 @@ refused. A row without `tenant_id` gets the bound tenant; a
 tenant's id, a bind, a literal or an expression is refused
 (`UnsafeTenantOperationError`). `on_conflict_do_update` gains
 `tenant_id = <bound tenant>` in its `WHERE`, so a conflict with
-another tenant's row updates nothing. `set_` cannot name `tenant_id`,
+another tenant's row updates nothing. `set_` keys must be columns of the
+model (a name or an attribute) and cannot name `tenant_id`,
 a bind named `sandloom_bound_tenant__` is reserved, and `from_select`
 or a subquery is refused. Without
 `on_conflict_do_nothing` / `on_conflict_do_update` the statement is a

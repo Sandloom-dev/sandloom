@@ -73,7 +73,7 @@ guarantees:
     with the rows in .values() and no execution parameters (any params dict or list is refused). It sets a missing tenant_id; a tenant_id in .values() must be the bound tenant's id
     as a plain value, so another tenant's id, a bind, a literal or an expression is refused, as is any
     run with no tenant bound. Its DO UPDATE never changes another tenant's row. set_ naming tenant_id,
-    from_select, a subquery and the Table form are refused. The tenant_id slot is a reserved bind
+    a set_ key that is not a column of the model (a literal_column, an unknown name), from_select, a subquery and the Table form are refused. The tenant_id slot is a reserved bind
     holding the bound tenant, and a statement holding any other bind of that name (or of the DO UPDATE
     scope's) is refused.
   sources:
@@ -90,6 +90,8 @@ guarantees:
   - tests/sdk/test_conflict_insert_tenant.py::test_a_multi_row_values_with_several_rows_is_admitted
   - tests/sdk/test_conflict_insert_tenant.py::test_a_subquery_in_a_multi_row_values_is_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_set_cannot_change_tenant_id
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_set_key_that_is_not_a_column_of_the_table_is_refused
+  - tests/sdk/test_conflict_insert_tenant.py::test_a_set_key_that_is_a_column_of_the_table_is_admitted
   - tests/sdk/test_conflict_insert_tenant.py::test_set_to_the_whole_excluded_row_cannot_change_tenant_id
   - tests/sdk/test_conflict_insert_tenant.py::test_from_select_is_refused
   - tests/sdk/test_conflict_insert_tenant.py::test_a_subquery_in_the_upsert_is_refused

@@ -128,7 +128,9 @@ rows only, in one form: the rows are in `.values()`.
 - `on_conflict_do_nothing` skips such a row without an error: check the result
   when a skipped row matters;
 - `set_` may read the proposed row through `stmt.excluded`, for example
-  `{"name": stmt.excluded.name}`. It never changes `tenant_id`: `set_` that
+  `{"name": stmt.excluded.name}`. Its keys must be columns of the model: a
+  column name or a model attribute. Any other key, such as `literal_column()`
+  or an unknown name, is refused. It never changes `tenant_id`: `set_` that
   names it, or is the whole `stmt.excluded`, is refused;
 - with no tenant bound it raises `UnsafeTenantOperationError`.
 

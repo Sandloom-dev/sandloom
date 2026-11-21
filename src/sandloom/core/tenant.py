@@ -30,6 +30,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from sqlalchemy import (
+    Column,
     PrimaryKeyConstraint,
     UniqueConstraint,
     Uuid,
@@ -542,11 +543,36 @@ def _refuse_unscopable(stmt: Any, models: str) -> Any:
             "scoped to the bound tenant; use on_conflict_do_nothing / "
             "on_conflict_do_update"
         )
-    if updates is not None and any("tenant_id" in _key_names(key) for key in updates):
-        raise UnsafeTenantOperationError(
-            "ON CONFLICT DO UPDATE cannot change TenantScoped.tenant_id"
-        )
+    for key in updates or ():
+        column = _set_target(key, stmt.table)
+        if column is None:
+            raise UnsafeTenantOperationError(
+                f"ON CONFLICT DO UPDATE on TenantScoped model {models}: set_ key "
+                f"{key!r} is not a column of the table (use a column name, a "
+                "column of the model or a model attribute); the guard cannot "
+                "tell what else it would write"
+            )
+        if column is stmt.table.c.tenant_id:
+            raise UnsafeTenantOperationError(
+                "ON CONFLICT DO UPDATE cannot change TenantScoped.tenant_id"
+            )
     return updates
+
+
+def _set_target(key: Any, table: Any) -> Any:
+    """The column of ``table`` a ``set_`` key names, or ``None`` for every
+    other key. Allow-list: a ``str`` that is a key of ``table.c``, or a column
+    of ``table`` (a model attribute arrives as one). A ``literal_column``, an
+    unknown ``str`` and a column of another table are not: the PostgreSQL
+    compiler renders them anyway, verbatim, so ``literal_column("TENANT_ID")``
+    would write ``tenant_id``."""
+    if isinstance(key, str):
+        return table.c.get(key)
+    if isinstance(key, Column):
+        column = table.c.get(key.key)
+        if column is not None and column.shares_lineage(key):
+            return column
+    return None
 
 
 def _scope_insert_rows(
