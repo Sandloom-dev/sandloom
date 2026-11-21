@@ -24,7 +24,10 @@ def split_url(url: str) -> SplitResult:
         return urlsplit(url)
     except ValueError:
         raise ValueError(
-            "the url cannot be parsed (its text is left out: it may hold a password)"
+            "the url cannot be parsed (its text is left out: it may hold a "
+            "password): write its host and credentials in plain ASCII (no "
+            "character that stands for ':', '/', '?', '#' or '@' under Unicode "
+            "normalization) and close the brackets of an IPv6 host"
         ) from None
 
 
