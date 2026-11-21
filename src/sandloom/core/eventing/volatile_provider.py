@@ -11,6 +11,9 @@ and a driver package cannot implement it.
 A volatile bus declares no ``durable``, so a module that needs delivery to
 survive requires it and is refused at load on one, and production refuses the
 bus without the accepted risk ``volatile_event_bus`` (G-EVENT-14, G-RISK-04).
+The risk admits it on a non-default ``eventbus`` instance only: production
+startup refuses a volatile default bus whatever the risk says
+(``app_factory._bind_infrastructure``).
 """
 
 from __future__ import annotations

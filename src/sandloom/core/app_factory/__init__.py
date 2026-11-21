@@ -441,7 +441,10 @@ def _bind_infrastructure(
     # explicit override to the in-memory or pub/sub bus would deliver domain
     # events (billing credits, provisioning, …) at-most-once and silently drop
     # them with no error. Fail fast at startup instead. Dev/test intentionally
-    # run the volatile bus.
+    # run the volatile bus. No accepted risk lifts this: ``volatile_event_bus``
+    # admits a volatile driver on a non-default instance (the registry builds
+    # it), never on the default bus, which carries the outbox relay and the
+    # domain events (docs/infrastructure/event-bus.md).
     if settings.is_prod and "durable" not in eventbus_provider.features():
         raise RuntimeError(
             "Production event bus is volatile "
@@ -449,7 +452,8 @@ def _bind_infrastructure(
             f"features={sorted(eventbus_provider.features())}). Domain events "
             "would be lost. Unset EVENT_BUS_BACKEND (the composition selects "
             "the bus) or set EVENT_BUS_BACKEND=streams to use the durable "
-            "streams event transport."
+            "streams event transport. The accepted risk volatile_event_bus "
+            "does not admit a volatile default bus."
         )
     bus = build_event_bus(eventbus_provider, schema_registry_service)
     core_facade.set_event_bus(bus)

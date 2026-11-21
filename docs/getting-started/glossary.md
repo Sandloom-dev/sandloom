@@ -32,7 +32,7 @@ Each term has one meaning across this documentation.
 | **Event** | A typed, versioned message on a channel, such as `notes.note.created.v1`, published after commit. Asynchronous and delivered at least once. [Events](../modules/between/events.md). |
 | **Channel** | The versioned name of an event. It has one producing module. See [Events](../modules/between/events.md#declare-and-publish). |
 | **View** | A consuming module's own class describing the fields it reads from another module's channel. See [Producers and views](../modules/between/events.md#producers-and-views). |
-| **Consumer** | An `@on` handler that reacts to an event, once per event id. See [Consume](../modules/between/events.md#consume). |
+| **Consumer** | An `@on` handler that reacts to an event. With the default `durable=True` its effect applies once per envelope id (`event.meta.id`); `durable=False` dedupes best effort only. See [Consume](../modules/between/events.md#consume). |
 | **Projection** | A read model built from events, for lists that span modules. [Projections](../modules/between/projections.md). |
 | **Saga** | A process across modules with compensating steps. [Sagas](../modules/between/sagas.md). |
 

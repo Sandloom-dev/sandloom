@@ -91,7 +91,8 @@ RISKS: tuple[Risk, ...] = (
     Risk(
         "volatile_event_bus",
         "A volatile event bus (memory / broadcast Pub/Sub): in prod the driver is "
-        "admitted and events can be lost; outside prod durable consumers may "
+        "admitted on a non-default eventbus instance (the default bus must stay "
+        "durable) and its events can be lost; outside prod durable consumers may "
         "run on Pub/Sub (lost or duplicated deliveries).",
         "volatile bus provider (sandloom.core.eventing.volatile_provider) and the "
         "consumer runtime (sandloom.core.consumers.callbacks)",

@@ -65,10 +65,16 @@ def _inclusive_stream_cursor(milliseconds: int) -> str:
 
 
 class PoisonEventError(Exception):
-    """Raised by a consumer handler for an event that can NEVER be applied
-    (malformed payload): the delivery is dead-lettered at once (CRITICAL log)
-    instead of being retried — the one way out for a ``dead_letter=False``
-    consumer, whose transient failures are retried forever."""
+    """Raised by a consumer handler for an event that can NEVER be applied:
+    the delivery is dead-lettered at once (CRITICAL log) instead of being
+    retried — the one way out for a ``dead_letter=False`` consumer, whose
+    failures are otherwise retried forever.
+
+    Only the handler's own code can raise it. An ``@on`` consumer decodes the
+    payload (``from_wire``) before the handler runs: a payload that fails
+    validation raises a plain error there, which is retried like any other
+    (and, with ``dead_letter=False``, retried forever). A raw L2 handler that
+    reads the payload itself may raise this for a malformed one."""
 
 
 __all__ = [
