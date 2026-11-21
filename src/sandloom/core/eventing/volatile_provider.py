@@ -139,9 +139,11 @@ def make_volatile_bus_drivers(
                 f"eventbus instance {cfg.name!r}: driver {cfg.driver!r} is "
                 "volatile (no persistence; a Pub/Sub PUBLISH succeeds with zero "
                 "subscribers, so the outbox would mark undelivered events as "
-                "delivered). fix: use driver 'streams' (EVENT_BUS_BACKEND=streams) "
-                "or accept lossy delivery explicitly with "
-                'SANDLOOM_ACCEPTED_RISKS=["volatile_event_bus"]'
+                "delivered). fix: use driver 'streams' (EVENT_BUS_BACKEND=streams). "
+                "For an instance other than 'default', lossy delivery can be "
+                "accepted explicitly with "
+                'SANDLOOM_ACCEPTED_RISKS=["volatile_event_bus"]; the default '
+                "bus must stay durable whatever the risk"
             )
 
     def _memory(cfg: InstanceConfig) -> InfraProvider:
