@@ -75,9 +75,7 @@ A revision that must wait, for instance because you stopped the app first,
 lifts the timeout for its own transaction:
 
 ```python
-def upgrade() -> None:
-    op.execute("SET LOCAL lock_timeout = 0")
-    op.execute("ALTER TABLE notes ADD COLUMN archived_at timestamptz")
+--8<-- "docs/snippets/migrations/lift_lock_timeout.py:revision"
 ```
 
 `SET LOCAL` lasts until the transaction ends. One run of a chain applies all
@@ -126,25 +124,7 @@ transaction. Alembic runs a chain in a transaction, so step out of it with
 `autocommit_block()`:
 
 ```python
-def upgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.create_index(
-            "ix_notes_owner_id",
-            "notes",
-            ["owner_id"],
-            postgresql_concurrently=True,
-            if_not_exists=True,
-        )
-
-
-def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.drop_index(
-            "ix_notes_owner_id",
-            table_name="notes",
-            postgresql_concurrently=True,
-            if_exists=True,
-        )
+--8<-- "docs/snippets/migrations/concurrent_index.py:revision"
 ```
 
 `autocommit_block()` commits the revisions applied so far in the run, runs
@@ -176,20 +156,7 @@ Write a backfill so that:
   fits `MIGRATION_DDL_LOCK_TIMEOUT_MS`.
 
 ```python
-_BATCH = 5000
-
-
-def upgrade() -> None:
-    bind = op.get_bind()
-    with op.get_context().autocommit_block():
-        while True:
-            updated = bind.exec_driver_sql(
-                "UPDATE notes SET archived = false WHERE id IN ("
-                "SELECT id FROM notes WHERE archived IS NULL LIMIT %s)",
-                (_BATCH,),
-            ).rowcount
-            if not updated:
-                break
+--8<-- "docs/snippets/migrations/backfill_in_batches.py:revision"
 ```
 
 For a table with many millions of rows, run the backfill as a job of its own
@@ -204,20 +171,14 @@ and changed rows at once and skips the old ones. Then validate it, which takes
 a lock that blocks neither reads nor writes:
 
 ```python
-def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE notes ADD CONSTRAINT ck_notes_title_not_empty "
-        "CHECK (title <> '') NOT VALID"
-    )
+--8<-- "docs/snippets/migrations/constraint_not_valid.py:revision"
 ```
 
 The validating revision comes later, once the existing rows satisfy the
 constraint:
 
 ```python
-# a later revision
-def upgrade() -> None:
-    op.execute("ALTER TABLE notes VALIDATE CONSTRAINT ck_notes_title_not_empty")
+--8<-- "docs/snippets/migrations/constraint_validate.py:revision"
 ```
 
 Put the `VALIDATE` in its own revision. It fails if an old row breaks the

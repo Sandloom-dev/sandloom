@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import textwrap
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -46,22 +47,30 @@ run_migrations()
 """
 
 
-def _chain(root: Path, upgrade_body: str) -> Config:
-    """A chain of one revision whose ``upgrade()`` runs ``upgrade_body``."""
+def _chain_of_file(
+    root: Path, revision_file: str, version_table: str = "alembic_version_ddltimeouts"
+) -> Config:
+    """A chain of one revision whose file content is ``revision_file``."""
     (root / "versions").mkdir(parents=True)
     (root / "env.py").write_text(_ENV)
-    (root / "versions" / "0001_probe.py").write_text(
+    (root / "versions" / "0001_probe.py").write_text(revision_file)
+    cfg = Config()
+    cfg.set_main_option("script_location", str(root))
+    cfg.set_main_option("version_table", version_table)
+    return cfg
+
+
+def _chain(root: Path, upgrade_body: str) -> Config:
+    """A chain of one revision whose ``upgrade()`` runs ``upgrade_body``."""
+    return _chain_of_file(
+        root,
         "from alembic import op\n"
         "revision = '0001'\n"
         "down_revision = None\n\n\n"
         "def upgrade() -> None:\n"
         + textwrap.indent(textwrap.dedent(upgrade_body), "    ")
-        + "\n\n\ndef downgrade() -> None:\n    pass\n"
+        + "\n\n\ndef downgrade() -> None:\n    pass\n",
     )
-    cfg = Config()
-    cfg.set_main_option("script_location", str(root))
-    cfg.set_main_option("version_table", "alembic_version_ddltimeouts")
-    return cfg
 
 
 def _upgrade(cfg: Config, url: str) -> None:
@@ -194,3 +203,105 @@ def test_any_other_database_error_is_not_rewritten(
 
     with pytest.raises(ProgrammingError):
         _upgrade(cfg, scratch_database)
+
+
+# The revisions the "Zero-downtime migrations" page includes: each one runs.
+
+_SNIPPETS = Path(__file__).resolve().parents[4] / "docs" / "snippets" / "migrations"
+
+
+def _snippet_chain(root: Path, name: str, version_table: str = "alembic_v") -> Config:
+    return _chain_of_file(
+        root, (_SNIPPETS / f"{name}.py").read_text(), version_table=version_table
+    )
+
+
+def _notes_table(url: str, rows: int = 3) -> None:
+    run_sql(
+        url,
+        "CREATE TABLE notes (id serial PRIMARY KEY, title text NOT NULL, "
+        "owner_id int, archived boolean)",
+    )
+    run_sql(
+        url,
+        "INSERT INTO notes (title, owner_id) "
+        "SELECT 'n' || g, g FROM generate_series(1, %s) g",
+        (rows,),
+    )
+
+
+def test_the_lifting_revision_waits_where_the_runner_would_give_up(
+    tmp_path: Path, scratch_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _notes_table(scratch_database)
+    monkeypatch.setattr(settings, "migration_ddl_lock_timeout_ms", 300)
+    holder = psycopg2.connect(scratch_database)
+    with holder.cursor() as cur:
+        cur.execute("LOCK TABLE notes IN ACCESS EXCLUSIVE MODE")
+    # the same ALTER without the lift fails (the test above); with it, it waits
+    release = threading.Timer(1.5, holder.rollback)
+    release.start()
+    try:
+        _upgrade(
+            _snippet_chain(tmp_path / "chain", "lift_lock_timeout"), scratch_database
+        )
+    finally:
+        release.join()
+        holder.close()
+
+    columns = run_sql(
+        scratch_database,
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'notes' AND column_name = 'archived_at'",
+    )
+    assert columns == [("archived_at",)]
+
+
+def test_the_concurrent_index_revision_builds_a_valid_index_and_drops_it(
+    tmp_path: Path, scratch_database: str
+) -> None:
+    _notes_table(scratch_database)
+    cfg = _snippet_chain(tmp_path / "chain", "concurrent_index")
+    valid = (
+        "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+        "WHERE c.relname = 'ix_notes_owner_id'"
+    )
+
+    _upgrade(cfg, scratch_database)
+    assert run_sql(scratch_database, valid) == [(True,)]
+
+    command.downgrade(cfg, "base")
+    assert run_sql(scratch_database, valid) == []
+
+
+def test_the_backfill_revision_fills_every_row_over_several_batches(
+    tmp_path: Path, scratch_database: str
+) -> None:
+    _notes_table(scratch_database, rows=12_000)  # three batches of 5000
+
+    _upgrade(
+        _snippet_chain(tmp_path / "chain", "backfill_in_batches"), scratch_database
+    )
+
+    assert run_sql(
+        scratch_database, "SELECT count(*) FROM notes WHERE archived IS NULL"
+    ) == [(0,)]
+
+
+def test_the_two_step_constraint_revisions_add_it_not_valid_then_validate_it(
+    tmp_path: Path, scratch_database: str
+) -> None:
+    _notes_table(scratch_database)
+    state = (
+        "SELECT convalidated FROM pg_constraint "
+        "WHERE conname = 'ck_notes_title_not_empty'"
+    )
+
+    _upgrade(_snippet_chain(tmp_path / "add", "constraint_not_valid"), scratch_database)
+    assert run_sql(scratch_database, state) == [(False,)]
+
+    _upgrade(
+        _snippet_chain(tmp_path / "validate", "constraint_validate", "alembic_w"),
+        scratch_database,
+    )
+    assert run_sql(scratch_database, state) == [(True,)]
