@@ -36,12 +36,14 @@ from sqlalchemy import (
     Table,
     Text,
     Uuid,
+    bindparam,
     column,
     delete,
     event,
     func,
     insert,
     inspect,
+    lambda_stmt,
     literal,
     literal_column,
     select,
@@ -1695,6 +1697,15 @@ def _update_b_item_by_primary_key(_mapper: Any, connection: Any, _target: Any) -
     )
 
 
+def _update_b_item_by_a_named_key(_mapper: Any, connection: Any, _target: Any) -> None:
+    """The shape the persistence layer itself builds: ``pk = :pk`` with a named
+    parameter, naming a row no verified mapper event of this flush covers."""
+    connection.execute(
+        update(ITEMS).where(ITEMS.c.id == bindparam("pk")).values(name="pwned-by-key"),
+        {"pk": B_ITEM_ID},
+    )
+
+
 _FLUSH_MODELS: dict[str, Any] = {
     "a Python default deleting B's row": _Wiper,
     "a Python default inserting a row for B": _Planter,
@@ -1703,6 +1714,9 @@ _FLUSH_LISTENERS: dict[str, Callable[[Any, Any, Any], None]] = {
     "an after_insert listener updating every row": _rewrite_every_item,
     "an after_insert listener updating B's row by primary key": (
         _update_b_item_by_primary_key
+    ),
+    "an after_insert listener updating B's row by a named primary-key parameter": (
+        _update_b_item_by_a_named_key
     ),
 }
 
@@ -1869,6 +1883,42 @@ def test_a_statement_with_a_tracked_closure_keeps_its_memoized_verdict() -> None
     """Control: the same two checks do store a verdict where the key fixes the SQL."""
     tenant_mod._invalidate_guard_caches()
     statement = _tracked_criteria([literal("zzz")])
+    assert tenant_mod._verdict_cacheable(statement)
+    tenant_mod._unsafe_core_reference(statement)
+    tenant_mod._references_tenant_scoped(statement)
+    assert tenant_mod._unsafe_core_cache
+    assert tenant_mod._reference_cache
+
+
+def _untracked_lambda_statement(holder: list[Any]) -> Any:
+    return lambda_stmt(
+        lambda: select(_Leaf.id).where(_Leaf.name == holder[0]),
+        track_closure_variables=False,
+    )
+
+
+def _tracked_lambda_statement(holder: list[Any]) -> Any:
+    # two functions: the lambda cache is per code object, whatever the options
+    return lambda_stmt(
+        lambda: select(_Leaf.id).where(_Leaf.name == holder[0]),
+        track_closure_variables=True,
+    )
+
+
+def test_an_untracked_lambda_statement_gets_no_memoized_verdict() -> None:
+    """The statement itself is the lambda (not a loader option holding one)."""
+    tenant_mod._invalidate_guard_caches()
+    statement = _untracked_lambda_statement([literal("zzz")])
+    assert not tenant_mod._verdict_cacheable(statement)
+    tenant_mod._unsafe_core_reference(statement)
+    tenant_mod._references_tenant_scoped(statement)
+    assert not tenant_mod._unsafe_core_cache
+    assert not tenant_mod._reference_cache
+
+
+def test_a_tracked_lambda_statement_keeps_its_memoized_verdict() -> None:
+    tenant_mod._invalidate_guard_caches()
+    statement = _tracked_lambda_statement([literal("zzz")])
     assert tenant_mod._verdict_cacheable(statement)
     tenant_mod._unsafe_core_reference(statement)
     tenant_mod._references_tenant_scoped(statement)

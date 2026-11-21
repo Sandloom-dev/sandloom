@@ -389,6 +389,8 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_statement_with_an_untracked_closure_gets_no_memoized_verdict
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_statement_with_a_tracked_closure_keeps_its_memoized_verdict
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_untracked_closure_holding_a_raw_tenant_subquery_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_untracked_lambda_statement_gets_no_memoized_verdict
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_tracked_lambda_statement_keeps_its_memoized_verdict
 - id: G-TENANT-26
   statement: A flush write is an allowlist - the plain Core INSERT, UPDATE or DELETE the persistence layer
     builds, reading no tenant table, an INSERT with an explicit tenant_id equal to the bound tenant, an
