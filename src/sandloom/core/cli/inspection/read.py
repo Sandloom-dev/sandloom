@@ -13,9 +13,11 @@ from typing import Any
 from sandloom.core.cli.inspection import files
 from sandloom.core.cli.inspection.model import (
     INDEX,
+    LINES,
     RECEIPT,
     Doc,
     InspectionError,
+    decode_index,
     digest,
     encode,
     regenerate,
@@ -50,6 +52,14 @@ def parse(text: str) -> Doc:
     if not isinstance(value, dict):
         raise InspectionError("invalid_artifact", "Expected a JSON object")
     return value
+
+
+def parse_index(text: str) -> Doc:
+    """An inspection index: the lines ``encode_index`` writes, or the one-line
+    JSON document an earlier release wrote (kept readable, as a baseline)."""
+    if text.startswith(LINES + "\n"):
+        return decode_index(text)
+    return parse(text)
 
 
 def _hashes(value: Any) -> bool:
@@ -118,7 +128,9 @@ class Reader:
                 actions=regenerate(),
             )
         self.doc = (
-            document if document is not None else parse(files.read(self.root, INDEX))
+            document
+            if document is not None
+            else parse_index(files.read(self.root, INDEX))
         )
         if (
             self.doc.get("schema") != "sandloom.inspection"

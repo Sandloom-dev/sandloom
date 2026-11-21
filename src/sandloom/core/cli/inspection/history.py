@@ -10,7 +10,7 @@ from pathlib import Path
 import sandloom.core.cli.tool_process as _tool_process
 from sandloom.core.cli.inspection.files import MAX_FILE, checked_content
 from sandloom.core.cli.inspection.model import INDEX, Doc, InspectionError
-from sandloom.core.cli.inspection.read import parse
+from sandloom.core.cli.inspection.read import parse_index
 
 
 def _git(root: Path, *args: str) -> str:
@@ -55,4 +55,5 @@ def read(root: Path, revision: str) -> tuple[Doc, str, str]:
             "file_too_large", f"Historical inspection index exceeds {MAX_FILE} bytes"
         )
     content = _git(root, "cat-file", "blob", object_id).encode("utf-8")
-    return parse(checked_content(content, locator)), f"{revision}:{locator}", commit
+    document = parse_index(checked_content(content, locator))
+    return document, f"{revision}:{locator}", commit

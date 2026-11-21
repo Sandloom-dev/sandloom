@@ -13,3 +13,9 @@ CHANGELOG.md merge=union
 #   python3 tools/packaging/merge_public_source.py --install
 # Without it git falls back to the line merge.
 tools/packaging/public-source.json merge=public-source
+# .sandloom/inspection.json (this project's and every example's): `sandloom
+# generate` writes one record per line, so two branches that each add a module
+# add different lines and git merges them; where both land in one gap the
+# lines of both are kept (`union`), and the file reads the same in any order.
+# Like the changelog above, GitHub's merge button ignores it: merge main locally.
+**/.sandloom/inspection.json merge=union

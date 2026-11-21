@@ -506,6 +506,13 @@ Every module of `$app/modules` (plus the bundled ones: `$bundled_json`);
 """
 )
 
+#: One line per record in `.sandloom/inspection.json`: two branches that each add a
+#: module add different lines, and `union` keeps both where they land together.
+#: git applies it on a local merge (GitHub's merge button ignores merge drivers).
+_GITATTRIBUTES = """# One record per line (`sandloom generate`): branches merge.
+.sandloom/inspection.json merge=union
+"""
+
 _GITIGNORE = """.sandloom/cache/
 # `sandloom dev`: state, locks and run files (.sandloom/agent-files.json stays)
 .sandloom/dev.json
@@ -1484,6 +1491,7 @@ def generate_project(
         + _stack_files.recording(chosen.name),
         "README.md": _README.substitute(ctx),
         ".gitignore": _GITIGNORE,
+        ".gitattributes": _GITATTRIBUTES,
         ".env": _ENV_EXAMPLE.substitute(local_env_ctx),
         ".env.example": _ENV_EXAMPLE.substitute(example_ctx),
         "Dockerfile": _DOCKERFILE.substitute(ctx),

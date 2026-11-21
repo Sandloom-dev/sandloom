@@ -47,6 +47,21 @@ uv run sandloom graph
 refreshes contracts, snapshots and `.sandloom/inspection.json`. Cold `graph`
 and `context MODULE` read that saved model; they never regenerate implicitly.
 
+`.sandloom/inspection.json` is one record per line, so branches that each add a
+module merge without a conflict. An application created earlier gets the first
+rewrite as one large diff. Add the line `sandloom new` now writes to its
+`.gitattributes`. It keeps both sides where two branches add a record in the
+same place:
+
+```text
+.sandloom/inspection.json merge=union
+```
+
+Git applies it on a local merge. GitHub's merge button ignores merge drivers.
+Merge the base branch locally into a pull request that GitHub reports as
+conflicting. The file reads the same in any line order, and
+`sandloom generate --check` passes on a merged file.
+
 `add skills` updates the agent files it wrote and keeps the ones you edited; [keep the skills current](../ai/agent-tooling.md#keep-the-skills-current) has the details.
 See [module maps](../ai/module-context.md) and the
 [architecture explorer](../ai/architecture-graph.md) for formats and freshness.

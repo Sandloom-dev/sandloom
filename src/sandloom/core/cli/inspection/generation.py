@@ -31,6 +31,18 @@ def _document(app: Any, rules: Any, complete: list[Any]) -> Any:
         return None
 
 
+def _index_text(rules: Any, document: Any) -> str | None:
+    if document is None:
+        return None
+    path = rules.root / INDEX
+    try:
+        current = path.read_text(encoding="utf-8") if path.is_file() else None
+        return collect.rendered(document, current)
+    except (InspectionError, OSError, UnicodeError):
+        print("warning[SANDLOOM-T015]: inspection metadata unavailable")
+        return None
+
+
 def finish(
     *,
     rules: Any,
@@ -50,8 +62,10 @@ def finish(
         for item in complete
         if item.path not in selected_paths
     )
-    document = (
-        _document(app, rules, complete) if not deferred and before is not None else None
+    text = (
+        _index_text(rules, _document(app, rules, complete))
+        if not deferred and before is not None
+        else None
     )
     if before is not None and before != capture(rules):
         print(
@@ -59,10 +73,8 @@ def finish(
             "retry; nothing written"
         )
         return 1
-    if document is not None:
-        selected.append(
-            make_file(rules.root / INDEX, collect.rendered(document), "SANDLOOM-T015")
-        )
+    if text is not None:
+        selected.append(make_file(rules.root / INDEX, text, "SANDLOOM-T015"))
     code = apply_files(
         selected, write=not check, shared_dir=rules.shared_dir, root=rules.root
     )
@@ -70,7 +82,7 @@ def finish(
         return code
     if deferred:
         print("warning[SANDLOOM-T015]: index retained; run full sandloom generate")
-    elif document is None:
+    elif text is None:
         if not check:
             (rules.root / RECEIPT).unlink(missing_ok=True)
         print("warning[SANDLOOM-T015]: index retained without new verification")

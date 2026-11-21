@@ -7,6 +7,21 @@ import test from 'node:test';
 import vm from 'node:vm';
 const source=readFileSync(new URL('../../src/sandloom/core/cli/inspection/viewer.js',import.meta.url),'utf8');
 const layoutSource=readFileSync(new URL('../../src/sandloom/core/cli/inspection/viewer.layout.js',import.meta.url),'utf8');
+// The tracked index is one record per line (model.py `encode_index`); the
+// one-line JSON document of an earlier release still reads.
+function readIndex(url){
+  const text=readFileSync(url,'utf8');
+  if(!text.startsWith('["@format"'))return JSON.parse(text);
+  const doc={},rows=text.split('\n').slice(1).filter(Boolean).map(line=>JSON.parse(line));
+  for(const [tag,name,value] of rows){
+    if(tag==='@val')doc[name]=value;else if(tag==='@list')doc[name]=[];else if(tag==='@map')doc[name]={};
+  }
+  for(const [tag,name,value] of rows){
+    if(tag.startsWith('@'))continue;
+    if(Array.isArray(doc[tag]))doc[tag].push(name);else doc[tag][name]=value;
+  }
+  return doc;
+}
 const {JSDOM}=createRequire(new URL('../../admin/package.json',import.meta.url))('jsdom');
 
 test('hostile model text stays text and documentation links cannot execute JavaScript',()=>{
@@ -161,7 +176,7 @@ test('Helpdesk arrows never pass through identity or an intermediate module',()=
 test('Every real project raw-interface arrow avoids foreign blocks and keeps readable scale',()=>{
   for(const name of ['root','academy','helpdesk','linkly','projecthub','tutorial']){
     const root=name==='root'?'../../':'../../examples/'+name+'/';
-    const doc=JSON.parse(readFileSync(new URL(root+'.sandloom/inspection.json',import.meta.url),'utf8'));
+    const doc=readIndex(new URL(root+'.sandloom/inspection.json',import.meta.url));
     const graph=render(doc.nodes,doc.edges);
     clearNodes(graph,doc.edges);
     assert.ok(vm.runInContext('diagramScale',graph.context)>=.9,name+' must not shrink text to fit all entities');
@@ -189,7 +204,7 @@ test('Impact names the exact interface witness',()=>{
   assert.deepEqual(Array.from(vm.runInContext('impactEvidence(item)',context)),['requires_contract: contract:payments.charges.v1']);
 });
 function overview(project){
-  const doc=JSON.parse(readFileSync(new URL('../../examples/'+project+'/.sandloom/inspection.json',import.meta.url),'utf8'));
+  const doc=readIndex(new URL('../../examples/'+project+'/.sandloom/inspection.json',import.meta.url));
   const elements={focus:{value:''},hops:{value:'1'},direction:{value:'both'},layer:{value:'interfaces'},relation:{value:''},query:{value:''}};
   const context=vm.createContext({byId:(id)=>elements[id],allNodes:doc.nodes,allEdges:doc.edges,modules:doc.nodes.filter(n=>n.kind==='module'),nodes:new Map(doc.nodes.map(n=>[n.id,n])),edges:new Map(doc.edges.map(e=>[e.id,e])),cards:new Map(),relations:[],interfaceNames:()=>[]});
   vm.runInContext(layoutSource,context);

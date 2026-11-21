@@ -1,0 +1,4 @@
+### Fixed
+
+- **Branches that each add a module no longer conflict in `.sandloom/inspection.json`** (inspection-merge-conflict). `sandloom generate` wrote the tracked index as one line of JSON, so any two branches that regenerated it conflicted by construction. It is now one record per line, in one order, and the file reads the same in any line order. `sandloom new` writes a `.gitattributes` with `.sandloom/inspection.json merge=union`, which keeps both sides where two branches add a record in the same place. `sandloom generate --check` passes on a merged file.
+  Upgrade: run `sandloom generate` once (the first rewrite is a large diff; an index in the old one-line form is also read as a `graph diff` baseline) and add `.sandloom/inspection.json merge=union` to your `.gitattributes`. Git applies it on a local merge; GitHub's merge button ignores merge drivers, so merge the base branch locally into a pull request that GitHub reports as conflicting.

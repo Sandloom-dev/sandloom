@@ -8,7 +8,7 @@ from typing import Any
 
 from sandloom.core.cli.inspection import files, graph, history
 from sandloom.core.cli.inspection.model import Doc, InspectionError, digest, response
-from sandloom.core.cli.inspection.read import INDEX_SCHEMA_VERSIONS, Reader, parse
+from sandloom.core.cli.inspection.read import INDEX_SCHEMA_VERSIONS, Reader, parse_index
 from sandloom.core.contracts.compatibility import compare_contract
 from sandloom.core.contracts.schema_compatibility import schema_problems
 
@@ -194,7 +194,10 @@ def _entities(document: Doc) -> dict[str, Doc]:
 def compare(reader: Reader, before: str, require: bool) -> Doc:
     # Historical indexes are data: never resolve their source paths.
     return compare_data(
-        reader, parse(files.read(reader.root, before)), Path(before).as_posix(), require
+        reader,
+        parse_index(files.read(reader.root, before)),
+        Path(before).as_posix(),
+        require,
     )
 
 
