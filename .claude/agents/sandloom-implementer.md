@@ -1,6 +1,6 @@
 ---
 name: sandloom-implementer
-description: Sandloom fleet agent for one tm task (a kernel or module slice, a fix, docs). Lean tool list and the repository's working rules built in. Use for every implementation agent a tm-fleet run starts in this repository; reviews use sandloom-reviewer instead (Opus only for the security review).
+description: Sandloom fleet agent for one tm task (a kernel or module slice, a fix, docs). Lean tool list and the repository's working rules built in. Use for every implementation agent a tm-fleet run starts in this repository. Always Sonnet (the model is fixed by the type, never pass model; effort xhigh for complex slices). Reviews and research use sandloom-reviewer (Opus) or, for low-risk PRs, sandloom-light-reviewer (Sonnet); mechanical steps use sandloom-waiter (Haiku).
 tools: Bash, Read, Edit, Write, Skill, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_fail, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims, mcp__tm__kg_search, mcp__tm__memory_retrieve, mcp__tm__review_comment_reply
 model: sonnet
 effort: high

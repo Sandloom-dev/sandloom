@@ -1,6 +1,6 @@
 ---
 name: sandloom-waiter
-description: Sandloom fleet helper for mechanical steps only — run a long check (sandloom test --full, a CI step) and report its outcome, wait on a background run, a probe. No code, no tm writes. Small context, run on Haiku.
+description: Sandloom fleet helper for mechanical steps only — run a long check (sandloom test --full, a CI step) and report its outcome, wait on a background run, a probe. No code, no tm writes. Small context, always Haiku (the model is fixed by the type).
 tools: Bash
 model: haiku
 effort: low
