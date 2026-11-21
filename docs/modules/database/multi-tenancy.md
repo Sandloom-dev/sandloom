@@ -222,8 +222,8 @@ What follows from it:
   was read from the database under the bound tenant. So is the load of a
   deferred or expired column. An instance built by `merge(load=False)`, by
   unpickling or by `make_transient_to_detached` is refused at that point.
-- `Session.get` and `Session.refresh` answer from the identity map only for such
-  an instance. For any other they run the scoped query.
+- `Session.get`, `get_one` and a many-to-one lazy load answer from the identity
+  map only for such an instance. For any other they run the scoped query.
 - `unscoped()` lifts all of it for its block.
 
 Three cases the check does not see. A `nesting=True` CTE below the top level is

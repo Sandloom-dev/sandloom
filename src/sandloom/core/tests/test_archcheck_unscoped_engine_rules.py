@@ -270,6 +270,13 @@ _ENGINE_BAD = {
     "a pool by attribute": (
         "import sqlalchemy as sa\nqueue = sa.pool.QueuePool(lambda: None)\n"
     ),
+    "the pool module held in a name": "import sqlalchemy as sa\nlayer = sa.pool\n",
+    "a pool helper by attribute": (
+        "import sqlalchemy as sa\nmanaged = sa.pool.manage(object())\n"
+    ),
+    "a dialect by attribute of the engine module": (
+        "import sqlalchemy as sa\ndialect = sa.engine.default.DefaultDialect()\n"
+    ),
     "the engine module as a name": "from sqlalchemy import engine\n",
     "an engine module import": "import sqlalchemy.engine\n",
     "a non-value name of the engine module": "from sqlalchemy.engine import Dialect\n",

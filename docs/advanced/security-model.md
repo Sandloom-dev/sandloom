@@ -629,7 +629,10 @@ are auto-filtered to the bound tenant; the explicit helpers
 tenant is bound. Deliberate cross-tenant access requires an explicit
 `with unscoped():`. The ORM guard also covers joins, subqueries, relationship
 loads and `Session.get()`. It reads the SQL inside loader options and `values()`,
-and it refuses the legacy `Session.bulk_*` methods on tenant models. Optional
+and it refuses the legacy `Session.bulk_*` methods on tenant models. The cursor of
+every engine the framework builds then refuses any compiled statement that names a
+tenant table without the ORM guard's mark, outside `unscoped()`
+([ADR-0018](../adr/0018-tenant-guard-at-the-cursor.md)). Optional
 PostgreSQL Row-Level Security
 (`tenant_rls` database option + `enable_tenant_rls` in migrations) enforces the
 same rule for raw SQL — within the limits of the

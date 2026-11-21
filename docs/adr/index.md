@@ -24,3 +24,4 @@ ADRs are kept for history and marked accordingly.
 | [0015](0015-module-settings.md) | Modules declare their own settings; the kernel validates them from one read (amends 0006, 0010) | Accepted |
 | [0016](0016-kernel-ports-and-driver-packages.md) | Kernel ports and driver packages: three doors, a kernel-facing capability set, one error model, driver tiers, Redis and Celery out of the kernel (amends 0011) | Accepted |
 | [0017](0017-released-marks.md) | Released marks for contracts and events: a draft changes freely, a released one keeps the strict rule, `sandloom release`, `--new-major` (amends 0010, 0013) | Accepted |
+| [0018](0018-tenant-guard-at-the-cursor.md) | The tenant guard at the cursor: one rule on the compiled statement, a scoped stamp, a stamped instance for flush writes, and the C036 / C037 module rules | Accepted |

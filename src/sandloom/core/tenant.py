@@ -408,22 +408,24 @@ class ReachRecorder(SQLCompiler):
             # the rendered string as an opaque fragment
             self.reads |= _identifiers(self.string)
 
-    def process(self, obj: ClauseElement, **kwargs: Any) -> str:
-        if hasattr(obj, "_compiler_dispatcher"):  # ``sqlalchemy.ext.compiler.compiles``
+    def process(self, obj: visitors.Visitable, **kwargs: Any) -> str:
+        # ``sqlalchemy.ext.compiler.compiles`` sets this class attribute on an
+        # element that carries its own renderer; SQLAlchemy declares no type for it
+        if hasattr(obj, "_compiler_dispatcher"):
             self.custom = True
         return super().process(obj, **kwargs)
 
     def visit_table(self, table: TableClause, **kw: Any) -> str:  # type: ignore[override]
         (self.targets if kw.get("iscrud") else self.reads).add(str(table.name).lower())
-        return super().visit_table(table, **kw)
+        return str(super().visit_table(table, **kw))  # type: ignore[no-untyped-call]
 
     def visit_insert(self, insert_stmt: Insert, **kw: Any) -> str:  # type: ignore[override]
         self.targets.add(str(insert_stmt.table.name).lower())
-        return super().visit_insert(insert_stmt, **kw)
+        return str(super().visit_insert(insert_stmt, **kw))  # type: ignore[no-untyped-call]
 
     def visit_textclause(self, textclause: TextClause, **kw: Any) -> str:  # type: ignore[override]
         self.reads |= _identifiers(textclause.text)
-        return super().visit_textclause(textclause, **kw)
+        return str(super().visit_textclause(textclause, **kw))  # type: ignore[no-untyped-call]
 
     def visit_column(self, column: ColumnClause[Any], **kw: Any) -> str:  # type: ignore[override]
         if column.is_literal:
@@ -776,6 +778,7 @@ def _mapper_sql_reaches_raw_tenant(mapper: Mapper[Any]) -> bool:
         walk = _UnsafeCoreWalk(_tenant_names(), Alias, SelectBase)
         verdict = False
         for prop in mapper.iterate_properties:
+            parts: list[ClauseElement]
             if isinstance(prop, ColumnProperty):
                 parts = [col for col in prop.columns if not isinstance(col, Column)]
             elif isinstance(prop, RelationshipProperty) and prop.secondary is not None:

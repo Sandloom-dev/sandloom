@@ -289,31 +289,100 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_read_paths.py::test_a_bare_function_cannot_read_a_tenant_table
   - src/sandloom/core/tests/test_tenant_guard_read_paths.py::test_a_bare_function_without_a_tenant_reference_stays_allowed
 - id: G-TENANT-23
-  statement: sandloom check rule yield-inside-unscoped reports a yield or yield from inside a with
-    unscoped() block of a business module (the generator would hand the tenant bypass to its caller until
-    it closes) unless the function is decorated @contextmanager or @asynccontextmanager, which hands it
-    over on purpose; a nested function or lambda does not inherit the open block.
+  statement: sandloom check rule yield-inside-unscoped accepts unscoped in a business module only as the
+    direct context expression of a with or async with item and reports a yield or yield from anywhere
+    inside such a block, a @contextmanager or @asynccontextmanager function included (it hands the bypass
+    to its caller); every other use of the name, of an attribute named unscoped or of the string unscoped
+    (an alias, a variable, an argument, a decorator, ExitStack.enter_context, functools.partial, getattr,
+    a __dict__ lookup) is reported; a nested function or lambda does not inherit the open block and an
+    aliased import is followed.
   sources:
   - docs/modules/database/multi-tenancy.md
+  - docs/adr/0018-tenant-guard-at-the-cursor.md
   tests:
   - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_a_yield_inside_unscoped_is_reported
-  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_a_yield_outside_unscoped_or_in_a_context_manager_passes
+  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_a_yield_outside_unscoped_passes
+  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_unscoped_used_other_than_as_a_with_item_is_reported
+  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_unscoped_as_a_direct_with_item_passes
   - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_yield_inside_unscoped_runs_in_sandloom_check
+  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_a_laundered_bypass_is_reported_where_it_is_made
   rules:
   - yield-inside-unscoped
 - id: G-TENANT-24
-  statement: sandloom check rule engine-in-module reports a business module that builds its own SQLAlchemy
-    engine (create_engine, create_async_engine, engine_from_config, async_engine_from_config, imported
-    under any alias or called as an attribute), because such an engine skips the write-admission hook
-    and the tenant_rls session setup that every framework-built engine gets.
+  statement: sandloom check rule engine-in-module reports a business module that reaches a database around
+    the framework's engine, by capability and not by spelling - an engine or pool factory or class (under
+    any alias, as an attribute, through getattr or a vars / __dict__ lookup), a star import from sqlalchemy,
+    sqlalchemy.pool, sqlalchemy.engine beyond its result and URL types, a DBAPI driver (also through a
+    constant import_module), raw_connection and its kin, and an engine's .pool - because such a connection
+    skips write admission, the cursor tenant check and the tenant_rls session setup that every framework-built
+    engine gets; a create_engine method of an object that is not sqlalchemy is not reported.
   sources:
   - docs/modules/database/multi-tenancy.md
+  - docs/adr/0018-tenant-guard-at-the-cursor.md
   tests:
-  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_an_engine_built_in_a_module_is_reported
-  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_a_module_without_an_engine_factory_passes
+  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_a_database_reached_around_the_engine_is_reported
+  - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_a_module_that_reaches_the_database_through_its_session_passes
   - src/sandloom/core/tests/test_archcheck_unscoped_engine_rules.py::test_engine_in_module_runs_in_sandloom_check_including_migrations
   rules:
   - engine-in-module
+- id: G-TENANT-25
+  statement: Outside unscoped(), on every engine the framework builds, a compiled statement that names a
+    tenant table is refused unless the ORM guard stamped the execution or the unit of work is flushing rows
+    it verified, whatever built the statement (a Table of another MetaData, table(), text(), literal_column(),
+    a custom @compiles element, a loader option, a mapper-level column_property or secondary, a shadow
+    mapper, a bulk path) and whether a session, a connection or an engine ran it; tables match by name,
+    the schema ignored. The stamp is private, and a caller-supplied parameter for the tenant criterion, in
+    the execution or from a later listener, is refused, executemany and streams included. The refusal is
+    UnsafeTenantOperationError under a bound tenant and MissingTenantError with none. ORM statements over
+    tenant models and statements that name no tenant table stay allowed.
+  sources:
+  - docs/modules/database/multi-tenancy.md
+  - docs/adr/0018-tenant-guard-at-the-cursor.md
+  tests:
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_statement_reaching_a_tenant_table_unscoped_is_refused_bound
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_statement_reaching_a_tenant_table_unscoped_fails_closed_unbound
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_the_refused_statement_really_reaches_tenant_bs_row
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_tenant_class_mapped_imperatively_after_the_caches_were_built_is_seen
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_execution_parameters_cannot_override_the_tenant_bind
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_execution_parameters_cannot_override_the_tenant_bind_unbound
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_stream_cannot_override_the_tenant_bind
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_the_cursor_refuses_a_criterion_value_a_later_listener_swapped_in
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_orm_statements_over_tenant_models_stay_scoped_and_allowed
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_statements_that_name_no_tenant_table_stay_allowed
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_session_text_statement_stays_the_callers_responsibility
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_connection_text_statement_naming_a_tenant_table_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_session_connection_cannot_read_a_tenant_table_unbound
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_bulk_path_that_reaches_a_tenant_table_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_flush_through_a_shadow_mapper_cannot_plant_a_row
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_shadow_table_cannot_be_read_through_the_session
+- id: G-TENANT-26
+  statement: A flush UPDATE or DELETE, and the load of a deferred, expired or polymorphic column, runs
+    only for an instance whose tenant_id was read from the database under the bound tenant (the load and
+    refresh events stamp it; a verified flush INSERT does too), so an instance forged, merged without load
+    or unpickled cannot write or read another tenant's row, and a flush default that reads a tenant table
+    is refused. Session.get, Query.get, get_one and a many-to-one lazy load answer from the identity map only
+    for such an instance (another tenant's falls through to the scoped query, no tenant bound fails closed),
+    and a late before_flush or before_insert listener cannot plant or retarget a row.
+  sources:
+  - docs/modules/database/multi-tenancy.md
+  - docs/adr/0018-tenant-guard-at-the-cursor.md
+  tests:
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_deferred_column_load_on_a_non_tenant_model_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_polymorphic_subclass_column_load_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_forged_identity_cannot_write_another_tenants_row
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_forged_identity_cannot_read_another_tenants_row
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_instance_loaded_under_the_bound_tenant_flushes_and_refreshes
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_new_instance_inserts_updates_and_refreshes_in_one_session
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_instance_read_under_unscoped_flushes_under_its_own_tenant
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_tenant_joined_inheritance_subclass_inserts_updates_and_deletes
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_flush_whose_default_reads_a_tenant_table_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_query_get_does_not_return_another_tenants_loaded_instance
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_many_to_one_lazy_load_does_not_return_another_tenants_instance
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_identity_lookup_with_no_tenant_bound_fails_closed
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_own_identity_lookup_is_served_from_the_map
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_later_before_flush_listener_cannot_plant_another_tenants_row
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_late_listener_cannot_rewrite_the_tenant_of_a_flushed_insert
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_merge_of_another_tenants_row_still_writes_nothing
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees
@@ -8880,7 +8949,7 @@ issued:
   G-SDK: 5
   G-SENS: 7
   G-TASK: 5
-  G-TENANT: 24
+  G-TENANT: 26
   G-UNIT: 3
   G-UOW: 9
   G-WINDOW: 3
@@ -9627,6 +9696,23 @@ adr_sections:
     "7. Where the rule lives": informational
     "Alternatives considered": informational
     "Consequences": informational
+  0018-tenant-guard-at-the-cursor.md:
+    "Context": informational
+    "Decision": informational
+    "1. One rule at the cursor":
+    - G-TENANT-25
+    "2. The scoped stamp":
+    - G-TENANT-25
+    "3. What the ORM annotation protects":
+    - G-TENANT-22
+    - G-TENANT-25
+    "4. Flush writes and column loads need a stamped instance":
+    - G-TENANT-26
+    "5. What a module may write":
+    - G-TENANT-23
+    - G-TENANT-24
+    "Consequences": informational
+    "Out of scope": informational
 planned_adrs:
   0012-kernel-boundary.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-03 edge register, KB-06, KB-07,
     KB-08 sandloom-standard, KB-09 revocation applier), W1 (KB-40), W2 (KB-41); CLI phase KB-60, KB-61'
