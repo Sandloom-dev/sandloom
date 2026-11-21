@@ -16,11 +16,10 @@ from typing import Any, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.di import db as _kernel_db
-from sandloom.core.di import db_session
+from sandloom.core.di import db_session, module_database_of
 from sandloom.core.orm import ConflictInsert, MoneyLedger, Page, TenantScoped
 from sandloom.core.orm import conflict_insert as _conflict_insert
 from sandloom.core.orm import transaction_lock as _transaction_lock
-from sandloom.core.runtime import get_active_core
 
 
 def db() -> AsyncSession:
@@ -54,17 +53,8 @@ def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSe
     differs from its package: pass the database name there.
     """
     if database is None:
-        database = _calling_module_database(sys._getframe(1).f_globals.get("__name__"))
+        database = module_database_of(sys._getframe(1).f_globals.get("__name__"))
     return db_session(database)
-
-
-def _calling_module_database(import_name: object) -> str:
-    """The primary database of the loaded module that holds ``import_name``,
-    ``"default"`` where there is none (no active core, a script)."""
-    core = get_active_core()
-    if core is None or not isinstance(import_name, str):
-        return "default"
-    return core.database_of_import(import_name) or "default"
 
 
 __all__ = ["MoneyLedger", "Page", "TenantScoped", "db", "open_uow"]

@@ -15,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import sandloom.core.di as di
 import sandloom.sdk._prim.data as data_prim
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.facade import CoreFacade
@@ -116,6 +117,6 @@ def test_code_of_no_loaded_module_gets_default(
 def test_without_an_active_core_the_name_is_default(
     monkeypatch: pytest.MonkeyPatch, opened: list[str]
 ) -> None:
-    monkeypatch.setattr(data_prim, "get_active_core", lambda: None)
+    monkeypatch.setattr(di, "get_active_core", lambda: None)
     _called_from(f"{NOTES_PACKAGE}.tasks")()
     assert opened == ["default"]

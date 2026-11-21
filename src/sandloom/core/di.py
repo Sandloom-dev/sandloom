@@ -185,6 +185,20 @@ def get_service(name: str, *, optional: bool = False) -> Any:
         return None
 
 
+def module_database_of(import_name: object) -> str:
+    """The primary database of the loaded module whose package holds
+    ``import_name`` (``sandloom_billing.tasks``): where its migration chain
+    lives, as its contracts' units resolve it.
+
+    ``"default"`` where no module is resolvable: no active core, a name no
+    loaded module holds (a script).
+    """
+    core = get_active_core()
+    if core is None or not isinstance(import_name, str):
+        return "default"
+    return core.database_of_import(import_name) or "default"
+
+
 async def _yield_from_provider(
     dep_callable: Callable[[], Any],
 ) -> AsyncGenerator[AsyncSession, None]:
