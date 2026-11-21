@@ -30,6 +30,7 @@ from sandloom.core.cli.inspection.model import (
     encode_index,
 )
 from sandloom.core.cli.inspection.read import parse_index
+from sandloom.core.tests._root_support import redis_free_infra_env
 
 _APP = "mergeapp"
 _CLI = "import sys; from sandloom import main; sys.argv[0] = 'sandloom'; main()"
@@ -47,6 +48,8 @@ def _env(root: Path) -> dict[str, str]:
         "GIT_COMMITTER_EMAIL": "t@example.com",
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_SYSTEM": os.devnull,
+        # the kernel-without-redis lane: the app's Redis drivers become memory
+        **redis_free_infra_env(),
     }
 
 
@@ -90,6 +93,18 @@ def base(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "--no-git",
     )
     root = parent / _APP
+    if redis_free_infra_env():
+        # The kernel-without-redis lane: the project's `.env.test` INFRA (urls of
+        # Redis instances) would win over the memory drivers of the child's INFRA.
+        env_test = root / ".env.test"
+        env_test.write_text(
+            "".join(
+                line
+                for line in env_test.read_text("utf-8").splitlines(keepends=True)
+                if not line.startswith("INFRA=")
+            ),
+            "utf-8",
+        )
     _sandloom(root, "generate")
     _git(root, "init", "-q", "-b", "main")
     _git(root, "add", "-A")
