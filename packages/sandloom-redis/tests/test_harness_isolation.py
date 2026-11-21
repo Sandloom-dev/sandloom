@@ -180,6 +180,27 @@ def test_the_mover_refuses_a_url_whose_database_it_reads_otherwise_than_redis_py
 
 
 @pytest.mark.parametrize(
+    ("url", "leaked"),
+    [
+        ("redis://:7391/Zq4@host:6379/1", "7391"),  # the password read as a port
+        ("redis://Pw8Zx/y@h/1", "Pw8Zx"),  # the password read as the host
+        ("redis://usr9Q:pa/ss@host/1", "usr9Q"),  # the user name read as the host
+    ],
+)
+def test_the_refusal_of_a_url_with_a_split_netloc_names_no_piece_of_its_credentials(
+    url: str, leaked: str
+) -> None:
+    """An unencoded ``/`` in the password ends the netloc there: what urlsplit
+    then calls host and port is a piece of the user name or password."""
+    with pytest.raises(ValueError, match="plain decimal|'db' query") as caught:
+        redis_urls.refuse_unplain_database(url)
+    message = str(caught.value)
+    assert leaked not in message
+    assert "<no host>" not in message
+    assert "but redis:// has" in message
+
+
+@pytest.mark.parametrize(
     ("url", "moved"),
     [
         ("redis://h/1?db=", "redis://h/17?db="),  # an empty db: redis-py ignores it

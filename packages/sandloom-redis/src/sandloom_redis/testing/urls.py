@@ -67,7 +67,12 @@ def refuse_unplain_database(url: str) -> None:
 
 def _where(parts: SplitResult) -> str:
     """``scheme://host:port`` of a URL, for a message (never a credential, path
-    or query: a password with an unencoded ``/``, ``?`` or ``#`` lands there)."""
+    or query). An ``@`` after the authority means an unencoded ``/``, ``?`` or
+    ``#`` in the password ended the netloc early: what is left as host and port
+    is a piece of the user name or password, so only ``scheme://`` is named (the
+    guard of :func:`sandloom.driverkit.shared_endpoints.redis_endpoint`)."""
+    if "@" in parts.path + parts.query + parts.fragment:
+        return f"{parts.scheme}://"
     host = parts.hostname or "<no host>"
     try:
         port = f":{parts.port}" if parts.port else ""
