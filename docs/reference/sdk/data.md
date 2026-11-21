@@ -732,11 +732,7 @@ Model mixin of a money ledger: names its unique operation-key column.
 ### `open_uow`
 
 ```python
-def open_uow(
-    database: str | None = None,
-    *,
-    module: str | None = None,
-) -> AbstractAsyncContextManager[AsyncSession]
+def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSession]
 ```
 
 Open a unit of work on `database` (today `db_session`, §4.3):
@@ -753,10 +749,7 @@ Without `database` the unit opens on the primary database of the module
 that calls `open_uow` (the one its migration chain lives on, as its
 contracts' units do). Code that belongs to no loaded module, such as a
 script, gets `"default"`; so does a module whose `define_module(name=)`
-differs from its package: pass the database name there. `module` names
-another module by its import path (`"app.modules.notes"`) when the code
-that opens the unit acts for it, as a projection rebuild does for the
-module that owns the projection.
+differs from its package: pass the database name there.
 
 A module that needs several databases and declares no `migrations_database`
 has no primary one: `open_uow()` then raises `MigrationTargetError`;

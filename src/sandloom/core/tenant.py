@@ -453,23 +453,26 @@ def _checked_tenant_value(
 ) -> Any:
     """``value`` of a ``tenant_id`` slot, the bound tenant's or refused.
 
-    A literal ``None`` becomes the bound tenant. A bound parameter with a
-    literal value is compared as is; one whose value comes from the execution
-    parameters is looked up in every row there (a row without it is left to
-    SQLAlchemy's own missing-parameter error); a callable-valued one cannot be
-    checked and is refused."""
+    A literal ``None`` becomes the bound tenant. A bound parameter is looked
+    up, whatever its default or ``required`` flag, in every execution row: a
+    row that carries its key wins over the default at execution, so each such
+    row must hold the bound tenant. The default is checked for any row that
+    does not carry the key (a required parameter without a default is left to
+    SQLAlchemy's own missing-parameter error). A callable-valued parameter
+    cannot be checked and is refused."""
     if _is_unset(value):
         return tid
     if isinstance(value, BindParameter):
         if value.callable is not None:
             raise _mismatch(model)
-        if value.value is None and value.required:
-            for row in rows:
-                if value.key in row and not _owned_by(row[value.key], tid):
-                    raise _mismatch(model)
+        carried = [row[value.key] for row in rows if value.key in row]
+        if not all(_owned_by(item, tid) for item in carried):
+            raise _mismatch(model)
+        if rows and len(carried) == len(rows):
             return value
+        # A row without the key (or no execution row) uses the default.
         if value.value is None:
-            return tid
+            return value if value.required else tid
     if not _owned_by(value, tid):
         raise _mismatch(model)
     return value

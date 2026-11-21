@@ -49,7 +49,7 @@ from sandloom.sdk._decl._owner import OWNER_ATTR, caller_module
 from sandloom.sdk._decl.errors import ProjectionDefinitionError
 from sandloom.sdk._decl.events import Event, from_wire, is_concrete, wire_name
 from sandloom.sdk._prim.contracts import service
-from sandloom.sdk._prim.data import Page, TenantScoped, conflict_insert, open_uow
+from sandloom.sdk._prim.data import Page, TenantScoped, conflict_insert
 from sandloom.sdk._prim.events import EventEnvelope
 from sandloom.sdk._prim.infra import CapabilityRef, capability
 from sandloom.sdk._prim.projections import (
@@ -65,6 +65,7 @@ from sandloom.sdk._prim.projections import (
 from sandloom.sdk._prim.tenant import bind_tenant, current_tenant_id_optional, unscoped
 from sandloom.sdk._prim.web import DbSession
 from sandloom.sdk._stub import not_yet
+from sandloom.sdk._unit import open_uow_for_module
 
 #: Request header of a consistency token; response header of a stale read.
 CONSISTENCY_HEADER = "SANDLOOM-Consistency-Token"
@@ -633,7 +634,7 @@ class ProjectionRebuilderFromContract:
         rebuild runs where the projection's table lives, not in the module
         that happens to call it (``open_uow()`` alone would resolve this
         file's module)."""
-        return open_uow(module=str(getattr(self.projection, OWNER_ATTR)))
+        return open_uow_for_module(str(getattr(self.projection, OWNER_ATTR)))
 
     def _call(self) -> BoundContractMethod:
         source = self.projection.rebuild_from

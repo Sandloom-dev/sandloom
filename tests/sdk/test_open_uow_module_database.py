@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import sandloom.core.di as di
 import sandloom.sdk._prim.data as data_prim
+import sandloom.sdk._unit as unit_module
 from sandloom.core.descriptors import (
     CapabilityRequirement,
     MigrationTargetError,
@@ -24,6 +25,7 @@ from sandloom.core.descriptors import (
 )
 from sandloom.core.facade import CoreFacade
 from sandloom.core.runtime import use_active_core
+from sandloom.sdk._unit import open_uow_for_module
 from sandloom.sdk.data import open_uow
 
 NOTES_PACKAGE = "app.modules.notes"
@@ -39,6 +41,7 @@ def opened(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return _Unit()
 
     monkeypatch.setattr(data_prim, "db_session", fake_db_session)
+    monkeypatch.setattr(unit_module, "db_session", fake_db_session)
     return names
 
 
@@ -56,11 +59,10 @@ def _core(*descriptors: ModuleDescriptor) -> CoreFacade:
     return core
 
 
-def _called_from(caller: str, **kwargs: Any) -> Callable[..., Any]:
-    """``open_uow`` as code of the module named ``caller`` calls it."""
+def _called_from(module: str) -> Callable[..., Any]:
+    """``open_uow`` as code of the module named ``module`` calls it."""
     return eval(  # noqa: S307 - a lambda over a fixed globals dict, no input
-        "lambda *a: open_uow(*a, **kwargs)",
-        {"__name__": caller, "open_uow": open_uow, "kwargs": kwargs},
+        "lambda *a: open_uow(*a)", {"__name__": module, "open_uow": open_uow}
     )
 
 
@@ -115,9 +117,16 @@ def test_an_explicit_name_wins(two_databases: CoreFacade, opened: list[str]) -> 
 def test_module_names_the_module_the_unit_acts_for(
     two_databases: CoreFacade, opened: list[str]
 ) -> None:
-    # The caller belongs to billing (default database); the unit is opened for
+    # Called from billing code (default database), the unit is opened for
     # notes, as a projection rebuild does for the projection's owner.
-    _called_from("app.modules.billing.tasks", module=f"{NOTES_PACKAGE}.projections")()
+    eval(  # noqa: S307 - a lambda over a fixed globals dict, no input
+        "lambda: open_uow_for_module(owner)",
+        {
+            "__name__": "app.modules.billing.tasks",
+            "open_uow_for_module": open_uow_for_module,
+            "owner": f"{NOTES_PACKAGE}.projections",
+        },
+    )()
     assert opened == ["notes_db"]
 
 

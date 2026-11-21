@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import Text, bindparam, insert, select
+from sqlalchemy import Text, Uuid, bindparam, cast, insert, literal, select, type_coerce
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -242,6 +242,125 @@ async def test_a_callable_tenant_parameter_is_refused(items) -> None:
             )
             with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
                 await session.execute(callable_tenant)
+
+
+def _with_tenant_expr(session: AsyncSession, tenant: object, *, update: bool):
+    """``tenant_id`` is ``tenant`` (an expression); ``i`` and ``n`` are named."""
+    statement = conflict_insert(_Item, session=session).values(
+        id=bindparam("i"), name=bindparam("n"), tenant_id=tenant
+    )
+    if update:
+        return statement.on_conflict_do_update(
+            index_elements=["id"], set_={"name": "set-by-upsert"}
+        )
+    return statement.on_conflict_do_nothing(index_elements=["id"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("update", [False, True])
+@pytest.mark.parametrize("default", ["own", "none"])
+async def test_a_row_value_overrides_a_parameter_default_so_it_is_checked(
+    items, default: str, update: bool
+) -> None:
+    sessions, tenant_a, tenant_b, _ = items
+    new_id = uuid.uuid4()
+    tenant = bindparam("t", value=tenant_a if default == "own" else None)
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            for rows in (
+                [{"i": new_id, "n": "x", "t": tenant_b}],
+                {"i": new_id, "n": "x", "t": tenant_b},
+                [
+                    {"i": uuid.uuid4(), "n": "x", "t": tenant_a},
+                    {"i": new_id, "n": "x", "t": tenant_b},
+                ],
+            ):
+                with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                    await session.execute(
+                        _with_tenant_expr(session, tenant, update=update), rows
+                    )
+    assert new_id not in await _rows(sessions)
+
+
+@pytest.mark.asyncio
+async def test_a_row_without_the_key_uses_a_default_that_must_be_the_bound_tenant(
+    items,
+) -> None:
+    sessions, tenant_a, tenant_b, _ = items
+    mine, foreign = uuid.uuid4(), uuid.uuid4()
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            await session.execute(
+                _with_tenant_expr(
+                    session, bindparam("t", value=tenant_a), update=False
+                ),
+                [{"i": mine, "n": "mine"}],
+            )
+            await session.commit()
+        async with sessions() as session:
+            with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                await session.execute(
+                    _with_tenant_expr(
+                        session, bindparam("t", value=tenant_b), update=False
+                    ),
+                    [{"i": foreign, "n": "foreign"}],
+                )
+            # One row carries the key, the next falls back to the default.
+            with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                await session.execute(
+                    _with_tenant_expr(
+                        session, bindparam("t", value=tenant_b), update=False
+                    ),
+                    [
+                        {"i": foreign, "n": "foreign", "t": tenant_a},
+                        {"i": uuid.uuid4(), "n": "foreign"},
+                    ],
+                )
+    found = await _rows(sessions)
+    assert found[mine] == (tenant_a, "mine")
+    assert foreign not in found
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("form", ["typed", "cast", "type_coerce", "literal"])
+async def test_wrapped_and_literal_foreign_tenant_expressions_stay_refused(
+    items, form: str
+) -> None:
+    sessions, tenant_a, tenant_b, _ = items
+    new_id = uuid.uuid4()
+    expressions = {
+        "typed": bindparam("t", value=tenant_b, type_=Uuid()),
+        "cast": cast(bindparam("t", value=tenant_b), Uuid()),
+        "type_coerce": type_coerce(tenant_b, Uuid()),
+        "literal": literal(tenant_b),
+    }
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                await session.execute(
+                    _with_tenant_expr(session, expressions[form], update=False),
+                    [{"i": new_id, "n": "x"}],
+                )
+    assert new_id not in await _rows(sessions)
+
+
+@pytest.mark.asyncio
+async def test_a_multi_row_values_with_a_foreign_default_is_refused(items) -> None:
+    sessions, tenant_a, tenant_b, _ = items
+    ids = [uuid.uuid4(), uuid.uuid4()]
+    rows = [
+        {"id": ids[0], "name": "mine", "tenant_id": bindparam("t0", value=tenant_a)},
+        {"id": ids[1], "name": "foreign", "tenant_id": bindparam("t1", value=tenant_b)},
+    ]
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            with pytest.raises(UnsafeTenantOperationError, match="not the bound"):
+                await session.execute(
+                    conflict_insert(_Item, session=session)
+                    .values(rows)
+                    .on_conflict_do_nothing(index_elements=["id"])
+                )
+    assert not set(ids) & set(await _rows(sessions))
 
 
 @pytest.mark.asyncio

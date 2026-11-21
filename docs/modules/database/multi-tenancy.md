@@ -115,8 +115,10 @@ rows only:
 
 - a row without `tenant_id` gets the bound tenant; one that names another
   tenant raises `UnsafeTenantOperationError`. A named parameter for
-  `tenant_id` (`bindparam("t")`) is read from every row of the execution
-  parameters and must be the bound tenant. Callable-valued ones are refused;
+  `tenant_id` (`bindparam("t")`, default or not) is read from every row of the
+  execution parameters. The row value wins over the default, so it must be the
+  bound tenant. Rows without the key use the default, checked the same way.
+  Callable-valued ones are refused;
 - `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`.
   A conflict on another tenant's row (a unique key that does not lead with
   `tenant_id`) then updates nothing and inserts nothing;

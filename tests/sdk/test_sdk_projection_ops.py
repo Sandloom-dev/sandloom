@@ -404,11 +404,11 @@ async def test_rebuild_entity_applies_one_aggregate_and_checks_its_ref(
     opened_for: list[str | None] = []
 
     @asynccontextmanager
-    async def same_session(*, module: str | None = None) -> AsyncIterator[Any]:
+    async def same_session(module: str) -> AsyncIterator[Any]:
         opened_for.append(module)
         yield index_db
 
-    monkeypatch.setattr(decl, "open_uow", same_session)
+    monkeypatch.setattr(decl, "open_uow_for_module", same_session)
     projection = Projection(
         "sdkfix.rebuildable",
         key=NOTE_INDEX.key,

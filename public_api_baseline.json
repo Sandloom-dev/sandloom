@@ -5578,7 +5578,7 @@
     },
     "open_uow": {
       "kind": "function",
-      "signature": "(database:POSITIONAL_OR_KEYWORD|str | None=None, module:KEYWORD_ONLY|str | None=None) -> AbstractAsyncContextManager[AsyncSession]"
+      "signature": "(database:POSITIONAL_OR_KEYWORD|str | None=None) -> AbstractAsyncContextManager[AsyncSession]"
     },
     "partial_index": {
       "kind": "function",
