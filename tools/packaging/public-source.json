@@ -3158,6 +3158,7 @@
         "THIRD_PARTY.md",
         "architecture_rules.yml",
         "changelog.d/README.md",
+        "changelog.d/dev-new-row-before-files.md",
         "conftest.py",
         "guarantees.yml",
         "public_api_baseline.json",
