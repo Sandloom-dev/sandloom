@@ -18,17 +18,49 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import Text, delete, insert, select, union, update
+from sqlalchemy import (
+    Column,
+    MetaData,
+    Table,
+    Text,
+    column,
+    delete,
+    func,
+    insert,
+    select,
+    table,
+    text,
+    union,
+    update,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    foreign,
+    joinedload,
+    mapped_column,
+    query_expression,
+    relationship,
+    with_expression,
+    with_loader_criteria,
+)
 
+from sandloom.core.consumers.callbacks import build_consumer_callback
 from sandloom.core.di import (
     MissingTenantError,
     UnsafeTenantOperationError,
@@ -36,7 +68,8 @@ from sandloom.core.di import (
     unscoped,
 )
 from sandloom.core.orm import TenantScoped
-from sandloom.core.tenant_context import bypass_active
+from sandloom.core.sql_alchemy.write_admission import install_write_admission
+from sandloom.core.tenant_context import _bypass, bypass_active
 from sandloom.core.testing import reload_test_env
 
 
@@ -51,6 +84,12 @@ class _Other(_Base):
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    expr: Mapped[uuid.UUID | None] = query_expression()
+    items: Mapped[list[_Item]] = relationship(
+        lambda: _Item,
+        primaryjoin=lambda: foreign(_Item.id) == _Other.id,
+        viewonly=True,
+    )
 
 
 class _Item(TenantScoped, _Base):
@@ -62,6 +101,7 @@ class _Item(TenantScoped, _Base):
 
 @dataclass
 class _Env:
+    engine: AsyncEngine
     maker: async_sessionmaker[AsyncSession]
     tenant_a: uuid.UUID
     tenant_b: uuid.UUID
@@ -83,10 +123,13 @@ async def env() -> AsyncGenerator[_Env, None]:
     if not database_url:
         pytest.fail("DATABASE_URL not set: the guard test needs a PostgreSQL URL")
     engine = create_async_engine(database_url)
+    # the cursor hook every kernel-built engine carries (the drivers install it)
+    install_write_admission(engine)
     async with engine.begin() as conn:
         await conn.run_sync(_Base.metadata.drop_all)
         await conn.run_sync(_Base.metadata.create_all)
     state = _Env(
+        engine=engine,
         maker=async_sessionmaker(engine, expire_on_commit=False),
         tenant_a=uuid.uuid4(),
         tenant_b=uuid.uuid4(),
@@ -130,13 +173,52 @@ def _tenant_update_cte(b_id: uuid.UUID) -> Any:
 
 
 def _core_tenant_update_cte(b_id: uuid.UUID) -> Any:
-    table = _Item.__table__
+    tenant_table = _Item.__table__
     return (
-        update(table)
-        .where(table.c.id == b_id)
+        update(tenant_table)
+        .where(tenant_table.c.id == b_id)
         .values(name="pwned")
-        .returning(table.c.id)
+        .returning(tenant_table.c.id)
         .cte("hit")
+    )
+
+
+def _lightweight_update_cte(b_id: uuid.UUID, schema: str | None = None) -> Any:
+    """The tenant table named through ``table()``: not the mapped Table object."""
+    items = table("test_cte_dml_items", column("id"), column("name"), schema=schema)
+    return (
+        update(items)
+        .where(items.c.id == b_id)
+        .values(name="pwned")
+        .returning(items.c.id)
+        .cte("hit")
+    )
+
+
+def _second_table_update_cte(b_id: uuid.UUID) -> Any:
+    """A second ``Table`` object (another MetaData) for the tenant table."""
+    items = Table(
+        "test_cte_dml_items",
+        MetaData(),
+        Column("id", PG_UUID(as_uuid=True)),
+        Column("name", Text),
+    )
+    return (
+        update(items)
+        .where(items.c.id == b_id)
+        .values(name="pwned")
+        .returning(items.c.id)
+        .cte("hit")
+    )
+
+
+def _name_returning_cte(b_id: uuid.UUID) -> Any:
+    return (
+        update(_Item)
+        .where(_Item.id == b_id)
+        .values(name="pwned")
+        .returning(_Item.name)
+        .cte("hit2")
     )
 
 
@@ -224,6 +306,68 @@ _REFUSED: dict[str, Callable[[_Env], Any]] = {
     "non-tenant DML CTE that reads a tenant table": lambda e: select(_Other).add_cte(
         _other_update_reading_tenant_cte(e.b_id)
     ),
+    # C1-C7: places the statement-tree walk never reached (red-team of #338)
+    "C1 with_loader_criteria option": lambda e: select(_Other).options(
+        with_loader_criteria(
+            _Other,
+            _Other.id.in_(select(_tenant_update_cte(e.b_id).c.id)),
+        )
+    ),
+    "C2 with_expression option": lambda e: select(_Other).options(
+        with_expression(
+            _Other.expr,
+            select(_tenant_update_cte(e.b_id).c.id).scalar_subquery(),
+        )
+    ),
+    "C3 relationship and_() in a loader option": lambda e: select(_Other).options(
+        joinedload(
+            _Other.items.and_(_Item.id.in_(select(_tenant_update_cte(e.b_id).c.id)))
+        )
+    ),
+    "C4 multi-row VALUES": lambda e: insert(_Other).values(
+        [
+            {
+                "id": uuid.uuid4(),
+                "name": select(_name_returning_cte(e.b_id).c.name).scalar_subquery(),
+            }
+        ]
+    ),
+    "C5 DML on a lightweight table()": lambda e: select(_Other).add_cte(
+        _lightweight_update_cte(e.b_id)
+    ),
+    "C6 DML on a second Table object": lambda e: select(_Other).add_cte(
+        _second_table_update_cte(e.b_id)
+    ),
+    "C7 a function statement": lambda e: func.coalesce(
+        select(_tenant_update_cte(e.b_id).c.id).scalar_subquery()
+    ),
+    "aliased CTE": lambda e: select(_tenant_update_cte(e.b_id).alias("h").c.id),
+    "non-tenant DML CTE reading a tenant table through multi-row VALUES": (
+        lambda e: select(_Other).add_cte(
+            insert(_Other)
+            .values(
+                [
+                    {
+                        "id": uuid.uuid4(),
+                        "name": select(_Item.name)
+                        .where(_Item.id == e.b_id)
+                        .scalar_subquery(),
+                    }
+                ]
+            )
+            .returning(_Other.id)
+            .cte("copy")
+        )
+    ),
+    "DML on the tenant table schema-qualified as public": lambda e: select(
+        _Other
+    ).add_cte(_lightweight_update_cte(e.b_id, schema="public")),
+}
+
+
+_REFUSED_FIRST_BY_CORE_GUARD = {
+    "insert.add_cte (Core table target)",
+    "insert.add_cte (insert CTE)",
 }
 
 
@@ -233,9 +377,12 @@ async def test_dml_cte_on_a_tenant_table_is_refused_under_a_bound_tenant(
     env: _Env, shape: str
 ) -> None:
     statement = _REFUSED[shape](env)
+    # an INSERT whose own text names a tenant table is refused earlier by the
+    # Core-statement guard; every other shape reaches the compiled-CTE check
+    message = "Core statements" if shape in _REFUSED_FIRST_BY_CORE_GUARD else "CTE"
     async with env.maker() as session:
         with bind_tenant(env.tenant_a):
-            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+            with pytest.raises(UnsafeTenantOperationError, match=message):
                 await session.execute(statement)
     assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
 
@@ -347,3 +494,195 @@ async def test_a_task_created_and_finished_inside_unscoped_keeps_the_bypass(
         counts = await asyncio.gather(child(), child())
     assert counts == [2, 2]
     assert bypass_active() is False
+
+
+def _connection_statement(env: _Env) -> Any:
+    """Core statements: nothing on this path reaches ``do_orm_execute``."""
+    return (
+        insert(_Other.__table__)
+        .values(id=uuid.uuid4(), name="x")
+        .add_cte(_second_table_update_cte(env.b_id))
+    )
+
+
+@pytest.mark.asyncio
+async def test_session_connection_execute_refuses_a_dml_cte(env: _Env) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            connection = await session.connection()
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+                await connection.execute(_connection_statement(env))
+    assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
+
+
+@pytest.mark.asyncio
+async def test_engine_connection_execute_refuses_a_dml_cte(env: _Env) -> None:
+    async with env.engine.connect() as connection:
+        with bind_tenant(env.tenant_a):
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+                await connection.execute(_connection_statement(env))
+    assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
+
+
+@pytest.mark.asyncio
+async def test_connection_execute_with_no_tenant_bound_fails_closed(
+    env: _Env,
+) -> None:
+    async with env.maker() as session:
+        connection = await session.connection()
+        with pytest.raises(MissingTenantError):
+            await connection.execute(_connection_statement(env))
+    assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
+
+
+@pytest.mark.asyncio
+async def test_connection_execute_inside_unscoped_is_allowed(env: _Env) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a), unscoped(reason="system maintenance"):
+            connection = await session.connection()
+            await connection.execute(_connection_statement(env))
+            await session.commit()
+    assert (await _names(env))[env.b_id] == "pwned"
+
+
+@pytest.mark.asyncio
+async def test_a_dml_cte_holding_text_is_refused_fail_closed(env: _Env) -> None:
+    """``text()`` inside a DML CTE cannot be read for the tables it touches."""
+    cte = (
+        update(_Other)
+        .values(name=text("(SELECT name FROM test_cte_dml_items LIMIT 1)"))
+        .returning(_Other.id)
+        .cte("hit")
+    )
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+                await session.execute(select(_Other).add_cte(cte))
+
+
+@pytest.mark.asyncio
+async def test_a_dml_cte_carrying_loader_options_is_refused_fail_closed(
+    env: _Env,
+) -> None:
+    """Options hold criteria and expressions the table walk does not read."""
+    cte = (
+        update(_Other)
+        .options(with_loader_criteria(_Other, _Other.name != ""))
+        .values(name="y")
+        .returning(_Other.id)
+        .cte("hit")
+    )
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+                await session.execute(select(_Other).add_cte(cte))
+
+
+@pytest.mark.asyncio
+async def test_dml_cte_on_a_non_tenant_lightweight_table_stays_allowed(
+    env: _Env,
+) -> None:
+    """Matching by name refuses only tables that ARE a TenantScoped table."""
+    others = table("test_cte_dml_others", column("id"), column("name"))
+    cte = (
+        update(others)
+        .where(others.c.id == env.other_id)
+        .values(name="renamed")
+        .returning(others.c.id)
+        .cte("touch")
+    )
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            await session.execute(select(_Other).add_cte(cte))
+            await session.commit()
+    async with env.maker() as session:
+        name = (
+            await session.execute(select(_Other.name).where(_Other.id == env.other_id))
+        ).scalar_one()
+    assert name == "renamed"
+
+
+@pytest.mark.asyncio
+async def test_a_nested_dml_cte_never_runs_against_a_tenant_table(env: _Env) -> None:
+    """A ``nesting=True`` CTE leaves ``compiled.ctes`` once rendered, so the
+    compiled check cannot see it; PostgreSQL itself refuses a data-modifying
+    statement below the top level, and that is what stops it here."""
+    nested = (
+        update(_Item)
+        .where(_Item.id == env.b_id)
+        .values(name="pwned")
+        .returning(_Item.id)
+        .cte("hit", nesting=True)
+    )
+    statement = select(_Other).where(_Other.id.in_(select(nested.c.id)))
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            with pytest.raises(DBAPIError, match="top level"):
+                await session.execute(statement)
+    assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
+
+
+@pytest.mark.asyncio
+async def test_a_task_created_in_an_inner_block_keeps_the_bypass_while_outer_is_open() -> (
+    None
+):
+    inner_closed = asyncio.Event()
+    outer_closed = asyncio.Event()
+    started = asyncio.Event()
+    seen: dict[str, bool] = {}
+
+    async def child() -> None:
+        started.set()
+        await inner_closed.wait()
+        seen["outer_open"] = bypass_active()
+        await outer_closed.wait()
+        seen["all_closed"] = bypass_active()
+
+    with unscoped():
+        with unscoped():
+            task = asyncio.create_task(child())
+            await started.wait()
+        inner_closed.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    outer_closed.set()
+    await task
+    assert seen == {"outer_open": True, "all_closed": False}
+
+
+def test_a_stray_bool_in_the_bypass_variable_does_not_crash_the_guard() -> None:
+    token = _bypass.set(True)  # type: ignore[arg-type]
+    try:
+        assert bypass_active() is False
+    finally:
+        _bypass.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_a_consumer_delivery_runs_guarded_when_its_task_started_unscoped() -> (
+    None
+):
+    seen: list[bool] = []
+
+    @asynccontextmanager
+    async def opener(_database: str) -> AsyncGenerator[Any, None]:
+        yield None
+
+    async def handler(_session: Any, _envelope: Any) -> None:
+        seen.append(bypass_active())
+
+    callback = build_consumer_callback(
+        name="rt338-delivery",
+        database="main",
+        handler=handler,
+        durable=False,
+        opener=opener,
+        metric_processed="unused_processed",
+        metric_failed="unused_failed",
+        labels={"consumer": "rt338-delivery"},
+    )
+    with unscoped():
+        assert bypass_active() is True
+        await callback({"id": "e1", "payload": {}})
+        assert bypass_active() is True  # the delivery did not leak its reset
+    assert seen == [False]

@@ -217,7 +217,12 @@ def build_consumer_callback(
         event_id = str(envelope.get("id", "") or "")
         started = time.perf_counter()
         try:
-            with _tenant_scope(envelope, bind_tenant_from, name):
+            # A delivery is its own unit of work: a bus task first spawned inside
+            # an open unscoped() block must not run its deliveries unguarded.
+            with (
+                _tenant_context.without_bypass(),
+                _tenant_scope(envelope, bind_tenant_from, name),
+            ):
                 applied = await _apply(envelope, event_id)
             if not applied:
                 safe_inc(metric_processed, {**labels, "result": "skipped"})

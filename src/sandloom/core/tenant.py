@@ -25,12 +25,17 @@ cross-tenant system work use the explicit ``unscoped()`` context.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, Uuid, bindparam, event
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
-from sqlalchemy.sql.selectable import CTE, Alias, SelectBase
+from sqlalchemy.sql.base import Executable
+from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.dml import ValuesBase
+from sqlalchemy.sql.elements import ClauseElement, TextClause
+from sqlalchemy.sql.selectable import Alias, SelectBase, TableClause
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
@@ -125,17 +130,17 @@ _GUARD_CACHE_MAX = 2048
 _tenant_tables_cache: frozenset[Any] | None = None
 _reference_cache: dict[Any, bool] = {}
 _unsafe_core_cache: dict[Any, bool] = {}
-_dml_cte_cache: dict[Any, bool] = {}
+_tenant_table_names_cache: dict[str, frozenset[str | None]] | None = None
 #: Counters (observability + the guard's micro-benchmark test).
 guard_cache_stats: dict[str, int] = {"walks": 0, "hits": 0}
 
 
 def _invalidate_guard_caches() -> None:
-    global _tenant_tables_cache
+    global _tenant_tables_cache, _tenant_table_names_cache
     _tenant_tables_cache = None
+    _tenant_table_names_cache = None
     _reference_cache.clear()
     _unsafe_core_cache.clear()
-    _dml_cte_cache.clear()
 
 
 def _tenant_tables() -> frozenset[Any]:
@@ -224,44 +229,105 @@ def _unsafe_core_reference(statement: Any) -> bool:
     return verdict
 
 
-def _dml_cte_reaches_tenant(statement: Any) -> bool:
-    """A DML CTE (``update/insert/delete(...).cte()``) anywhere in ``statement``
-    reaches a TenantScoped table.
+def _tenant_table_names() -> dict[str, frozenset[str | None]]:
+    """Table name -> schemas of every TenantScoped table (memoized).
 
-    The loader criteria the guard adds scope the SELECTs of ``statement``; they
-    never reach a DML that rides along as a CTE, so ``insert(Other).add_cte(
-    update(Tenant)...)`` would rewrite another tenant's rows. Every CTE is found
-    wherever it hangs (``add_cte`` of any statement, ``.cte()`` in FROM / WHERE,
-    CTEs of subqueries, CTEs inside CTEs); any element that is not a SELECT is
-    DML, and DML that touches a TenantScoped table (its target or a subquery of
-    it) is refused. Memoized like the other verdicts. A walk that cannot read
-    the statement raises out of the listener, so the statement never runs.
+    The DML-CTE check matches by name, not by object identity: a second
+    ``Table`` object, a reflected copy or a lightweight ``table("items")`` all
+    render the same SQL against the same rows.
     """
+    global _tenant_table_names_cache
+    cached = _tenant_table_names_cache
+    if cached is not None:
+        return cached
+    schemas: dict[str, set[str | None]] = {}
+    for table in _tenant_tables():
+        schemas.setdefault(table.name, set()).add(table.schema)
+    result = {name: frozenset(found) for name, found in schemas.items()}
+    _tenant_table_names_cache = result
+    return result
 
-    cache_key = statement._generate_cache_key()
-    key = cache_key.key if cache_key is not None else None
-    if key is not None:
-        try:
-            return _dml_cte_cache[key]
-        except KeyError:
-            pass
-        except TypeError:  # unhashable structural key: never cache, just walk
-            key = None
-    tables = _tenant_tables()
-    verdict = any(
-        isinstance(node, CTE)
-        and not isinstance(node.element, SelectBase)
-        and any(
-            inner in tables or _tenant_annotated(inner)
-            for inner in visitors.iterate(node.element)
+
+def _walk_with_hidden_children(root: Any) -> Iterator[Any]:
+    """Every node under ``root``, including what ``get_children`` skips.
+
+    ``visitors.iterate`` does not descend into the rows of a multi-row
+    ``VALUES`` (``Insert._multi_values``), where a scalar subquery can read or
+    reference any table; those rows are walked here too.
+    """
+    stack = [root]
+    while stack:
+        for node in visitors.iterate(stack.pop()):
+            yield node
+            if isinstance(node, ValuesBase):
+                for rows in node._multi_values:
+                    for row in rows:
+                        values = row.values() if isinstance(row, dict) else row
+                        stack.extend(
+                            value
+                            for value in values
+                            if isinstance(value, ClauseElement)
+                        )
+
+
+def _tenant_table_in_dml_cte(element: Any) -> str | None:
+    """The name of a TenantScoped table a DML CTE element reaches, else ``None``.
+
+    Fail closed on what cannot be read: ``text()`` anywhere in the DML and
+    loader options on any statement inside it (options carry criteria and
+    expressions the walk does not descend into) count as reaching a tenant table.
+    """
+    names = _tenant_table_names()
+    for node in _walk_with_hidden_children(element):
+        if isinstance(node, TextClause):
+            return "<text() in a DML CTE>"
+        if isinstance(node, Executable) and node._with_options:
+            return "<loader options in a DML CTE>"
+        if isinstance(node, TableClause):
+            schemas = names.get(node.name)
+            if schemas is not None and (
+                node.schema is None or None in schemas or node.schema in schemas
+            ):
+                return node.name
+    return None
+
+
+def check_compiled_statement(compiled: SQLCompiler) -> None:
+    """Refuse a COMPILED statement whose DML CTE reaches a TenantScoped table.
+
+    The loader criteria of the ``do_orm_execute`` guard scope the SELECTs of a
+    statement; they never reach an INSERT/UPDATE/DELETE that rides along as a
+    CTE, so ``insert(Other).add_cte(update(Item)...)`` would rewrite another
+    tenant's rows. The check runs on what is about to be sent, at the cursor
+    boundary (``write_admission.install_write_admission``, which every
+    kernel-built engine gets): ``compiled.ctes`` holds every CTE the SQL
+    renders, wherever the statement tree hung it (options, multi-row
+    ``VALUES``, any table object) and whatever ran it (a session,
+    ``session.connection().execute``, an engine). A CTE whose
+    element is not a SELECT is DML; one that reaches a TenantScoped table is
+    refused unless inside ``unscoped()``. DML CTEs on other tables stay allowed.
+    The caller reads ``compiled.ctes`` first: a statement without a CTE costs one
+    attribute read.
+
+    A ``nesting=True`` CTE below the top level leaves ``compiled.ctes`` once
+    rendered; PostgreSQL itself refuses data-modifying statements there.
+    """
+    if bypass_active() or not _tenant_tables():
+        return
+    for cte in compiled.ctes:
+        element = cte.element
+        if isinstance(element, SelectBase):
+            continue
+        hit = _tenant_table_in_dml_cte(element)
+        if hit is None:
+            continue
+        if _current_tenant.get() is None:
+            raise _missing_tenant("a DML CTE", hit)
+        raise UnsafeTenantOperationError(
+            "a CTE holding INSERT/UPDATE/DELETE on a TenantScoped table "
+            "cannot be tenant-scoped; use ORM statements outside the CTE or "
+            "explicit unscoped() for trusted system access"
         )
-        for node in visitors.iterate(statement)
-    )
-    if key is not None:
-        if len(_dml_cte_cache) >= _GUARD_CACHE_MAX:
-            _dml_cte_cache.clear()
-        _dml_cte_cache[key] = verdict
-    return verdict
 
 
 def _tenant_annotated(node: Any) -> bool:
@@ -594,14 +660,6 @@ def install_tenant_guard() -> None:  # noqa: C901
         is_statement = (
             state.is_select or state.is_update or state.is_delete or state.is_insert
         )
-        if is_statement and _dml_cte_reaches_tenant(state.statement):
-            if _current_tenant.get() is None:
-                raise _missing_tenant("a DML CTE", _model_names(tenant_mappers))
-            raise UnsafeTenantOperationError(
-                "a CTE holding INSERT/UPDATE/DELETE on a TenantScoped table "
-                "cannot be tenant-scoped; use ORM statements outside the CTE or "
-                "explicit unscoped() for trusted system access"
-            )
         if is_statement and _unsafe_core_reference(state.statement):
             if not state.is_insert and _current_tenant.get() is None:
                 raise _missing_tenant("a Core statement", _model_names(tenant_mappers))

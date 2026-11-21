@@ -140,15 +140,37 @@ with unscoped():
 (`asyncio.create_task`, `gather`) copies the context, but its bypass ends with
 the block. A task still running after the block exited is guarded again and
 fails closed without a bound tenant. Await such a task inside the block, or give
-it its own `unscoped()`.
+it its own `unscoped()`. Nested blocks hold the bypass while any of them is
+open: a task created in an inner block keeps it until the outer block exits
+too. An event consumer's delivery always runs guarded, even when the bus task
+that runs it was first started inside an open `unscoped()`.
+
+A generator that yields inside `with unscoped():` keeps the guard off for its
+caller until the generator closes, because the block stays open across the
+`yield`. Do not yield inside the block: collect the rows in the block and yield
+them after it. A static rule for this is tracked separately.
 
 The guard does not scope a data-modifying CTE. Its tenant criteria apply to the
-SELECTs of a statement, not to a write carried as a CTE. Under a bound tenant,
-a statement with a write CTE is refused with `UnsafeTenantOperationError`.
-That happens when the CTE touches a `TenantScoped` table, as its target or in a
-subquery. The guard finds a CTE wherever it is attached, nested ones included.
-SELECT-only CTEs stay allowed and scoped. So do DML CTEs that touch no
-`TenantScoped` table. Cross-tenant work uses `unscoped()`.
+SELECTs of a statement, not to a write carried as a CTE. So the check reads the
+compiled statement, the SQL about to be sent, at the cursor of every engine the
+framework builds. It does not matter what ran the statement: a session,
+`session.connection().execute` or an engine. Nor does it matter where the tree
+hangs the CTE. In loader options or in a multi-row `VALUES`, it still ends up in
+the compiled SQL.
+
+Under a bound tenant, a statement whose compiled SQL carries an
+INSERT/UPDATE/DELETE CTE is refused with `UnsafeTenantOperationError` when that
+DML reaches a `TenantScoped` table. The table can be the target or sit in a
+subquery. Tables match by name and schema. A second `Table` object, a reflected
+copy and `table("items")` all count as the same table. `text()` or loader
+options inside the DML cannot be read for the tables they touch. They are
+refused too. SELECT-only CTEs stay allowed and scoped. So do DML CTEs that
+touch no `TenantScoped` table.
+
+Two cases the check does not see. A `nesting=True` CTE below the top level is
+not in the compiled list, and PostgreSQL itself refuses a data-modifying
+statement there. A CTE built from `text(...).columns(...)` is raw SQL, which is
+out of scope. Cross-tenant work uses `unscoped()`.
 
 `unscoped()` disables the ORM guard only. On a database with
 [Row-Level Security](#postgresql-row-level-security-optional) the database still

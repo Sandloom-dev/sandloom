@@ -20,6 +20,13 @@ only constructors of engines). Per statement, in a request's admission scope:
 3. a statement that WRITES is admitted (the first writing unit becomes the
    request's writer) or refused before it reaches the cursor (SANDLOOM-R007).
 
+The same hook refuses, before the statement is sent, a COMPILED statement whose
+data-modifying CTE reaches a ``TenantScoped`` table
+(:func:`sandloom.core.tenant.check_compiled_statement`): it covers what the
+``do_orm_execute`` guard cannot see, such as ``session.connection().execute``
+and CTEs hung in places the statement tree walk skips. A statement without a
+CTE costs one attribute read.
+
 **Classification is conservative** (:func:`is_write_statement`): a statement
 is read-only only if it provably is — the execution context reports none of
 ``isinsert`` / ``isupdate`` / ``isdelete`` / ``isddl`` AND its final SQL text
@@ -51,11 +58,13 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.compiler import SQLCompiler
 
 import sandloom.core.unit_of_work.request as _request
 import sandloom.core.unit_of_work.risk as _risk
 from sandloom.core.config.settings import settings
 from sandloom.core.sql_alchemy.money_ledger import MONEY_TABLES as _MONEY_TABLES
+from sandloom.core.tenant import check_compiled_statement
 from sandloom.core.unit_of_work.effects import UnitOfWorkRequiredError
 from sandloom.core.unit_of_work.scope import _DB_NAME_KEY
 
@@ -216,6 +225,11 @@ def _check(context: Any, statement: Any) -> None:
     costs a few attribute and dictionary reads."""
     if context is None:
         return
+    compiled = context.compiled
+    if isinstance(compiled, SQLCompiler) and compiled.ctes:
+        # a DML CTE on a TenantScoped table (compiled: options, multi-row
+        # VALUES, any table object; session, connection or engine execute)
+        check_compiled_statement(compiled)
     conn = context.root_connection
     unit = getattr(conn, UNIT_ATTR, None)
     if unit is not None:
