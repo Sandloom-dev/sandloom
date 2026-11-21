@@ -25,12 +25,26 @@ cross-tenant system work use the explicit ``unscoped()`` context.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Iterator
 from typing import Any
 
-from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, Uuid, bindparam, event
-from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
+from sqlalchemy import (
+    PrimaryKeyConstraint,
+    UniqueConstraint,
+    Uuid,
+    bindparam,
+    event,
+    inspect,
+)
+from sqlalchemy.orm import Mapped, Mapper, Session, mapped_column, with_loader_criteria
+from sqlalchemy.orm.strategy_options import Load
+from sqlalchemy.orm.util import LoaderCriteriaOption
 from sqlalchemy.sql import visitors
+from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.dml import Insert, Update, ValuesBase
+from sqlalchemy.sql.elements import ClauseElement, TextClause
+from sqlalchemy.sql.schema import ColumnElementColumnDefault, Table
 from sqlalchemy.sql.selectable import Alias, SelectBase
 
 from sandloom.core import error_codes
@@ -126,6 +140,7 @@ _GUARD_CACHE_MAX = 2048
 _tenant_tables_cache: frozenset[Any] | None = None
 _reference_cache: dict[Any, bool] = {}
 _unsafe_core_cache: dict[Any, bool] = {}
+_flush_default_cache: dict[type, bool] = {}
 #: Counters (observability + the guard's micro-benchmark test).
 guard_cache_stats: dict[str, int] = {"walks": 0, "hits": 0}
 
@@ -135,6 +150,7 @@ def _invalidate_guard_caches() -> None:
     _tenant_tables_cache = None
     _reference_cache.clear()
     _unsafe_core_cache.clear()
+    _flush_default_cache.clear()
 
 
 def _tenant_tables() -> frozenset[Any]:
@@ -304,6 +320,93 @@ def _collect_orm_sources(
             _collect_orm_sources(child, select_base, sources, seen)
 
 
+def _as_clause(value: Any) -> ClauseElement | None:
+    """``value`` as a SQL expression, by SQLAlchemy's ``__clause_element__``
+    protocol (a mapped attribute resolves to its annotated column)."""
+    if isinstance(value, ClauseElement):
+        return value
+    resolve = getattr(value, "__clause_element__", None)
+    clause = resolve() if callable(resolve) else None
+    return clause if isinstance(clause, ClauseElement) else None
+
+
+def _option_expressions(option: Any) -> Iterator[ClauseElement]:
+    """The SQL expressions ONE loader option carries inside itself.
+
+    ``with_loader_criteria`` holds a criterion (possibly a lambda, resolved
+    against its first mapper), ``with_expression`` holds its expression in
+    ``local_opts`` and ``rel.and_(...)`` holds ``_extra_criteria``: none of them
+    is a child of the statement, yet each is compiled into its SQL.
+    """
+    if option is _tenant_criteria:
+        return  # the guard's own criterion: it only names the tenant column
+    if isinstance(option, LoaderCriteriaOption):
+        mapper = next(option._all_mappers(), None)
+        if mapper is not None:
+            yield option._resolve_where_criteria(mapper)
+    elif isinstance(option, Load):
+        for element in option.context:
+            for value in (*element._extra_criteria, *element.local_opts.values()):
+                clause = _as_clause(value)
+                if clause is not None:
+                    yield clause
+
+
+def _table_default_expressions(
+    table: Any, *, onupdate: bool
+) -> Iterator[ClauseElement]:
+    """The SQL-expression defaults a table's INSERT (``default``) or UPDATE
+    (``onupdate``) renders for the columns the statement does not set itself."""
+    if not isinstance(table, Table):
+        return
+    for column in table.c:
+        default = column.onupdate if onupdate else column.default
+        if isinstance(default, ColumnElementColumnDefault):
+            yield default.arg
+
+
+def _hidden_expressions(node: Any) -> Iterator[ClauseElement]:
+    """SQL a node renders that ``get_children()`` does not yield: loader-option
+    expressions, the rows of a multi-row ``VALUES`` and the SQL-expression
+    defaults of an INSERT/UPDATE target. A guard that stops at ``get_children``
+    reads past each of them."""
+    if isinstance(node, Executable):
+        for option in node._with_options:
+            yield from _option_expressions(option)
+    if isinstance(node, ValuesBase):
+        for rows in node._multi_values:
+            for row in rows:
+                for value in row.values() if isinstance(row, dict) else row:
+                    clause = _as_clause(value)
+                    if clause is not None:
+                        yield clause
+    if isinstance(node, (Insert, Update)):
+        yield from _table_default_expressions(
+            node.table, onupdate=isinstance(node, Update)
+        )
+
+
+def _flush_defaults_reach_tenant(cls: type) -> bool:
+    """A mapped class whose table has a SQL-expression ``default`` / ``onupdate``
+    reading a TenantScoped table (memoized per class).
+
+    The flush emits its INSERT/UPDATE straight from the persistence layer, so no
+    loader criterion reaches the subquery of such a default (ORM-annotated or
+    raw): ``before_flush`` refuses the object instead.
+    """
+    verdict = _flush_default_cache.get(cls)
+    if verdict is None:
+        mapper = _mapper_of(cls)
+        verdict = mapper is not None and any(
+            _references_tenant_scoped(expression)
+            for table in mapper.tables
+            for onupdate in (False, True)
+            for expression in _table_default_expressions(table, onupdate=onupdate)
+        )
+        _flush_default_cache[cls] = verdict
+    return verdict
+
+
 class _UnsafeCoreWalk:
     """One :func:`_unsafe_core_reference` walk (visited set per statement)."""
 
@@ -333,11 +436,11 @@ class _UnsafeCoreWalk:
             if any(part is not None and self.unsafe(part, scope) for part in join[:3]):
                 return True
         children = getattr(node, "get_children", None)
-        return (
-            any(self.unsafe(child, scope) for child in children())
-            if callable(children)
-            else False
-        )
+        if callable(children) and any(
+            self.unsafe(child, scope) for child in children()
+        ):
+            return True
+        return any(self.unsafe(child, scope) for child in _hidden_expressions(node))
 
     def _raw_alias_of_tenant_table(self, node: Any) -> bool:
         # An alias is not protected by the ORM predicate on its underlying
@@ -380,7 +483,7 @@ def _walk_references_tenant_scoped(statement: Any) -> bool:  # noqa: C901
             for load in getattr(option, "context", ()) or ():
                 if _path_hits_tenant(getattr(load, "path", ())):
                     return True
-        return False
+        return any(_hit_shallow(hidden) for hidden in _hidden_expressions(element))
 
     def _hit_shallow(part: Any) -> bool:
         prop = getattr(part, "property", None)
@@ -493,6 +596,106 @@ def _install_identity_map_guard() -> None:
     Session.get = get  # type: ignore[method-assign]
 
 
+_original_legacy_bulk: dict[str, Any] = {}
+
+
+def _tenant_mapper_names(mappers: Iterable[Mapper[Any]]) -> list[str]:
+    """Class names among ``mappers`` (and their subclasses) that map a
+    TenantScoped model or one of its tables, sorted."""
+    tables = _tenant_tables()
+    names: set[str] = set()
+    for root in mappers:
+        for mapper in root.self_and_descendants:
+            if _is_tenant_class(mapper.class_) or any(
+                table in tables for table in mapper.tables
+            ):
+                names.add(mapper.class_.__name__)
+    return sorted(names)
+
+
+def _refuse_legacy_bulk(api: str, mappers: Iterable[Mapper[Any]]) -> None:
+    """Refuse a legacy ``Session.bulk_*`` call that reaches a TenantScoped
+    model, outside ``unscoped()``."""
+    if bypass_active():
+        return
+    names = _tenant_mapper_names(mappers)
+    if names:
+        raise UnsafeTenantOperationError(
+            f"Session.{api} on TenantScoped model {', '.join(names)} writes rows "
+            "without the tenant guard (it fires neither the ORM execute nor the "
+            "flush hook, so it can rewrite or plant another tenant's rows); use "
+            "ORM instances (session.add) so tenant ownership is enforced, or "
+            "explicit unscoped() for trusted system imports"
+        )
+
+
+def _mapper_of(target: Any) -> Mapper[Any] | None:
+    """The mapper of a class, mapper or mapped instance (``None``: unmapped,
+    which SQLAlchemy's own call then refuses)."""
+    inspected = inspect(target, raiseerr=False)
+    return inspected.mapper if inspected is not None else None
+
+
+def _install_legacy_bulk_guard() -> None:
+    """Refuse ``Session.bulk_save_objects`` / ``bulk_insert_mappings`` /
+    ``bulk_update_mappings`` on TenantScoped models outside ``unscoped()``.
+
+    The legacy bulk APIs emit their INSERT/UPDATE straight from the persistence
+    layer: ``do_orm_execute`` never runs (no statement is executed through
+    ``Session.execute``) and neither does ``before_flush`` (nothing is flushed),
+    so no loader criterion and no ``tenant_id`` ownership check reaches them. A
+    bulk update by primary key rewrites another tenant's row; a bulk insert
+    plants one with any ``tenant_id``. Like ``Session.get`` above, they are
+    wrapped; the refusal needs no bound tenant (there is no scoped form of them).
+    """
+    if _original_legacy_bulk:
+        return
+
+    def bulk_save_objects(
+        self: Session, objects: Iterable[object], *args: Any, **kwargs: Any
+    ) -> None:
+        batch = list(objects)  # inspected here, consumed by the original below
+        mappers = (_mapper_of(obj) for obj in batch)
+        _refuse_legacy_bulk(
+            "bulk_save_objects", [mapper for mapper in mappers if mapper is not None]
+        )
+        _original_legacy_bulk["bulk_save_objects"](self, batch, *args, **kwargs)
+
+    def bulk_insert_mappings(
+        self: Session, mapper: Any, mappings: Any, *args: Any, **kwargs: Any
+    ) -> None:
+        resolved = _mapper_of(mapper)
+        _refuse_legacy_bulk(
+            "bulk_insert_mappings", [resolved] if resolved is not None else []
+        )
+        _original_legacy_bulk["bulk_insert_mappings"](
+            self, mapper, mappings, *args, **kwargs
+        )
+
+    def bulk_update_mappings(
+        self: Session, mapper: Any, mappings: Any, *args: Any, **kwargs: Any
+    ) -> None:
+        resolved = _mapper_of(mapper)
+        _refuse_legacy_bulk(
+            "bulk_update_mappings", [resolved] if resolved is not None else []
+        )
+        _original_legacy_bulk["bulk_update_mappings"](
+            self, mapper, mappings, *args, **kwargs
+        )
+
+    _original_legacy_bulk.update(
+        bulk_save_objects=Session.bulk_save_objects,
+        bulk_insert_mappings=Session.bulk_insert_mappings,
+        bulk_update_mappings=Session.bulk_update_mappings,
+    )
+    bulk_save_objects.__doc__ = Session.bulk_save_objects.__doc__
+    bulk_insert_mappings.__doc__ = Session.bulk_insert_mappings.__doc__
+    bulk_update_mappings.__doc__ = Session.bulk_update_mappings.__doc__
+    Session.bulk_save_objects = bulk_save_objects  # type: ignore[method-assign]
+    Session.bulk_insert_mappings = bulk_insert_mappings  # type: ignore[method-assign]
+    Session.bulk_update_mappings = bulk_update_mappings  # type: ignore[method-assign]
+
+
 _guard_installed = False
 
 
@@ -502,7 +705,7 @@ def _model_names(mappers: list[Any]) -> str:
 
 
 def _statement_kind(state: Any) -> str:
-    for kind in ("select", "update", "delete"):
+    for kind in ("select", "update", "delete", "insert"):
         if getattr(state, f"is_{kind}", False):
             return kind.upper()
     return "statement"
@@ -590,10 +793,14 @@ def install_tenant_guard() -> None:  # noqa: C901
             if isinstance(mapper.class_, type)
             and issubclass(mapper.class_, TenantScoped)
         ]
-        is_statement = (
+        # The four statement kinds ORM compiles (and the loader criteria below
+        # reach). Anything else that is not ``text()`` still carries SQL: a bare
+        # ``func.f(select(...))`` sets none of the four flags.
+        scopable = (
             state.is_select or state.is_update or state.is_delete or state.is_insert
         )
-        if is_statement and _unsafe_core_reference(state.statement):
+        is_text = isinstance(state.statement, TextClause)
+        if (scopable or not is_text) and _unsafe_core_reference(state.statement):
             if not state.is_insert and _current_tenant.get() is None:
                 raise _missing_tenant("a Core statement", _model_names(tenant_mappers))
             raise UnsafeTenantOperationError(
@@ -607,14 +814,30 @@ def install_tenant_guard() -> None:  # noqa: C901
                 "instances so tenant ownership is enforced, or explicit "
                 "unscoped() for trusted system imports"
             )
-        # Cover SELECT *and* ORM-enabled bulk UPDATE/DELETE: a bound request
-        # issuing ``update(TenantOwned).values(...)`` must not touch other
-        # tenants' rows. ``with_loader_criteria`` applies to the WHERE clause of
-        # ORM UPDATE/DELETE just as it does to SELECT. Raw ``text()`` / Core
-        # (non-ORM) statements cannot carry loader criteria — those remain the
-        # caller's responsibility via ``scoped()`` / ``tenant_filter()``.
-        if not (state.is_select or state.is_update or state.is_delete):
+        if not scopable:
+            # A function, DDL or other executable: ORM compiles no select for
+            # it, so the loader criteria below never reach a subquery it holds.
+            # Whatever TenantScoped table it reaches cannot be scoped. Raw
+            # ``text()`` is the caller's responsibility (``scoped()`` /
+            # ``tenant_filter()``, the ``unsafe-tenant-sql`` check).
+            if not is_text and _references_tenant_scoped(state.statement):
+                if _current_tenant.get() is None:
+                    raise _missing_tenant(
+                        "a " + type(state.statement).__name__ + " statement",
+                        _model_names(tenant_mappers),
+                    )
+                raise UnsafeTenantOperationError(
+                    f"a {type(state.statement).__name__} statement that reaches a "
+                    "TenantScoped table cannot be automatically scoped; use an ORM "
+                    "select, or explicit unscoped() for trusted system access"
+                )
             return
+        # Cover SELECT, INSERT *and* ORM-enabled bulk UPDATE/DELETE: a bound
+        # request issuing ``update(TenantOwned).values(...)`` must not touch
+        # other tenants' rows, and ``insert(Other).values(x=select(Owned.x))``
+        # must not copy them. ``with_loader_criteria`` applies to the WHERE
+        # clause of ORM UPDATE/DELETE and to the subqueries of an INSERT just as
+        # it does to SELECT.
         if (state.is_update or state.is_delete) and tenant_mappers:
             _reject_unsafe_bulk_mutation(state)
         tid = _current_tenant.get()
@@ -645,9 +868,19 @@ def install_tenant_guard() -> None:  # noqa: C901
     ) -> None:  # pragma: no cover - DB-exercised
         if bypass_active():
             return
+        new, dirty = session.new, session.dirty
+        if _tenant_tables():
+            for flushed in (*new, *dirty):
+                if _flush_defaults_reach_tenant(type(flushed)):
+                    raise UnsafeTenantOperationError(
+                        f"{type(flushed).__name__} has a SQL-expression column "
+                        "default/onupdate that reads a TenantScoped table; a flush "
+                        "cannot tenant-scope it. Set the value in Python, or flush "
+                        "inside explicit unscoped() for trusted system access"
+                    )
         tenant_objects = (
             obj
-            for collection in (session.new, session.dirty, session.deleted)
+            for collection in (new, dirty, session.deleted)
             for obj in collection
             if isinstance(obj, TenantScoped)
         )
@@ -662,6 +895,7 @@ def install_tenant_guard() -> None:  # noqa: C901
                 )
 
     _install_identity_map_guard()
+    _install_legacy_bulk_guard()
     _guard_installed = True
 
 

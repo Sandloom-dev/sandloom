@@ -51,6 +51,11 @@ the framework's own lives in ``backend/``) and runs every analyzer of
     generated-reserved     <module>/_generated/ holds only what sandloom
                            generate wrote, unedited; no import of another
                            module's _generated package
+    yield-inside-unscoped  no yield inside `with unscoped():` outside a
+                           @contextmanager (the caller would run unguarded)
+    engine-in-module       no create_engine / create_async_engine /
+                           engine_from_config in a module (an engine of its
+                           own skips write admission and the RLS session)
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):

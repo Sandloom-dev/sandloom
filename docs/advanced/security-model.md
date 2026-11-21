@@ -628,7 +628,9 @@ are auto-filtered to the bound tenant; the explicit helpers
 (`scoped`, `tenant_filter`, `current_tenant_id`) raise `MissingTenantError` if no
 tenant is bound. Deliberate cross-tenant access requires an explicit
 `with unscoped():`. The ORM guard also covers joins, subqueries, relationship
-loads and `Session.get()`; optional PostgreSQL Row-Level Security
+loads and `Session.get()`. It reads the SQL inside loader options and `values()`,
+and it refuses the legacy `Session.bulk_*` methods on tenant models. Optional
+PostgreSQL Row-Level Security
 (`tenant_rls` database option + `enable_tenant_rls` in migrations) enforces the
 same rule for raw SQL — within the limits of the
 [RLS threat model](#tenant-rls-threat-model) below. Internal RPC binds a tenant

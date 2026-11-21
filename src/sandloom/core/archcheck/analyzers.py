@@ -2234,6 +2234,135 @@ class _TenantSqlVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+#: Decorators that turn a generator function into a context manager, which hands
+#: the ``unscoped()`` bypass to its caller's ``with`` on purpose.
+_CONTEXT_MANAGER_DECORATORS = frozenset({"contextmanager", "asynccontextmanager"})
+
+
+def _is_context_manager_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for decorator in node.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        name = (
+            target.id
+            if isinstance(target, ast.Name)
+            else target.attr
+            if isinstance(target, ast.Attribute)
+            else None
+        )
+        if name in _CONTEXT_MANAGER_DECORATORS:
+            return True
+    return False
+
+
+def find_yield_inside_unscoped(file_path: Path) -> list[str]:
+    """A ``yield`` / ``yield from`` lexically inside ``with unscoped():``.
+
+    The generator suspends inside the block with the tenant guard still lifted:
+    its consumer's statements run unguarded until the generator closes. A
+    function decorated ``@contextmanager`` / ``@asynccontextmanager`` hands the
+    bypass over on purpose and is exempt (SANDLOOM-C036).
+    """
+    tree = parse_file(file_path)
+    _, _, unscoped_names = _tenant_sql_import_names(tree)
+    found: list[str] = []
+    _YieldInsideUnscopedVisitor(unscoped_names, found).visit(tree)
+    return found
+
+
+class _YieldInsideUnscopedVisitor(ast.NodeVisitor):
+    def __init__(self, unscoped_names: set[str], found: list[str]) -> None:
+        self.unscoped_names = unscoped_names
+        self.found = found
+        self.depth = 0  # open ``with unscoped()`` blocks of the current function
+        self.exempt = False  # the current function is a context manager
+
+    def _enters_unscoped(self, expr: ast.expr) -> bool:
+        if not isinstance(expr, ast.Call):
+            return False
+        func = expr.func
+        return (isinstance(func, ast.Name) and func.id in self.unscoped_names) or (
+            isinstance(func, ast.Attribute) and func.attr == "unscoped"
+        )
+
+    def _new_scope(self, node: ast.AST, *, exempt: bool) -> None:
+        saved = (self.depth, self.exempt)
+        self.depth, self.exempt = 0, exempt
+        self.generic_visit(node)
+        self.depth, self.exempt = saved
+
+    def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self._new_scope(node, exempt=_is_context_manager_function(node))
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._new_scope(node, exempt=False)
+
+    def visit_With(self, node: ast.With | ast.AsyncWith) -> None:
+        for item in node.items:
+            self.visit(item.context_expr)
+        entered = sum(self._enters_unscoped(item.context_expr) for item in node.items)
+        self.depth += entered
+        for statement in node.body:
+            self.visit(statement)
+        self.depth -= entered
+
+    visit_AsyncWith = visit_With
+
+    def visit_Yield(self, node: ast.Yield | ast.YieldFrom) -> None:
+        if self.depth and not self.exempt:
+            self.found.append(
+                f"Line {node.lineno}: yield inside `with unscoped()` keeps the "
+                "tenant guard off for the caller until the generator closes; "
+                "read inside the block, yield after it, or make the function a "
+                "@contextmanager"
+            )
+        self.generic_visit(node)
+
+    visit_YieldFrom = visit_Yield
+
+
+#: The SQLAlchemy engine factories: an engine they build never went through
+#: ``install_write_admission`` or the tenant_rls session setup.
+_ENGINE_CONSTRUCTORS = frozenset(
+    {
+        "create_engine",
+        "create_async_engine",
+        "engine_from_config",
+        "async_engine_from_config",
+    }
+)
+
+
+def find_engine_constructors(file_path: Path) -> list[str]:
+    """A business module building its own SQLAlchemy engine (SANDLOOM-C037).
+
+    Seen: importing a factory from ``sqlalchemy`` (any alias) and calling one as
+    an attribute (``sa.create_engine(...)``, ``asyncio.create_async_engine(...)``).
+    """
+    tree = parse_file(file_path)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0:
+            if (node.module or "").split(".")[0] == "sqlalchemy":
+                found.extend(
+                    f"Line {node.lineno}: imports {alias.name}, which builds an "
+                    "engine outside the framework's drivers"
+                    for alias in node.names
+                    if alias.name in _ENGINE_CONSTRUCTORS
+                )
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _ENGINE_CONSTRUCTORS
+        ):
+            found.append(
+                f"Line {node.lineno}: {node.func.attr}(...) builds an engine "
+                "outside the framework's drivers"
+            )
+    return found
+
+
 def import_refs(tree: ast.AST, package: Sequence[str]) -> list[tuple[int, str, str]]:
     """``(line, absolute module, source text)`` of every import in ``tree``.
 
@@ -2427,6 +2556,8 @@ __all__ = [
     "import_refs",
     "find_unportable_sql",
     "find_unsafe_tenant_sql",
+    "find_yield_inside_unscoped",
+    "find_engine_constructors",
     "module_test_import_hits",
     "read_source",
     "endpoint_method",

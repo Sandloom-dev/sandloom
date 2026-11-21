@@ -71,6 +71,8 @@ def test_rule_ids_are_stable() -> None:
         "task-enqueue-ownership",  # a module enqueues only its own tasks (C035)
         "portable-sql",  # infra-agnostic: SQL every database runs alike
         "generated-reserved",  # ADR-0013: _generated/ is the generator's (C032)
+        "yield-inside-unscoped",  # a generator never hands unscoped() on (C036)
+        "engine-in-module",  # an engine of a module's own skips the guards (C037)
     } | {
         # Public API 1.0 (C021-C027, e.g. "module-local-imports"): each is an
         # sandloom check rule exactly when its catalogue code is no longer planned.
