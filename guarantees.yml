@@ -362,7 +362,10 @@ guarantees:
     @compiles element that reads no table, and statements that name no tenant table stay allowed. The test
     harness's schema reset, ensure_model_schema and fixtures that build tenant tables run inside
     unscoped(). Not covered, by design - Connection.exec_driver_sql (no compiled statement), a text()
-    sent straight to session.execute (the caller's), the guard's private state and private SQLAlchemy APIs.
+    sent straight to session.execute (the caller's), SQL the database builds from text no scan can read
+    (PostgreSQL dynamic SQL such as query_to_xml with a concatenated name, table_to_xml(oid::regclass) and
+    DO $$ EXECUTE $$, and a view, function or trigger over a tenant table; row-level security holds
+    these), the guard's private state and private SQLAlchemy APIs.
   sources:
   - docs/modules/database/multi-tenancy.md
   - docs/adr/0018-tenant-guard-at-the-cursor.md
