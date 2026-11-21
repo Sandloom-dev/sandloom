@@ -463,14 +463,22 @@ _REFUSED_FIRST_BY_CORE_GUARD = {
     "insert.add_cte (insert CTE)",
 }
 
+_REFUSED_FIRST_BY_FUNCTION_GUARD = {"C7 a function statement"}
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shape", list(_REFUSED))
 async def test_a_dml_cte_is_refused_under_a_bound_tenant(env: _Env, shape: str) -> None:
     statement = _REFUSED[shape](env)
     # an INSERT whose own text names a tenant table is refused earlier by the
-    # Core-statement guard; every other shape reaches the compiled-CTE check
-    message = "Core statements" if shape in _REFUSED_FIRST_BY_CORE_GUARD else "CTE"
+    # Core-statement guard, and a bare function statement by the guard on every
+    # non-text executable; every other shape reaches the compiled-CTE check
+    if shape in _REFUSED_FIRST_BY_CORE_GUARD:
+        message = "Core statements"
+    elif shape in _REFUSED_FIRST_BY_FUNCTION_GUARD:
+        message = "reaches a TenantScoped table"
+    else:
+        message = "CTE"
     async with env.maker() as session:
         with bind_tenant(env.tenant_a):
             with pytest.raises(UnsafeTenantOperationError, match=message):
