@@ -15,7 +15,56 @@ from prometheus_client import Counter
 _current_tenant: ContextVar[uuid.UUID | None] = ContextVar(
     "sandloom_current_tenant", default=None
 )
-_bypass: ContextVar[bool] = ContextVar("sandloom_tenant_bypass", default=False)
+
+
+class _UnscopedScope:
+    """One ``unscoped()`` block: the context's bypass lasts while it is open.
+
+    A task created inside the block copies the context, so the variable it
+    holds outlives the block. The bypass is therefore this object, not a
+    boolean: the ``finally`` of :func:`_unscoped_scope` flips ``open`` for
+    every copy at once, and a child task still running after the block exited
+    no longer bypasses the guard. ``parent`` is the block this one was entered
+    in: a task created in an inner block keeps the bypass while any enclosing
+    block is still open.
+    """
+
+    __slots__ = ("open", "parent")
+
+    def __init__(self, parent: _UnscopedScope | None) -> None:
+        self.open = True
+        self.parent = parent
+
+
+#: The ``unscoped()`` block the current context is inside, or ``None``.
+_bypass: ContextVar[_UnscopedScope | None] = ContextVar(
+    "sandloom_tenant_bypass", default=None
+)
+
+
+def bypass_active() -> bool:
+    """True while this context's ``unscoped()`` block, or one enclosing it, is open.
+
+    Never for a task that outlived every block it was created in.
+    """
+    scope = _bypass.get()
+    while isinstance(scope, _UnscopedScope):
+        if scope.open:
+            return True
+        scope = scope.parent
+    return False
+
+
+@contextmanager
+def without_bypass() -> Iterator[None]:
+    """Run the block with the tenant guard on, even when the context was copied
+    from inside an open ``unscoped()``: a long-lived delivery task (an event
+    bus consumer) started there must not inherit the bypass for its lifetime."""
+    token = _bypass.set(None)
+    try:
+        yield
+    finally:
+        _bypass.reset(token)
 
 
 class MissingTenantError(RuntimeError):
@@ -115,10 +164,12 @@ def _unscoped_scope(caller: str, reason: str | None) -> Iterator[None]:
             caller,
             reason or "no reason given",
         )
-    token = _bypass.set(True)
+    scope = _UnscopedScope(_bypass.get())
+    token = _bypass.set(scope)
     try:
         yield
     finally:
+        scope.open = False
         _bypass.reset(token)
 
 
@@ -127,8 +178,10 @@ __all__ = [
     "TenantMismatchError",
     "UnsafeTenantOperationError",
     "bind_tenant",
+    "bypass_active",
     "configured_tenant_scope",
     "current_tenant_id",
     "current_tenant_id_optional",
     "unscoped",
+    "without_bypass",
 ]

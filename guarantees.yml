@@ -217,6 +217,38 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_upsert_requires_tenant_and_never_crosses_tenants
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_update_is_scoped_to_bound_tenant
+- id: G-TENANT-19
+  statement: A statement whose COMPILED SQL carries a CTE of INSERT/UPDATE/DELETE is refused outside
+    unscoped() on every engine the framework builds, whatever table the DML targets or reads (no table
+    is matched), wherever the statement tree hangs the CTE and whether a session, session.connection() or
+    an engine runs it; the refusal is UnsafeTenantOperationError under a bound tenant and MissingTenantError
+    with none. SELECT-only CTEs stay allowed and scoped. A nesting=True CTE below the top level leaves the
+    compiled list and is refused by PostgreSQL itself.
+  sources:
+  - docs/modules/database/multi-tenancy.md
+  tests:
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_dml_cte_is_refused_under_a_bound_tenant
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_inside_unscoped_is_allowed
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_select_only_cte_on_a_tenant_table_stays_allowed_and_scoped
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_on_a_non_tenant_table_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_schema_translate_map_cannot_hide_the_tenant_table
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_session_connection_execute_refuses_a_dml_cte
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_engine_connection_execute_refuses_a_dml_cte
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_nested_dml_cte_never_runs_against_a_tenant_table
+- id: G-TENANT-20
+  statement: The unscoped() bypass is bounded by its block. A task created and finished inside the block
+    keeps it; a task still running after the block exited is guarded again; nested blocks hold it while
+    any of them is open; a stray non-scope value in the bypass variable does not disable or crash the
+    guard; an event consumer's delivery runs guarded even when its bus task was first started inside an
+    open unscoped().
+  sources:
+  - docs/modules/database/multi-tenancy.md
+  tests:
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_task_created_inside_unscoped_does_not_keep_the_bypass
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_task_created_and_finished_inside_unscoped_keeps_the_bypass
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_task_created_in_an_inner_block_keeps_the_bypass_while_outer_is_open
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_stray_bool_in_the_bypass_variable_does_not_crash_the_guard
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_consumer_delivery_runs_guarded_when_its_task_started_unscoped
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees
@@ -8783,7 +8815,7 @@ issued:
   G-SDK: 5
   G-SENS: 7
   G-TASK: 5
-  G-TENANT: 18
+  G-TENANT: 20
   G-UNIT: 3
   G-UOW: 9
   G-WINDOW: 3

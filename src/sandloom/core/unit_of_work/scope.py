@@ -338,7 +338,7 @@ def _isolated_request_authority_scope() -> Iterator[None]:
     active = _active_uow_sessions.set(())
     readonly = _read_only_scope.set(None)
     tenant = _current_tenant.set(None)
-    bypass = _bypass.set(False)
+    bypass = _bypass.set(None)
     try:
         with _isolated_contract_request_scope():
             yield

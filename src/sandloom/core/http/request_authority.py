@@ -34,7 +34,7 @@ def _boundary_vars() -> tuple[Any, Any, Any]:
             (uow_scope._active_uow_sessions, ()),
             (uow_scope._read_only_scope, None),
             (tenant_context._current_tenant, None),
-            (tenant_context._bypass, False),
+            (tenant_context._bypass, None),
         )
         contract: tuple[tuple[ContextVar[Any], Any], ...] = (
             (contract_vars._contract_session_var, None),

@@ -118,7 +118,7 @@ from sandloom.core.sql_alchemy.portable import (
     sql_dialect,
 )
 from sandloom.core.sql_alchemy.rls import row_security
-from sandloom.core.tenant_context import _bypass, _current_tenant
+from sandloom.core.tenant_context import _current_tenant, bypass_active
 
 logger = logging.getLogger("sandloom.tenant_rls")
 
@@ -372,7 +372,7 @@ def _sync(context: Any, merged_begin: bool = False) -> bool:  # noqa: C901
         return False
     info = _info(conn.connection)
     tenant = _current_tenant.get()
-    if tenant is None and _bypass.get():
+    if tenant is None and bypass_active():
         _warn_unscoped_without_tenant(conn, info)
     non_tenant = _NON_TENANT.get() and _non_tenant_allowed(context)
     if _STATE_KEY in info:

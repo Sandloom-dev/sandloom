@@ -30,6 +30,7 @@ from typing import Any
 from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, Uuid, bindparam, event
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
+from sqlalchemy.sql.compiler import SQLCompiler
 from sqlalchemy.sql.selectable import Alias, SelectBase
 
 from sandloom.core import error_codes
@@ -37,9 +38,9 @@ from sandloom.core.tenant_context import (
     MissingTenantError,
     TenantMismatchError,
     UnsafeTenantOperationError,
-    _bypass,
     _current_tenant,
     bind_tenant,
+    bypass_active,
     current_tenant_id,
     current_tenant_id_optional,
     unscoped,
@@ -220,6 +221,46 @@ def _unsafe_core_reference(statement: Any) -> bool:
             _unsafe_core_cache.clear()
         _unsafe_core_cache[key] = verdict
     return verdict
+
+
+def check_compiled_statement(compiled: SQLCompiler) -> None:
+    """Refuse a COMPILED statement that carries a data-modifying CTE.
+
+    The loader criteria of the ``do_orm_execute`` guard scope the SELECTs of a
+    statement; they never reach an INSERT/UPDATE/DELETE that rides along as a
+    CTE, so ``insert(Other).add_cte(update(Item)...)`` would rewrite another
+    tenant's rows. Which tables such a CTE reaches cannot be told reliably from
+    the statement (quote-free names, ``schema_translate_map``, tables only
+    named through columns, SQL-expression defaults), so no table is matched:
+    a CTE whose element is not a SELECT is DML and is refused unless inside
+    ``unscoped()``, whatever its target.
+
+    The check runs on what is about to be sent, at the cursor boundary
+    (``write_admission.install_write_admission``, which every kernel-built
+    engine gets): ``compiled.ctes`` holds every CTE the SQL renders, wherever
+    the statement tree hung it (options, multi-row ``VALUES``, any table
+    object) and whatever ran it (a session, ``session.connection().execute``,
+    an engine). The caller reads ``compiled.ctes`` first: a statement without a
+    CTE costs one attribute read.
+
+    A ``nesting=True`` CTE below the top level leaves ``compiled.ctes`` once
+    rendered; PostgreSQL itself refuses data-modifying statements there.
+    """
+    if bypass_active():
+        return
+    for cte in compiled.ctes or ():
+        if isinstance(cte.element, SelectBase):
+            continue
+        if _current_tenant.get() is None:
+            raise MissingTenantError(
+                "a data-modifying CTE ran with no tenant bound. "
+                + error_codes.fix_line("SANDLOOM-R001")
+            )
+        raise UnsafeTenantOperationError(
+            "a CTE holding INSERT/UPDATE/DELETE cannot be tenant-scoped; use "
+            "ORM statements outside the CTE or explicit unscoped() for "
+            "trusted system access"
+        )
 
 
 def _tenant_annotated(node: Any) -> bool:
@@ -433,7 +474,11 @@ def _install_identity_map_guard() -> None:
 
     def get(self: Session, entity: Any, ident: Any, **kwargs: Any) -> Any:
         instance = original(self, entity, ident, **kwargs)
-        if instance is None or _bypass.get() or not isinstance(instance, TenantScoped):
+        if (
+            instance is None
+            or bypass_active()
+            or not isinstance(instance, TenantScoped)
+        ):
             return instance
         tid = _current_tenant.get()
         if tid is None:
@@ -530,7 +575,7 @@ def install_tenant_guard() -> None:  # noqa: C901
         # TenantScoped collection is its own query and must be scoped too.
         if state.is_column_load:
             return
-        if _bypass.get():
+        if bypass_active():
             return
         if not _tenant_tables():
             # Early exit (hot path): no TenantScoped model is mapped in this
@@ -545,9 +590,10 @@ def install_tenant_guard() -> None:  # noqa: C901
             if isinstance(mapper.class_, type)
             and issubclass(mapper.class_, TenantScoped)
         ]
-        if (
+        is_statement = (
             state.is_select or state.is_update or state.is_delete or state.is_insert
-        ) and _unsafe_core_reference(state.statement):
+        )
+        if is_statement and _unsafe_core_reference(state.statement):
             if not state.is_insert and _current_tenant.get() is None:
                 raise _missing_tenant("a Core statement", _model_names(tenant_mappers))
             raise UnsafeTenantOperationError(
@@ -597,7 +643,7 @@ def install_tenant_guard() -> None:  # noqa: C901
     def _enforce_tenant_writes(
         session: Session, _flush_context: Any, _instances: Any
     ) -> None:  # pragma: no cover - DB-exercised
-        if _bypass.get():
+        if bypass_active():
             return
         tenant_objects = (
             obj

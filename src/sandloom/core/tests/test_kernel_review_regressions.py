@@ -454,8 +454,8 @@ async def test_http_boundary_clears_and_restores_tenant_and_system_bypass() -> N
 
     from sandloom.core.http.request_authority import RequestAuthorityMiddleware
     from sandloom.core.tenant_context import (
-        _bypass,
         bind_tenant,
+        bypass_active,
         current_tenant_id_optional,
         unscoped,
     )
@@ -468,7 +468,7 @@ async def test_http_boundary_clears_and_restores_tenant_and_system_bypass() -> N
         tenant = current_tenant_id_optional()
         return {
             "tenant": str(tenant) if tenant is not None else None,
-            "system": _bypass.get(),
+            "system": bypass_active(),
         }
 
     tenant = uuid4()
@@ -479,7 +479,7 @@ async def test_http_boundary_clears_and_restores_tenant_and_system_bypass() -> N
             response = await client.get("/scope")
             assert response.json() == {"tenant": None, "system": False}
             assert current_tenant_id_optional() == tenant
-            assert _bypass.get() is True
+            assert bypass_active() is True
 
 
 @pytest.mark.asyncio

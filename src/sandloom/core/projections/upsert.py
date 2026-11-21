@@ -44,7 +44,7 @@ from sqlalchemy.engine import CursorResult
 from sandloom.core.sql_alchemy.portable import conflict_insert
 from sandloom.core.tenant_context import (
     TenantMismatchError,
-    _bypass,
+    bypass_active,
     current_tenant_id_optional,
     unscoped,
 )
@@ -66,7 +66,7 @@ def _older_than(table: Table, version_column: str, incoming_version: int) -> Any
 
 def _bound_tenant() -> Any:
     """The bound tenant, or ``None`` when unbound or inside ``unscoped()``."""
-    if _bypass.get():
+    if bypass_active():
         return None
     return current_tenant_id_optional()
 
