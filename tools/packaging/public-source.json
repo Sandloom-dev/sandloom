@@ -1800,6 +1800,7 @@
         "src/sandloom/core/tests/test_database_provider_kit.py",
         "src/sandloom/core/tests/test_db_provider_get_db.py",
         "src/sandloom/core/tests/test_eventbus_broadcast_driver.py",
+        "src/sandloom/core/tests/test_events_claims.py",
         "src/sandloom/core/tests/test_eventbus_kit.py",
         "src/sandloom/core/tests/test_audit_and_secrets.py",
         "src/sandloom/core/tests/test_auth_rotation_revocation.py",

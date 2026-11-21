@@ -8,9 +8,11 @@ type: concept
 
 An **event** is a fact one module states about its own data, such as "a task
 was created". Other modules react to it without importing the producer. An
-event is a typed class, `class TaskCreated(Event, channel="tasks.task.created.v1")`;
+event is a typed class, `class TaskCreated(Event, channel="tasks.task.created.v1")`.
 `await TaskCreated(...).publish()` writes it to the transactional outbox of
-the running unit, so it is sent if and only if the change commits. A
+the running unit, so the event exists if and only if the change commits. The
+relay then sends it at least once. A row it cannot send after
+`OUTBOX_RELAY_MAX_ATTEMPTS` attempts is dead-lettered until you requeue it. A
 **consumer** is an `async def` decorated with `@on(TaskCreated)`; each
 delivery runs in its own unit. Delivery is at least once, so a consumer that
 must apply an effect once claims the event id in its own transaction, which
@@ -23,7 +25,7 @@ channel; the synchronous one is a [contract](contracts.md).
 | --- | --- |
 | The class's JSON schema registered, snapshotted in `module.snapshot.json` and exported to the shared DTO package by `sandloom generate` | `class E(Event, channel="<module>.<entity>.<verb>.v1")` with wire-type fields |
 | Producer or view role derived from the channel's first segment | `role="producer"` / `role="view"` only when the layout cannot tell |
-| `.publish()` writes to the outbox of the running unit; the event is sent iff the unit commits | `await E(...).publish()`, inside a unit (a request, a consumer, `open_uow()`) |
+| `.publish()` writes to the outbox of the running unit; the row exists iff the unit commits, and the relay then sends it at least once | `await E(...).publish()`, inside a unit (a request, a consumer, `open_uow()`) |
 | A stable envelope id, the schema version taken from the `.vN` suffix, delivery metadata on `event.meta` | nothing |
 | A durable consumer group `<module>:<function name>`, claimed once per envelope id in the consumer's unit | `@on(E)` on `async def f(event: E) -> None` |
 | The tenant bound from a `tenant_id: UUID` field of the event | `tenant="<field>"` for another UUID field, `tenant=None` for none |
@@ -36,8 +38,10 @@ channel; the synchronous one is a [contract](contracts.md).
 ### Declare and publish
 
 A producer lives in the module's `events.py`. The channel is
-`<module>.<entity>.<verb>.vN` in lower case; its first segment is the short
-name of the module that owns it.
+`<module>.<entity>.<verb>.vN` by convention. What is enforced: dot-separated
+segments of `a-z`, `0-9` and `_`. The first starts with a letter and names the
+module that owns the channel. At least one segment follows it before the
+last, `.vN`, where `N` starts at 1 with no leading zero.
 
 ```python
 --8<-- "examples/tutorial/tasklist/modules/tasks/events.py"
@@ -168,7 +172,7 @@ it. The options are those of the L2 `register_event_consumer`:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `name=` | the function name | the consumer's name; its group is `<module>:<name>` |
-| `durable=` | `True` | claim the envelope id in the consumer unit's database before the handler runs (the durable inbox) |
+| `durable=` | `True` | claim the envelope id (`event.meta.id`) in the consumer unit's database before the handler runs (the durable inbox) |
 | `required=` | `True` | startup fails if it cannot subscribe; `/ready` fails while a lost subscription reconnects |
 | `dead_letter=` | `True` | park a delivery in `<channel>.dlq` after the bus's delivery budget; `False` retries forever with capped backoff |
 | `start_from=` | `"earliest"` | where a **new** group starts: `"earliest"` (everything within stream retention), `"latest"`, or a `datetime` |
@@ -192,13 +196,22 @@ See [Add a consumer](add-consumer.md).
 
 ### Groups in split deployments
 
-A consumer's group is namespaced by the module that declares it, so two
-modules, or one module deployed in two services, that reuse a name never
-share a group and never split each other's events. Replicas of one
-deployment share the group. Startup fails when two consumers of one process
-resolve to the same group, when an explicit `group=` is already used by
-another module, or when the group is already owned by another module or
-physical database (the first joiner records an owner fingerprint).
+A consumer's group is `<module>:<name>`, namespaced by the module that
+declares it. Two modules that reuse a name never share a group or split each
+other's events. The same module in two services resolves to the
+same group. Replicas share it when they claim events in the same physical
+database. Startup fails in three cases. Two consumers of one process resolve
+to the same group. An explicit `group=` is already used by another module.
+Or the group is owned by another module or physical database (the first
+joiner records an owner fingerprint).
+
+**Do not rename a consumer.** The group comes from `name=`, which defaults to
+the function name. A renamed handler is a new, empty group with its own
+inbox. It starts at `start_from` (`"earliest"` by default) and applies again
+every event the stream still retains, including those the old group already
+applied. Keep the name. Or pin the old group with
+`group="<module>:<old name>"`. Or start the new one at `start_from="latest"`
+when skipping the backlog is acceptable.
 
 `/diagnostics/consumers` reports each local consumer's state, connection
 attempts, last error, group, module and the group's lag and pending count.
@@ -228,10 +241,16 @@ the consumer's database, and a raw L2 handler, need a claim of their own:
   per-message backoff. After the bus's delivery budget a `dead_letter=True`
   consumer's delivery is parked in `<channel>.dlq`, recording the reason and
   the group.
-- Raise `PoisonEventError` (from `sandloom.sdk.events`) for an event that can
-  never apply, such as a malformed payload: it is dead-lettered at once,
+- Raise `PoisonEventError` (from `sandloom.sdk.events`) from your handler for
+  an event your code decides can never apply: it is dead-lettered at once,
   even on a `dead_letter=False` consumer. That is the only way out of a
   consumer that otherwise retries forever.
+- A payload that fails validation does not reach your handler. `@on` decodes
+  it first (`from_wire`) and the error is an ordinary one: the unit rolls
+  back and the delivery is retried. With `dead_letter=True` it is parked after
+  the delivery budget. With `dead_letter=False` it is retried forever, and
+  your handler cannot raise `PoisonEventError` for it. Keep `dead_letter=True`
+  where producers and readers may disagree on a schema.
 - Inspect and replay once the cause is fixed. A replay is targeted at the
   group that dead-lettered the entry; other groups skip it.
 
@@ -323,9 +342,12 @@ await publish_event_versions({
 Unset (the default), it takes the composition's selection (`streams` under
 `sandloom_standard`) and never chooses `memory`. `auto` is refused. The values are `streams`
 (Redis Streams: durable groups, ack, redelivery, DLQ), `broadcast` (Pub/Sub,
-volatile) and `memory` (in-process, for dev and tests). Volatile buses are
-refused in production, and durable consumers are refused on Pub/Sub, unless
-the deployment accepts the risk `volatile_event_bus` (`SANDLOOM_ACCEPTED_RISKS`).
+volatile) and `memory` (in-process, for dev and tests). In production the
+default bus must be durable: startup refuses a volatile default bus, and the
+accepted risk `volatile_event_bus` (`SANDLOOM_ACCEPTED_RISKS`) does not lift
+that. The risk admits a volatile driver on another `eventbus` instance only.
+Consumers need a durable bus in production, with or without the risk. Outside
+production the risk lets durable consumers run on Pub/Sub.
 See [Capabilities and infrastructure](../../infrastructure/index.md).
 
 ### Testing

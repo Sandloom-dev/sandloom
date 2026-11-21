@@ -1704,9 +1704,7 @@ guarantees:
   - src/sandloom/core/tests/test_event_consumers.py::test_start_event_consumers_wires_and_delivers
   - src/sandloom/core/tests/test_streams_event_bus.py::test_failed_handler_leaves_message_for_redelivery
   - src/sandloom/core/tests/test_inmemory_bus_delivery.py::test_failing_consumer_is_retried_until_success
-  gap: No test asserts the handler's DB writes are rolled back when the handler raises (the consumer UoW
-    rollback itself); tests check redelivery with fake sessions only.
-  gap_size: S
+  - src/sandloom/core/tests/test_events_claims.py::test_a_handler_error_rolls_back_the_consumer_unit
 - id: G-EVENT-06
   rests_on:
   - capability: eventbus
@@ -1821,13 +1819,15 @@ guarantees:
   - capability: broadcast
     note: the volatile eventbus drivers memory and broadcast sit over broadcast
   statement: Durable/required consumers are refused on the volatile Pub/Sub bus unless the volatile_event_bus
-    risk is accepted, and the memory/broadcast Pub/Sub drivers are refused in production without it.
+    risk is accepted, and the memory/broadcast Pub/Sub drivers are refused in production without it, and
+    never as the default bus even with it.
   sources:
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_volatile_bus_guards.py::test_durable_consumer_refused_on_pubsub_bus
   - src/sandloom/core/tests/test_volatile_bus_guards.py::test_memory_bus_allowed_in_dev_refused_in_prod
   - src/sandloom/core/tests/test_volatile_bus_guards.py::test_driver_refuses_volatile_bus_in_prod
+  - src/sandloom/core/tests/test_events_claims.py::test_prod_default_volatile_bus_is_refused_even_with_the_accepted_risk
 - id: G-AUDIT-01
   statement: record_audit writes the audit_log row in the current UoW, so it commits iff the business
     change commits.
@@ -5424,14 +5424,15 @@ guarantees:
   - capability: broadcast
     note: the volatile eventbus drivers memory and broadcast sit over broadcast
   statement: In prod the volatile event-bus drivers (memory, broadcast Pub/Sub) are refused unless volatile_event_bus
-    is accepted; required/durable consumers on a Pub/Sub bus are refused even with the risk, and outside
-    prod need the risk.
+    is accepted, never as the default bus; required/durable consumers on a Pub/Sub bus are refused even
+    with the risk, and outside prod need the risk.
   sources:
   - docs/reference/cli.md
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   tests:
   - src/sandloom/core/tests/test_volatile_bus_guards.py::test_driver_refuses_volatile_bus_in_prod
   - src/sandloom/core/tests/test_volatile_bus_guards.py::test_memory_bus_allowed_in_dev_refused_in_prod
+  - src/sandloom/core/tests/test_events_claims.py::test_prod_default_volatile_bus_is_refused_even_with_the_accepted_risk
   - src/sandloom/core/tests/test_accepted_risks.py::test_volatile_bus_driver_admitted_in_prod_by_the_risk
   - src/sandloom/core/tests/test_accepted_risks.py::test_volatile_consumers_outside_prod_need_the_risk
 - id: G-RISK-05

@@ -357,8 +357,8 @@ This section holds the settings, commands and metrics.
   `migrate` one-shot (the sources are not running yet).
 - Run the durable `streams` bus in production (the standard composition selects
   it while `EVENT_BUS_BACKEND` is unset). The volatile drivers are refused in prod
-  unless the deployment accepts the risk `volatile_event_bus`
-  (`SANDLOOM_ACCEPTED_RISKS`).
+  on the default bus whatever the risk; the risk `volatile_event_bus`
+  (`SANDLOOM_ACCEPTED_RISKS`) admits one only on a non-default instance.
 
 ## Sagas
 

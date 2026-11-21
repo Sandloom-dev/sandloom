@@ -27,7 +27,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`EventEnvelope`](#eventenvelope) | callable | A Mapping is a generic container for associating key/value pairs. |
 | [`EventMeta`](#eventmeta_1) | class | Delivery metadata of an event; mirrors the envelope, never part of the payload (`event.meta` on a delivered event). |
-| [`PoisonEventError`](#poisoneventerror) | exception | Raised by a consumer handler for an event that can NEVER be applied (malformed payload): the delivery is dead-lettered at once (CRITICAL... |
+| [`PoisonEventError`](#poisoneventerror) | exception | Raised by a consumer handler for an event that can NEVER be applied: the delivery is dead-lettered at once (CRITICAL log) instead of bein... |
 | [`publish_event`](#publish_event) | async function | Publish a domain event through the transactional outbox. |
 | [`publish_event_versions`](#publish_event_versions) | async function | Publish one domain event under several versions of its channel. |
 
@@ -161,10 +161,16 @@ the payload (`event.meta` on a delivered event).
 class PoisonEventError(Exception)
 ```
 
-Raised by a consumer handler for an event that can NEVER be applied
-(malformed payload): the delivery is dead-lettered at once (CRITICAL log)
-instead of being retried — the one way out for a `dead_letter=False`
-consumer, whose transient failures are retried forever.
+Raised by a consumer handler for an event that can NEVER be applied:
+the delivery is dead-lettered at once (CRITICAL log) instead of being
+retried — the one way out for a `dead_letter=False` consumer, whose
+failures are otherwise retried forever.
+
+Only the handler's own code can raise it. An `@on` consumer decodes the
+payload (`from_wire`) before the handler runs: a payload that fails
+validation raises a plain error there, which is retried like any other
+(and, with `dead_letter=False`, retried forever). A raw L2 handler that
+reads the payload itself may raise this for a malformed one.
 
 ### `publish_event`
 
