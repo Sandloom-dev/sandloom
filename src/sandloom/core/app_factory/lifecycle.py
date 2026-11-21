@@ -7,7 +7,6 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Any, cast
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 
@@ -39,6 +38,7 @@ from sandloom.core.rpc import (
 )
 from sandloom.core.runtime import use_active_core
 from sandloom.core.schema.registry import InMemorySchemaRegistry
+from sandloom.core.url_split import split_url
 
 
 async def _core_health() -> HealthResult:
@@ -69,7 +69,7 @@ async def report_unreachable_database(core_facade: CoreFacade) -> None:
         return
     where = ""
     with suppress(ValueError):
-        parts = urlsplit(settings.database_url)
+        parts = split_url(settings.database_url)
         if parts.hostname:
             where = f" at {parts.hostname}" + (f":{parts.port}" if parts.port else "")
     logging.getLogger("sandloom.app").warning(

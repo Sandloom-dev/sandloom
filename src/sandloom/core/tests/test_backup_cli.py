@@ -564,7 +564,7 @@ _UNPARSABLE_URL = f"postgresql://role:{_SECRET}{chr(0xFF1A)}@db.internal:5432/ap
 def test_an_unparsable_database_url_fails_without_printing_its_password(
     call: Callable[[Path], object], tmp_path: Path
 ) -> None:
-    with pytest.raises(ValueError, match="database url cannot be parsed") as raised:
+    with pytest.raises(ValueError, match="url cannot be parsed") as raised:
         call(tmp_path)
     error = raised.value
     assert _SECRET not in str(error)
