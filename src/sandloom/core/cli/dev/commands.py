@@ -1023,9 +1023,16 @@ def _same_keyed_server(ctx: Context, state: State, previous: str | None) -> bool
     if not previous:
         return False
     try:
-        return stack_service().parse(previous).address == ctx.keyed(state).address
+        before = stack_service().parse(previous)
+        return _server_key(before) == _server_key(ctx.keyed(state))
     except ValueError:
         return False
+
+
+def _server_key(server: _stack.KeyedServer) -> tuple[str, int]:
+    """Where a server listens: the host without its case or a trailing dot (a
+    fully qualified name), and the port the URL named or its default."""
+    return (server.host.lower().rstrip("."), server.port)
 
 
 def _recheck_indexes_on_new_server(ctx: Context, state: State) -> list[str]:
