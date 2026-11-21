@@ -13,15 +13,16 @@ from typing import Any
 from sandloom.core.cli.inspection import files
 from sandloom.core.cli.inspection.model import (
     INDEX,
-    LINES,
     RECEIPT,
     Doc,
     InspectionError,
     decode_index,
     digest,
     encode,
+    is_lines,
     regenerate,
     sha,
+    unique,
 )
 
 RECEIPT_SCHEMA = "sandloom.inspection_receipt"
@@ -36,19 +37,8 @@ GENERATED_SDK_IMPORTS = {
 }
 
 
-def _unique(pairs: list[tuple[str, Any]]) -> Doc:
-    result: Doc = {}
-    for key, value in pairs:
-        if key in result:
-            raise InspectionError(
-                "invalid_artifact", "Duplicate JSON keys in inspection input"
-            )
-        result[key] = value
-    return result
-
-
 def parse(text: str) -> Doc:
-    value = json.loads(text, object_pairs_hook=_unique)
+    value = json.loads(text, object_pairs_hook=unique)
     if not isinstance(value, dict):
         raise InspectionError("invalid_artifact", "Expected a JSON object")
     return value
@@ -57,7 +47,7 @@ def parse(text: str) -> Doc:
 def parse_index(text: str) -> Doc:
     """An inspection index: the lines ``encode_index`` writes, or the one-line
     JSON document an earlier release wrote (kept readable, as a baseline)."""
-    if text.startswith(LINES + "\n"):
+    if is_lines(text):
         return decode_index(text)
     return parse(text)
 

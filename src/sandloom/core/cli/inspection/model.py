@@ -66,7 +66,34 @@ def _module_ids(doc: Doc) -> list[str]:
     modules = doc.get("modules")
     if not isinstance(modules, list):
         return []
-    return sorted(m["id"] for m in modules if isinstance(m, dict) and "id" in m)
+    ids = [m["id"] for m in modules if isinstance(m, dict) and "id" in m]
+    if not all(isinstance(module_id, str) for module_id in ids):
+        raise _invalid()
+    return sorted(ids)
+
+
+def lf(text: str) -> str:
+    """``text`` with LF line ends: a checkout with ``core.autocrlf`` or an
+    editor may have turned the index into CRLF."""
+    return text.replace("\r\n", "\n")
+
+
+def is_lines(text: str) -> bool:
+    "Whether ``text`` is the lines format, not the one-line document."
+    return lf(text).startswith(LINES + "\n")
+
+
+def unique(pairs: list[tuple[str, Any]]) -> Doc:
+    """``object_pairs_hook`` that refuses a repeated key: ``json.loads`` would
+    keep the last, and a conflicting record would go unreported."""
+    result: Doc = {}
+    for key, value in pairs:
+        if key in result:
+            raise InspectionError(
+                "invalid_artifact", "Duplicate JSON keys in inspection input"
+            )
+        result[key] = value
+    return result
 
 
 def encode_index(doc: Doc) -> str:
@@ -108,12 +135,19 @@ _TAGS = ("@list", "@map", "@val")
 def _rows(text: str) -> list[list[Any]]:
     rows = []
     seen: set[str] = set()
-    for line in text.splitlines()[1:]:
+    # LF only: `splitlines` also splits at U+2028, U+2029 and U+0085, which
+    # `encode_index` leaves unescaped inside a summary.
+    lines = lf(text).split("\n")
+    if lines[-1] == "":
+        lines.pop()  # the final line end
+    for line in lines[1:]:
         if line in seen:  # `union` repeats the lines both sides share
             continue
         seen.add(line)
         try:
-            row = json.loads(line)
+            row = json.loads(line, object_pairs_hook=unique)
+        except InspectionError:
+            raise
         except ValueError:
             raise _invalid() from None
         if not isinstance(row, list) or not row or not isinstance(row[0], str):

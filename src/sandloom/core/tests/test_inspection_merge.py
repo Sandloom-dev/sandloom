@@ -141,7 +141,8 @@ def test_two_branches_that_each_add_a_module_merge_and_need_no_generate(
 ) -> None:
     """``alpha`` and ``beta`` both sort before the app's ``example`` module: every
     section of the index gets both modules' lines in one gap."""
-    assert "merge=union" in (base / ".gitattributes").read_text("utf-8")
+    attributes = (base / ".gitattributes").read_text("utf-8")
+    assert ".sandloom/inspection.json merge=union text eol=lf" in attributes
     root = _two_branches(base, tmp_path, "alpha", "beta")
     merge = _git(root, "merge", "--no-edit", "beta", check=False)
     assert merge.returncode == 0, merge.stdout + merge.stderr
@@ -153,6 +154,26 @@ def test_two_branches_that_each_add_a_module_merge_and_need_no_generate(
     assert _git(root, "status", "--porcelain").stdout == ""
     # and it is readable as it is
     assert _sandloom(root, "graph", "--format", "json", check=False).returncode == 0
+
+
+@pytest.mark.subprocess_probe
+def test_a_crlf_copy_of_the_index_is_read_by_graph_and_generate(
+    base: Path, tmp_path: Path
+) -> None:
+    """Windows ``core.autocrlf`` and some editors write CRLF line ends."""
+    root = tmp_path / _APP
+    shutil.copytree(base, root)
+    index = root / ".sandloom/inspection.json"
+    lf_bytes = index.read_bytes()
+    assert b"\r" not in lf_bytes
+    index.write_bytes(lf_bytes.replace(b"\n", b"\r\n"))
+    graph = _sandloom(root, "graph", "--format", "json", check=False)
+    assert graph.returncode == 0, graph.stdout + graph.stderr
+    assert "SANDLOOM-T015" not in graph.stdout + graph.stderr
+    generate = _sandloom(root, "generate", check=False)
+    assert generate.returncode == 0, generate.stdout + generate.stderr
+    check = _sandloom(root, "generate", "--check", check=False)
+    assert check.returncode == 0, check.stdout + check.stderr
 
 
 @pytest.mark.subprocess_probe
@@ -294,6 +315,56 @@ def test_a_damaged_index_is_one_typed_error(line: str) -> None:
     with pytest.raises(InspectionError) as caught:
         decode_index(text)
     assert caught.value.kind == "invalid_artifact"
+
+
+def test_crlf_line_ends_read_as_the_same_document() -> None:
+    document = _document("alpha", "example")
+    text = encode_index(document)
+    crlf = text.replace("\n", "\r\n")
+    assert decode_index(crlf) == document
+    assert parse_index(crlf) == document  # recognised as the lines format
+    assert collect.rendered(document, crlf) == crlf  # a CRLF copy is not a change
+    # the one-line form of an earlier release with a CRLF end still reads
+    assert parse_index(encode(document).replace("\n", "\r\n")) == document
+
+
+def test_a_non_string_module_id_is_one_typed_error() -> None:
+    document = _document("alpha", "beta")  # two ids: sorting them compares
+    del document["scope"]["module_ids"]
+    for bad in (None, 7, ["module:alpha"]):
+        document["modules"][0]["id"] = bad
+        with pytest.raises(InspectionError) as encoded:
+            encode_index(document)
+        assert encoded.value.kind == "invalid_artifact"
+        lines = [LINES, '["@val","scope",{"kind":"authoring_composition"}]']
+        lines += ['["@list","modules"]', '["modules",{"id":"module:beta"}]']
+        lines += [json.dumps(["modules", {"id": bad}])]
+        with pytest.raises(InspectionError) as decoded:
+            decode_index("\n".join(lines) + "\n")
+        assert decoded.value.kind == "invalid_artifact"
+
+
+def test_a_summary_with_unicode_line_separators_survives_the_round_trip() -> None:
+    """``encode_index`` leaves U+2028, U+2029 and U+0085 unescaped: only LF
+    ends a record."""
+    document = _document("alpha")
+    separators = "".join(chr(code) for code in (0x2028, 0x2029, 0x85, 0x0B, 0x0C))
+    summary = "first" + separators + "last"
+    document["modules"][0]["summary"] = summary
+    text = encode_index(document)
+    assert decode_index(text) == document
+    assert decode_index(text.replace("\n", "\r\n")) == document
+    assert parse_index(text)["modules"][0]["summary"] == summary
+
+
+def test_a_repeated_key_within_a_record_is_refused_not_read() -> None:
+    """``json.loads`` keeps the last of a repeated key: a conflicting record
+    inside one line would go unreported."""
+    lines = [LINES, '["@list","nodes"]', '["nodes",{"id":"x","name":"a","name":"b"}]']
+    with pytest.raises(InspectionError) as caught:
+        decode_index("\n".join(lines) + "\n")
+    assert caught.value.kind == "invalid_artifact"
+    assert "Duplicate JSON keys" in str(caught.value)
 
 
 def test_the_one_line_index_of_an_earlier_release_is_still_read() -> None:

@@ -51,16 +51,20 @@ and `context MODULE` read that saved model; they never regenerate implicitly.
 module merge without a conflict. An application created earlier gets the first
 rewrite as one large diff. Add the line `sandloom new` now writes to its
 `.gitattributes`. It keeps both sides where two branches add a record in the
-same place:
+same place, and `text eol=lf` keeps the lines LF in a Windows checkout:
 
 ```text
-.sandloom/inspection.json merge=union
+.sandloom/inspection.json merge=union text eol=lf
 ```
 
 Git applies it on a local merge. GitHub's merge button ignores merge drivers.
 Merge the base branch locally into a pull request that GitHub reports as
 conflicting. The file reads the same in any line order, and
 `sandloom generate --check` passes on a merged file.
+
+During the transition, a branch that still has the old one-line file and a
+branch that has the new format conflict in this file once. Merge, then run
+`sandloom generate` to rewrite it; every merge after that is clean.
 
 `add skills` updates the agent files it wrote and keeps the ones you edited; [keep the skills current](../ai/agent-tooling.md#keep-the-skills-current) has the details.
 See [module maps](../ai/module-context.md) and the

@@ -509,8 +509,9 @@ Every module of `$app/modules` (plus the bundled ones: `$bundled_json`);
 #: One line per record in `.sandloom/inspection.json`: two branches that each add a
 #: module add different lines, and `union` keeps both where they land together.
 #: git applies it on a local merge (GitHub's merge button ignores merge drivers).
+#: `text eol=lf` keeps the lines LF in a checkout with `core.autocrlf`.
 _GITATTRIBUTES = """# One record per line (`sandloom generate`): branches merge.
-.sandloom/inspection.json merge=union
+.sandloom/inspection.json merge=union text eol=lf
 """
 
 _GITIGNORE = """.sandloom/cache/

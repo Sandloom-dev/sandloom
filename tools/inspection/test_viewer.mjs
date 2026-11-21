@@ -12,7 +12,8 @@ const layoutSource=readFileSync(new URL('../../src/sandloom/core/cli/inspection/
 function readIndex(url){
   const text=readFileSync(url,'utf8');
   if(!text.startsWith('["@format"'))return JSON.parse(text);
-  const doc={},rows=text.split('\n').slice(1).filter(Boolean).map(line=>JSON.parse(line));
+  // `merge=union` repeats the lines both sides share: each is read once.
+  const doc={},rows=[...new Set(text.replace(/\r\n/g,'\n').split('\n').slice(1).filter(Boolean))].map(line=>JSON.parse(line));
   for(const [tag,name,value] of rows){
     if(tag==='@val')doc[name]=value;else if(tag==='@list')doc[name]=[];else if(tag==='@map')doc[name]={};
   }

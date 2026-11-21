@@ -82,7 +82,8 @@ connects to backends or regenerates implicitly. The semantic index belongs in Gi
 and is written one record per line, so a module's records are lines no other
 module's change touches. Branches that each add a module merge cleanly. The
 application's `.gitattributes` marks the file `merge=union` for lines that land
-together. The local verification receipt lives under ignored `.sandloom/cache/`.
+together and `text eol=lf` (a checkout with `core.autocrlf` keeps the lines LF).
+The local verification receipt lives under ignored `.sandloom/cache/`.
 
 | JSON state | Markdown label |
 | --- | --- |

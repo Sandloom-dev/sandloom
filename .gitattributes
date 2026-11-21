@@ -18,4 +18,5 @@ tools/packaging/public-source.json merge=public-source
 # add different lines and git merges them; where both land in one gap the
 # lines of both are kept (`union`), and the file reads the same in any order.
 # Like the changelog above, GitHub's merge button ignores it: merge main locally.
-**/.sandloom/inspection.json merge=union
+# `text eol=lf`: a Windows checkout (core.autocrlf) keeps the lines LF.
+**/.sandloom/inspection.json merge=union text eol=lf
