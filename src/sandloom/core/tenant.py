@@ -40,7 +40,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
-from sqlalchemy.sql.elements import BindParameter, ClauseElement
+from sqlalchemy.sql.elements import (
+    BindParameter,
+    ClauseElement,
+    ColumnClause,
+    Grouping,
+    TextClause,
+)
 from sqlalchemy.sql.selectable import Alias, SelectBase
 from sqlalchemy.util import immutabledict
 
@@ -556,7 +562,37 @@ def _refuse_unscopable(stmt: Any, models: str) -> Any:
             raise UnsafeTenantOperationError(
                 "ON CONFLICT DO UPDATE cannot change TenantScoped.tenant_id"
             )
+    if updates is not None:
+        _refuse_raw_sql(updates, clause.update_whereclause, models)
     return updates
+
+
+def _is_raw_sql(node: Any) -> bool:
+    """A fragment that renders as written: ``text()``, or a column that belongs
+    to no table (``literal_column()`` and a bare ``column()``)."""
+    return isinstance(node, TextClause) or (
+        isinstance(node, ColumnClause) and node.table is None
+    )
+
+
+def _refuse_raw_sql(updates: Any, where: Any, models: str) -> None:
+    """Refuse raw SQL in the ``DO UPDATE`` values and ``WHERE``. PostgreSQL runs
+    it as written, so ``literal_column("'x', tenant_id = '<B>'")`` would write
+    another tenant's id and ``text("true OR true")`` would open the ``WHERE``;
+    the guard cannot tell what it does. Columns of the table, binds, functions
+    and the ``excluded`` row are not raw."""
+    parts = [where, *updates.values()]
+    for part in parts:
+        if not isinstance(part, ClauseElement):
+            continue
+        for node in visitors.iterate(part):
+            if _is_raw_sql(node):
+                raise UnsafeTenantOperationError(
+                    f"ON CONFLICT DO UPDATE on TenantScoped model {models}: raw "
+                    f"SQL ({type(node).__name__}) in set_ or where= could write "
+                    "or read another tenant's row; raw SQL in a tenant upsert "
+                    "needs unscoped()"
+                )
 
 
 def _set_target(key: Any, table: Any) -> Any:
@@ -635,7 +671,10 @@ def _admit_conflict_insert(state: Any, tenant_mappers: list[Any]) -> None:
       that name (nor of :data:`UPSERT_TENANT_PARAM`): nothing can override it;
     * ``DO UPDATE`` stays tenant-scoped: its WHERE gains
       ``tenant_id = <bound tenant>``, so a conflict with another tenant's row
-      updates nothing; ``set_`` naming ``tenant_id`` is refused;
+      updates nothing, the caller's own condition grouped under it;
+      ``set_`` naming ``tenant_id`` is refused;
+    * raw SQL (``text()``, ``literal_column()``, a table-less ``column()``) in
+      the ``DO UPDATE`` values or ``WHERE`` is refused: it needs ``unscoped()``;
     * ``from_select``, a subquery in the statement and an upsert clause this
       guard cannot scope (any but ``DO NOTHING`` and ``DO UPDATE``) are
       refused: those could read or write another tenant's rows.
@@ -674,7 +713,12 @@ def _admit_conflict_insert(state: Any, tenant_mappers: list[Any]) -> None:
         owned = stmt.table.c.tenant_id == scope
         clause = copy.copy(stmt._post_values_clause)
         existing = clause.update_whereclause
-        clause.update_whereclause = owned if existing is None else and_(existing, owned)
+        # An explicit Grouping: not every element parenthesises itself under
+        # AND (a custom construct renders ``a OR b`` bare), and the scope must
+        # stay outside whatever the caller's condition is.
+        clause.update_whereclause = (
+            owned if existing is None else and_(Grouping(existing), owned)
+        )
         scoped._post_values_clause = clause
     _refuse_reserved_binds(scoped, reserved, models)
     state.statement = scoped

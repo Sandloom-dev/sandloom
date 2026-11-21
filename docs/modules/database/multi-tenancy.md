@@ -122,9 +122,10 @@ rows only, in one form: the rows are in `.values()`.
   string). Another tenant's id raises `UnsafeTenantOperationError`. So does a
   `bindparam`, a `literal()`, a callable or any expression, whatever it holds.
   Another attribute mapped onto the `tenant_id` column counts as `tenant_id`;
-- `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`.
-  A conflict on another tenant's row (a unique key that does not lead with
-  `tenant_id`) then updates nothing and inserts nothing;
+- `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`,
+  with your own `where=` condition grouped in parentheses before it. A conflict
+  on another tenant's row (a unique key that does not lead with `tenant_id`)
+  then updates nothing and inserts nothing;
 - `on_conflict_do_nothing` skips such a row without an error: check the result
   when a skipped row matters;
 - `set_` may read the proposed row through `stmt.excluded`, for example
@@ -134,11 +135,18 @@ rows only, in one form: the rows are in `.values()`.
   names it, or is the whole `stmt.excluded`, is refused;
 - with no tenant bound it raises `UnsafeTenantOperationError`.
 
+The `set_` values and the `where=` of a `DO UPDATE` hold no raw SQL. A `text()`
+or a `literal_column()` raises `UnsafeTenantOperationError`, and so does a
+`column()` without a table, wherever it sits in the expression. PostgreSQL runs
+raw SQL as written. It could write another tenant's id or open the `WHERE`. Use
+column expressions, binds and functions, or run the upsert inside `unscoped()`.
+
 `from_select`, a subquery in the statement and a plain `INSERT` without an
 `ON CONFLICT` clause stay refused. Pass the model class: the `Table` of a
-tenant model is a Core statement and stays refused. A `text()` fragment inside
-`set_` is not inspected beyond the reserved bind names below; it is trusted
-code, like any raw SQL.
+tenant model is a Core statement and stays refused. A `text()` in
+`index_where=` is the partial index's own predicate, not part of the
+`DO UPDATE`. It is admitted; only its binds are checked against the reserved
+names below.
 
 Once admitted, the `tenant_id` of each row is a bind named
 `sandloom_bound_tenant__` that holds the bound tenant. The `DO UPDATE` scope is

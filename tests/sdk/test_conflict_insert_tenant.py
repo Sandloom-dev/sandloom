@@ -15,6 +15,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -24,13 +25,16 @@ from sqlalchemy import (
     Table,
     Text,
     Uuid,
+    and_,
     bindparam,
     cast,
+    column,
     event,
     func,
     insert,
     literal,
     literal_column,
+    or_,
     select,
     text,
     type_coerce,
@@ -41,7 +45,9 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Mapped, column_property, mapped_column
+from sqlalchemy.sql.elements import ColumnElement
 
 from sandloom.core.di import UnsafeTenantOperationError, bind_tenant, unscoped
 from sandloom.core.orm import TenantScoped
@@ -704,6 +710,156 @@ async def test_a_caller_where_is_kept_beside_the_tenant_scope(items) -> None:
             )
             await session.commit()
     assert (await _rows(sessions))[a_id] == (tenant_a, "a-original")
+
+
+class _AlwaysTrue(ColumnElement[Any]):
+    """A construct that renders ``true OR true`` and, like ``text()`` and
+    ``literal_column()``, does not parenthesise itself under ``AND``; it is no
+    raw-SQL node, so only the guard's own grouping keeps the scope applying."""
+
+    inherit_cache = True
+
+
+@compiles(_AlwaysTrue)
+def _render_always_true(element: _AlwaysTrue, compiler: object, **kw: object) -> str:
+    return "true OR true"
+
+
+@pytest.mark.asyncio
+async def test_the_callers_where_is_grouped_so_the_scope_stays_outside_it(
+    items,
+) -> None:
+    # Without the Grouping this renders ``WHERE true OR true AND tenant_id = A``
+    # and tenant B overwrites A's row.
+    sessions, _, tenant_b, a_id = items
+    sent: list[str] = []
+    engine = sessions.kw["bind"].sync_engine
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if "INSERT INTO test_conflict_tenant_items" in statement:
+            sent.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with bind_tenant(tenant_b):
+            async with sessions() as session:
+                await session.execute(
+                    conflict_insert(_Item, session=session)
+                    .values(id=a_id, name="x")
+                    .on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={"name": "pwned-by-b"},
+                        where=_AlwaysTrue(),
+                    )
+                )
+                await session.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert len(sent) == 1
+    assert "WHERE (true OR true) AND" in sent[0], sent[0]
+    assert (await _rows(sessions))[a_id] == (items[1], "a-original")
+
+
+_RAW = {
+    "literal_column": lambda sql: literal_column(sql),
+    "text": lambda sql: text(sql),
+    "column": lambda sql: column(sql),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["literal_column", "text", "column"])
+@pytest.mark.parametrize("place", ["set_value", "set_nested", "where", "where_nested"])
+async def test_raw_sql_in_do_update_values_or_where_is_refused(
+    items, place: str, raw: str
+) -> None:
+    # ``literal_column(f"'pwn', tenant_id = '{B}'")`` as a value re-owns A's row
+    # to B; ``where=literal_column("true OR true")`` opens the WHERE: PostgreSQL
+    # runs raw SQL as written, the guard cannot scope it.
+    sessions, tenant_a, tenant_b, a_id = items
+    attack = {
+        "set_value": f"'pwn', tenant_id = '{tenant_b}'",
+        "set_nested": f"'pwn', tenant_id = '{tenant_b}'",
+        "where": "true OR true",
+        "where_nested": "true OR true",
+    }[place]
+    fragment = _RAW[raw](attack)
+    set_: dict[str, object] = {"name": "set-by-upsert"}
+    where = None
+    if place == "set_value":
+        set_ = {"name": fragment}
+    elif place == "set_nested":
+        set_ = {"name": func.coalesce(fragment, "x")}
+    elif place == "where":
+        where = fragment
+    else:
+        where = and_(_Item.name == "a-original", or_(fragment, _Item.name == "z"))
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            statement = (
+                conflict_insert(_Item, session=session)
+                .values(id=a_id, name="x")
+                .on_conflict_do_update(index_elements=["id"], set_=set_, where=where)
+            )
+            with pytest.raises(UnsafeTenantOperationError, match="needs unscoped"):
+                await session.execute(statement)
+    assert (await _rows(sessions))[a_id] == (tenant_a, "a-original")
+
+
+@pytest.mark.asyncio
+async def test_a_text_index_where_stays_admitted(items) -> None:
+    # The partial index's own predicate is not part of the DO UPDATE.
+    sessions, tenant_a, _, a_id = items
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            await session.execute(
+                conflict_insert(_Item, session=session)
+                .values(id=a_id, name="x")
+                .on_conflict_do_update(
+                    index_elements=["id"],
+                    index_where=text("name IS NOT NULL"),
+                    set_={"name": "via-index-where"},
+                )
+            )
+            await session.commit()
+    assert (await _rows(sessions))[a_id] == (tenant_a, "via-index-where")
+
+
+@pytest.mark.asyncio
+async def test_raw_sql_in_a_tenant_upsert_runs_under_unscoped(items) -> None:
+    sessions, tenant_a, _, a_id = items
+    with bind_tenant(tenant_a), unscoped():
+        async with sessions() as session:
+            await session.execute(
+                conflict_insert(_Item, session=session)
+                .values(id=a_id, tenant_id=tenant_a, name="x")
+                .on_conflict_do_update(
+                    index_elements=["id"], set_={"name": literal_column("'raw'")}
+                )
+            )
+            await session.commit()
+    assert (await _rows(sessions))[a_id] == (tenant_a, "raw")
+
+
+@pytest.mark.asyncio
+async def test_ordinary_column_expressions_in_set_and_where_are_admitted(
+    items,
+) -> None:
+    sessions, tenant_a, _, a_id = items
+    with bind_tenant(tenant_a):
+        async with sessions() as session:
+            insert_ = conflict_insert(_Item, session=session).values(
+                id=a_id, name="from-excluded"
+            )
+            await session.execute(
+                insert_.on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={"name": func.upper(insert_.excluded.name) + _Item.name},
+                    where=or_(_Item.name == "a-original", _Item.name == "other"),
+                )
+            )
+            await session.commit()
+    assert (await _rows(sessions))[a_id] == (tenant_a, "FROM-EXCLUDEDa-original")
 
 
 @pytest.mark.asyncio
