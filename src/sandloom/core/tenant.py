@@ -656,7 +656,7 @@ def _install_legacy_bulk_guard() -> None:
         _refuse_legacy_bulk(
             "bulk_save_objects", [mapper for mapper in mappers if mapper is not None]
         )
-        return _original_legacy_bulk["bulk_save_objects"](self, batch, *args, **kwargs)
+        _original_legacy_bulk["bulk_save_objects"](self, batch, *args, **kwargs)
 
     def bulk_insert_mappings(
         self: Session, mapper: Any, mappings: Any, *args: Any, **kwargs: Any
@@ -665,7 +665,7 @@ def _install_legacy_bulk_guard() -> None:
         _refuse_legacy_bulk(
             "bulk_insert_mappings", [resolved] if resolved is not None else []
         )
-        return _original_legacy_bulk["bulk_insert_mappings"](
+        _original_legacy_bulk["bulk_insert_mappings"](
             self, mapper, mappings, *args, **kwargs
         )
 
@@ -676,7 +676,7 @@ def _install_legacy_bulk_guard() -> None:
         _refuse_legacy_bulk(
             "bulk_update_mappings", [resolved] if resolved is not None else []
         )
-        return _original_legacy_bulk["bulk_update_mappings"](
+        _original_legacy_bulk["bulk_update_mappings"](
             self, mapper, mappings, *args, **kwargs
         )
 
