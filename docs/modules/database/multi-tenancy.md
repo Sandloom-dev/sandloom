@@ -114,9 +114,9 @@ for explicit `unscoped()` system work, except the upsert below.
 rows only:
 
 - a row without `tenant_id` gets the bound tenant; one that names another
-  tenant raises `UnsafeTenantOperationError`. A named bound parameter for
-  `tenant_id` (`bindparam("t")`) is looked up in every row of the execution
-  parameters and must be the bound tenant; a callable-valued one is refused;
+  tenant raises `UnsafeTenantOperationError`. A named parameter for
+  `tenant_id` (`bindparam("t")`) is read from every row of the execution
+  parameters and must be the bound tenant. Callable-valued ones are refused;
 - `on_conflict_do_update` gains `tenant_id = <bound tenant>` in its `WHERE`.
   A conflict on another tenant's row (a unique key that does not lead with
   `tenant_id`) then updates nothing and inserts nothing;
