@@ -444,6 +444,12 @@ def _reserved_statement(session: AsyncSession, form: str, new_id, tenant: uuid.U
                 set_={"name": "set-by-upsert"},
                 where=_Item.tenant_id == _reserved(UPSERT_TENANT_PARAM, tenant),
             )
+        case "upsert_scope_do_nothing":
+            # DO NOTHING has no scope bind of its own, the name stays reserved.
+            return insert_.values(id=new_id, name="x").on_conflict_do_nothing(
+                index_elements=["id"],
+                index_where=_Item.tenant_id == _reserved(UPSERT_TENANT_PARAM, tenant),
+            )
     raise AssertionError(form)
 
 
@@ -459,6 +465,7 @@ def _reserved_statement(session: AsyncSession, form: str, new_id, tenant: uuid.U
         "returning",
         "text",
         "upsert_scope",
+        "upsert_scope_do_nothing",
     ],
 )
 async def test_a_bind_with_a_reserved_name_outside_the_slot_is_refused(

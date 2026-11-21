@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import AbstractAsyncContextManager
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -47,7 +47,7 @@ def opened(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 class _Unit:
     async def __aenter__(self) -> AsyncSession:
-        raise AssertionError("the test only reads the name")
+        return cast(AsyncSession, object())  # the test only reads the name
 
     async def __aexit__(self, *exc: object) -> None:
         return None
@@ -81,45 +81,53 @@ def two_databases() -> Iterator[CoreFacade]:
         yield core
 
 
-def test_open_uow_opens_the_calling_modules_database(
+async def _enter(manager: AbstractAsyncContextManager[AsyncSession]) -> None:
+    """Enter and leave ``manager``: the database is resolved on entry."""
+    async with manager:
+        pass
+
+
+async def test_open_uow_opens_the_calling_modules_database(
     two_databases: CoreFacade, opened: list[str]
 ) -> None:
-    _called_from(f"{NOTES_PACKAGE}.tasks.refresh")()
+    await _enter(_called_from(f"{NOTES_PACKAGE}.tasks.refresh")())
     assert opened == ["notes_db"]
 
 
-def test_a_module_on_the_default_database_gets_default(
+async def test_a_module_on_the_default_database_gets_default(
     two_databases: CoreFacade, opened: list[str]
 ) -> None:
-    _called_from("app.modules.billing.tasks")()
+    await _enter(_called_from("app.modules.billing.tasks")())
     assert opened == ["default"]
 
 
-def test_the_innermost_module_package_wins(
+async def test_the_innermost_module_package_wins(
     two_databases: CoreFacade, opened: list[str]
 ) -> None:
-    _called_from(f"{NOTES_PACKAGE}.audit.jobs")()
+    await _enter(_called_from(f"{NOTES_PACKAGE}.audit.jobs")())
     assert opened == ["audit_db"]
 
 
-def test_a_package_that_only_shares_a_name_prefix_is_not_the_module(
+async def test_a_package_that_only_shares_a_name_prefix_is_not_the_module(
     two_databases: CoreFacade, opened: list[str]
 ) -> None:
-    _called_from(f"{NOTES_PACKAGE}_extras.tasks")()
+    await _enter(_called_from(f"{NOTES_PACKAGE}_extras.tasks")())
     assert opened == ["default"]
 
 
-def test_an_explicit_name_wins(two_databases: CoreFacade, opened: list[str]) -> None:
-    _called_from(f"{NOTES_PACKAGE}.tasks")("analytics")
+async def test_an_explicit_name_wins(
+    two_databases: CoreFacade, opened: list[str]
+) -> None:
+    await _enter(_called_from(f"{NOTES_PACKAGE}.tasks")("analytics"))
     assert opened == ["analytics"]
 
 
-def test_module_names_the_module_the_unit_acts_for(
+async def test_module_names_the_module_the_unit_acts_for(
     two_databases: CoreFacade, opened: list[str]
 ) -> None:
     # Called from billing code (default database), the unit is opened for
     # notes, as a projection rebuild does for the projection's owner.
-    eval(  # noqa: S307 - a lambda over a fixed globals dict, no input
+    manager = eval(  # noqa: S307 - a lambda over a fixed globals dict, no input
         "lambda: open_uow_for_module(owner)",
         {
             "__name__": "app.modules.billing.tasks",
@@ -127,10 +135,11 @@ def test_module_names_the_module_the_unit_acts_for(
             "owner": f"{NOTES_PACKAGE}.projections",
         },
     )()
+    await _enter(manager)
     assert opened == ["notes_db"]
 
 
-def test_a_module_with_several_databases_and_no_primary_one_refuses(
+async def test_a_module_with_several_databases_and_no_primary_one_refuses(
     opened: list[str],
 ) -> None:
     core = _core(
@@ -143,21 +152,63 @@ def test_a_module_with_several_databases_and_no_primary_one_refuses(
             ],
         )
     )
-    with use_active_core(core), pytest.raises(MigrationTargetError):
-        _called_from("app.modules.reports.tasks")()
+    with use_active_core(core):
+        manager = _called_from("app.modules.reports.tasks")()
+        with pytest.raises(MigrationTargetError):
+            await _enter(manager)
     assert opened == []
 
 
-def test_code_of_no_loaded_module_gets_default(
-    two_databases: CoreFacade, opened: list[str]
+async def test_a_module_requiring_default_and_another_database_gets_default(
+    opened: list[str],
 ) -> None:
-    _called_from("scripts.nightly")()
+    core = _core(
+        ModuleDescriptor(
+            name="app.modules.reports",
+            version="1",
+            capabilities=[
+                CapabilityRequirement("database", instance="default"),
+                CapabilityRequirement("database", instance="analytics"),
+            ],
+        )
+    )
+    with use_active_core(core):
+        await _enter(_called_from("app.modules.reports.tasks")())
     assert opened == ["default"]
 
 
-def test_without_an_active_core_the_name_is_default(
+async def test_code_of_no_loaded_module_gets_default(
+    two_databases: CoreFacade, opened: list[str]
+) -> None:
+    await _enter(_called_from("scripts.nightly")())
+    assert opened == ["default"]
+
+
+async def test_without_an_active_core_the_name_is_default(
     monkeypatch: pytest.MonkeyPatch, opened: list[str]
 ) -> None:
     monkeypatch.setattr(di, "get_active_core", lambda: None)
-    _called_from(f"{NOTES_PACKAGE}.tasks")()
+    await _enter(_called_from(f"{NOTES_PACKAGE}.tasks")())
     assert opened == ["default"]
+
+
+@pytest.mark.parametrize("by", ["open_uow", "open_uow_for_module"])
+async def test_the_database_is_resolved_on_entry_not_on_creation(
+    opened: list[str], by: str
+) -> None:
+    # A manager made under one core and entered under another uses the core
+    # active on entry, as ``db_session`` does.
+    first = _core(
+        ModuleDescriptor(name=NOTES_PACKAGE, version="1", migrations_database="one")
+    )
+    second = _core(
+        ModuleDescriptor(name=NOTES_PACKAGE, version="1", migrations_database="two")
+    )
+    with use_active_core(first):
+        if by == "open_uow":
+            manager = _called_from(f"{NOTES_PACKAGE}.tasks")()
+        else:
+            manager = open_uow_for_module(f"{NOTES_PACKAGE}.tasks")
+    with use_active_core(second):
+        await _enter(manager)
+    assert opened == ["two"]

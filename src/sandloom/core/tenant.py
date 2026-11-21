@@ -664,12 +664,13 @@ def _admit_conflict_insert(state: Any, tenant_mappers: list[Any]) -> None:
     updates = _refuse_unscopable(stmt, models)
     slot = bindparam(BOUND_TENANT_PARAM, value=tid, type_=Uuid())
     scoped = _scope_insert_rows(stmt, tid, models, slot)
-    reserved = [slot]
+    # Both names are reserved under DO NOTHING too (the scope bind is only
+    # attached to a DO UPDATE): a caller's bind of either is refused always.
+    scope = bindparam(
+        UPSERT_TENANT_PARAM, callable_=_tenant_criteria_value, type_=Uuid()
+    )
+    reserved = [slot, scope]
     if updates is not None:
-        scope = bindparam(
-            UPSERT_TENANT_PARAM, callable_=_tenant_criteria_value, type_=Uuid()
-        )
-        reserved.append(scope)
         owned = stmt.table.c.tenant_id == scope
         clause = copy.copy(stmt._post_values_clause)
         existing = clause.update_whereclause

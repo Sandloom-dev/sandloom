@@ -16,10 +16,11 @@ from typing import Any, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.di import db as _kernel_db
-from sandloom.core.di import db_session, module_database_of
+from sandloom.core.di import db_session
 from sandloom.core.orm import ConflictInsert, MoneyLedger, Page, TenantScoped
 from sandloom.core.orm import conflict_insert as _conflict_insert
 from sandloom.core.orm import transaction_lock as _transaction_lock
+from sandloom.sdk._unit import open_uow_for_module
 
 
 def db() -> AsyncSession:
@@ -52,12 +53,18 @@ def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSe
     script, gets ``"default"``; so does a module whose ``define_module(name=)``
     differs from its package: pass the database name there.
 
-    A module that needs several databases and declares no ``migrations_database``
-    has no primary one: ``open_uow()`` then raises ``MigrationTargetError``;
-    pass ``database``.
+    A module that requires several databases, ``default`` not among them, and
+    declares no ``migrations_database`` has no primary one: ``open_uow()``
+    then raises ``MigrationTargetError`` on entering the block; pass
+    ``database``. A module that requires ``default`` and another database gets
+    ``default``.
+
+    The database of a call without ``database`` is resolved when the block is
+    entered, against the core active then (as ``db_session`` does), not when
+    ``open_uow()`` is called.
     """
     if database is None:
-        database = module_database_of(sys._getframe(1).f_globals.get("__name__"))
+        return open_uow_for_module(sys._getframe(1).f_globals.get("__name__"))
     return db_session(database)
 
 

@@ -9,17 +9,24 @@ because L1 (``_decl``) may import only public L2 names, and out of the public
 
 from __future__ import annotations
 
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.di import db_session, module_database_of
 
 
-def open_uow_for_module(module: str) -> AbstractAsyncContextManager[AsyncSession]:
+@asynccontextmanager
+async def open_uow_for_module(module: object) -> AsyncGenerator[AsyncSession, None]:
     """A unit of work on the primary database of ``module`` (its import path,
     as ``ModuleDescriptor.name`` holds it). Like ``open_uow()`` without a
-    name, a module that no loaded module holds gets ``default`` and one with
-    several databases and no ``migrations_database`` raises
-    ``MigrationTargetError``."""
-    return db_session(module_database_of(module))
+    name, a module that no loaded module holds gets ``default`` and one that
+    requires several databases (``default`` not among them) and has no
+    ``migrations_database`` raises ``MigrationTargetError``.
+
+    The database is resolved on entering the block, against the core active
+    then, as ``db_session`` resolves its core: a manager created under one
+    ``use_active_core`` scope and entered under another uses the second."""
+    async with db_session(module_database_of(module)) as session:
+        yield session

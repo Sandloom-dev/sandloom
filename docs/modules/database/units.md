@@ -63,10 +63,12 @@ else its required `database` capability). Code that no loaded module holds,
 such as a script, gets `default`. So does a module whose `define_module(name=)`
 differs from its package: pass the database name there.
 
-A module that needs several databases, with `default` not among them and no
+A module that requires several databases, with `default` not among them and no
 `migrations_database`, has no primary one. `open_uow()` then raises
-`MigrationTargetError`, as that module's contracts do; declare
-`migrations_database` or pass the database name.
+`MigrationTargetError` on entering the block, as that module's contracts do;
+declare `migrations_database` or pass the database name. A module that
+requires `default` and another database gets `default`. The database is
+resolved when the block is entered, not when `open_uow()` is called.
 
 `open_uow` replaces today's ad-hoc sessions. It is the only way to open a unit
 outside a request, a consumer or a contract.
