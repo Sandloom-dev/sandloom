@@ -59,7 +59,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import cache
 from typing import Any
-from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
@@ -90,6 +89,7 @@ from sandloom.core.signing_keys import (
     x25519_public_pem,
 )
 from sandloom.core.tenant import bind_tenant
+from sandloom.core.url_split import redact, split_url
 
 #: Placeholder replaced by a fresh unique string on each path (see module doc).
 UNIQUE = "__sandloom_conformance_unique__"
@@ -357,9 +357,9 @@ def split_env(
     if not processes or issuer not in processes or set(processes) != set(urls):
         raise ValueError("processes and urls must have the same ids, including issuer")
     for url in urls.values():
-        parsed = urlsplit(url)
+        parsed = split_url(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError(f"invalid process HTTP URL: {url!r}")
+            raise ValueError(f"invalid process HTTP URL: {redact(url)!r}")
     owners = _split_contract_owners(processes)
     bound = _split_bindings(processes, urls, owners, bindings)
     signing = {name: generate_private_key("EdDSA") for name in processes}

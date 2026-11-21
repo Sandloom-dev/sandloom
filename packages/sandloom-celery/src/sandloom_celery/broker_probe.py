@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from urllib.parse import urlsplit
 
 from sandloom.driverkit import HealthResult
+from sandloom_celery.connection_policy import scheme_of
 
 #: Broker URL schemes of the kombu Redis transports, which take their socket
 #: timeouts from the transport options (``connect_timeout`` alone does not
@@ -40,7 +40,7 @@ def _transport_options(app: Any, scheme: str, timeout: float) -> dict[str, Any]:
 def _connect_once(app: Any, timeout: float) -> None:
     """Open one connection to ``app``'s broker and release it (blocking)."""
     url = str(getattr(app.conf, "broker_url", None) or "")
-    scheme = urlsplit(url).scheme if url else ""
+    scheme = scheme_of(url)
     connection = app.connection_for_write(
         connect_timeout=timeout,
         transport_options=_transport_options(app, scheme, timeout),

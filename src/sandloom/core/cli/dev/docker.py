@@ -9,9 +9,9 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from sandloom.core.cli.dev import process as _process
+from sandloom.core.url_split import split_url
 
 
 class DockerUnavailable(RuntimeError):
@@ -23,7 +23,15 @@ def docker_host(environ: Mapping[str, str]) -> str:
     for a remote engine (``tcp://`` / ``ssh://``), else ``127.0.0.1``."""
     raw = (environ.get("DOCKER_HOST") or "").strip()
     if raw.startswith(("tcp://", "ssh://", "http://", "https://")):
-        host = urlsplit(raw).hostname
+        try:
+            host = split_url(raw).hostname
+        except ValueError:
+            # The fixed message of ``split_url`` (the text may hold a password);
+            # the CLI prints a ``DockerUnavailable`` as one line.
+            raise DockerUnavailable(
+                "DOCKER_HOST cannot be parsed (its text is left out: it may hold "
+                "a password)"
+            ) from None
         if host and host not in {"localhost", "127.0.0.1", "::1"}:
             return host
     return "127.0.0.1"

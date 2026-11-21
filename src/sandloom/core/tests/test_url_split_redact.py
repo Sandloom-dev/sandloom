@@ -45,6 +45,24 @@ def test_a_url_without_a_secret_is_returned_as_it_is() -> None:
     assert redact("redis://127.0.0.1:6379/2") == "redis://127.0.0.1:6379/2"
 
 
+def test_a_url_with_no_scheme_is_not_echoed() -> None:
+    """``urlsplit`` reads ``user:pw@host:port`` as no netloc and no password."""
+    for url in (
+        f"test_user:{_SECRET}@127.0.0.1:8000",
+        f"user:{_SECRET}@127.0.0.1:8000",
+        f"//u:{_SECRET}@127.0.0.1:8000",
+    ):
+        assert redact(url) == "<url without a scheme>"
+
+
+def test_a_password_with_an_unencoded_slash_is_masked() -> None:
+    """``urlsplit`` ends the netloc at the ``/`` of the password: no parsed one."""
+    url = "postgresql://u:s3/cr3t@h:5432/db"
+    assert redact(url) == "postgresql://u:***@h:5432/db"
+    assert "cr3t" not in redact(url)
+    assert "s3" not in redact(url)
+
+
 def test_a_url_that_cannot_be_parsed_is_not_echoed() -> None:
     hostile = f"redis://user:{_SECRET}@host{chr(0xFF03)}x:6379/0"
     assert redact(hostile) == "<unparseable url>"
