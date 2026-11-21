@@ -458,9 +458,19 @@ _REFUSED: dict[str, Callable[[_Env], Any]] = {
 }
 
 
+#: Shapes the statement walk refuses before the compiled-CTE check sees them: it
+#: matches a tenant table by NAME (a lightweight ``table()``, a second ``Table``,
+#: ``quote=False`` spellings) and reads mapper / default SQL. The CTE check still
+#: refuses each of them where the walk never runs (the connection test below).
 _REFUSED_FIRST_BY_CORE_GUARD = {
     "insert.add_cte (Core table target)",
     "insert.add_cte (insert CTE)",
+    "C5 DML on a lightweight table()",
+    "C6 DML on a second Table object",
+    "quote=False upper-case table() name",
+    "quote=False Table object",
+    "non-tenant UPDATE CTE copying through values() and where() columns",
+    "non-tenant INSERT CTE with a SQL-expression column default",
 }
 
 _REFUSED_FIRST_BY_FUNCTION_GUARD = {"C7 a function statement"}
@@ -546,12 +556,21 @@ async def test_a_schema_translate_map_cannot_hide_the_tenant_table(
         .returning(items.c.id)
         .cte("hit")
     )
+    options = {"schema_translate_map": {"hidden": "public"}}
     async with env.maker() as session:
         with bind_tenant(env.tenant_a):
-            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+            # the statement walk matches the table by name, schema aside
+            with pytest.raises(UnsafeTenantOperationError, match="Core statements"):
                 await session.execute(
-                    select(_Other).add_cte(cte),
-                    execution_options={"schema_translate_map": {"hidden": "public"}},
+                    select(_Other).add_cte(cte), execution_options=options
+                )
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            # past the ORM guard, the cursor still sees a DML CTE
+            connection = await session.connection()
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+                await connection.execute(
+                    select(_Other).add_cte(cte), execution_options=options
                 )
     assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
 
@@ -636,6 +655,24 @@ async def test_session_connection_execute_refuses_a_dml_cte(env: _Env) -> None:
             connection = await session.connection()
             with pytest.raises(UnsafeTenantOperationError, match="CTE"):
                 await connection.execute(_connection_statement(env))
+    assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "shape", sorted(_REFUSED_FIRST_BY_CORE_GUARD & set(_REFUSED)), ids=str
+)
+async def test_the_cursor_refuses_a_dml_cte_the_statement_walk_refuses_first(
+    env: _Env, shape: str
+) -> None:
+    """The CTE check does not depend on the walk that now catches these shapes
+    first: through ``session.connection()`` nothing but the cursor sees them."""
+    statement = _REFUSED[shape](env)
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            connection = await session.connection()
+            with pytest.raises(UnsafeTenantOperationError):
+                await connection.execute(statement)
     assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
 
 

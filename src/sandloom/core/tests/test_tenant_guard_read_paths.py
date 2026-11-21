@@ -65,6 +65,7 @@ from sandloom.core.di import (
     unscoped,
 )
 from sandloom.core.orm import TenantScoped
+from sandloom.core.sql_alchemy.write_admission import install_write_admission
 from sandloom.core.testing import reload_test_env
 
 #: Fixed ids: the column defaults of ``_Sink`` / ``_OrmSink`` name tenant B's row.
@@ -181,6 +182,7 @@ async def env(
         if not url:
             pytest.fail("DATABASE_URL not set: the guard test needs a PostgreSQL URL")
     engine = create_async_engine(url)
+    install_write_admission(engine)  # the cursor rule every kernel engine carries
     async with engine.begin() as conn:
         await conn.run_sync(_Base.metadata.drop_all)
         await conn.run_sync(_Base.metadata.create_all)
@@ -591,13 +593,15 @@ async def test_a_flush_cannot_run_a_default_that_reads_a_tenant_table(
     env: _Env, model: type[_Sink] | type[_OrmSink], tenant: str
 ) -> None:
     """``session.add`` flushes straight from the persistence layer: no loader
-    criterion reaches a default's subquery (ORM-annotated or raw), so the flush is
-    refused rather than left to read another tenant's row."""
+    criterion reaches a default's subquery (ORM-annotated or raw), so the cursor
+    refuses the rendered INSERT / UPDATE rather than let it read another tenant's
+    row (a tenant that is bound or not: the refusal differs, the outcome does not)."""
     bound = env.tenant_a if tenant == "bound" else None
+    refusal = UnsafeTenantOperationError if bound else MissingTenantError
     new_id = uuid.uuid4()
     async with env.maker() as session:
         session.add(model(id=new_id))
-        with pytest.raises(UnsafeTenantOperationError, match="column default"):
+        with pytest.raises(refusal, match="TenantScoped"):
             if bound is None:
                 await session.flush()
             else:
@@ -610,7 +614,7 @@ async def test_a_flush_cannot_run_a_default_that_reads_a_tenant_table(
         loaded = await session.get(model, existing)
         assert loaded is not None
         loaded.value = "changed"
-        with pytest.raises(UnsafeTenantOperationError, match="column default"):
+        with pytest.raises(refusal, match="TenantScoped"):
             if bound is None:
                 await session.flush()
             else:

@@ -27,6 +27,13 @@ carries a data-modifying CTE outside ``unscoped()``
 and CTEs hung in places the statement tree walk skips. A statement without a
 CTE costs one attribute read.
 
+It also carries the tenant rule (ADR-0018,
+:func:`sandloom.core.tenant.check_tenant_reach`): the engine's statement
+compiler records the table names each statement renders, and outside
+``unscoped()`` a statement that names a ``TenantScoped`` table is admitted only
+when the ORM guard decided on it or it is a verified flush write. The recording
+compiler is installed here, per engine dialect.
+
 **Classification is conservative** (:func:`is_write_statement`): a statement
 is read-only only if it provably is — the execution context reports none of
 ``isinsert`` / ``isupdate`` / ``isdelete`` / ``isddl`` AND its final SQL text
@@ -64,7 +71,11 @@ import sandloom.core.unit_of_work.request as _request
 import sandloom.core.unit_of_work.risk as _risk
 from sandloom.core.config.settings import settings
 from sandloom.core.sql_alchemy.money_ledger import MONEY_TABLES as _MONEY_TABLES
-from sandloom.core.tenant import check_compiled_statement
+from sandloom.core.tenant import (
+    check_compiled_statement,
+    check_tenant_reach,
+    install_reach_recorder,
+)
 from sandloom.core.unit_of_work.effects import UnitOfWorkRequiredError
 from sandloom.core.unit_of_work.scope import _DB_NAME_KEY
 
@@ -220,16 +231,24 @@ def _check_unit(info: dict[str, Any]) -> None:
         )
 
 
+def _check_tenant(context: Any, compiled: Any) -> None:
+    """The tenant rules of the cursor (module docstring)."""
+    if not isinstance(compiled, SQLCompiler):
+        return
+    if compiled.ctes:
+        # a DML CTE outside unscoped() (compiled: options, multi-row VALUES,
+        # any table object; session, connection or engine execute)
+        check_compiled_statement(compiled)
+    # a statement that names a tenant table, outside the tenant guard
+    check_tenant_reach(context, compiled)
+
+
 def _check(context: Any, statement: Any) -> None:
     """Per statement (the module docstring); the common read in a request
     costs a few attribute and dictionary reads."""
     if context is None:
         return
-    compiled = context.compiled
-    if isinstance(compiled, SQLCompiler) and compiled.ctes:
-        # a DML CTE outside unscoped() (compiled: options, multi-row VALUES,
-        # any table object; session, connection or engine execute)
-        check_compiled_statement(compiled)
+    _check_tenant(context, context.compiled)
     conn = context.root_connection
     unit = getattr(conn, UNIT_ATTR, None)
     if unit is not None:
@@ -322,6 +341,7 @@ def install_write_admission(engine: AsyncEngine | Engine) -> None:
     if getattr(sync_engine, _INSTALLED_ATTR, False):
         return
     dialect = sync_engine.dialect
+    install_reach_recorder(dialect)
     dialect.do_execute = _wrap_execute(dialect.do_execute)  # type: ignore[method-assign]
     dialect.do_executemany = _wrap_execute(dialect.do_executemany)  # type: ignore[method-assign]
     dialect.do_execute_no_params = _wrap_execute_no_params(  # type: ignore[method-assign]
