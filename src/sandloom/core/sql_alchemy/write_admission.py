@@ -20,8 +20,8 @@ only constructors of engines). Per statement, in a request's admission scope:
 3. a statement that WRITES is admitted (the first writing unit becomes the
    request's writer) or refused before it reaches the cursor (SANDLOOM-R007).
 
-The same hook refuses, before the statement is sent, a COMPILED statement whose
-data-modifying CTE reaches a ``TenantScoped`` table
+The same hook refuses, before the statement is sent, a COMPILED statement that
+carries a data-modifying CTE outside ``unscoped()``
 (:func:`sandloom.core.tenant.check_compiled_statement`): it covers what the
 ``do_orm_execute`` guard cannot see, such as ``session.connection().execute``
 and CTEs hung in places the statement tree walk skips. A statement without a
@@ -227,8 +227,8 @@ def _check(context: Any, statement: Any) -> None:
         return
     compiled = context.compiled
     if isinstance(compiled, SQLCompiler) and compiled.ctes:
-        # a DML CTE on a TenantScoped table (compiled: options, multi-row
-        # VALUES, any table object; session, connection or engine execute)
+        # a DML CTE outside unscoped() (compiled: options, multi-row VALUES,
+        # any table object; session, connection or engine execute)
         check_compiled_statement(compiled)
     conn = context.root_connection
     unit = getattr(conn, UNIT_ATTR, None)

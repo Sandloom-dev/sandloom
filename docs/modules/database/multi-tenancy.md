@@ -158,14 +158,18 @@ framework builds. It does not matter what ran the statement: a session,
 hangs the CTE. In loader options or in a multi-row `VALUES`, it still ends up in
 the compiled SQL.
 
-Under a bound tenant, a statement whose compiled SQL carries an
-INSERT/UPDATE/DELETE CTE is refused with `UnsafeTenantOperationError` when that
-DML reaches a `TenantScoped` table. The table can be the target or sit in a
-subquery. Tables match by name and schema. A second `Table` object, a reflected
-copy and `table("items")` all count as the same table. `text()` or loader
-options inside the DML cannot be read for the tables they touch. They are
-refused too. SELECT-only CTEs stay allowed and scoped. So do DML CTEs that
-touch no `TenantScoped` table.
+A statement whose compiled SQL carries an INSERT/UPDATE/DELETE CTE is refused
+outside `unscoped()`, whatever table the DML targets: `UnsafeTenantOperationError`
+under a bound tenant, `MissingTenantError` with none. No table is matched. Which
+tables a DML CTE reaches cannot be told reliably from the statement. Four
+shapes defeat it:
+
+- a name written with `quote=False`;
+- a per-execution `schema_translate_map`;
+- a table named only through the columns of `values()` or `where()`;
+- a SQL-expression column default.
+
+So a DML CTE needs `unscoped()`, even on a table that is not `TenantScoped`. SELECT-only CTEs stay allowed and scoped.
 
 Two cases the check does not see. A `nesting=True` CTE below the top level is
 not in the compiled list, and PostgreSQL itself refuses a data-modifying

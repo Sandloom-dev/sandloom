@@ -218,25 +218,22 @@ guarantees:
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_upsert_requires_tenant_and_never_crosses_tenants
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_update_is_scoped_to_bound_tenant
 - id: G-TENANT-19
-  statement: Under a bound tenant, a statement whose COMPILED SQL carries a CTE of INSERT/UPDATE/DELETE
-    that reaches a TenantScoped table (as target or in a subquery, matched by schema and name, wherever
-    the statement tree hangs the CTE and whether a session, session.connection() or an engine runs it) is
-    refused with UnsafeTenantOperationError outside unscoped() on every engine the framework builds; a DML
-    CTE holding text() or loader options is refused too, SELECT-only CTEs stay allowed and scoped, and a
-    DML CTE on a table that is not TenantScoped is allowed. A nesting=True CTE below the top level leaves
-    the compiled list and is refused by PostgreSQL itself.
+  statement: A statement whose COMPILED SQL carries a CTE of INSERT/UPDATE/DELETE is refused outside
+    unscoped() on every engine the framework builds, whatever table the DML targets or reads (no table
+    is matched), wherever the statement tree hangs the CTE and whether a session, session.connection() or
+    an engine runs it; the refusal is UnsafeTenantOperationError under a bound tenant and MissingTenantError
+    with none. SELECT-only CTEs stay allowed and scoped. A nesting=True CTE below the top level leaves the
+    compiled list and is refused by PostgreSQL itself.
   sources:
   - docs/modules/database/multi-tenancy.md
   tests:
-  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_on_a_tenant_table_is_refused_under_a_bound_tenant
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_dml_cte_is_refused_under_a_bound_tenant
   - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_inside_unscoped_is_allowed
   - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_select_only_cte_on_a_tenant_table_stays_allowed_and_scoped
-  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_on_a_non_tenant_table_stays_allowed
-  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_on_a_non_tenant_lightweight_table_stays_allowed
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_on_a_non_tenant_table_is_refused
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_schema_translate_map_cannot_hide_the_tenant_table
   - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_session_connection_execute_refuses_a_dml_cte
   - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_engine_connection_execute_refuses_a_dml_cte
-  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_dml_cte_holding_text_is_refused_fail_closed
-  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_dml_cte_carrying_loader_options_is_refused_fail_closed
   - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_nested_dml_cte_never_runs_against_a_tenant_table
 - id: G-TENANT-20
   statement: The unscoped() bypass is bounded by its block. A task created and finished inside the block

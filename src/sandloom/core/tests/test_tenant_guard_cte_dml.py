@@ -3,10 +3,10 @@
 The tenant criteria the guard adds scope the SELECTs of a statement; they never
 reach an INSERT/UPDATE/DELETE that rides along as a CTE. Under a bound tenant,
 ``insert(Other).add_cte(update(Item)...cte())`` would rewrite another tenant's
-rows. Every shape of such a CTE is refused unless it sits inside ``unscoped()``
-or provably touches no TenantScoped table; SELECT-only CTEs stay allowed and
-scoped. A task created inside ``unscoped()`` does not keep the bypass once the
-block exits.
+rows. Which tables a CTE reaches cannot be told reliably, so every DML CTE is
+refused outside ``unscoped()``, whatever its target; SELECT-only CTEs stay
+allowed and scoped. A task created inside ``unscoped()`` does not keep the
+bypass once the block exits.
 
 Real PostgreSQL (data-modifying CTEs do not exist on SQLite); the refusals
 happen before the statement reaches the database.
@@ -36,7 +36,6 @@ from sqlalchemy import (
     insert,
     select,
     table,
-    text,
     union,
     update,
 )
@@ -59,6 +58,7 @@ from sqlalchemy.orm import (
     with_expression,
     with_loader_criteria,
 )
+from sqlalchemy.sql.elements import quoted_name
 
 from sandloom.core.consumers.callbacks import build_consumer_callback
 from sandloom.core.di import (
@@ -183,9 +183,9 @@ def _core_tenant_update_cte(b_id: uuid.UUID) -> Any:
     )
 
 
-def _lightweight_update_cte(b_id: uuid.UUID, schema: str | None = None) -> Any:
+def _lightweight_update_cte(b_id: uuid.UUID) -> Any:
     """The tenant table named through ``table()``: not the mapped Table object."""
-    items = table("test_cte_dml_items", column("id"), column("name"), schema=schema)
+    items = table("test_cte_dml_items", column("id"), column("name"))
     return (
         update(items)
         .where(items.c.id == b_id)
@@ -245,7 +245,58 @@ def _other_update_reading_tenant_cte(b_id: uuid.UUID) -> Any:
     )
 
 
-# name -> builder(env). Every shape carries DML on a TenantScoped table in a CTE.
+def _quote_false_update_cte(items: Any, b_id: uuid.UUID) -> Any:
+    return (
+        update(items)
+        .where(items.c.id == b_id)
+        .values(name="pwned")
+        .returning(items.c.id)
+        .cte("hit")
+    )
+
+
+def _items_columns() -> tuple[Column[Any], Column[Any]]:
+    return Column("id", PG_UUID(as_uuid=True)), Column("name", Text)
+
+
+def _lightweight_items() -> Any:
+    return table("test_cte_dml_items", column("id"), column("name"))
+
+
+def _sink_copying_from_tenant_cte(b_id: uuid.UUID) -> Any:
+    """DML on a NON-tenant table that reaches the tenant table only through
+    the columns of its ``values()`` and ``where()`` (an implicit FROM)."""
+    sink = table("test_cte_dml_others", column("id"), column("name"))
+    items = _lightweight_items()
+    return (
+        update(sink)
+        .values(name=items.c.name)
+        .where(sink.c.id == items.c.id)
+        .where(items.c.id == b_id)
+        .returning(sink.c.id)
+        .cte("hit")
+    )
+
+
+def _insert_with_default_reading_tenant_cte(b_id: uuid.UUID) -> Any:
+    """INSERT on a NON-tenant table whose column default is a SQL expression
+    reading the tenant table: the statement tree never names that table."""
+    items = Table("test_cte_dml_items", MetaData(), *_items_columns())
+    sink = Table(
+        "test_cte_dml_others",
+        MetaData(),
+        Column("id", PG_UUID(as_uuid=True)),
+        Column(
+            "name",
+            Text,
+            default=select(items.c.name).where(items.c.id == b_id).scalar_subquery(),
+        ),
+    )
+    return insert(sink).values(id=uuid.uuid4()).returning(sink.c.id).cte("hit")
+
+
+# name -> builder(env). Every shape carries DML in a CTE; most on a TenantScoped
+# table, the rest on a table that is not (refused all the same).
 _REFUSED: dict[str, Callable[[_Env], Any]] = {
     "insert.add_cte (ORM target)": lambda e: (
         insert(_Other)
@@ -359,9 +410,51 @@ _REFUSED: dict[str, Callable[[_Env], Any]] = {
             .cte("copy")
         )
     ),
-    "DML on the tenant table schema-qualified as public": lambda e: select(
+    "DML CTE on a non-tenant table": lambda e: select(_Other).add_cte(
+        update(_Other)
+        .where(_Other.id == e.other_id)
+        .values(name="renamed")
+        .returning(_Other.id)
+        .cte("touch")
+    ),
+    # names that match no (schema, name) pair yet render the tenant table
+    "quote=False upper-case table() name": lambda e: select(_Other).add_cte(
+        _quote_false_update_cte(
+            table(
+                quoted_name("TEST_CTE_DML_ITEMS", quote=False),
+                column("id"),
+                column("name"),
+            ),
+            e.b_id,
+        )
+    ),
+    "quote=False Table object": lambda e: select(_Other).add_cte(
+        _quote_false_update_cte(
+            Table(
+                "TEST_CTE_DML_ITEMS",
+                MetaData(),
+                *_items_columns(),
+                quote=False,
+            ),
+            e.b_id,
+        )
+    ),
+    "quote=False dotted table() name": lambda e: select(_Other).add_cte(
+        _quote_false_update_cte(
+            table(
+                quoted_name("public.test_cte_dml_items", quote=False),
+                column("id"),
+                column("name"),
+            ),
+            e.b_id,
+        )
+    ),
+    "non-tenant UPDATE CTE copying through values() and where() columns": (
+        lambda e: select(_Other).add_cte(_sink_copying_from_tenant_cte(e.b_id))
+    ),
+    "non-tenant INSERT CTE with a SQL-expression column default": lambda e: select(
         _Other
-    ).add_cte(_lightweight_update_cte(e.b_id, schema="public")),
+    ).add_cte(_insert_with_default_reading_tenant_cte(e.b_id)),
 }
 
 
@@ -373,9 +466,7 @@ _REFUSED_FIRST_BY_CORE_GUARD = {
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shape", list(_REFUSED))
-async def test_dml_cte_on_a_tenant_table_is_refused_under_a_bound_tenant(
-    env: _Env, shape: str
-) -> None:
+async def test_a_dml_cte_is_refused_under_a_bound_tenant(env: _Env, shape: str) -> None:
     statement = _REFUSED[shape](env)
     # an INSERT whose own text names a tenant table is refused earlier by the
     # Core-statement guard; every other shape reaches the compiled-CTE check
@@ -411,7 +502,8 @@ async def test_dml_cte_inside_unscoped_is_allowed(env: _Env) -> None:
 
 
 @pytest.mark.asyncio
-async def test_dml_cte_on_a_non_tenant_table_stays_allowed(env: _Env) -> None:
+async def test_dml_cte_on_a_non_tenant_table_is_refused(env: _Env) -> None:
+    """No table matching: the target does not matter, only that it is DML."""
     cte = (
         update(_Other)
         .where(_Other.id == env.other_id)
@@ -421,15 +513,39 @@ async def test_dml_cte_on_a_non_tenant_table_stays_allowed(env: _Env) -> None:
     )
     async with env.maker() as session:
         with bind_tenant(env.tenant_a):
-            await session.execute(
-                insert(_Other).values(id=uuid.uuid4(), name="x").add_cte(cte)
-            )
-            await session.commit()
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+                await session.execute(
+                    insert(_Other).values(id=uuid.uuid4(), name="x").add_cte(cte)
+                )
     async with env.maker() as session:
         row = (
             await session.execute(select(_Other.name).where(_Other.id == env.other_id))
         ).scalar_one()
-    assert row == "renamed"
+    assert row == "other"
+
+
+@pytest.mark.asyncio
+async def test_a_schema_translate_map_cannot_hide_the_tenant_table(
+    env: _Env,
+) -> None:
+    """The per-execution map renames the table in the SQL sent; the statement
+    names a schema that matches nothing, the compiled CTE is still DML."""
+    items = table("test_cte_dml_items", column("id"), column("name"), schema="hidden")
+    cte = (
+        update(items)
+        .where(items.c.id == env.b_id)
+        .values(name="pwned")
+        .returning(items.c.id)
+        .cte("hit")
+    )
+    async with env.maker() as session:
+        with bind_tenant(env.tenant_a):
+            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
+                await session.execute(
+                    select(_Other).add_cte(cte),
+                    execution_options={"schema_translate_map": {"hidden": "public"}},
+                )
+    assert await _names(env) == {env.a_id: "a-row", env.b_id: "b-row"}
 
 
 @pytest.mark.asyncio
@@ -543,63 +659,6 @@ async def test_connection_execute_inside_unscoped_is_allowed(env: _Env) -> None:
             await connection.execute(_connection_statement(env))
             await session.commit()
     assert (await _names(env))[env.b_id] == "pwned"
-
-
-@pytest.mark.asyncio
-async def test_a_dml_cte_holding_text_is_refused_fail_closed(env: _Env) -> None:
-    """``text()`` inside a DML CTE cannot be read for the tables it touches."""
-    cte = (
-        update(_Other)
-        .values(name=text("(SELECT name FROM test_cte_dml_items LIMIT 1)"))
-        .returning(_Other.id)
-        .cte("hit")
-    )
-    async with env.maker() as session:
-        with bind_tenant(env.tenant_a):
-            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
-                await session.execute(select(_Other).add_cte(cte))
-
-
-@pytest.mark.asyncio
-async def test_a_dml_cte_carrying_loader_options_is_refused_fail_closed(
-    env: _Env,
-) -> None:
-    """Options hold criteria and expressions the table walk does not read."""
-    cte = (
-        update(_Other)
-        .options(with_loader_criteria(_Other, _Other.name != ""))
-        .values(name="y")
-        .returning(_Other.id)
-        .cte("hit")
-    )
-    async with env.maker() as session:
-        with bind_tenant(env.tenant_a):
-            with pytest.raises(UnsafeTenantOperationError, match="CTE"):
-                await session.execute(select(_Other).add_cte(cte))
-
-
-@pytest.mark.asyncio
-async def test_dml_cte_on_a_non_tenant_lightweight_table_stays_allowed(
-    env: _Env,
-) -> None:
-    """Matching by name refuses only tables that ARE a TenantScoped table."""
-    others = table("test_cte_dml_others", column("id"), column("name"))
-    cte = (
-        update(others)
-        .where(others.c.id == env.other_id)
-        .values(name="renamed")
-        .returning(others.c.id)
-        .cte("touch")
-    )
-    async with env.maker() as session:
-        with bind_tenant(env.tenant_a):
-            await session.execute(select(_Other).add_cte(cte))
-            await session.commit()
-    async with env.maker() as session:
-        name = (
-            await session.execute(select(_Other.name).where(_Other.id == env.other_id))
-        ).scalar_one()
-    assert name == "renamed"
 
 
 @pytest.mark.asyncio
