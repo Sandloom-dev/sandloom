@@ -14,7 +14,15 @@ from urllib.parse import quote
 import sandloom.core.contract_compat as _contract_compat
 from sandloom.core.archcheck.api10_rules import event_classes
 from sandloom.core.cli.inspection import files, processes
-from sandloom.core.cli.inspection.model import Doc, InspectionError, digest, encode, sha
+from sandloom.core.cli.inspection.model import (
+    Doc,
+    InspectionError,
+    digest,
+    encode_index,
+    is_lines,
+    sha,
+)
+from sandloom.core.cli.inspection.read import parse_index
 from sandloom.core.descriptors.module_names import module_name
 
 
@@ -343,5 +351,15 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
     }
 
 
-def rendered(document: Doc) -> str:
-    return encode(document)
+def rendered(document: Doc, current: str | None = None) -> str:
+    """The index text of ``document``; ``current`` (the file now) when it is
+    that same document in another line order, as git leaves two merged
+    branches' lines: a merge is not a change to regenerate."""
+    text = encode_index(document)
+    if current is None or not is_lines(current):
+        return text  # none yet, or the one-line form of an earlier release
+    try:
+        same = encode_index(parse_index(current)) == text
+    except (InspectionError, ValueError):
+        same = False
+    return current if same else text

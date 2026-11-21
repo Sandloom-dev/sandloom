@@ -78,8 +78,12 @@ stays out of the text map.
 
 The map reads `.sandloom/inspection.json`, produced by explicit `sandloom generate`,
 and current owned file metadata. It never loads `.env`, imports the application,
-connects to backends or regenerates implicitly. The semantic index belongs in Git;
-the local verification receipt lives under ignored `.sandloom/cache/`.
+connects to backends or regenerates implicitly. The semantic index belongs in Git
+and is written one record per line, so a module's records are lines no other
+module's change touches. Branches that each add a module merge cleanly. The
+application's `.gitattributes` marks the file `merge=union` for lines that land
+together and `text eol=lf` (a checkout with `core.autocrlf` keeps the lines LF).
+The local verification receipt lives under ignored `.sandloom/cache/`.
 
 | JSON state | Markdown label |
 | --- | --- |

@@ -32,6 +32,7 @@ myapp/
   AGENTS.md, CLAUDE.md      # instructions for coding agents
   .agents/, .claude/        # skills for coding agents
   .sandloom/inspection.json # generated: what the inspection commands read
+  .gitattributes            # merges that file line by line (`merge=union`, LF)
 ```
 
 [What a module contains](../modules/index.md) has its own page.

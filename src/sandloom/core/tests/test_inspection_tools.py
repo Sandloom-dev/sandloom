@@ -19,7 +19,7 @@ from sandloom.core.cli.inspection import collect, generation, graph, processes
 from sandloom.core.cli.inspection.cli import main
 from sandloom.core.cli.inspection.model import INDEX, RECEIPT, encode
 from sandloom.core.cli.inspection.queries import _sources_by_path
-from sandloom.core.cli.inspection.read import Reader
+from sandloom.core.cli.inspection.read import Reader, parse_index
 from sandloom.core.descriptors import (
     CapabilityRequirement,
     ContractRequirement,
@@ -152,7 +152,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         item.path.write_text(item.content)
     document = collect.collect(app, rules, planned)
     (root / INDEX).parent.mkdir()
-    (root / INDEX).write_text(encode(document))
+    (root / INDEX).write_text(collect.rendered(document))
     (root / RECEIPT).parent.mkdir()
     (root / RECEIPT).write_text(Reader(root).receipt())
     return SimpleNamespace(root=root, app=app, rules=rules, planned=planned)
@@ -591,13 +591,13 @@ def test_map_omits_sdk_dump_and_respects_ignore_policy(
 def test_unknown_graph_variant_and_owner_escape_fail_closed(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    doc = json.loads((project.root / INDEX).read_text())
+    doc = parse_index((project.root / INDEX).read_text())
     original = encode(doc)
     doc["edges"][0]["kind"] = "injected --> malicious"
     (project.root / INDEX).write_text(encode(doc))
     assert run(project, capsys, "graph", "--format", "mermaid")[0] == 1
     (project.root / INDEX).write_text(original)
-    doc = json.loads(original)
+    doc = parse_index(original)
     doc["modules"][0]["source"] = "app/shared"
     (project.root / INDEX).write_text(encode(doc))
     rc, text, _ = run(
@@ -859,7 +859,7 @@ def test_semantic_diff_ignores_bodies_and_checks_event_compatibility(
         "removed": 0,
         "changed": 0,
     }
-    document = json.loads(original)
+    document = parse_index(original)
     schema = document["event_schemas"]["stats.changed.v1"]
     schema["properties"]["required_now"] = {"type": "string"}
     schema["required"] = ["required_now"]
@@ -875,7 +875,7 @@ def test_semantic_diff_ignores_bodies_and_checks_event_compatibility(
 def test_contract_diff_uses_existing_shared_compatibility_rules(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    document = json.loads((project.root / INDEX).read_text())
+    document = parse_index((project.root / INDEX).read_text())
     document["contract_descriptions"] = {
         "stats.quota.v1": {"methods": {"read": {"params": [], "return": {"k": "none"}}}}
     }
@@ -1152,7 +1152,7 @@ def _embedded_viewer(text: str) -> dict[str, object]:
 
 
 def _process_reader(project: SimpleNamespace) -> Reader:
-    document = json.loads((project.root / INDEX).read_text())
+    document = parse_index((project.root / INDEX).read_text())
     document["processes"] = [
         {
             "id": f"route:{module}-{method}",
@@ -1404,7 +1404,7 @@ def test_git_diff_reads_saved_model_without_checkout_or_app_import(
     root = repo / "apps/demo" if nested else repo
     shutil.copytree(project.root, root, dirs_exist_ok=True)
     commit = _git_commit(repo)
-    document = json.loads((root / INDEX).read_text())
+    document = parse_index((root / INDEX).read_text())
     document["modules"][0]["version"] = "2"
     (root / INDEX).write_text(encode(document))
     before = (repo / ".git/HEAD").read_bytes()
@@ -1416,7 +1416,7 @@ def test_git_diff_reads_saved_model_without_checkout_or_app_import(
     assert data["counts"] == {"added": 0, "removed": 0, "changed": 1}
     assert data["changes"][0]["compatibility"]["state"] == "not_assessed"
     assert (repo / ".git/HEAD").read_bytes() == before
-    assert json.loads((root / INDEX).read_text())["modules"][0]["version"] == "2"
+    assert parse_index((root / INDEX).read_text())["modules"][0]["version"] == "2"
 
 
 def test_git_diff_missing_baseline_and_option_like_revision_are_errors(
@@ -1458,7 +1458,7 @@ def test_terminal_escapes_controls(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    document = json.loads((project.root / INDEX).read_text())
+    document = parse_index((project.root / INDEX).read_text())
     document["nodes"][0]["name"] = "notes\x1b[31m\nspoof"
     document["modules"][0]["name"] = "notes\x1b[31m\nspoof"
     (project.root / INDEX).write_text(encode(document))
@@ -1568,7 +1568,7 @@ def test_git_baseline_preserves_input_validation(
 
     path = project.root / INDEX
     current = path.read_bytes()
-    document = json.loads(current)
+    document = parse_index(current.decode())
     expected = None
     if mutation == "crlf":
         path.write_bytes(
@@ -1668,7 +1668,7 @@ def test_contract_map_has_signatures_and_callers(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    doc = json.loads((project.root / INDEX).read_text())
+    doc = parse_index((project.root / INDEX).read_text())
     dto = {
         "k": "model",
         "ref": "app.modules.stats.schemas:QuotaOut",
@@ -1967,7 +1967,7 @@ def test_map_contains_concrete_facts_without_generic_advice_or_scaffolding(
     (root / "services/__init__.py").write_text("def configure(): pass\n")
     (root / "tests").mkdir()
     (root / "tests/test_notes.py").write_text("def test_notes(): pass\n")
-    doc = json.loads((project.root / INDEX).read_text())
+    doc = parse_index((project.root / INDEX).read_text())
     module = next(m for m in doc["modules"] if m["id"] == "module:notes")
     module["routes"] = [
         {
@@ -2009,7 +2009,7 @@ def test_map_reports_its_module_unresolved_facts(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    doc = json.loads((project.root / INDEX).read_text())
+    doc = parse_index((project.root / INDEX).read_text())
     doc["unresolved"] = [
         {
             "module_id": "module:notes",
@@ -2229,7 +2229,7 @@ def test_context_returns_a_complete_map_above_the_former_byte_limit(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    doc = json.loads((project.root / INDEX).read_text())
+    doc = parse_index((project.root / INDEX).read_text())
     doc["contract_descriptions"] = {
         "stats.quota.v1": {
             "methods": {
@@ -2327,7 +2327,7 @@ def test_default_map_exposes_command_risk_without_duplicate_idempotency(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = project.root / INDEX
-    doc = json.loads(path.read_text())
+    doc = parse_index(path.read_text())
     doc["contract_descriptions"] = {
         "stats.quota.v1": {
             "methods": {
@@ -2428,7 +2428,7 @@ def test_project_text_pluralization_and_docstring_markup(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str], count: int
 ) -> None:
     path = project.root / INDEX
-    doc = json.loads(path.read_text())
+    doc = parse_index(path.read_text())
     module = doc["modules"][0]
     module["summary"] = "Owns the ``notes`` module."
     module["routes"] = [
@@ -2454,7 +2454,7 @@ def test_viewer_uses_full_scoped_module_cards_and_readable_freshness(
     project: SimpleNamespace,
 ) -> None:
     path = project.root / INDEX
-    document = json.loads(path.read_text())
+    document = parse_index(path.read_text())
     module = next(m for m in document["modules"] if m["id"] == "module:notes")
     module["routes"] = [
         {
