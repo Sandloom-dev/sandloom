@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/agent_model_guard.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\""
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/agent_models.py\"; [ -f \"$f\" ] && python3 \"$f\" || true"
           }
         ]
       },
