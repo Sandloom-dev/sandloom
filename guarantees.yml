@@ -217,6 +217,18 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_upsert_requires_tenant_and_never_crosses_tenants
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_update_is_scoped_to_bound_tenant
+- id: G-TENANT-19
+  statement: Under a bound tenant, any ORM statement carrying a CTE of INSERT/UPDATE/DELETE that touches
+    a TenantScoped table (as target or in a subquery, wherever the CTE hangs) is refused with UnsafeTenantOperationError
+    outside unscoped(); SELECT-only CTEs stay allowed and scoped. A task created inside unscoped() does
+    not keep the bypass after the block exits.
+  sources:
+  - docs/modules/database/multi-tenancy.md
+  tests:
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_on_a_tenant_table_is_refused_under_a_bound_tenant
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_inside_unscoped_is_allowed
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_select_only_cte_on_a_tenant_table_stays_allowed_and_scoped
+  - src/sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_task_created_inside_unscoped_does_not_keep_the_bypass
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees
@@ -8791,7 +8803,7 @@ issued:
   G-SDK: 5
   G-SENS: 7
   G-TASK: 5
-  G-TENANT: 18
+  G-TENANT: 19
   G-UNIT: 3
   G-UOW: 9
   G-WINDOW: 3

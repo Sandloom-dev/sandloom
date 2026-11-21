@@ -30,16 +30,16 @@ from typing import Any
 from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, Uuid, bindparam, event
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
-from sqlalchemy.sql.selectable import Alias, SelectBase
+from sqlalchemy.sql.selectable import CTE, Alias, SelectBase
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
     MissingTenantError,
     TenantMismatchError,
     UnsafeTenantOperationError,
-    _bypass,
     _current_tenant,
     bind_tenant,
+    bypass_active,
     current_tenant_id,
     current_tenant_id_optional,
     unscoped,
@@ -125,6 +125,7 @@ _GUARD_CACHE_MAX = 2048
 _tenant_tables_cache: frozenset[Any] | None = None
 _reference_cache: dict[Any, bool] = {}
 _unsafe_core_cache: dict[Any, bool] = {}
+_dml_cte_cache: dict[Any, bool] = {}
 #: Counters (observability + the guard's micro-benchmark test).
 guard_cache_stats: dict[str, int] = {"walks": 0, "hits": 0}
 
@@ -134,6 +135,7 @@ def _invalidate_guard_caches() -> None:
     _tenant_tables_cache = None
     _reference_cache.clear()
     _unsafe_core_cache.clear()
+    _dml_cte_cache.clear()
 
 
 def _tenant_tables() -> frozenset[Any]:
@@ -219,6 +221,46 @@ def _unsafe_core_reference(statement: Any) -> bool:
         if len(_unsafe_core_cache) >= _GUARD_CACHE_MAX:
             _unsafe_core_cache.clear()
         _unsafe_core_cache[key] = verdict
+    return verdict
+
+
+def _dml_cte_reaches_tenant(statement: Any) -> bool:
+    """A DML CTE (``update/insert/delete(...).cte()``) anywhere in ``statement``
+    reaches a TenantScoped table.
+
+    The loader criteria the guard adds scope the SELECTs of ``statement``; they
+    never reach a DML that rides along as a CTE, so ``insert(Other).add_cte(
+    update(Tenant)...)`` would rewrite another tenant's rows. Every CTE is found
+    wherever it hangs (``add_cte`` of any statement, ``.cte()`` in FROM / WHERE,
+    CTEs of subqueries, CTEs inside CTEs); any element that is not a SELECT is
+    DML, and DML that touches a TenantScoped table (its target or a subquery of
+    it) is refused. Memoized like the other verdicts; unprovable means refused.
+    """
+
+    try:
+        cache_key = statement._generate_cache_key()
+        key = cache_key.key if cache_key is not None else None
+        if key is not None and key in _dml_cte_cache:
+            return _dml_cte_cache[key]
+    except Exception:  # noqa: BLE001 - an uncacheable statement is still checked
+        key = None
+    tables = _tenant_tables()
+    try:
+        verdict = any(
+            isinstance(node, CTE)
+            and not isinstance(node.element, SelectBase)
+            and any(
+                inner in tables or _tenant_annotated(inner)
+                for inner in visitors.iterate(node.element)
+            )
+            for node in visitors.iterate(statement)
+        )
+    except Exception:  # noqa: BLE001 - fail closed: an unreadable DML CTE is refused
+        verdict = True
+    if key is not None:
+        if len(_dml_cte_cache) >= _GUARD_CACHE_MAX:
+            _dml_cte_cache.clear()
+        _dml_cte_cache[key] = verdict
     return verdict
 
 
@@ -433,7 +475,11 @@ def _install_identity_map_guard() -> None:
 
     def get(self: Session, entity: Any, ident: Any, **kwargs: Any) -> Any:
         instance = original(self, entity, ident, **kwargs)
-        if instance is None or _bypass.get() or not isinstance(instance, TenantScoped):
+        if (
+            instance is None
+            or bypass_active()
+            or not isinstance(instance, TenantScoped)
+        ):
             return instance
         tid = _current_tenant.get()
         if tid is None:
@@ -530,7 +576,7 @@ def install_tenant_guard() -> None:  # noqa: C901
         # TenantScoped collection is its own query and must be scoped too.
         if state.is_column_load:
             return
-        if _bypass.get():
+        if bypass_active():
             return
         if not _tenant_tables():
             # Early exit (hot path): no TenantScoped model is mapped in this
@@ -545,9 +591,18 @@ def install_tenant_guard() -> None:  # noqa: C901
             if isinstance(mapper.class_, type)
             and issubclass(mapper.class_, TenantScoped)
         ]
-        if (
+        is_statement = (
             state.is_select or state.is_update or state.is_delete or state.is_insert
-        ) and _unsafe_core_reference(state.statement):
+        )
+        if is_statement and _dml_cte_reaches_tenant(state.statement):
+            if _current_tenant.get() is None:
+                raise _missing_tenant("a DML CTE", _model_names(tenant_mappers))
+            raise UnsafeTenantOperationError(
+                "a CTE holding INSERT/UPDATE/DELETE on a TenantScoped table "
+                "cannot be tenant-scoped; use ORM statements outside the CTE or "
+                "explicit unscoped() for trusted system access"
+            )
+        if is_statement and _unsafe_core_reference(state.statement):
             if not state.is_insert and _current_tenant.get() is None:
                 raise _missing_tenant("a Core statement", _model_names(tenant_mappers))
             raise UnsafeTenantOperationError(
@@ -597,7 +652,7 @@ def install_tenant_guard() -> None:  # noqa: C901
     def _enforce_tenant_writes(
         session: Session, _flush_context: Any, _instances: Any
     ) -> None:  # pragma: no cover - DB-exercised
-        if _bypass.get():
+        if bypass_active():
             return
         tenant_objects = (
             obj

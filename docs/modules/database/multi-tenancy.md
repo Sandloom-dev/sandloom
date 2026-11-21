@@ -136,6 +136,20 @@ with unscoped():
     ...  # the ORM guard is lifted for this block
 ```
 
+`unscoped()` lasts for its block. A task created inside the block
+(`asyncio.create_task`, `gather`) copies the context, but its bypass ends with
+the block. A task still running after the block exited is guarded again and
+fails closed without a bound tenant. Await such a task inside the block, or give
+it its own `unscoped()`.
+
+The guard does not scope a data-modifying CTE. Its tenant criteria apply to the
+SELECTs of a statement, not to a write carried as a CTE. Under a bound tenant,
+a statement with a write CTE is refused with `UnsafeTenantOperationError`.
+That happens when the CTE touches a `TenantScoped` table, as its target or in a
+subquery. The guard finds a CTE wherever it is attached, nested ones included.
+SELECT-only CTEs stay allowed and scoped. So do DML CTEs that touch no
+`TenantScoped` table. Cross-tenant work uses `unscoped()`.
+
 `unscoped()` disables the ORM guard only. On a database with
 [Row-Level Security](#postgresql-row-level-security-optional) the database still
 scopes every statement to the bound tenant; cross-tenant work there runs on

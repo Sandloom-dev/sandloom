@@ -12,7 +12,7 @@ tests, `sandloom check` rules and import contracts that prove it. The ledger
 disappears, an entry deleted without a `removed:` record, or a new ADR section
 without an entry fails the build.
 
-**470 guarantees, 179 capabilities, 38 recorded gaps.**
+**471 guarantees, 179 capabilities, 38 recorded gaps.**
 
 Run exactly the enforcing tests (from the repository root):
 
@@ -44,6 +44,7 @@ uv run pytest -m guarantees src packages/sandloom-celery/tests packages/sandloom
 | <span class="sl-id">G-TENANT-16</span> | sandloom check rule tenant-scoped-models reports every ORM model or Core Table declaring its own tenant_id without TenantScoped, unless listed in tenant_scope_exempt with a written reason; a stale exemption or one without a reason fails. | `tests/architecture/test_tenant_scoped_models_rule.py::test_fixture_violations_detected`<br>`tests/architecture/test_tenant_scoped_models_rule.py::test_rule_runs_in_sandloom_check_and_honours_exemptions`<br>`tests/architecture/test_tenant_scoped_models_rule.py::test_exemption_requires_a_reason`<br>rule `tenant-scoped-models` |
 | <span class="sl-id">G-TENANT-17</span> | sandloom check rule unsafe-tenant-sql reports runtime raw SQL in business modules (text(), Model.__table__, exec_driver_sql, including deferred lambdas/generators) unless it executes inside an explicit unscoped() block; declaration-time defaults are exempt. | `sandloom/core/tests/test_review_archcheck.py::test_raw_tenant_sql_requires_explicit_system_scope`<br>`sandloom/core/tests/test_review_archcheck.py::test_deferred_sql_does_not_inherit_creation_scope`<br>`sandloom/core/tests/test_review_archcheck.py::test_raw_sql_declaration_defaults_do_not_need_a_runtime_scope`<br>`tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule`<br>rule `unsafe-tenant-sql`<br>**gap (S)**: The rule is only tested at the analyzer level (find_unsafe_tenant_sql); no test runs it through run_checks/sandloom check on a module fixture as the tenant-scoped-models rule is. |
 | <span class="sl-id">G-TENANT-18</span> | monotonic_upsert requires a tenant_id in the row values, never overwrites another tenant's row with the same key, and raises TenantMismatchError when the row's tenant_id differs from the bound tenant; monotonic_update is scoped to the bound tenant. | `sandloom/core/tests/test_projection_upsert_guards.py::test_upsert_requires_tenant_and_never_crosses_tenants`<br>`sandloom/core/tests/test_projection_upsert_guards.py::test_update_is_scoped_to_bound_tenant` |
+| <span class="sl-id">G-TENANT-19</span> | Under a bound tenant, any ORM statement carrying a CTE of INSERT/UPDATE/DELETE that touches a TenantScoped table (as target or in a subquery, wherever the CTE hangs) is refused with UnsafeTenantOperationError outside unscoped(); SELECT-only CTEs stay allowed and scoped. A task created inside unscoped() does not keep the bypass after the block exits. | `sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_on_a_tenant_table_is_refused_under_a_bound_tenant`<br>`sandloom/core/tests/test_tenant_guard_cte_dml.py::test_dml_cte_inside_unscoped_is_allowed`<br>`sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_select_only_cte_on_a_tenant_table_stays_allowed_and_scoped`<br>`sandloom/core/tests/test_tenant_guard_cte_dml.py::test_a_task_created_inside_unscoped_does_not_keep_the_bypass` |
 
 ### G-RLS
 
@@ -1148,6 +1149,7 @@ in this table rests on no capability or does not state it yet.
 | <span class="sl-id">G-TENANT-16</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-17</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-18</span> | docs/modules/between/projections.md |
+| <span class="sl-id">G-TENANT-19</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-RLS-01</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/advanced/security-model.md#SQL paths available to business-module code |
 | <span class="sl-id">G-RLS-02</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed) |
 | <span class="sl-id">G-RLS-03</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/modules/database/multi-tenancy.md |

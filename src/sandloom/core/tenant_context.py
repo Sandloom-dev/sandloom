@@ -15,7 +15,33 @@ from prometheus_client import Counter
 _current_tenant: ContextVar[uuid.UUID | None] = ContextVar(
     "sandloom_current_tenant", default=None
 )
-_bypass: ContextVar[bool] = ContextVar("sandloom_tenant_bypass", default=False)
+
+
+class _UnscopedScope:
+    """One ``unscoped()`` block: the context's bypass lasts while it is open.
+
+    A task created inside the block copies the context, so the variable it
+    holds outlives the block. The bypass is therefore this object, not a
+    boolean: ``close`` flips ``open`` for every copy at once, and a child task
+    still running after the block exited no longer bypasses the guard.
+    """
+
+    __slots__ = ("open",)
+
+    def __init__(self) -> None:
+        self.open = True
+
+
+#: The ``unscoped()`` block the current context is inside, or ``None``.
+_bypass: ContextVar[_UnscopedScope | None] = ContextVar(
+    "sandloom_tenant_bypass", default=None
+)
+
+
+def bypass_active() -> bool:
+    """True inside an open ``unscoped()`` block (never for a task that outlived it)."""
+    scope = _bypass.get()
+    return scope is not None and scope.open
 
 
 class MissingTenantError(RuntimeError):
@@ -115,10 +141,12 @@ def _unscoped_scope(caller: str, reason: str | None) -> Iterator[None]:
             caller,
             reason or "no reason given",
         )
-    token = _bypass.set(True)
+    scope = _UnscopedScope()
+    token = _bypass.set(scope)
     try:
         yield
     finally:
+        scope.open = False
         _bypass.reset(token)
 
 
@@ -127,6 +155,7 @@ __all__ = [
     "TenantMismatchError",
     "UnsafeTenantOperationError",
     "bind_tenant",
+    "bypass_active",
     "configured_tenant_scope",
     "current_tenant_id",
     "current_tenant_id_optional",
