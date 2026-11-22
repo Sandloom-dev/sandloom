@@ -126,6 +126,53 @@ _LOOK_ALIKE_RECEIVERS = {
 }
 
 
+_TWO_FUNCTIONS = (
+    "from sqlalchemy import text\n"
+    "import sandloom.sdk.tenant as tc\n"
+    "def unrelated(db, tc):\n    return tc\n"
+    "def genuine(db):\n    with tc.unscoped():\n        return text('1')\n"
+)
+
+
+def test_a_parameter_named_like_the_import_in_another_function_keeps_the_import(
+    tmp_path: Path,
+) -> None:
+    """The framework import is resolved in the scope of each use: another
+    function's parameter named ``tc`` neither hides it from ``genuine`` ..."""
+    source = tmp_path / "service.py"
+    source.write_text(_TWO_FUNCTIONS)
+    assert analyzers.find_unsafe_tenant_sql(source) == []
+
+
+def test_a_parameter_named_like_the_import_is_no_receiver_in_its_own_function(
+    tmp_path: Path,
+) -> None:
+    """... nor makes ``tc`` in the function that takes it a framework module."""
+    source = tmp_path / "service.py"
+    source.write_text(
+        "from sqlalchemy import text\n"
+        "import sandloom.sdk.tenant as tc\n"
+        "def genuine(db):\n    with tc.unscoped():\n        return text('1')\n"
+        "def lookalike(db, tc):\n    with tc.unscoped():\n        return text('1')\n"
+    )
+    found = analyzers.find_unsafe_tenant_sql(source)
+    assert len(found) == 1 and "Line 8" in found[0], found
+
+
+def test_a_function_local_framework_import_is_a_receiver_in_that_function_only(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "service.py"
+    source.write_text(
+        "from sqlalchemy import text\n"
+        "def local(db):\n    import sandloom.sdk.tenant as tc\n"
+        "    with tc.unscoped():\n        return text('1')\n"
+        "def other(db, tc):\n    with tc.unscoped():\n        return text('1')\n"
+    )
+    found = analyzers.find_unsafe_tenant_sql(source)
+    assert len(found) == 1 and "Line 8" in found[0], found
+
+
 @pytest.mark.parametrize("case", list(_LOOK_ALIKE_RECEIVERS))
 def test_unscoped_on_a_look_alike_receiver_does_not_admit_raw_sql(
     tmp_path: Path, case: str

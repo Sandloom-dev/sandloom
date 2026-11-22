@@ -90,16 +90,28 @@ def _session_probe() -> Session:
     return probe
 
 
-#: The tenant guard's own session listeners the optimized executor may ignore: the
-#: ``after_soft_rollback`` hook that forgets the stamp of a rolled-back insert
-#: (``sandloom.core.tenant._forget_rolled_back_inserts``) and the
-#: ``after_transaction_end`` hook that forgets the stamps of a root transaction
-#: that ended without committing (``_forget_uncommitted_inserts``). They touch
-#: only the ``info`` of instances a flush inserted; the optimized executor reads
-#: rows through no Session, so it has no instance to stamp.
-_TENANT_GUARD_SESSION_LISTENERS = frozenset(
-    {"_forget_rolled_back_inserts", "_forget_uncommitted_inserts"}
-)
+#: The tenant guard's own session listener the optimized executor may ignore: the
+#: ``after_transaction_end`` hook that forgets the stamps of the inserts a
+#: transaction owned when it ended without committing
+#: (``sandloom.core.tenant._forget_uncommitted_inserts``). It touches only the
+#: ``info`` of instances a flush inserted; the optimized executor reads rows
+#: through no Session, so it has no instance to stamp.
+_TENANT_GUARD_SESSION_LISTENERS = frozenset({"_forget_uncommitted_inserts"})
+
+
+#: The tenant guard's own mapper load listeners (``TenantScoped``,
+#: ``propagate=True``): they stamp ``tenant_id`` into the ``info`` of an
+#: instance the Session loads or refreshes
+#: (``sandloom.core.tenant._stamp_loaded`` / ``_stamp_refreshed``). The
+#: optimized executor builds no instance, so there is nothing to stamp.
+_TENANT_GUARD_LOAD_LISTENERS = frozenset({"_stamp_loaded", "_stamp_refreshed"})
+
+
+def _is_tenant_guard_load_listener(listener: Any) -> bool:
+    return (
+        getattr(listener, "__module__", "") == "sandloom.core.tenant"
+        and getattr(listener, "__qualname__", "") in _TENANT_GUARD_LOAD_LISTENERS
+    )
 
 
 def _has_custom_session_listener(probe: Session) -> bool:
@@ -137,8 +149,10 @@ def policy_reason(engine: Any, mappers: Sequence[Any]) -> str | None:
         if any(tuple(getattr(dispatch, name)) for name in _ENGINE_EVENTS):
             return "custom engine listener requires the general executor"
         for mapper in mappers:
-            if tuple(mapper.class_manager.dispatch.load) or tuple(
-                mapper.class_manager.dispatch.refresh
+            manager = mapper.class_manager.dispatch
+            if any(
+                not _is_tenant_guard_load_listener(listener)
+                for listener in (*manager.load, *manager.refresh)
             ):
                 return "custom ORM load listener requires the general executor"
     except (AttributeError, TypeError):

@@ -2134,44 +2134,153 @@ def find_unsafe_tenant_sql(file_path: Path) -> list[str]:
 _RAW_TENANT_SQL_FACTORIES = frozenset({"text", "DDL", "literal_column"})
 
 
-def _non_import_bindings(tree: ast.AST) -> set[str]:
-    """Names the file binds other than by an import: an assignment, a parameter,
-    a ``def`` / ``class``, an ``except ... as`` target. Flow-insensitive: a name
-    that is ever bound otherwise no longer names the module it was imported as."""
-    bound: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            bound.add(node.id)
-        elif isinstance(node, ast.arg):
-            bound.add(node.arg)
-        elif isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-        ) or (isinstance(node, ast.ExceptHandler) and node.name):
-            bound.add(str(node.name))
-    return bound
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_ScopeNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef
 
 
-def _framework_module_names(tree: ast.AST) -> set[str]:
-    """Names an import binds to a framework module or to something from one
-    (``import sandloom.sdk.tenant as tc``, ``import sandloom.sdk``,
-    ``from sandloom.sdk import tenant``), unless the file also binds the name
-    some other way: the receivers an attribute-style ``X.unscoped()`` is accepted
-    on. A parameter, a local object or another package's module is none of them."""
-    names: set[str] = set()
-    for node in ast.walk(tree):
+def _parameter_names(args: ast.arguments) -> list[str]:
+    every = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg is not None:
+        every.append(args.vararg)
+    if args.kwarg is not None:
+        every.append(args.kwarg)
+    return [a.arg for a in every]
+
+
+def _scope_split(node: _ScopeNode) -> tuple[list[ast.AST], list[ast.AST], list[str]]:
+    """What a scope-opening node evaluates in its ENCLOSING scope (decorators,
+    defaults, annotations, bases), the roots of its own body and its parameter
+    names."""
+    if isinstance(node, ast.ClassDef):
+        return [*node.bases, *node.keywords, *node.decorator_list], node.body, []
+    args = node.args
+    outer: list[ast.AST] = [*args.defaults, *(d for d in args.kw_defaults if d)]
+    outer.extend(
+        a.annotation
+        for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
+        if a.annotation is not None
+    )
+    if isinstance(node, ast.Lambda):
+        return outer, [node.body], _parameter_names(args)
+    outer.extend(node.decorator_list)
+    if node.returns is not None:
+        outer.append(node.returns)
+    return outer, node.body, _parameter_names(args)
+
+
+def _bound_names_of(node: ast.AST) -> list[str]:
+    """Names ``node`` binds in its scope, by any means: an assignment or other
+    store, an import, a ``def`` / ``class``, an ``except ... as`` target."""
+    if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+        return [node.id]
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, ast.Import):
+        return [a.asname or a.name.split(".")[0] for a in node.names]
+    if isinstance(node, ast.ImportFrom):
+        return [a.asname or a.name for a in node.names if a.name != "*"]
+    return []
+
+
+def _no_aliases(_node: ast.AST) -> list[tuple[str, str]]:
+    return []
+
+
+def _names_by_scope(
+    tree: ast.AST,
+    binds: Callable[[ast.AST], Iterable[str]],
+    aliases: Callable[[ast.AST], Iterable[tuple[str, str]]] = _no_aliases,
+) -> dict[int, frozenset[str]]:
+    """For the ``id`` of every node of ``tree``: the names that, in the lexical
+    scope the node is in, name something ``binds`` accepts.
+
+    ``binds(node)`` gives the names the node binds to the thing looked for (an
+    import of a framework module, a name bound to ``sqlalchemy``);
+    ``aliases(node)`` gives ``(target, source)`` pairs of a plain re-binding,
+    followed to a fixed point. A name resolves as Python does: a scope that binds
+    it in any way (a parameter, an assignment, a ``def``) decides, so an unrelated
+    local named like an import elsewhere neither hides that import from another
+    function nor lends it to itself. A class body is not visible to the functions
+    nested in it."""
+    result: dict[int, frozenset[str]] = {}
+
+    def resolve(
+        roots: list[ast.AST],
+        parameters: list[str],
+        inherited: frozenset[str],
+        *,
+        class_body: bool,
+    ) -> None:
+        nodes: list[ast.AST] = []
+        nested: list[tuple[_ScopeNode, list[ast.AST], list[str]]] = []
+        stack = list(roots)
+        while stack:
+            node = stack.pop()
+            nodes.append(node)
+            if isinstance(node, _SCOPES):
+                outer, body, nested_parameters = _scope_split(node)
+                stack.extend(outer)
+                nested.append((node, body, nested_parameters))
+            else:
+                stack.extend(ast.iter_child_nodes(node))
+        own = set(parameters)
+        good: set[str] = set()
+        pairs: list[tuple[str, str]] = []
+        for node in nodes:
+            own.update(_bound_names_of(node))
+            good.update(binds(node))
+            pairs.extend(aliases(node))
+        visible = set((inherited - own) | good)
+        grown = True
+        while grown:  # an alias chain is followed whatever order it was written in
+            grown = False
+            for target, source in pairs:
+                if source in visible and target not in visible:
+                    visible.add(target)
+                    grown = True
+        frozen = frozenset(visible)
+        for node in nodes:
+            result[id(node)] = frozen
+        for node, body, nested_parameters in nested:
+            resolve(
+                body,
+                nested_parameters,
+                inherited if class_body else frozen,
+                class_body=isinstance(node, ast.ClassDef),
+            )
+
+    module_roots: list[ast.AST] = [tree]
+    resolve(module_roots, [], frozenset(), class_body=False)
+    return result
+
+
+def _framework_module_names(tree: ast.AST) -> dict[int, frozenset[str]]:
+    """Per node, the names an import binds to a framework module or to something
+    from one (``import sandloom.sdk.tenant as tc``, ``import sandloom.sdk``,
+    ``from sandloom.sdk import tenant``) in the scope the node is in, unless that
+    scope binds the name some other way: the receivers an attribute-style
+    ``X.unscoped()`` is accepted on. A parameter, a local object or another
+    package's module is none of them, and one function's parameter named like the
+    import does not take it from another function."""
+
+    def binds(node: ast.AST) -> list[str]:
         if isinstance(node, ast.Import):
-            names.update(
+            return [
                 alias.asname or "sandloom"
                 for alias in node.names
                 if alias.name.split(".")[0] == "sandloom"
-            )
-        elif (
+            ]
+        if (
             isinstance(node, ast.ImportFrom)
             and node.level == 0
             and (node.module or "").split(".")[0] == "sandloom"
         ):
-            names.update(a.asname or a.name for a in node.names if a.name != "*")
-    return names - _non_import_bindings(tree)
+            return [a.asname or a.name for a in node.names if a.name != "*"]
+        return []
+
+    return _names_by_scope(tree, binds)
 
 
 def _tenant_sql_import_names(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
@@ -2204,7 +2313,7 @@ class _TenantSqlVisitor(ast.NodeVisitor):
         sql_text_names: set[str],
         sqlalchemy_names: set[str],
         unscoped_names: set[str],
-        framework_names: set[str],
+        framework_names: dict[int, frozenset[str]],
         found: list[str],
     ) -> None:
         self.sql_text_names = sql_text_names
@@ -2230,8 +2339,8 @@ class _TenantSqlVisitor(ast.NodeVisitor):
             receiver = func.value
             while isinstance(receiver, ast.Attribute):
                 receiver = receiver.value
-            return (
-                isinstance(receiver, ast.Name) and receiver.id in self.framework_names
+            return isinstance(receiver, ast.Name) and receiver.id in (
+                self.framework_names.get(id(receiver), frozenset())
             )
         return False
 
@@ -2515,7 +2624,7 @@ def _sqlalchemy_dynamic_imports(tree: ast.AST) -> set[int]:
 
 
 def _rooted_in_sqlalchemy(
-    expr: ast.expr, bound: set[str], sa_imports: set[int]
+    expr: ast.expr, bound: frozenset[str], sa_imports: set[int]
 ) -> bool:
     """``expr`` is a chain of attributes and calls that starts at a name bound to
     ``sqlalchemy`` or at a constant dynamic import of it."""
@@ -2530,50 +2639,57 @@ def _rooted_in_sqlalchemy(
             return isinstance(expr, ast.Name) and expr.id in bound
 
 
-def _sqlalchemy_bound_names(tree: ast.AST, sa_imports: set[int]) -> set[str]:
-    """Local names bound to ``sqlalchemy`` or something imported from it (a
-    submodule imported with ``from sqlalchemy.ext import asyncio as aio``
+def _sqlalchemy_bound_names(
+    tree: ast.AST, sa_imports: set[int]
+) -> dict[int, frozenset[str]]:
+    """Per node, the names bound to ``sqlalchemy`` or something imported from it
+    (a submodule imported with ``from sqlalchemy.ext import asyncio as aio``
     cannot be told from a class, so both count), or assigned a constant dynamic
     import of it (``sa = importlib.import_module("sqlalchemy")``), or re-bound
     from such a name by a plain assignment (``other = sa``), however long the
-    chain and in whatever order it is written."""
-    names: set[str] = set()
-    aliases: list[tuple[str, str]] = []  # (target, the bound name it is assigned)
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AnnAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            if isinstance(node.value, ast.Call) and id(node.value) in sa_imports:
-                names.update(t.id for t in targets if isinstance(t, ast.Name))
-            elif isinstance(node.value, ast.Name):
-                aliases.extend(
-                    (t.id, node.value.id) for t in targets if isinstance(t, ast.Name)
-                )
-        elif isinstance(node, ast.Import):
-            names.update(
+    chain and in whatever order it is written. Names resolve by lexical scope
+    (:func:`_names_by_scope`): ``alias = sa`` in one function makes ``alias`` a
+    ``sqlalchemy`` name there only, not in a function that assigns it something
+    else."""
+
+    def assigned(node: ast.AST) -> tuple[list[ast.expr], ast.expr | None]:
+        if isinstance(node, ast.Assign):
+            return node.targets, node.value
+        if isinstance(node, ast.AnnAssign):
+            return [node.target], node.value
+        return [], None
+
+    def binds(node: ast.AST) -> list[str]:
+        targets, value = assigned(node)
+        if isinstance(value, ast.Call) and id(value) in sa_imports:
+            return [t.id for t in targets if isinstance(t, ast.Name)]
+        if isinstance(node, ast.Import):
+            return [
                 alias.asname or "sqlalchemy"
                 for alias in node.names
                 if alias.name.split(".")[0] == "sqlalchemy"
-            )
-        elif (
+            ]
+        if (
             isinstance(node, ast.ImportFrom)
             and node.level == 0
             and (node.module or "").split(".")[0] == "sqlalchemy"
         ):
             # a result / URL type is a value, not a namespace of engine factories:
             # ``getattr(Row, "__name__")`` is not a factory lookup
-            names.update(
+            return [
                 a.asname or a.name
                 for a in node.names
                 if a.name != "*" and a.name not in _ENGINE_VALUE_TYPES
-            )
-    grown = True
-    while grown:  # an alias chain is followed whatever order ``ast.walk`` visits it
-        grown = False
-        for target, source in aliases:
-            if source in names and target not in names:
-                names.add(target)
-                grown = True
-    return names
+            ]
+        return []
+
+    def rebinds(node: ast.AST) -> list[tuple[str, str]]:
+        targets, value = assigned(node)
+        if not isinstance(value, ast.Name):
+            return []
+        return [(t.id, value.id) for t in targets if isinstance(t, ast.Name)]
+
+    return _names_by_scope(tree, binds, rebinds)
 
 
 def _chain(expr: ast.expr) -> tuple[str | None, set[str]]:
@@ -2630,7 +2746,7 @@ def _engine_import_findings(line: int, module: str, name: str | None) -> list[st
 
 
 def _engine_attribute_findings(
-    node: ast.Attribute, bound: set[str], sa_imports: set[int], allowed: set[int]
+    node: ast.Attribute, bound: frozenset[str], sa_imports: set[int], allowed: set[int]
 ) -> list[str]:
     _root, names = _chain(node.value)
     from_sqlalchemy = _rooted_in_sqlalchemy(node.value, bound, sa_imports)
@@ -2669,10 +2785,11 @@ def find_engine_constructors(file_path: Path) -> list[str]:
     """
     tree = parse_file(file_path)
     sa_imports = _sqlalchemy_dynamic_imports(tree)
-    bound = _sqlalchemy_bound_names(tree, sa_imports)
+    scoped = _sqlalchemy_bound_names(tree, sa_imports)
     found: list[str] = []
     allowed: set[int] = set()  # ``sa.engine`` nodes that only lead to a value type
     for node in ast.walk(tree):
+        bound = scoped.get(id(node), frozenset())
         if isinstance(node, ast.Import):
             for alias in node.names:
                 found.extend(_engine_import_findings(node.lineno, alias.name, None))

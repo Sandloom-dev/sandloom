@@ -456,7 +456,40 @@ _ENGINE_OK = {
         "from acme import tools\nthird = second\nsecond = first\nfirst = tools\n"
         "factory = third.create_engine()\n"
     ),
+    # an alias belongs to the scope that assigns it
+    "a name another function binds to sqlalchemy": (
+        "import sqlalchemy as sa\n"
+        "def one():\n    alias = sa\n    return alias.select(1)\n"
+        "def two(factory):\n    alias = factory\n    return alias.create_engine()\n"
+    ),
+    "a name the module binds to sqlalchemy, rebound locally": (
+        "import sqlalchemy as sa\nalias = sa\n"
+        "def two(factory):\n    alias = factory\n    return alias.create_engine()\n"
+    ),
 }
+
+_ENGINE_BAD_BY_SCOPE = {
+    "an alias made in the function that uses it": (
+        "import sqlalchemy as sa\n"
+        "def one(factory):\n    alias = factory\n    return alias.create_engine()\n"
+        "def two():\n    alias = sa\n    return alias.create_engine('sqlite://')\n"
+    ),
+    "a module alias used in a function that does not rebind it": (
+        "import sqlalchemy as sa\nalias = sa\n"
+        "def one(factory):\n    other = factory\n    return other.create_engine()\n"
+        "def two():\n    return alias.create_engine('sqlite://')\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(_ENGINE_BAD_BY_SCOPE))
+def test_an_alias_resolves_in_the_scope_that_uses_it(
+    tmp_path: Path, case: str
+) -> None:
+    path = tmp_path / "service.py"
+    path.write_text(_ENGINE_BAD_BY_SCOPE[case])
+    found = find_engine_constructors(path)
+    assert len(found) == 1 and "Line 7" in found[0], found
 
 
 @pytest.mark.parametrize("case", list(_ENGINE_BAD))

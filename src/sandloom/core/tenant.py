@@ -49,6 +49,7 @@ from sqlalchemy.orm import (
     Mapper,
     RelationshipProperty,
     Session,
+    SessionTransaction,
     mapped_column,
     with_loader_criteria,
 )
@@ -429,10 +430,13 @@ _TRUSTED = 2
 #: succeeded. A forged, merged-without-load or unpickled instance carries none;
 #: an insert loses it when its transaction ends without committing.
 _STAMP = "sandloom.tenant_id"
-#: Per session: the instances its open ROOT transaction inserted (and stamped)
-#: that no commit has made permanent yet. ``after_commit`` of the root drops the
-#: list, ``after_transaction_end`` of a root that did not commit un-stamps them.
-_uncommitted_inserts: weakref.WeakKeyDictionary[Session, list[Any]] = (
+#: Per session TRANSACTION (the root or a savepoint, whichever was innermost when
+#: the flush ran): the instances it inserted and stamped, with the tenant of the
+#: stamp, that no commit has made permanent yet. Releasing a savepoint moves its
+#: records to the parent; a root commit drops them (the rows exist); a
+#: transaction that ENDS still holding records ended without committing (a
+#: rollback, a ``close()`` with a savepoint open, an exception), so the stamps go.
+_pending_inserts: weakref.WeakKeyDictionary[SessionTransaction, dict[Any, uuid.UUID]] = (
     weakref.WeakKeyDictionary()
 )
 
@@ -1357,7 +1361,7 @@ def _install_flush_window() -> None:
     instances it inserted are stamped when the flush SUCCEEDED: one that fails
     (and rolls back) stamps nothing. A stamp lasts while the row can exist: the
     session remembers the instances of its open root transaction
-    (:data:`_uncommitted_inserts`) until that transaction commits."""
+    per transaction (:data:`_pending_inserts`) until the root commits."""
     global _original_flush
     if _original_flush is not None:
         return
@@ -1371,11 +1375,13 @@ def _install_flush_window() -> None:
             original(self, objects)
         finally:
             _flush_window.reset(token)
-        if window.inserted and self.in_transaction():
-            # no open transaction (it cannot happen after a flush): no stamp
-            _uncommitted_inserts.setdefault(self, []).extend(window.inserted)
-            for state, tenant in window.inserted.items():
-                state.info[_STAMP] = tenant
+        if window.inserted:
+            owner = _innermost_transaction(self)
+            if owner is not None:
+                # no open transaction (it cannot happen after a flush): no stamp
+                _pending_inserts.setdefault(owner, {}).update(window.inserted)
+                for state, tenant in window.inserted.items():
+                    state.info[_STAMP] = tenant
 
     _flush.__doc__ = original.__doc__
     Session._flush = _flush  # type: ignore[method-assign]
@@ -1659,34 +1665,37 @@ def _record_inserted_row(mapper: Mapper[Any], _connection: Any, state: Any) -> N
     window.rows.update(_row_keys(mapper, mapper.primary_key_from_instance(state.obj())))
 
 
-def _forget_rolled_back_inserts(session: Session, previous_transaction: Any) -> None:
-    """``after_soft_rollback``: a row inserted in a transaction that was rolled
-    back does not exist, so the stamp its flush gave the instance goes with it
-    (``make_transient_to_detached`` could otherwise carry it to an UPDATE or
-    DELETE of whatever row now holds that primary key). A failed flush stamps
-    nothing (the ``Session._flush`` wrapper), and a nested rollback undoes the
-    inserts of its own savepoint."""
-    for state in tuple(previous_transaction._new):
-        if issubclass(state.class_, TenantScoped):
-            state.info.pop(_STAMP, None)
+def _innermost_transaction(session: Session) -> SessionTransaction | None:
+    """The savepoint the session is in, else its root transaction (``None``: no
+    transaction is open). This is the owner of a flush's insert records."""
+    return session.get_nested_transaction() or session.get_transaction()
 
 
-def _commit_inserted_rows(session: Session) -> None:
-    """``after_commit``: the ROOT transaction committed, so the rows its flushes
-    inserted exist and their stamps stay. The event also fires when a savepoint
-    is released; then a nested transaction is still open and nothing is decided."""
-    if session.get_nested_transaction() is None:
-        _uncommitted_inserts.pop(session, None)
+def _release_inserted_rows(session: Session) -> None:
+    """``after_commit``: a SAVEPOINT was released or the ROOT transaction
+    committed (the event fires for both, while the committing transaction is
+    still the innermost one). A released savepoint hands its insert records to
+    its parent: the rows exist only if the parent commits. The root's commit
+    makes its rows permanent, so their stamps stay and the records are dropped."""
+    committing = _innermost_transaction(session)
+    if committing is None:
+        return
+    records = _pending_inserts.pop(committing, None)
+    parent = committing.parent
+    if records and committing.nested and parent is not None:
+        _pending_inserts.setdefault(parent, {}).update(records)
 
 
 def _forget_uncommitted_inserts(session: Session, transaction: Any) -> None:
-    """``after_transaction_end``: a ROOT transaction ended. Every insert still
-    listed (:data:`_uncommitted_inserts`) was never committed: ``session.close()``
-    rolls the database back WITHOUT ``after_soft_rollback``, and a stamp that
-    outlived the row would let the held instance, re-attached after another
-    tenant took its primary key, write or read that tenant's row."""
-    if transaction.parent is None:
-        for state in _uncommitted_inserts.pop(session, ()):
+    """``after_transaction_end``: a transaction (root, savepoint or the flush's
+    own) ended. A record it still owns was never committed: a rollback undid the
+    row, and ``session.close()`` rolls back an open root AND an open savepoint
+    WITHOUT ``after_soft_rollback``. A stamp that outlived the row would let the
+    held instance (``make_transient_to_detached``, or re-attached after another
+    tenant took its primary key) write or read that tenant's row. A record
+    clears a stamp only while it still names the tenant the record made."""
+    for state, tenant in _pending_inserts.pop(transaction, {}).items():
+        if state.info.get(_STAMP) == tenant:
             state.info.pop(_STAMP, None)
 
 
@@ -1841,9 +1850,9 @@ def install_tenant_guard() -> None:  # noqa: C901
     event.listen(TenantScoped, "load", _stamp_loaded, propagate=True, raw=True)
     event.listen(TenantScoped, "refresh", _stamp_refreshed, propagate=True, raw=True)
     # An insert's stamp waits for its flush to succeed (the ``_flush`` wrapper)
-    # and goes with a rollback of the transaction that inserted the row.
-    event.listen(Session, "after_soft_rollback", _forget_rolled_back_inserts)
-    event.listen(Session, "after_commit", _commit_inserted_rows)
+    # and goes with any end of the transaction that inserted the row that is no
+    # commit of the root (per-transaction records: ``_pending_inserts``).
+    event.listen(Session, "after_commit", _release_inserted_rows)
     event.listen(Session, "after_transaction_end", _forget_uncommitted_inserts)
     # Per-row re-verification inside the flush (every mapper: a non-TenantScoped
     # one over a tenant table is refused here), after any later before_flush.

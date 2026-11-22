@@ -42,6 +42,7 @@ from sqlalchemy.engine import make_url
 from tests.perf_budgets.pgcount import PgCountingProxy
 
 from sandloom.core.config.settings import settings
+from sandloom.core.tenant_context import unscoped
 from sandloom.core.di import (
     DbSession,
     PlannedReads,
@@ -93,7 +94,11 @@ PREFIX = {
     "planopt": "/s5plan/",
 }
 PROBE_SQL = "SELECT id FROM bench_tenant_items WHERE id = ANY($1::bigint[]) ORDER BY id"
-_T = table("bench_tenant_items", column("id"))  # UNMAPPED: the ORM guard can't see it
+#: An UNMAPPED Core table named like the tenant table. The tenant guard refuses a
+#: Core select of it (it cannot be scoped), so the read-only probes run it inside
+#: ``unscoped()``: the guard steps aside, the tenant GUC is still set from the
+#: bound tenant, and only RLS stands in the way.
+_T = table("bench_tenant_items", column("id"))
 
 
 def headers(tenant: uuid.UUID | None = A, **claims: Any) -> dict[str, str]:
@@ -123,7 +128,8 @@ def _probe_router() -> APIRouter:
     @r.get("/_p/ro/{ids}")
     async def p_ro(ids: str, db: ReadOnlyDbSession, tenant: Any = TenantScope()) -> Any:
         stmt = select(_T.c.id).where(_T.c.id.in_(_ids(ids))).order_by(_T.c.id)
-        return [x[0] for x in await db.execute(stmt)]
+        with unscoped(reason="S5 probe: RLS alone must filter"):
+            return [x[0] for x in await db.execute(stmt)]
 
     @r.get("/_p/fast/{ids}")
     async def p_fast(ids: str, tenant: Any = TenantScope(), core: Any = _core()) -> Any:
@@ -202,7 +208,8 @@ def _probe_router() -> APIRouter:
     @r.get("/_p/unbound/ro/{ids}")
     async def u_ro(ids: str, db: ReadOnlyDbSession) -> Any:
         stmt = select(_T.c.id).where(_T.c.id.in_(_ids(ids)))
-        return [x[0] for x in await db.execute(stmt)]
+        with unscoped(reason="S5 probe: no tenant, RLS alone must filter"):
+            return [x[0] for x in await db.execute(stmt)]
 
     @r.get("/_p/unbound/fast/{item_id}")
     async def u_fast(item_id: int, core: Any = _core()) -> Any:

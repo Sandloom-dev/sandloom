@@ -104,7 +104,8 @@ for:
 
 - a flush is running, a tenant is bound, and the statement is the plain Core INSERT, UPDATE or
   DELETE the persistence layer builds. A statement a column default or a listener wrote on the
-  flush connection is not;
+  flush connection is admitted only when it passes every check below: a listener's UPDATE or DELETE
+  that pins, by primary key, a row the flush verified is admitted without `unscoped()`;
 - nothing it renders reads a tenant table, and it names none that no scan can read;
 - it is written over a `Table` object (by identity, not by name) of a mapper whose event verified a
   row of this flush. A second `Table` of the same name, with other columns or another primary key,
@@ -126,10 +127,15 @@ A column load of an instance, and the flush UPDATE or DELETE of one, needs the s
 instance: the `tenant_id` the row carried when it was read from the database, or when a flush
 inserted it. The `load` and `refresh` events record it in `InstanceState.info`. A flush records
 the stamp of an inserted instance only after the flush succeeded, and the stamp stays only once
-the ROOT transaction committed. A rollback clears it (`after_soft_rollback`, savepoints
-included), and so does the end of a root transaction that never committed
-(`after_transaction_end`): `session.close()` rolls the database back without a soft rollback. A
-failed or abandoned insert leaves nothing to re-attach with.
+the ROOT transaction committed. The guard keeps a record of each stamped insert per session
+transaction, the savepoint or the root that was innermost when the flush ran. `after_commit`
+hands the records of a released savepoint to its parent and drops those of the root, whose rows
+now exist. `after_transaction_end` clears the stamps of every record the ending transaction still
+owns, because it ended without committing: a rollback, an exception, or a `close()`, which rolls
+the database back, an open savepoint included, without a soft rollback. A savepoint closed
+without release therefore loses its stamps even when the root commits later, and a record
+clears a stamp only while it still names the tenant the record made. A failed or abandoned insert
+leaves nothing to re-attach with.
 
 `merge(load=False)`, unpickling and `make_transient_to_detached` give no stamp. Flushing or
 refreshing such an instance is refused. So is a deferred column load of an instance a `load_only()`
@@ -167,8 +173,11 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   tenant table is refused at the cursor and a `literal_column()` text is rendered as written into
   any statement. The portability marker `# sandloom: raw-sql` reviews dialect text, not tenant
   reach, so it never lifts this rule. The attribute spelling `X.unscoped()` lifts it only when `X`
-  (or the root of a dotted `X`) is a name the file binds only by an import of a `sandloom` module;
-  a parameter, a local object or another package's module named `tc` does not.
+  (or the root of a dotted `X`) is a name that, in the scope of the use, an import of a `sandloom`
+  module binds; a parameter, a local object or another package's module named `tc` does not, and
+  one function's parameter named `tc` does not take the import from another function. C037 follows
+  an alias the same way: `alias = sa` in one function makes `alias` a `sqlalchemy` name in that
+  function only.
 
 ## Consequences
 
@@ -184,12 +193,14 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   it for the app; test fixtures that create or drop the tables of a tenant model do it themselves.
 - A flush writes a loaded or newly inserted instance as before. An instance built by
   `merge(load=False)` or by unpickling needs a load first, or `unscoped()`.
-- The guard registers three session events: `after_soft_rollback`, `after_commit` and
-  `after_transaction_end`, which keep the stamp of an inserted instance exactly as long as its row
-  can exist. The planner's custom-listener probe (`planner_safety.policy_reason`) treats a session
-  listener as custom and takes the general executor; it exempts the two it probes
-  (`after_soft_rollback`, `after_transaction_end`), so a session with only the kernel's listeners
-  keeps its fused path.
+- The guard registers two session events, `after_commit` and `after_transaction_end`, which keep
+  the stamp of an inserted instance exactly as long as its row can exist, and two mapper events
+  on `TenantScoped`, `load` and `refresh`, which record the stamp of a loaded instance. The
+  planner's custom-listener probe (`planner_safety.policy_reason`) treats a session or mapper
+  listener as custom and takes the general executor; it exempts the guard's own
+  `after_transaction_end` hook and its `load` / `refresh` stampers, which touch only the `info`
+  of an instance a Session holds and so have nothing to do for the fused path, so a session with
+  only the kernel's listeners keeps it.
 - The test harness's schema reset (`sandloom.core.testing.database.reset_schema`) names every
   table of a disposable test database in its probe, `DELETE`, `TRUNCATE` and sequence rewind. It
   runs inside `unscoped()`. A custom `@compiles` element is read for the fragment it returns, not
@@ -209,7 +220,16 @@ outlive its block. Three `sandloom check` rules say it for business modules.
     `table_to_xml(oid::regclass)`, a `DO $$ ... EXECUTE ... $$` block), and a view, function or
     trigger over a tenant table, which a statement reaches by naming only the view or the function.
     The cursor reads the SQL it is sent, not what the database runs on its behalf: row-level
-    security is the boundary;
+    security is the boundary, and only for objects that run under a role its policy applies to. A
+    view owned by a superuser or another role that bypasses row-level security, and a
+    `SECURITY DEFINER` function owned by one, read the rows with the owner's rights. Create views
+    with `security_invoker = true`, write functions as `SECURITY INVOKER`, or give them an owner
+    the policy applies to;
+  - a primary key reused by another tenant while an instance of the old row is still held: the
+    stamp is the `tenant_id` the row carried when it was read or inserted, it does not re-read the
+    row, and nothing keeps a key from being reused. A deferred column load or a flush UPDATE or
+    DELETE of that instance passes the stamp check and reaches the new row. Use keys that are not
+    reused across tenants; row-level security is the boundary;
   - the stamp of an inserted instance after a rollback the session never sees: a session bound to
     a connection whose OUTER transaction the caller rolls back after `session.commit()`. The
     session saw the commit and keeps the stamp, and the database later discards the row. Re-attaching

@@ -2511,3 +2511,43 @@ async def test_a_committed_insert_keeps_its_stamp_when_the_session_closes(
             kept.name = "renamed"
             await session.commit()  # the row exists and the stamp says it is A's
     assert (await _item_rows(env))[6] == ("renamed", env.a)
+
+
+# N3: stamp records are kept per TRANSACTION. A savepoint that closes without a
+# release rolls its inserts back (no ``after_soft_rollback``), while the root
+# commits: its stamps must go with it, not stay until the root ends.
+@pytest.mark.asyncio
+@pytest.mark.parametrize("write", ["update", "delete", "refresh"])
+async def test_a_savepoint_closed_without_release_leaves_no_stamp_when_the_root_commits(
+    env: _Env, write: str
+) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(_Item(id=1007, tenant_id=env.a, name="root"))
+            await session.flush()
+            ghost = _Item(id=7, tenant_id=env.a, name="ghost")
+            await session.begin_nested()
+            session.add(ghost)
+            await session.flush()
+            # closing an ACTIVE savepoint rolls it back: no soft rollback event
+            await session.run_sync(lambda sync: sync.get_nested_transaction().close())
+            await session.commit()  # the root commits; the ghost row never existed
+    assert 7 not in await _item_rows(env)
+    async with env.maker() as session:  # tenant B takes the primary key
+        with bind_tenant(env.b):
+            session.add(_Item(id=7, tenant_id=env.b, name="b-seven"))
+            await session.commit()
+    before = await _item_rows(env)
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(ghost)
+            with pytest.raises(UnsafeTenantOperationError):
+                if write == "refresh":
+                    await session.refresh(ghost)
+                elif write == "update":
+                    ghost.name = "pwned"
+                    await session.commit()
+                else:
+                    await session.delete(ghost)
+                    await session.commit()
+    assert await _item_rows(env) == before

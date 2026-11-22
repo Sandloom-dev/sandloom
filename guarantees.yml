@@ -365,7 +365,11 @@ guarantees:
     sent straight to session.execute (the caller's), SQL the database builds from text no scan can read
     (PostgreSQL dynamic SQL such as query_to_xml with a concatenated name, table_to_xml(oid::regclass) and
     DO $$ EXECUTE $$, and a view, function or trigger over a tenant table; row-level security holds
-    these), the guard's private state and private SQLAlchemy APIs.
+    these only when the view, function or trigger runs under a role the tenant policy applies to, since a
+    view owned by a superuser or another role that bypasses row-level security, and a SECURITY DEFINER
+    function owned by one, read the rows with the owner's rights - use security_invoker views, SECURITY
+    INVOKER functions, or an owner the policy applies to), the guard's private state and private
+    SQLAlchemy APIs.
   sources:
   - docs/modules/database/multi-tenancy.md
   - docs/adr/0018-tenant-guard-at-the-cursor.md
@@ -415,13 +419,18 @@ guarantees:
     positional row) is refused whatever its parameters say - and the
     load of a deferred, expired or polymorphic column runs only for an instance that carries a stamp of
     the bound tenant, the tenant_id read from the database (the load and refresh events) or the one a
-    flush inserted it with (set when the flush succeeded, kept only once the root transaction committed,
-    cleared when a transaction rolls back and when the session closes or ends its root transaction
-    without committing). So an
+    flush inserted it with (set when the flush succeeded and kept per transaction - a released savepoint
+    hands its inserts to its parent, only the root's commit makes them permanent, and a savepoint, a root
+    transaction or a session that ends without committing, whether rolled back or closed, clears the
+    stamps of the inserts it owned). So an
     instance forged, merged without load or unpickled cannot write or read another tenant's row, an
     insert that failed or was never committed leaves nothing to re-attach with, and a flush default that
     reads a tenant table is refused. Not covered, by design - a rollback of an OUTER connection transaction
-    after the session committed, which the session never sees (row-level security holds it). A column load with no tenant bound is the exception, since the instance was read under a tenant
+    after the session committed, which the session never sees, and a primary key that was released and
+    taken by another tenant while an instance of the old row is still held (the stamp is the tenant_id
+    the row carried when it was read or inserted, it does not re-read the row, and no rule keeps a
+    primary key from being reused - use keys that are not reused across tenants; row-level security holds
+    both). A column load with no tenant bound is the exception, since the instance was read under a tenant
     and the load goes to its own row. Session.get, Query.get, get_one and a many-to-one lazy load answer from
     the identity map only for an instance stamped with the bound tenant (another tenant's falls through to
     the scoped query, no tenant bound fails closed), and a late before_flush or before_insert listener
@@ -461,6 +470,7 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_listener_update_of_a_just_inserted_reversed_key_is_admitted
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_closed_session_leaves_no_stamp_on_an_insert_that_never_committed
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_committed_insert_keeps_its_stamp_when_the_session_closes
+  - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_savepoint_closed_without_release_leaves_no_stamp_when_the_root_commits
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees
