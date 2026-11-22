@@ -833,24 +833,61 @@ K = 1000, Ir per op, Python 3.13 image `sandloom-ladder-cg:3.13`:
 | `KMintC` | 897,172 | 880,007 | -1.9% |
 | `KMintI` | 852,127 | 850,489 | -0.2% |
 
-A mint of three owners (identity as issuer, tenancy, billing) in one process:
-1,482,650 on main, 1,459,192 here (-1.6%); the base of the KB-12 exception
-(`ee26108`, which still had `precomputed`) is 1,440,887, so the sealed mint is
-+1.3% against it, down from +2.9% on main. The same tree without `precomputed`
-(main's issuer shape) is 1,484,506: the sealed checks (resolve, require, seal,
-`create_access_token`: about 13 k Ir, 0.9%) are not what grew; the issuer
-lane's contract hop (kb-sec2-issuer) is. What went: a local `contribute` built
-the `sandloom.authority` binding, which the contract wire carried and
-`_local_answer` then dropped. The mint's own local calls (the issuer's
-instance, a local owner's task, `_LOCAL_STEP_TASKS`) no longer build it; a
-call served over RPC still names its module and the remote issuer still binds
-it. Per-task state, not a context variable: a `ContextVar.set` / `reset` costs
-7-8 k Ir per mint on the 3.13 image (it drops the per-variable cache of every
-other variable the mint reads), and a facade-wide flag would let a served call
-run beside a local step without its binding. The floor of this lever (no flag
-at all) is 1,454,413, +0.9%; the 4.8 k Ir between it and here is the guard.
-Not touched: every issuer, caller-supplied-value, seal and reserved-key
-check, the I/O counts (no new cache).
+The budget of the sealed mint is judged on a mint of three owners (identity as
+the issuer, tenancy, billing; one process, fake units of work, no database and
+no network), which the two-owner rungs above do not show.
+`benchmarks/ladder/kmint_probe.py` measures it, on the `src` of any checkout:
+
+```bash
+python3 benchmarks/ladder/kmint_probe.py --k 1000 mint                   # this checkout
+python3 benchmarks/ladder/kmint_probe.py --tree <root> --k 1000 mint     # another tree
+python3 benchmarks/ladder/kmint_probe.py --tree <root> --k 1000 --nopre mint
+```
+
+K = 1000, `gc.collect(); gc.freeze()` after 20 warm-up calls of the part
+itself, `PYTHONHASHSEED=0`, the image `sandloom-ladder-cg:3.13`, Ir per mint as
+`(Ir(K) - Ir(0)) / K`. A tree is any directory holding `src/` (`git archive
+<rev> src`, extracted). The parts besides `mint` (`run`, `local`, `issuer`,
+`resolve`, `require`, `seal`, ...) split the mint by step. The base of the
+KB-12 exception (`ee26108`) still took `precomputed`, which skips the issuer's
+contributor; `--nopre` runs that tree the way the current kernel does (the
+issuer's contributor runs, nothing precomputed): the equal-workload base. One
+run per tree, all from this script (the spread of one script between runs is
+about 1 k Ir; another driver build moves a tree's absolute figure by up to
+0.4%, so figures are compared within this script only):
+
+| tree | Ir per mint | this change against it |
+|---|---:|---:|
+| `ee26108`, `precomputed` (the literal KB-12 base) | 1,446,923 | +0.7% |
+| `ee26108`, issuer's contributor run (`--nopre`, equal workload) | 1,490,243 | -2.2% |
+| main (`b116334c`) | 1,484,032 | -1.8% |
+| this change | 1,457,234 | |
+
+Against the literal base the sealed mint is +0.7% (main: +2.6%), inside the
++1% criterion; against the equal-workload base it is -2.2% (main: -0.4%). The
+difference between the two bases is the issuer's contributor, which the mint
+now runs itself (no claim value comes from the caller), not the sealed checks:
+resolve, require, seal and `create_access_token` are about 13 k Ir, 0.9%. The
+`+1.27%` of the KB-12 delta (`tests/fixtures/specs/api10-ledger-delta-kb12.md`)
+was measured on another workload (its base is 1,347,403); the figure here is
+not a re-measure of it.
+
+What went: a local `contribute` built the `sandloom.authority` binding, which
+the contract wire carried and `_local_answer` then dropped. The mint's own
+calls no longer build it (the issuer's step is a private
+`_MintIssuerContract`; a local owner's step marks its task in
+`_LOCAL_STEP_TASKS` for the one await). A call served over RPC still names its
+module and the remote issuer still binds it. Per-task state, not a context
+variable: a `ContextVar` set and reset costs 7-8 k Ir per mint on this image.
+A facade-wide flag would let a served call run beside a local step without its
+binding. The mark is per task, not per call (the shared bound contract carries
+no per-call state), so a served call awaited on the marked task itself, which
+only an in-process transport does, answers without the binding and the remote
+issuer refuses it (fail closed; `test_sealed_mint.py` pins it). The marker
+costs about 5 k Ir of the mint: an experiment without it measured 4.8 k less
+(on the first driver build). Not touched: every issuer,
+caller-supplied-value, seal and reserved-key check, the I/O counts (no new
+cache).
 
 Left over: the local `contract_wire` encode / decode of an answer is about
 124 us of an 857 us mint (outside this area, `module_api`).

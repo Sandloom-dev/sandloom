@@ -420,6 +420,7 @@
         "benchmarks/ladder/hot_paths.py",
         "benchmarks/ladder/http_pipeline.py",
         "benchmarks/ladder/infra_rungs.py",
+        "benchmarks/ladder/kmint_probe.py",
         "benchmarks/ladder/ladder.py",
         "benchmarks/ladder/layer_attribution.py",
         "benchmarks/ladder/login_concurrency.py",
