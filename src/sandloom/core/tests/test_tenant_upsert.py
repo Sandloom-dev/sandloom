@@ -22,7 +22,10 @@ builder writes from the same parts. So:
   the cursor): a ``uuid.UUID`` subclass that only reads as the bound tenant is
   refused, a driver's honest subclass is replaced by the plain value;
 * a ``sqlite_on_conflict*`` option and a column that is not exactly ``Column``
-  are refused before a flush.
+  are refused before a flush;
+* what the helper does not claim: a unique key or a foreign key that leaves the
+  tenant out acts as on a plain insert, and a composite key does what the docs
+  advise.
 
 Tenant A owns ``tups_items`` row 1 and tenant B row 2, both under the key
 ``shared``.
@@ -44,6 +47,7 @@ import pytest_asyncio
 from sqlalchemy import (
     Column,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     MetaData,
     PrimaryKeyConstraint,
@@ -256,8 +260,21 @@ class _Keyed(TenantScoped, _Base):
     label: Mapped[str] = mapped_column("title", Text)
 
 
+class _Mixed(TenantScoped, _Base):
+    """The key it conflicts on includes the tenant; ``email`` is a unique key that
+    does not (RT-A3): it acts as on a plain insert."""
+
+    __tablename__ = "tups_mixed"
+    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    email: Mapped[str] = mapped_column(Text, unique=True)
+
+
 class _PgBase(DeclarativeBase):
-    """Tables only PostgreSQL can create: SQLite has no ``DEFERRABLE`` unique key."""
+    """Tables only PostgreSQL can create (SQLite has no ``DEFERRABLE`` unique key)
+    or enforce (it checks foreign keys only when told to)."""
 
 
 class _Deferred(TenantScoped, _PgBase):
@@ -274,6 +291,44 @@ class _Deferred(TenantScoped, _PgBase):
     key: Mapped[str] = mapped_column(Text)
     slug: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text)
+
+
+class _PgParent(TenantScoped, _PgBase):
+    """What the two children below reference (RT-A2)."""
+
+    __tablename__ = "tups_parents"
+    __table_args__ = (UniqueConstraint("tenant_id", "id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+
+
+class _PgPlainChild(TenantScoped, _PgBase):
+    """A foreign key that leaves the tenant out: acts as on a plain insert."""
+
+    __tablename__ = "tups_plain_children"
+    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    parent_id: Mapped[int] = mapped_column(ForeignKey("tups_parents.id"))
+
+
+class _PgTenantChild(TenantScoped, _PgBase):
+    """The composite foreign key ``(tenant_id, parent_id)`` the docs recommend."""
+
+    __tablename__ = "tups_tenant_children"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key"),
+        ForeignKeyConstraint(
+            ["tenant_id", "parent_id"],
+            ["tups_parents.tenant_id", "tups_parents.id"],
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    parent_id: Mapped[int] = mapped_column(Integer)
 
 
 class _ReplacingPk(TenantScoped, _Base):
@@ -722,6 +777,30 @@ async def test_a_primary_key_another_tenant_holds_is_the_databases_error(
             update=["name"],
         )
     assert await _snapshot(env) == before
+
+
+@pytest.mark.asyncio
+async def test_a_unique_key_without_the_tenant_acts_as_on_a_plain_insert(
+    env: _Env,
+) -> None:
+    """RT-A3: another tenant's row is never the conflicting row, and a unique key
+    that leaves the tenant out is the database's own error, for a new row and for
+    the column a conflict refreshes. The error shows that the key exists: the docs
+    say so and advise keys that are not reused across tenants."""
+    async with env.maker() as session:
+        with unscoped():
+            session.add(_Mixed(id=1, tenant_id=env.b, key="k", email="taken"))
+            await session.commit()
+    row = {"id": 2, "key": "k", "email": "mine"}
+    with pytest.raises(IntegrityError):
+        await _upsert(env, env.a, _Mixed, [{**row, "email": "taken"}], update=["email"])
+    await _upsert(env, env.a, _Mixed, [row], update=["email"])  # key "k" is A's own
+    with pytest.raises(IntegrityError):
+        await _upsert(env, env.a, _Mixed, [{**row, "email": "taken"}], update=["email"])
+    assert await _read(env, _Mixed.id, _Mixed.tenant_id, _Mixed.key, _Mixed.email) == [
+        (1, env.b, "k", "taken"),
+        (2, env.a, "k", "mine"),
+    ]
 
 
 class _Recorder(_Fake):
@@ -2184,12 +2263,12 @@ async def test_a_deferrable_key_is_not_a_candidate() -> None:
 
 
 @pytest_asyncio.fixture
-async def pg_deferred() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
-    """The ``DEFERRABLE`` table, on the PostgreSQL the lane runs: a missing
-    database is a failure, never a skip."""
+async def pg_tables() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    """The PostgreSQL-only tables (``DEFERRABLE`` key, foreign keys), on the
+    PostgreSQL the lane runs: a missing database is a failure, never a skip."""
     url = settings.database_url
     if not url.startswith("postgresql"):
-        pytest.fail(f"the deferrable-key test needs a PostgreSQL URL, got {url[:12]!r}")
+        pytest.fail(f"these tests need a PostgreSQL URL, got {url[:12]!r}")
     engine = create_async_engine(url)
     install_write_admission(engine)
     try:
@@ -2209,11 +2288,11 @@ async def pg_deferred() -> AsyncGenerator[async_sessionmaker[AsyncSession], None
 
 @pytest.mark.asyncio
 async def test_the_key_it_picks_next_to_a_deferrable_one_runs_on_postgresql(
-    pg_deferred: async_sessionmaker[AsyncSession],
+    pg_tables: async_sessionmaker[AsyncSession],
 ) -> None:
     tenant = uuid.uuid4()
     for name in ("first", "second"):
-        async with pg_deferred() as session:
+        async with pg_tables() as session:
             with bind_tenant(tenant):
                 await tenant_upsert(
                     _Deferred,
@@ -2222,10 +2301,78 @@ async def test_the_key_it_picks_next_to_a_deferrable_one_runs_on_postgresql(
                     session=session,
                 )
                 await session.commit()
-    async with pg_deferred() as session:
+    async with pg_tables() as session:
         with unscoped():
             result = await session.execute(select(_Deferred.key, _Deferred.name))
             assert [tuple(row) for row in result.all()] == [("first", "second")]
+
+
+async def _parent_of(
+    maker: async_sessionmaker[AsyncSession], tenant: uuid.UUID, parent_id: int
+) -> None:
+    """A parent row of ``tenant`` (system write)."""
+    async with maker() as session:
+        with unscoped():
+            session.add(_PgParent(id=parent_id, tenant_id=tenant, name="parent"))
+            await session.commit()
+
+
+async def _child_upsert(
+    maker: async_sessionmaker[AsyncSession],
+    tenant: uuid.UUID,
+    model: Any,
+    parent_id: int,
+) -> None:
+    async with maker() as session:
+        with bind_tenant(tenant):
+            await tenant_upsert(
+                model,
+                [{"id": 1, "key": "k", "parent_id": parent_id}],
+                update=["parent_id"],
+                session=session,
+            )
+            await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_foreign_key_without_the_tenant_acts_as_on_a_plain_insert(
+    pg_tables: async_sessionmaker[AsyncSession],
+) -> None:
+    """RT-A2: the helper keeps another tenant's row from being the conflicting row,
+    nothing more. A foreign key that leaves the tenant out accepts the parent of
+    another tenant, and a parent that does not exist is the database's error: the
+    docs advise the composite key of the next test."""
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    await _parent_of(pg_tables, tenant_b, 7)
+    await _child_upsert(pg_tables, tenant_a, _PgPlainChild, 7)
+    async with pg_tables() as session:
+        with unscoped():
+            result = await session.execute(
+                select(_PgPlainChild.tenant_id, _PgPlainChild.parent_id)
+            )
+            assert [tuple(row) for row in result.all()] == [(tenant_a, 7)]
+    with pytest.raises(IntegrityError):
+        await _child_upsert(pg_tables, tenant_a, _PgPlainChild, 99)
+
+
+@pytest.mark.asyncio
+async def test_a_composite_foreign_key_refuses_the_parent_of_another_tenant(
+    pg_tables: async_sessionmaker[AsyncSession],
+) -> None:
+    """The advice of the docs holds: with ``(tenant_id, parent_id)`` the parent of
+    another tenant is no parent, and the tenant's own one is."""
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    await _parent_of(pg_tables, tenant_b, 7)
+    with pytest.raises(IntegrityError):
+        await _child_upsert(pg_tables, tenant_a, _PgTenantChild, 7)
+    await _parent_of(pg_tables, tenant_a, 8)
+    await _child_upsert(pg_tables, tenant_a, _PgTenantChild, 8)
+    async with pg_tables() as session:
+        with unscoped():
+            result = await session.execute(
+                select(_PgTenantChild.tenant_id, _PgTenantChild.parent_id)
+            )
+            assert [tuple(row) for row in result.all()] == [(tenant_a, 8)]
 
 
 # --------------------- the helper: a statement that reads a tenant table is refused first

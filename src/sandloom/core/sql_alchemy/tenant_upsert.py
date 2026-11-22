@@ -117,11 +117,12 @@ def _mapper_of(model: Any) -> tuple[Mapper[Any], Table]:
 
 
 def _conflict_clauses(table: Table) -> list[str]:
-    """The ``sqlite_on_conflict*`` options a column or a constraint of ``table``
-    carries (``Column(..., sqlite_on_conflict_unique="REPLACE")``,
-    ``UniqueConstraint(..., sqlite_on_conflict="REPLACE")``): SQLite resolves such
-    a conflict before ``ON CONFLICT DO UPDATE`` sees it, by deleting the row of
-    ANY tenant that holds the key."""
+    """The ``<dialect>_on_conflict*`` options a column, a constraint or an index of
+    ``table`` carries, whichever database names them (SQLite's
+    ``Column(..., sqlite_on_conflict_unique="REPLACE")`` and
+    ``UniqueConstraint(..., sqlite_on_conflict="REPLACE")`` are the ones there
+    are): such a conflict is resolved before ``ON CONFLICT DO UPDATE`` sees it,
+    and ``REPLACE`` deletes the row of ANY tenant that holds the key."""
     owners: list[tuple[str, Any]] = [
         *((f"column {column.name}", column) for column in table.columns),
         *(
@@ -134,7 +135,7 @@ def _conflict_clauses(table: Table) -> list[str]:
         f"{label}: {option}"
         for label, owner in owners
         for option in owner.dialect_kwargs
-        if option.startswith("sqlite_on_conflict")
+        if option.partition("_")[2].startswith("on_conflict")
     ]
 
 
