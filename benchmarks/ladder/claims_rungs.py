@@ -28,6 +28,8 @@ rung       one op
 ``KCtx``   ``UserContext(**claims)`` of the verified claims
 ``KMintC`` ``collect_claims(user)``: the merge, with ``cpv`` where stamped
 ``KMint``  ``collect_claims`` + ``create_access_token``: one mint
+``KMintI`` ``KMint`` as the identity token service runs it: the issuer's
+           contributor in the issuer's session (builds with ``issuer=``)
 =========  ==================================================================
 
 Fresh tokens are minted in the setup, a fixed count (``CG_K`` + 40), so the
@@ -113,6 +115,15 @@ def _gated_app() -> Any:
     return app
 
 
+async def _roles(_user_id: Any) -> dict[str, Any]:
+    """The identity contributor: also the token issuer's (``KMintI``)."""
+    return {"roles": ["admin"], "permissions": ["x.read"]}
+
+
+async def _grants(_user_id: Any) -> dict[str, Any]:
+    return {"tenant_ids": [str(TENANT)]}
+
+
 def _core() -> Any:
     from fastapi import FastAPI
 
@@ -145,16 +156,10 @@ def _core() -> Any:
         )
     )
 
-    async def roles(_user_id: Any) -> dict[str, Any]:
-        return {"roles": ["admin"], "permissions": ["x.read"]}
-
-    async def grants(_user_id: Any) -> dict[str, Any]:
-        return {"tenant_ids": [str(TENANT)]}
-
     with core.module_registration(IDENTITY) as api:
-        api.add_claims_contributor(roles, critical=True)
+        api.add_claims_contributor(_roles, critical=True)
     with core.module_registration(GRANTS) as api:
-        api.add_claims_contributor(grants, critical=True)
+        api.add_claims_contributor(_grants, critical=True)
     fake = _Cache()
     access.cache = lambda name="default": fake  # type: ignore[assignment]
     set_active_core(core)
@@ -306,6 +311,24 @@ async def _mint_rung(_ns: Any, with_token: bool) -> Any:
     return op, _noop
 
 
+async def _mint_issuer_rung(_ns: Any) -> Any:
+    """The identity token service's mint: the issuer's contributor runs in
+    the issuer's own session (``collect_claims(user, session, issuer=)``)."""
+    from sandloom.core.auth import tokens
+
+    core = _core()
+    session = _Session()
+
+    async def op(i: int) -> Any:
+        claims = await core.collect_claims(USER, session, issuer=_roles)
+        return tokens.create_access_token(
+            {"sub": str(USER), "token_type": "access"}, claims=claims
+        )
+
+    await op(0)
+    return op, _noop
+
+
 def install(ns: Any) -> None:
     """Register the stand's rungs in ``ladder.RUNGS`` (``ns`` = ladder module)."""
 
@@ -335,3 +358,8 @@ def install(ns: Any) -> None:
     add("KCtx", "UserContext(**claims) of the verified claims", _parts, "ctx")
     add("KMintC", "collect_claims: the claims merge", _mint_rung, False)
     add("KMint", "collect_claims + create_access_token", _mint_rung, True)
+    add(
+        "KMintI",
+        "KMint with the issuer's contributor in its session (needs issuer=)",
+        _mint_issuer_rung,
+    )
