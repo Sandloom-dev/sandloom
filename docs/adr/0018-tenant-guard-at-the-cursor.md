@@ -343,6 +343,74 @@ insert it always was, and the ORM guard refuses it.
   function re-assigns to an unrelated value is still reported. The runtime cursor guard is the
   boundary; these rules are a static layer.
 
+## Measured cost of the guard
+
+Cachegrind A/B of 2026-11-22 (PR #344, review round 2, CodeRabbit comment 4658372027): what the
+guard of this change costs a guarded ORM write and a guarded ORM read against `main` at `b116334c`,
+and what `tenant_upsert` costs. The rungs are in `benchmarks/ladder/tenant_guard_rungs.py`, on the
+kernel's cachegrind stand (`benchmarks/ladder/cg/`: the image `sandloom-ladder-cg:3.13`,
+`valgrind --tool=cachegrind --cache-sim=no`, `PYTHONHASHSEED=0`, Ir/op = (Ir(200 ops) - Ir(0 ops)) /
+200 after 20 warm-up operations, one fresh PostgreSQL database per run):
+
+- `XTgW`: a new session as the bound tenant, `add` one row, `commit`;
+- `XTgR`: a new session as the bound tenant, `select` one row by primary key;
+- `XTgU`: `tenant_upsert` of one existing row as the bound tenant, then `commit`.
+
+Round 2 added early-outs where the cheap test comes first: `_bound_tenant()` returns the context
+variable as it is when it is `None` or an exact `uuid.UUID`; `_adopt_bound_tenant` compares an exact
+`uuid.UUID` directly and walks the subclass checks only for a subclass; `_flush_write_admitted` tests
+the flush window, the statement's shape and the reach before it reads the bound tenant.
+
+The collector is frozen after the warm-up (`LADDER_CG_GC=freeze`: `gc.collect()` and `gc.freeze()`),
+because the stand's default lets collections fall inside the 200 operations and where they fall
+depends on the heap each build starts with. A first default-mode run gave `XTgR` +46k against `main`;
+that was the phase of a collection, and it vanished once the collector was frozen. A second mode,
+`off` (`freeze` and `gc.disable()`), checks that the result is not an artifact of `freeze`.
+Default-mode numbers of two trees are not comparable.
+
+| Ir/op | `main` | round 1 (`63b1532a`) | round 2 | round 2 vs `main` | round 2 vs round 1 |
+|---|---:|---:|---:|---:|---:|
+| `XTgW`, freeze | 1,708,559 | 1,711,404 | 1,711,398 | +2,839 (+0.17%) | -6 (0.00%) |
+| `XTgR`, freeze | 2,026,754 | 1,952,005 | 1,960,823 | -65,931 (-3.25%) | +8,818 (+0.45%) |
+| `XTgU`, freeze | no helper | 5,733,149 | 5,675,621 | no helper | -57,528 (-1.00%) |
+| `XTgW`, off | 1,704,779 | 1,706,683 | 1,710,599 | +5,820 (+0.34%) | +3,916 (+0.23%) |
+| `XTgR`, off | 2,018,870 | 1,938,715 | 1,940,972 | -77,898 (-3.86%) | +2,257 (+0.12%) |
+| `XTgU`, off | no helper | 5,740,933 | 5,694,871 | no helper | -46,062 (-0.80%) |
+
+- The tables were measured before `XTgR` and `XTgU` addressed row `i % _ROWS` (a later review
+  round, so that an `--n` past the seeded rows reads an existing row): the rungs gained one integer
+  modulo and one assignment per operation, the same on every tree, and no operation index under
+  200 changed.
+- A guarded write costs 0.17% to 0.34% more than on `main`; the early-outs did not lower it. The
+  cost is not attributed per function.
+- The early-outs take 46k to 57k instructions (0.8% to 1.0%) off `XTgU`. A `tenant_upsert` of one
+  row costs 3.3 times a plain `add` and `commit`: the helper builds the `INSERT ... ON CONFLICT DO
+  UPDATE` and the cursor rebuilds the statement to check it.
+- A guarded read is not dearer than on `main`: it measures 66k to 78k instructions cheaper, and this
+  is **not explained and not claimed as a gain**. The Python eval loop differs by +1.5k and the
+  call count by +3 to +5 per operation (a `cProfile` count of both trees), so the guard does not do
+  less work; the difference sits in C code that cachegrind reports as unsymbolized. A bisect over the
+  25 hunks of the diff of `tenant.py` narrowed it to hunks 9 to 14 (the `_flush_write_admitted`
+  changes and the block that defines the upsert shapes), and not to the criterion path, the adoption
+  helpers, the imports, the recorder refactor or padding. Appending definitions nobody calls to
+  `main`'s `tenant.py` moves `XTgR` too (an unused runtime-checkable `Protocol` and `NamedTuple`:
+  2,001,478, -17,392 in `off` mode; an unused `WeakSet` and `WeakKeyDictionary`: 2,016,613, -2,257),
+  so a difference of this size on this rung is no evidence of work the guard saves.
+
+To repeat it, run these from the checkout under test (`main` with the rung file copied in, then the
+branch), on an idle machine, with the test PostgreSQL (`deploy/compose/test.yml`, port 5433) and a
+Redis for the stand, once with `LADDER_CG_GC=freeze` and once with `LADDER_CG_GC=off`. The stand's
+`cgdriver.py` runs `ladder.py`; the rungs have their own entry, so two scratch copies select it and
+nothing committed changes (`$TMPDIR` is any scratch directory):
+
+```
+sed 's#/w/benchmarks/ladder/ladder.py#/w/benchmarks/ladder/tenant_guard_rungs.py#' benchmarks/ladder/cg/cgdriver.py > "$TMPDIR/tgdriver.py"
+sed -e "s#^HERE=.*#HERE=$PWD/benchmarks/ladder/cg#" -e "s#^ROOT=.*#ROOT=$PWD#" -e 's#python /w/benchmarks/ladder/cg/cgdriver.py#python /w/tgdriver.py#' -e "s#^  -w /tmp \\\\#  -v \$TMPDIR/tgdriver.py:/w/tgdriver.py:ro -w /tmp \\\\#" benchmarks/ladder/cg/run_cg.sh > "$TMPDIR/tg-run-cg.sh"
+env TMPDIR="$TMPDIR" LADDER_CG_GC=freeze CG_K=200 DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5433/<db> BENCH_REDIS_URL=redis://127.0.0.1:<port>/0 sh "$TMPDIR/tg-run-cg.sh" XTgW XTgR XTgU
+```
+
+`XTgU` has no row for `main`, which has no `tenant_upsert`. Compare the Ir/op of the same rung only.
+
 ## Out of scope
 
 - Raw `text()` under `unscoped()`. The block lifts the guard on purpose.

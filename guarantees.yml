@@ -512,8 +512,8 @@ guarantees:
     (canonical_tenant_upsert) writes from those parts, the statement, the clause and every SET value of
     exactly the builder's classes, with the bound tenant, as a plain uuid.UUID, in the tenant column of
     every parameter set and in the WHERE parameter (an execution parameter that overrides either is
-    refused, and so is a uuid.UUID subclass whose __eq__ says yes) and the upserted table the only one it
-    reads or writes. The marker alone admits nothing, counts only at the cursor (the marked statement run
+    refused, and so is a uuid.UUID subclass whose __eq__ says yes) and a statement that reads no tenant
+    table and writes only the upserted table. The marker alone admits nothing, counts only at the cursor (the marked statement run
     through session.execute stays refused) and is removed when the call ends, so a captured statement
     cannot be run again. Every other conflict insert on a tenant table, DO NOTHING included, stays refused
     outside unscoped(). Not covered, by design - every other key and every foreign key acts as on a plain

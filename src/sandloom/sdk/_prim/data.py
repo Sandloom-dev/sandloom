@@ -125,15 +125,17 @@ async def tenant_upsert(
     key that a row of another tenant holds is the database's integrity error,
     which shows that the key exists, and a foreign key locks the row it
     references, which may be a parent of another tenant. PostgreSQL runs both
-    checks outside row-level security, so a policy hides neither. Make a foreign
-    key to a tenant table composite, ``(tenant_id, parent_id)``, and do not reuse
-    a key across tenants. A call outside these rules, a model without such a key,
-    a model in an inheritance hierarchy, one whose tenant column is not named
+    checks outside row-level security, so a policy hides neither. The helper does
+    not check either: applying the advice is the caller's, so make a foreign key
+    to a tenant table composite, ``(tenant_id, parent_id)``, and do not reuse a
+    key across tenants. What the helper does refuse, with ``ValueError``
+    (SANDLOOM-R018) before anything is sent: a model without such a unique key, a
+    model in an inheritance hierarchy, one whose tenant column is not named
     ``tenant_id``, one with a column that is not exactly ``sqlalchemy.Column`` or
-    a ``<dialect>_on_conflict*`` option, or one whose statement would read a
-    tenant table (a column default or type ``bind_expression`` that selects from
-    one) raises ``ValueError`` (SANDLOOM-R018) before anything is sent. A
-    database without ``ON CONFLICT``, or whose statement the tenant guard cannot
+    a ``<dialect>_on_conflict*`` option, one whose statement would read a tenant
+    table (a column default or type ``bind_expression`` that selects from one),
+    and a row or an ``update`` / ``conflict_on`` column outside the rules above.
+    A database without ``ON CONFLICT``, or whose statement the tenant guard cannot
     read, refuses (SANDLOOM-R015).
 
     Pending changes of ``session`` (default: :func:`db`) are flushed first, and

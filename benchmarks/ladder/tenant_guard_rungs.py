@@ -2,7 +2,8 @@
 read and the ``tenant_upsert`` helper, in-process on the kernel's own engine.
 
 Added for the A/B of the tenant-guard change of ``tenant-upsert-helper`` against
-``main`` (``docs/design/tenant-upsert-guard-cost.md``): every statement of a
+``main`` (the section "Measured cost of the guard" of
+``docs/adr/0018-tenant-guard-at-the-cursor.md``, with the exact commands): every statement of a
 ``TenantScoped`` model passes the ORM guard (``do_orm_execute``), the mapper and
 ``before_flush`` events and the cursor rule (``check_tenant_reach``) that change
 touches. No HTTP app, no authentication, no claims: only what a request does to
@@ -51,7 +52,10 @@ import sys
 import uuid
 from typing import Any
 
-#: Rows seeded per run: warm-up (20) + CG_K + slack.
+#: Rows seeded per run: warm-up (20) + CG_K + slack. A fixed number whatever ``--n``
+#: is (the setup of a pair of runs is the same); ``XTgR`` and ``XTgU`` address row
+#: ``i % _ROWS``, so an ``--n`` past the seeded rows (``ladder.py``'s default is
+#: 5000) recycles rows instead of reading or upserting one that does not exist.
 _ROWS = int(os.environ.get("CG_K", "200")) + 40
 #: Ids of the rows ``XTgW`` inserts start here, far above the seeded ones.
 _NEW = 10_000_000
@@ -119,23 +123,25 @@ async def _items(_ns: Any, kind: str) -> Any:
     if kind == "read":
 
         async def read(i: int) -> None:
+            seeded = i % _ROWS  # an existing row whatever --n is (see _ROWS)
             async with maker() as session:
                 with bind_tenant(tenant):
                     row = (
-                        await session.execute(select(Item).where(Item.id == i))
+                        await session.execute(select(Item).where(Item.id == seeded))
                     ).scalar_one()
-                    assert row.key == f"k{i}"
+                    assert row.key == f"k{seeded}"
 
         return read, teardown
 
     from sandloom.core.sql_alchemy.tenant_upsert import tenant_upsert
 
     async def upsert(i: int) -> None:
+        seeded = i % _ROWS  # an existing row whatever --n is (see _ROWS)
         async with maker() as session:
             with bind_tenant(tenant):
                 await tenant_upsert(
                     Item,
-                    [{"id": i, "key": f"k{i}", "name": f"u{i}"}],
+                    [{"id": seeded, "key": f"k{seeded}", "name": f"u{i}"}],
                     update=["name"],
                     conflict_on=["key"],
                     session=session,
