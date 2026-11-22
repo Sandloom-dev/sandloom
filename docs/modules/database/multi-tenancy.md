@@ -199,6 +199,9 @@ does not hide another tenant's data from them:
   a row of another tenant. Make it composite, `(tenant_id, parent_id)`, against
   a unique key of the parent that includes `tenant_id`.
 
+PostgreSQL runs its uniqueness and foreign key checks outside row-level
+security, so a policy hides neither case. Only the keys cover them.
+
 Before it sends anything, it refuses
 ([SANDLOOM-R018](../../reference/error-codes.md#sandloom-r018)) a model:
 
@@ -206,8 +209,9 @@ Before it sends anything, it refuses
 - in an inheritance hierarchy;
 - whose tenant column is not named `tenant_id` in the database;
 - with a column that is not exactly `sqlalchemy.Column`;
-- with a `sqlite_on_conflict*` option on a column or a constraint (SQLite's
-  `REPLACE` deletes the row that holds the key, whichever tenant owns it).
+- with a `<dialect>_on_conflict*` option on a column, a constraint or an index.
+  SQLite's `sqlite_on_conflict*` is the one that exists. Its `REPLACE` deletes
+  the row that holds the key, whichever tenant owns it.
 
 It also refuses a call whose statement would read a tenant table. Such a read
 comes from a default, `onupdate` or type `bind_expression` of a column the rows

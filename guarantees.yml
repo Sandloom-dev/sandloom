@@ -496,8 +496,9 @@ guarantees:
     tenant column = the bound tenant, no RETURNING, CTE or caller expression - and a model in an
     inheritance hierarchy, a model whose tenant column is not named tenant_id in the database, a model with
     no unique key that includes the tenant column, a model with a column that is not exactly Column, a
-    model with a sqlite_on_conflict* option on a column or a constraint (SQLite's REPLACE deletes the row
-    that holds the key, whichever tenant owns it) and a call whose statement would read a tenant table (a
+    model with a <dialect>_on_conflict* option on a column, a constraint or an index (SQLite's
+    sqlite_on_conflict* is the one that exists, and its REPLACE deletes the row that holds the key,
+    whichever tenant owns it) and a call whose statement would read a tenant table (a
     column default, onupdate or type bind_expression that selects from one) are refused with
     SANDLOOM-R018 before anything is sent or flushed. The cursor admits a conflict insert on a tenant
     table only when it carries the helper's private marker AND has exactly that shape, read from the
@@ -518,9 +519,10 @@ guarantees:
     outside unscoped(). Not covered, by design - every other key and every foreign key acts as on a plain
     insert, so a primary key or another unique key that another tenant holds fails with the database's
     integrity error, which shows that the key exists, and a foreign key to a tenant table locks the row it
-    references, which may be another tenant's (use keys that are not reused across tenants and composite
-    foreign keys (tenant_id, parent_id); row-level security holds both), and an instance the session
-    already holds keeps its old values until it is refreshed.
+    references, which may be another tenant's. PostgreSQL runs its uniqueness and foreign key checks
+    outside row-level security, so a policy hides neither the key nor the row. Use keys that are not
+    reused across tenants and composite foreign keys (tenant_id, parent_id), which refuse a parent of
+    another tenant. An instance the session already holds keeps its old values until it is refreshed.
   sources:
   - docs/modules/database/multi-tenancy.md
   - docs/adr/0018-tenant-guard-at-the-cursor.md

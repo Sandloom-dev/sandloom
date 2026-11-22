@@ -634,7 +634,9 @@ def _bound_tenant() -> uuid.UUID | None:
     """The tenant bound now, as a plain ``uuid.UUID`` (``bind_tenant`` stores
     what it is given, and a tenant read from the database is a driver subclass)."""
     tid = _current_tenant.get()
-    return None if tid is None else _plain_uuid(tid)
+    if tid is None or type(tid) is uuid.UUID:  # the common case: no second call
+        return tid
+    return _plain_uuid(tid)
 
 
 def _is_bound_tenant(value: object, tid: uuid.UUID) -> bool:
@@ -659,16 +661,17 @@ def _adopt_bound_tenant(instance: Any, tid: uuid.UUID) -> bool:
     to a statement; one that disagrees with itself (``__eq__`` says yes, its bits
     say another tenant) or with the bound tenant is refused."""
     value = instance.tenant_id
+    if type(value) is uuid.UUID:  # the common case: the exact check of _is_bound_tenant
+        return bool(value == tid)
     if (
-        type(value) is not uuid.UUID
-        and isinstance(value, uuid.UUID)
+        isinstance(value, uuid.UUID)
         and value == tid
         and value.int == tid.int
         and value.bytes == tid.bytes
     ):
         instance.tenant_id = tid
         return True
-    return _is_bound_tenant(value, tid)
+    return False
 
 
 def _value_keys(values: Any) -> set[str]:
@@ -779,13 +782,14 @@ def _flush_write_admitted(
       sets it through the parameters the checks above read.
     """
     window = _flush_window.get()
-    tid = _bound_tenant()
     if (
         window is None
-        or tid is None
         or not compiled.persistence_shaped
         or not reach.isdisjoint(compiled.reads)
     ):
+        return False
+    tid = _bound_tenant()
+    if tid is None:
         return False
     params = _params_of(context)
     statement = compiled.statement
@@ -1136,9 +1140,11 @@ def _tenant_upsert_admitted(
 
     A marked statement that differs in any of them, and any when the caller gave
     no builder, is refused like any unapproved one."""
-    tid = _bound_tenant()
     statement = context.invoked_statement
-    if tid is None or build is None or not _is_sealed(statement):
+    if build is None or not _is_sealed(statement):
+        return False
+    tid = _bound_tenant()
+    if tid is None:
         return False
     shape = _upsert_shape_of(statement)
     params = _params_of(context)

@@ -201,9 +201,9 @@ itself:
   `TypeDecorator` on it runs on the insert and on the update alike. A model whose tenant column is
   not named `tenant_id` in the database (`mapped_column("org_id")`), a model in an inheritance
   hierarchy, a model without a unique key that includes the tenant column, a model with a column that
-  is not exactly `Column`, a model with a `sqlite_on_conflict*` option on a column or a constraint
-  (SQLite's `REPLACE` deletes the row that holds the key before `ON CONFLICT` is asked, whichever
-  tenant owns it) and a call whose statement would read a tenant table (a column default, `onupdate`
+  is not exactly `Column`, a model with a `<dialect>_on_conflict*` option on a column, a constraint
+  or an index (SQLite's `sqlite_on_conflict*` is the one that exists: its `REPLACE` deletes the row
+  that holds the key before `ON CONFLICT` is asked, whichever tenant owns it) and a call whose statement would read a tenant table (a column default, `onupdate`
   or type `bind_expression` that selects from one) are refused with `SANDLOOM-R018`, before anything
   is sent and before the session is flushed.
 - The conflict target is a unique key of the table that includes the tenant column. A row of another
@@ -292,7 +292,10 @@ insert it always was, and the ORM guard refuses it.
   dictionary write to each loaded instance.
 - `tenant_upsert` returns nothing and refreshes no instance the session already holds: an instance of
   an upserted row keeps its old values until it is refreshed. It flushes the session's pending changes
-  first. A batch that names one key twice is the caller's to avoid: PostgreSQL refuses it. **Upgrade:**
+  first. The rows go to the driver as the parameter sets of one `executemany`, and a driver that
+  runs the command once per set (asyncpg) updates the row the first of two equal keys inserted
+  with the values of the second, rather than the database refusing the batch; a batch that names
+  one key twice is the caller's to avoid. **Upgrade:**
   a module that ran `conflict_insert` on a tenant model inside `unscoped()` to upsert for one tenant
   moves to `tenant_upsert`, which needs a unique key that includes `tenant_id`; a model whose only
   key leaves the tenant out keeps `unscoped()` or gets such a key in a migration.

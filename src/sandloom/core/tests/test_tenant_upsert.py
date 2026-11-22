@@ -653,6 +653,29 @@ async def test_a_second_call_updates_the_row_the_first_inserted(env: _Env) -> No
 
 
 @pytest.mark.asyncio
+async def test_a_batch_that_names_one_key_twice_updates_the_row_in_turn(
+    env: _Env,
+) -> None:
+    """The rows are the parameter sets of one ``executemany`` and the driver runs
+    the command once per set, asyncpg included: the second row updates the row the
+    first inserted, and the database does not refuse the batch (the documented
+    behaviour, the reason a duplicate key stays the caller's to avoid)."""
+    await _upsert(
+        env,
+        env.a,
+        _Item,
+        [
+            {"id": 70, "key": "twice", "name": "first"},
+            {"id": 71, "key": "twice", "name": "second"},
+        ],
+        update=["name"],
+    )
+    items = await _items(env)
+    assert items[70][1:3] == ("twice", "second")
+    assert 71 not in items
+
+
+@pytest.mark.asyncio
 async def test_the_model_may_conflict_on_its_composite_primary_key(env: _Env) -> None:
     await _upsert(
         env, env.a, _Pair, [{"code": "p", "label": "a-new"}], update=["label"]

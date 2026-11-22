@@ -124,21 +124,25 @@ async def tenant_upsert(
     every foreign key acts as on a plain insert: a primary key or another unique
     key that a row of another tenant holds is the database's integrity error,
     which shows that the key exists, and a foreign key locks the row it
-    references, which may be a parent of another tenant. Make a foreign key to a
-    tenant table composite, ``(tenant_id, parent_id)``, and do not reuse a key
-    across tenants. A call outside these rules, a model without such a key, a
-    model in an inheritance hierarchy, one whose tenant column is not named
+    references, which may be a parent of another tenant. PostgreSQL runs both
+    checks outside row-level security, so a policy hides neither. Make a foreign
+    key to a tenant table composite, ``(tenant_id, parent_id)``, and do not reuse
+    a key across tenants. A call outside these rules, a model without such a key,
+    a model in an inheritance hierarchy, one whose tenant column is not named
     ``tenant_id``, one with a column that is not exactly ``sqlalchemy.Column`` or
-    a ``sqlite_on_conflict*`` option, or one whose statement would read a tenant
-    table (a column default or type ``bind_expression`` that selects from one)
-    raises ``ValueError`` (SANDLOOM-R018) before anything is sent. A database
-    without ``ON CONFLICT``, or whose statement the tenant guard cannot read,
-    refuses (SANDLOOM-R015).
+    a ``<dialect>_on_conflict*`` option, or one whose statement would read a
+    tenant table (a column default or type ``bind_expression`` that selects from
+    one) raises ``ValueError`` (SANDLOOM-R018) before anything is sent. A
+    database without ``ON CONFLICT``, or whose statement the tenant guard cannot
+    read, refuses (SANDLOOM-R015).
 
     Pending changes of ``session`` (default: :func:`db`) are flushed first, and
     the call returns nothing. Instances of the upserted rows that the session
-    already holds keep their old values until refreshed. A batch that names one
-    key twice is the caller's to avoid: PostgreSQL refuses it.
+    already holds keep their old values until refreshed. The rows go to the
+    driver as the parameter sets of one ``executemany``, which runs the command
+    once per set, so a row that repeats the key of an earlier row of the batch
+    updates that row in turn instead of the database refusing the batch. A batch
+    that names one key twice is the caller's to avoid.
     """
     await _tenant_upsert(
         model,
