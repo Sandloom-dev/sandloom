@@ -1,15 +1,16 @@
 """Refresh-token rotation: one-time use, reuse detection, CAS against races."""
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom_identity.errors import CommittedHTTPError
 from sandloom_identity.models.refresh_token import RefreshToken
+from sandloom_identity.models.user import User
 from sandloom_identity.services.token_service import TokenService
 from sandloom_identity.utils import RefreshTokenUtils
 
@@ -168,6 +169,49 @@ async def test_grace_window_needs_a_live_successor(test_db, make_user) -> None:
     with pytest.raises(CommittedHTTPError) as exc:
         await TokenService.refresh_token(pair.refresh_token, test_db)
     assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_expired_token_rejected_without_rotation(
+    test_db, make_user
+) -> None:
+    user = await make_user("expired-rot@example.com")
+    pair = await TokenService.create_tokens(user, test_db)
+    await test_db.execute(
+        update(RefreshToken).values(expires_at=datetime.now(UTC) - timedelta(minutes=1))
+    )
+    await test_db.commit()
+    with pytest.raises(HTTPException) as exc:
+        await TokenService.refresh_token(pair.refresh_token, test_db)
+    assert exc.value.status_code == 401
+    await test_db.rollback()
+    rows = (await test_db.execute(select(RefreshToken))).scalars().all()
+    assert [r.is_revoked for r in rows] == [False]  # refused, not consumed
+
+
+@pytest.mark.asyncio
+async def test_refresh_builds_no_user_or_token_entity(test_db, make_user) -> None:
+    """A refresh decides on the token's columns and holds no ``User`` or
+    ``RefreshToken`` object for the presented token (the statement used to
+    build both per refresh): the cost the cachegrind rung ``HTr`` measures."""
+    user = await make_user("entity-rot@example.com")
+    first = await TokenService.create_tokens(user, test_db)
+    await test_db.commit()
+    test_db.expunge_all()
+    built: list[str] = []
+
+    def record(target: object, _context: object) -> None:
+        built.append(type(target).__name__)
+
+    event.listen(User, "load", record)
+    event.listen(RefreshToken, "load", record)
+    try:
+        await TokenService.refresh_token(first.refresh_token, test_db)
+    finally:
+        event.remove(User, "load", record)
+        event.remove(RefreshToken, "load", record)
+
+    assert built == []
 
 
 @pytest.mark.asyncio

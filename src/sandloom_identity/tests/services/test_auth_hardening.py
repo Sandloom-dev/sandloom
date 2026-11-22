@@ -373,6 +373,7 @@ class TestChangePassword:
             await TokenService.refresh_token(other_device.refresh_token, test_db)
         await test_db.rollback()
         assert await TokenService.refresh_token(fresh.refresh_token, test_db)
+        await test_db.refresh(user)  # the rollback expired it
         assert AuthService.verify_password("BrandNewPass#1", user.hashed_password)
 
     @pytest.mark.asyncio
