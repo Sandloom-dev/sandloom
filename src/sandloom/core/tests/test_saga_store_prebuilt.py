@@ -27,7 +27,6 @@ from sandloom.core.tests.saga_fixtures import (
     enroll_input,
     enroll_saga,
     install_fakes,
-    without_skip_locked_renderer,
 )
 from sandloom.core.unit_of_work import db_session
 
@@ -98,7 +97,10 @@ async def test_a_renderer_registered_again_is_asked_again(
     async with db_session() as session:
         await store.lock_instance(session, uuid.uuid4(), tenant=None)
         assert renders == [True]
-        without_skip_locked_renderer(monkeypatch)
+        # A new renderer object for the dialect this run is on (PostgreSQL
+        # or SQLite), so the test holds on every test database.
+        name = session.get_bind().dialect.name
+        monkeypatch.setitem(_portable._registered, name, type(sql_dialect(name))())
         await store.lock_instance(session, uuid.uuid4(), tenant=None)
     assert renders == [True, True]
 
