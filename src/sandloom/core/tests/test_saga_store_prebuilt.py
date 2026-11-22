@@ -100,7 +100,9 @@ async def test_a_renderer_registered_again_is_asked_again(
         # A new renderer object for the dialect this run is on (PostgreSQL
         # or SQLite), so the test holds on every test database.
         name = session.get_bind().dialect.name
-        monkeypatch.setitem(_portable._registered, name, type(sql_dialect(name))())
+        registered = sql_dialect(name)
+        assert registered is not None
+        monkeypatch.setitem(_portable._registered, name, type(registered)())
         await store.lock_instance(session, uuid.uuid4(), tenant=None)
     assert renders == [True, True]
 
