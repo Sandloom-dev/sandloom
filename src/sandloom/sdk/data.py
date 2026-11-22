@@ -16,7 +16,7 @@ advanced: Array, CaseInsensitiveText, ConflictInsert, InvalidCursor, JoinRead,
     enable_tenant_rls, fulltext_index, get_planned_reads, get_read_only_db,
     get_snapshot_reads, get_uow_reads, json_contains, json_path, make_cursor,
     make_db_dependency, matches, open_uow, partial_index, search_index,
-    session_reads, transaction_lock
+    session_reads, tenant_upsert, transaction_lock
 docs: docs/reference/sdk/data.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
@@ -67,6 +67,7 @@ from sandloom.sdk._prim.data import (
     conflict_insert,
     db,
     open_uow,
+    tenant_upsert,
     transaction_lock,
 )
 
@@ -112,6 +113,7 @@ __all__ = [
     "partial_index",
     "search_index",
     "session_reads",
+    "tenant_upsert",
     "transaction_lock",
 ]
 #: The beginner tier of this module (spec §2.2).

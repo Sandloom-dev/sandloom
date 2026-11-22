@@ -65,6 +65,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`search_index`](#search_index) | function | An index that serves substring search (`column.ilike('%term%')`). |
 | [`session_reads`](#session_reads) | function | Run declared operations ON `session` (an open Unit of Work). |
 | [`SnapshotReads`](#snapshotreads) | annotated type |  |
+| [`tenant_upsert`](#tenant_upsert) | async function | Insert `rows` of a `TenantScoped` model for the bound tenant and, where a row of that tenant already exists, refresh the `update` columns... |
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
@@ -934,6 +935,52 @@ SnapshotReads = Annotated[Any, Depends(dependency=<function get_snapshot_reads>,
 ```
 
 *(no docstring)*
+
+### `tenant_upsert`
+
+```python
+async def tenant_upsert(
+    model: type[TenantScoped],
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    update: Sequence[str],
+    conflict_on: Sequence[str] | None = None,
+    session: AsyncSession | None = None,
+) -> None
+```
+
+Insert `rows` of a `TenantScoped` model for the bound tenant and, where a
+row of that tenant already exists, refresh the `update` columns from the
+proposed row:
+
+```python
+# Plan has UniqueConstraint("tenant_id", "code")
+await tenant_upsert(
+    Plan,
+    [{"id": new_id(), "code": "pro", "price": 20}],
+    update=["price"],
+)
+```
+
+`rows` are mappings of attribute name to a plain Python value. A SQL
+expression is refused, and so is the tenant column: a row always takes the
+bound tenant (none bound: `MissingTenantError`). Every row names the same
+columns, the conflict key and the `update` columns among them. `update`
+lists attributes of the model other than the tenant column and the primary
+key.
+
+The row conflicts on a unique key that includes the tenant column: the
+table's only one, else the one `conflict_on=[...]` names (the tenant column
+may be left out). A row of another tenant is never updated, locked or shown
+to exist. A call outside these rules, a model without such a key, a model in
+an inheritance hierarchy or one whose tenant column is not named
+`tenant_id` raises `ValueError` (SANDLOOM-R018) before anything is sent.
+A database without `ON CONFLICT` refuses (SANDLOOM-R015).
+
+Pending changes of `session` (default: `db`) are flushed first, and
+the call returns nothing. Instances of the upserted rows that the session
+already holds keep their old values until refreshed. A batch that names one
+key twice is the caller's to avoid: PostgreSQL refuses it.
 
 ### `transaction_lock`
 

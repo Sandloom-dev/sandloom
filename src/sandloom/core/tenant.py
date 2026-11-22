@@ -32,7 +32,7 @@ import weakref
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy import (
     Column,
@@ -57,7 +57,7 @@ from sqlalchemy.orm.exc import UnmappedColumnError
 from sqlalchemy.orm.strategy_options import Load
 from sqlalchemy.orm.util import LoaderCriteriaOption
 from sqlalchemy.sql import operators, visitors
-from sqlalchemy.sql.base import Executable
+from sqlalchemy.sql.base import DialectKWArgs, Executable
 from sqlalchemy.sql.compiler import Compiled, SQLCompiler
 from sqlalchemy.sql.dml import Delete, Insert, Update, ValuesBase
 from sqlalchemy.sql.elements import (
@@ -66,6 +66,7 @@ from sqlalchemy.sql.elements import (
     BooleanClauseList,
     ClauseElement,
     ColumnClause,
+    ColumnElement,
     TextClause,
 )
 from sqlalchemy.sql.lambdas import LambdaElement
@@ -587,6 +588,13 @@ class ReachRecorder(SQLCompiler):
         pins = tuple(binds.get(column.name, "") for column in table.primary_key)
         return pins if pins and all(pins) else None
 
+    @functools.cached_property
+    def tenant_upsert_column(self) -> Column[Any] | None:
+        """The tenant column of the table the statement upserts when it has
+        exactly the shape ``tenant_upsert`` builds (:func:`_tenant_upsert_column`),
+        else ``None``. Memoized with the compiled statement."""
+        return _tenant_upsert_column(self.statement)
+
 
 def _and_terms(clause: Any) -> Iterator[Any]:
     """The terms of a WHERE criterion that are ANDed at its top level."""
@@ -768,6 +776,186 @@ def _flush_write_admitted(
     )
 
 
+#: The statements :func:`sandloom.core.sql_alchemy.tenant_upsert.tenant_upsert`
+#: built and is about to run, by identity: the helper's private marker, set just
+#: before it executes and dropped right after. The marker alone admits nothing:
+#: a marked statement is also checked for the exact shape the helper builds
+#: (:func:`_tenant_upsert_column`) and for the bound tenant in every parameter set
+#: (:func:`_tenant_upsert_admitted`). A conflict insert without the marker stays
+#: refused like any other statement that names a tenant table.
+_UPSERTS: weakref.WeakSet[Any] = weakref.WeakSet()
+#: Bound-parameter name of the tenant VALUE in the ``WHERE`` of the upsert's
+#: ``DO UPDATE`` (a callable bind: it reads the bound tenant at execution).
+TENANT_UPSERT_PARAM = "sandloom_tenant_upsert__"
+#: What ``ON CONFLICT`` names the row the insert proposed.
+_EXCLUDED = "excluded"
+
+
+def _seal_tenant_upsert(statement: Insert) -> None:
+    _UPSERTS.add(statement)
+
+
+def _unseal_tenant_upsert(statement: Insert) -> None:
+    _UPSERTS.discard(statement)
+
+
+def _tenant_upsert_where(tenant: Column[Any]) -> ColumnElement[bool]:
+    """The ``WHERE`` of an upsert's ``DO UPDATE``: only a row of the bound tenant
+    is ever updated. The parameter carries the tenant column's OWN type object,
+    so a ``TypeDecorator`` on the column rewrites it as it rewrites the stored
+    value."""
+    return tenant == bindparam(
+        TENANT_UPSERT_PARAM, callable_=_tenant_criteria_value, type_=tenant.type
+    )
+
+
+@runtime_checkable
+class _OnConflictUpdate(Protocol):
+    """The ``DO UPDATE`` clause of ``Insert.on_conflict_do_update``. PostgreSQL and
+    SQLite build one class each with these attributes; the kernel imports no
+    dialect, so the clause is read through this view."""
+
+    inferred_target_elements: Sequence[Any] | None
+    update_values_to_set: Mapping[Any, Any]
+    update_whereclause: Any
+
+
+def _unset(value: Any) -> bool:
+    """``None``, ``False`` or an empty sequence or mapping: a slot nothing fills."""
+    return (
+        value is None
+        or value is False
+        or (isinstance(value, (Sequence, Mapping)) and not value)
+    )
+
+
+def _empty_beyond(node: ClauseElement, used: frozenset[str]) -> bool:
+    """Every slot SQLAlchemy lists for ``node`` (``_traverse_internals``: what its
+    SQL and its cache key read) outside ``used`` is unset. The shape check reads
+    SQLAlchemy's own list of slots, not a list of ours, so a slot a later
+    SQLAlchemy adds fails closed until it is read here."""
+    for name, _kind in type(node)._traverse_internals:
+        if name in used:
+            continue
+        # a statement's dialect options fill on read: ask for the ones it was given
+        value = (
+            node.dialect_kwargs
+            if name == "dialect_options" and isinstance(node, DialectKWArgs)
+            else getattr(node, name)
+        )
+        if not _unset(value):
+            return False
+    return True
+
+
+def _is_excluded_column(value: Any, column: Column[Any], table: Table) -> bool:
+    """``value`` is ``excluded.<column>``: the column of the ``excluded`` alias of
+    ``table`` itself that carries ``column``'s name."""
+    owner = value.table if isinstance(value, ColumnClause) else None
+    return (
+        isinstance(owner, Alias)
+        and owner.element is table
+        and owner.name == _EXCLUDED
+        and value.name == column.name
+    )
+
+
+def _tenant_upsert_column(statement: Any) -> Column[Any] | None:
+    """The tenant column of the table ``statement`` upserts when it is EXACTLY the
+    statement ``tenant_upsert`` builds, else ``None``:
+
+    * an ``INSERT`` over a ``Table`` with a ``tenant_id`` column whose every slot
+      but the table and its ``ON CONFLICT DO UPDATE`` clause is unset: no
+      ``values()``, ``RETURNING``, prefix, hint, CTE, ``INSERT ... SELECT``;
+    * a conflict target of columns of the table that includes ``tenant_id``
+      (another tenant's row can never be the arbiter);
+    * ``SET`` writes only ``excluded.<column>`` into a column of the table that
+      is neither ``tenant_id`` nor part of the primary key;
+    * ``WHERE <tenant_id> = :sandloom_tenant_upsert__`` is the one condition, the
+      parameter typed as the column itself;
+    * no index predicate, no named constraint.
+    """
+    if not isinstance(statement, Insert):
+        return None
+    table = statement.table
+    post = statement._post_values_clause
+    # read through the protocol: a dialect's clause class is not a type the kernel knows
+    clause: object = post
+    tenant = _tenant_column(table) if isinstance(table, Table) else None
+    if (
+        tenant is None
+        or not isinstance(table, Table)
+        or post is None
+        or not isinstance(clause, _OnConflictUpdate)
+        or not _empty_beyond(statement, frozenset({"table", "_post_values_clause"}))
+        or not _empty_beyond(
+            post,
+            frozenset(
+                {
+                    "inferred_target_elements",
+                    "update_values_to_set",
+                    "update_whereclause",
+                }
+            ),
+        )
+    ):
+        return None
+    target = clause.inferred_target_elements or ()
+    primary = {column.name for column in table.primary_key.columns}
+    where = clause.update_whereclause
+    if (
+        not target
+        or not clause.update_values_to_set
+        or any(not isinstance(c, Column) or c.table is not table for c in target)
+        or all(c.name != tenant.name for c in target)
+        or not (
+            isinstance(where, BinaryExpression)
+            and where.operator is operators.eq
+            and where.left is tenant
+            and isinstance(where.right, BindParameter)
+            and where.right.key == TENANT_UPSERT_PARAM
+            and where.right.type is tenant.type
+        )
+    ):
+        return None
+    for column, value in clause.update_values_to_set.items():
+        if (
+            not isinstance(column, Column)
+            or column.table is not table
+            or column.name == tenant.name
+            or column.name in primary
+            or not _is_excluded_column(value, column, table)
+        ):
+            return None
+    return tenant
+
+
+def _tenant_upsert_admitted(
+    context: Any, compiled: ReachRecorder, reach: frozenset[str]
+) -> bool:
+    """The one conflict insert the cursor admits on a tenant table: the statement
+    ``tenant_upsert`` marked (:data:`_UPSERTS`) AND built to the shape
+    :func:`_tenant_upsert_column` reads, a tenant bound, nothing it renders reading
+    a tenant table, the upserted table its only target, and the bound tenant as
+    the value of the tenant column in every parameter set and of the ``WHERE``
+    parameter of the update. A marked statement that differs in any of them is
+    refused like any unapproved one."""
+    tid = _current_tenant.get()
+    tenant = compiled.tenant_upsert_column
+    if tid is None or tenant is None or context.invoked_statement not in _UPSERTS:
+        return False
+    params = _params_of(context)
+    return (
+        bool(params)
+        and reach.isdisjoint(compiled.reads)
+        and compiled.targets == {str(tenant.table.name).lower()}
+        and all(
+            row.get(tenant.key) == tid and row.get(TENANT_UPSERT_PARAM) == tid
+            for row in params
+        )
+    )
+
+
 def _shown(hits: Iterable[str]) -> str:
     return ", ".join(
         'an identifier no scan can read (U&"...")' if hit == _UNREADABLE else hit
@@ -792,7 +980,10 @@ def check_tenant_reach(context: Any, compiled: Compiled) -> None:
       a column load, or the caller sent its own ``text()`` (their
       responsibility: ``scoped()`` / the ``unsafe-tenant-sql`` check / RLS); or
     * it is a flush write of rows the mapper events verified
-      (:func:`_flush_write_admitted`).
+      (:func:`_flush_write_admitted`); or
+    * it is the upsert ``tenant_upsert`` marked and built, for the bound tenant
+      (:func:`_tenant_upsert_admitted`): the one conflict insert admitted on a
+      tenant table.
 
     A criterion approval also needs the criterion's bound parameter to hold the
     bound tenant: a caller-supplied value never wins, a missing one is refused.
@@ -816,6 +1007,8 @@ def check_tenant_reach(context: Any, compiled: Compiled) -> None:
         _check_criterion(context)
         return
     if approval == _TRUSTED:
+        return
+    if _tenant_upsert_admitted(context, compiled, reach):
         return
     names = _tenant_names()
     if _flush_write_admitted(context, compiled, names, reach):

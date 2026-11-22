@@ -2128,6 +2128,41 @@ active; anywhere else it refuses.
 """,
         docs="docs/advanced/security-model.md",
     ),
+    _entry(
+        "SANDLOOM-R018",
+        "tenant-upsert-refused",
+        "runtime",
+        "tenant_upsert refused the model, the rows or the column lists it was given",
+        "pass a plain TenantScoped model that has a unique key including "
+        "tenant_id, rows of plain values that all name the same columns "
+        "(never the tenant), and update= attributes that are neither the "
+        "tenant column nor part of the primary key",
+        """
+tenant_upsert (sandloom.sdk.data) builds the whole statement itself, so it
+accepts only what it can turn into one that stays inside the bound tenant.
+It refuses, before anything is sent: a model that is not TenantScoped, is part
+of an inheritance hierarchy, maps its tenant attribute to a column not named
+tenant_id, or has no unique key that includes the tenant column (several: name
+one with conflict_on=[...]); a row that is not a mapping, names an attribute
+that is not a plain column of the model, names the tenant column, names a
+column twice or carries a SQL expression (a plain value is bound as a
+parameter; an expression never is); rows that do not name the same columns, or
+leave out the conflict key or an updated column (it would be written as its
+default); an update list that is empty or names the tenant column or a primary
+key column.
+
+The tenant is never a value of a row: it is the bound tenant, bound with the
+tenant column's own type. The conflict target includes the tenant column, so a
+row of another tenant is never the one that conflicts, and the update is
+`SET column = excluded.column WHERE tenant_id = <bound tenant>` for the listed
+columns only.
+
+The cursor guard admits a conflict insert on a tenant table only for the
+statement tenant_upsert marked and built; any other one stays refused with
+UnsafeTenantOperationError (ADR-0018, decision 6).
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
     # ------------------------------------------------------- tests/snapshots
     _entry(
         "SANDLOOM-T001",

@@ -3,13 +3,15 @@
 ``db()`` is the session of the running unit, ``open_uow()`` opens a unit
 (today ``db_session``), ``MoneyLedger`` names a money ledger's unique
 operation-key column (ADR-0009). All three are the kernel's (H1, WS-A).
-``conflict_insert`` and ``transaction_lock`` run on ``db()`` unless given a
-session (the portable SQL forms, SANDLOOM-C028).
+``conflict_insert``, ``tenant_upsert`` and ``transaction_lock`` run on ``db()``
+unless given a session (the portable SQL forms, SANDLOOM-C028; ``tenant_upsert``
+is the upsert of a ``TenantScoped`` model, ADR-0018).
 """
 
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 
@@ -19,6 +21,7 @@ from sandloom.core.di import db as _kernel_db
 from sandloom.core.di import db_session
 from sandloom.core.orm import ConflictInsert, MoneyLedger, Page, TenantScoped
 from sandloom.core.orm import conflict_insert as _conflict_insert
+from sandloom.core.orm import tenant_upsert as _tenant_upsert
 from sandloom.core.orm import transaction_lock as _transaction_lock
 from sandloom.sdk._unit import open_uow_for_module
 
@@ -86,6 +89,55 @@ def conflict_insert(
     ``ON CONFLICT`` refuses (SANDLOOM-R015).
     """
     return _conflict_insert(table, session=session if session is not None else db())
+
+
+async def tenant_upsert(
+    model: type[TenantScoped],
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    update: Sequence[str],
+    conflict_on: Sequence[str] | None = None,
+    session: AsyncSession | None = None,
+) -> None:
+    """Insert ``rows`` of a ``TenantScoped`` model for the bound tenant and, where a
+    row of that tenant already exists, refresh the ``update`` columns from the
+    proposed row::
+
+        # Plan has UniqueConstraint("tenant_id", "code")
+        await tenant_upsert(
+            Plan,
+            [{"id": new_id(), "code": "pro", "price": 20}],
+            update=["price"],
+        )
+
+    ``rows`` are mappings of attribute name to a plain Python value. A SQL
+    expression is refused, and so is the tenant column: a row always takes the
+    bound tenant (none bound: ``MissingTenantError``). Every row names the same
+    columns, the conflict key and the ``update`` columns among them. ``update``
+    lists attributes of the model other than the tenant column and the primary
+    key.
+
+    The row conflicts on a unique key that includes the tenant column: the
+    table's only one, else the one ``conflict_on=[...]`` names (the tenant column
+    may be left out). A row of another tenant is never updated, locked or shown
+    to exist. A call outside these rules, a model without such a key, a model in
+    an inheritance hierarchy or one whose tenant column is not named
+    ``tenant_id`` raises ``ValueError`` (SANDLOOM-R018) before anything is sent.
+    A database without ``ON CONFLICT``, or whose statement the tenant guard
+    cannot read, refuses (SANDLOOM-R015).
+
+    Pending changes of ``session`` (default: :func:`db`) are flushed first, and
+    the call returns nothing. Instances of the upserted rows that the session
+    already holds keep their old values until refreshed. A batch that names one
+    key twice is the caller's to avoid: PostgreSQL refuses it.
+    """
+    await _tenant_upsert(
+        model,
+        rows,
+        update=update,
+        conflict_on=conflict_on,
+        session=session if session is not None else db(),
+    )
 
 
 async def transaction_lock(key: int, *, session: AsyncSession | None = None) -> None:

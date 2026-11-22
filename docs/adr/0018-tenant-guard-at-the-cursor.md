@@ -9,7 +9,8 @@ title: "ADR-0018: The tenant guard at the cursor"
 - **Status:** Accepted (2026-11-21, by the owner, in the review of PR #342)
 - **Date:** 2026-11-21
 - **Origin:** three red-team rounds of the tenant guard, the last with 29 open bypasses
-- **Implemented by:** the tm task `tenant-guard-read-paths` (PR #342, two fix rounds after review)
+- **Implemented by:** the tm task `tenant-guard-read-paths` (PR #342, two fix rounds after review);
+  decision 6 by `tenant-upsert-helper`
 
 ## Context
 
@@ -55,10 +56,11 @@ element, a compiled object of a dialect without the recorder, a compiler a drive
 rendered string read the same way, and is refused when it names a tenant table.
 
 Outside `unscoped()`, a statement that names a tenant table is refused
-(`UnsafeTenantOperationError`, `MissingTenantError` when no tenant is bound), with two exceptions:
+(`UnsafeTenantOperationError`, `MissingTenantError` when no tenant is bound), with three exceptions:
 
 - the ORM guard approved this statement (decision 2);
-- it is a flush write of rows the mapper events verified (decision 4).
+- it is a flush write of rows the mapper events verified (decision 4);
+- it is the one conflict insert `tenant_upsert` builds (decision 6).
 
 Tables are matched by name, not by object. A second `Table` of the same name, `table("name")` and a
 `text()` fragment are the same table. The match ignores the schema, so a same-named table in
@@ -179,6 +181,56 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   an alias the same way: `alias = sa` in one function makes `alias` a `sqlalchemy` name in that
   function only.
 
+### 6. The one conflict insert: `tenant_upsert`
+
+A conflict insert (`INSERT ... ON CONFLICT`) on a tenant table stays refused like any statement the
+ORM guard did not approve, and `conflict_insert` keeps working only inside `unscoped()`. The form
+cannot be validated from what a caller builds. Its `DO UPDATE` can copy a column of the existing
+row, its target can name a key that leaves out the tenant, and its slots (a CTE that carries DML,
+`RETURNING`, a value of raw SQL, an index predicate) take any expression. An earlier attempt admitted
+the form by checking each such slot; six review rounds each found another statement that reached
+another tenant's row, as in the Context above.
+
+So the caller builds no statement. `sandloom.sdk.data.tenant_upsert(Model, rows, update=[...])`
+takes rows of plain Python values and the names of the columns to refresh, and builds the statement
+itself:
+
+- A row key is an attribute of the model, resolved through `mapper.column_attrs` to its Column. A
+  value that is a SQL expression, `text()` or `literal_column()` is refused. The tenant column is
+  never a row key: its value is the bound tenant, bound with the column's own type, so a
+  `TypeDecorator` on it runs on the insert and on the update alike. A model whose tenant column is
+  not named `tenant_id` in the database (`mapped_column("org_id")`), a model in an inheritance
+  hierarchy and a model without a unique key that includes the tenant column are refused with
+  `SANDLOOM-R018`, before anything is sent.
+- The conflict target is a unique key of the table that includes the tenant column. A row of another
+  tenant is never the one that conflicts, so the call neither updates it, nor locks it, nor shows
+  that it exists.
+- `DO UPDATE SET <column> = excluded.<column>` for the listed columns, which are columns of the table
+  other than the tenant column and the primary key, and `WHERE <tenant column> = <the bound tenant>`.
+  There is no `RETURNING`, no CTE, no caller expression. The helper runs it on the unit's connection
+  with `executemany`, so no value is rendered into the SQL.
+
+The cursor admits this statement and no other conflict insert on a tenant table. The helper marks
+the statement it is about to run in a private weak set, `_UPSERTS`, and removes the mark when the call
+ends, whether it succeeds or fails, so a captured statement cannot be run again. The mark alone
+admits nothing. For a marked statement the cursor checks, on the statement and on every parameter
+set:
+
+- the shape. The statement is an `INSERT` over a `Table` with a `tenant_id` column, and every slot
+  SQLAlchemy lists in its `_traverse_internals` is empty but the table and the `ON CONFLICT DO UPDATE`
+  clause, whose own slots are read the same way. The check reads SQLAlchemy's list of slots, not a list
+  of ours, so a slot a later SQLAlchemy adds refuses until the check reads it. The target is columns
+  of the table with the tenant column among them. `SET` writes `excluded.<column>` of the same table
+  into a column that is neither the tenant column nor in the primary key. `WHERE` is one comparison,
+  the tenant column equal to the bound parameter `sandloom_tenant_upsert__` typed as the column
+  itself, a callable bind that reads the bound tenant when the statement runs;
+- the values. The tenant column holds the bound tenant in every parameter set and so does the `WHERE`
+  parameter, so an execution parameter that overrides either is refused;
+- the reach. The statement reads no tenant table and writes only the upserted one.
+
+The mark counts only at the cursor. The same statement handed to `session.execute` is the conflict
+insert it always was, and the ORM guard refuses it.
+
 ## Consequences
 
 - Every compiled statement that names a tenant table, and that the ORM guard did not approve
@@ -208,6 +260,16 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   only its own target.
 - The mapper events add a listener call to each flushed instance, and the load events one
   dictionary write to each loaded instance.
+- `tenant_upsert` returns nothing and refreshes no instance the session already holds: an instance of
+  an upserted row keeps its old values until it is refreshed. It flushes the session's pending changes
+  first. A batch that names one key twice is the caller's to avoid: PostgreSQL refuses it. **Upgrade:**
+  a module that ran `conflict_insert` on a tenant model inside `unscoped()` to upsert for one tenant
+  moves to `tenant_upsert`, which needs a unique key that includes `tenant_id`; a model whose only
+  key leaves the tenant out keeps `unscoped()` or gets such a key in a migration.
+- The helper does not hide a key that another tenant holds when the key does not include the tenant. A
+  primary key shared across tenants (`id` alone) that another tenant owns makes the insert fail on that
+  key, not on the conflict target, with the database's integrity error, as a plain ORM `add` does. Use
+  keys that are not reused across tenants, as for the stamp above.
 - Some seams stay with the caller or with the database, in the order they are named:
   - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;

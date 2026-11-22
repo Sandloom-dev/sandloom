@@ -135,10 +135,13 @@ used to give, use the portable form; on PostgreSQL each renders the same SQL.
 | an index over some rows, or unique among them | `partial_index(name, *columns, where=..., unique=...)` |
 | substring search, `column.ilike("%term%")` | `search_index(name, *columns)` |
 | insert unless the row exists, or insert or update | `conflict_insert(Model).on_conflict_do_nothing(...)`, `.on_conflict_do_update(...)` |
+| insert or update the bound tenant's rows of a `TenantScoped` model | `await tenant_upsert(Model, rows, update=[...])` |
 | one transaction at a time through a section | `await transaction_lock(key)` |
 
-All but `Uuid` come from `sandloom.sdk.data`, and the two statements run on
-`db()` unless given `session=`. The database driver writes each form in its
+All but `Uuid` come from `sandloom.sdk.data`, and the statements run on
+`db()` unless given `session=`. On a `TenantScoped` model `conflict_insert` is
+refused outside `unscoped()`; `tenant_upsert` is the way
+([Multi-tenancy](multi-tenancy.md#insert-or-update-one-tenants-rows)). The database driver writes each form in its
 own SQL, and a database that cannot write one refuses instead of running
 other SQL ([Infrastructure](../../infrastructure/database.md#portable-sql-forms)).
 The check sees imports and dialect options such as `postgresql_where=`. SQL

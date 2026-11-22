@@ -50,6 +50,7 @@ from sandloom.core.sql_alchemy.rls import (
     disable_tenant_rls,
     enable_tenant_rls,
 )
+from sandloom.core.sql_alchemy.tenant_upsert import tenant_upsert
 
 # Re-exported here so a model file declares ``class Foo(TenantScoped, Base)``
 # from one import; importing it also installs the automatic tenant guard.
@@ -113,5 +114,6 @@ __all__ = [
     "partial_index",
     "search_index",
     "session_reads",
+    "tenant_upsert",
     "transaction_lock",
 ]
