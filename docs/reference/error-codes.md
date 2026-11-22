@@ -122,6 +122,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units | active |
 | [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
 | [`SANDLOOM-R017`](#sandloom-r017) | `unsealed-claims` | runtime | a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or an issuer session it cannot verify | active |
+| [`SANDLOOM-R018`](#sandloom-r018) | `tenant-upsert-refused` | runtime | tenant_upsert refused the model, the rows or the column lists it was given | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
 | [`SANDLOOM-T004`](#sandloom-t004) | `contract-snapshot` | test | a module's contracts.snapshot.json does not match its contracts | active |
@@ -2136,6 +2137,57 @@ active; anywhere else it refuses.
 **Fix:** mint a user token with create_access_token(data=..., claims=await core.collect_claims(user_id, issuer=&lt;your contributor>)), data holding only the envelope (sub, token_type, auth_time); a token with no user rights with create_service_token; a test token with as_user or mint_test_token (sandloom.sdk.testing)
 
 **More:** `docs/advanced/security-model.md`
+
+### SANDLOOM-R018
+
+**tenant_upsert refused the model, the rows or the column lists it was given**
+
+Slug: `tenant-upsert-refused` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+tenant_upsert (sandloom.sdk.data) builds the whole statement itself, so it
+accepts only what it can turn into one that stays inside the bound tenant.
+It refuses, before anything is sent: a model that is not TenantScoped, is part
+of an inheritance hierarchy, maps its tenant attribute to a column not named
+tenant_id, has a column that is not exactly sqlalchemy.Column, declares a
+conflict resolution of its own (a &lt;dialect>_on_conflict* option on a column, a
+constraint or an index: SQLite's sqlite_on_conflict* is the one that exists, and
+its REPLACE deletes the row that holds the key, whichever tenant owns it), or
+has no unique key that includes the tenant column (several: name one with
+conflict_on=[...]; a DEFERRABLE key is no candidate, PostgreSQL cannot use it
+as the arbiter); a statement that would read a tenant table (a column default,
+onupdate or type bind_expression that selects from one); a row that is not a
+mapping, names an attribute that is not a plain column of the model, names the
+tenant column, names a
+column twice or carries a SQL expression (a plain value is bound as a
+parameter; an expression never is); rows that do not name the same columns, or
+leave out the conflict key or an updated column (it would be written as its
+default); an update list that is empty or names the tenant column or a primary
+key column.
+
+The tenant is never a value of a row: it is the bound tenant, bound with the
+tenant column's own type. The conflict target includes the tenant column, so a
+row of another tenant is never the one that conflicts, and the update is
+`SET column = excluded.column WHERE tenant_id = <bound tenant>` for the listed
+columns only. Every other key and every foreign key acts as on a plain insert:
+a primary key or another unique key that another tenant's row holds is the
+database's integrity error (it shows that the key exists), and a foreign key
+locks the row it references and may reference a parent of another tenant.
+PostgreSQL runs both checks outside row-level security, so a policy hides
+neither. Make a foreign key to a tenant table composite, (tenant_id,
+parent_id), and do not reuse a key across tenants.
+
+Outside unscoped(), the cursor guard admits a conflict insert on a tenant table
+only for the statement tenant_upsert marked and built, and only when its SQL is,
+text for text, the one the kernel's builder writes from the parts of that
+statement and the bound tenant is the value of every row; any other one stays
+refused with UnsafeTenantOperationError (ADR-0018, decision 6). Inside
+unscoped() the guard does not apply: that is the trusted system path.
+
+**Fix:** pass a plain TenantScoped model that has a unique key including tenant_id, rows of plain values that all name the same columns (never the tenant), and update= attributes that are neither the tenant column nor part of the primary key
+
+**More:** `docs/modules/database/multi-tenancy.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
 

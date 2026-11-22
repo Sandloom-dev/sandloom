@@ -159,6 +159,73 @@ current_tenant_id()                                                 # the bound 
 All of these **fail closed** — they raise `MissingTenantError` if no tenant is
 bound.
 
+## Insert or update one tenant's rows
+
+`conflict_insert` on a `TenantScoped` model is refused outside `unscoped()`: the
+guard cannot tell a harmless `ON CONFLICT` from one that rewrites another
+tenant's row. Upsert with `tenant_upsert` from `sandloom.sdk.data`, which builds
+the statement for the bound tenant from plain rows:
+
+```python
+# Plan has UniqueConstraint("tenant_id", "code")
+rows = [{"id": new_id(), "code": "pro", "price": 20}]
+await tenant_upsert(Plan, rows, update=["price"])
+```
+
+Each row is a mapping of an attribute of the model to a plain value. A row
+whose `code` the tenant has already stored keeps its `id` and gets the new
+`price`; any other row is inserted. The helper:
+
+- fills `tenant_id` itself and refuses a row that names it.
+- takes plain values. A SQL expression, `text()` or `literal_column()` as a
+  value is refused.
+- updates columns of the table other than `tenant_id` and the primary key.
+- conflicts on a unique key that includes `tenant_id`. A row of another tenant
+  is never the conflicting row, so it is never updated. With several such keys,
+  name one with `conflict_on=["code"]` (the tenant column may be left out). A
+  `DEFERRABLE` key is no candidate: PostgreSQL cannot use it as the arbiter.
+- writes `SET column = excluded.column` for the `update` columns and nothing
+  else, `WHERE` the row's `tenant_id` is the bound tenant. It returns nothing,
+  and an instance the session holds keeps its old values until it is refreshed.
+
+Every other key and every foreign key acts as on a plain insert, so the helper
+does not hide another tenant's data from them:
+
+- Another tenant's row can hold your primary key or another unique key. The
+  insert then raises the database's integrity error, which shows that the key
+  exists. Do not reuse a key across tenants. Generate primary keys with
+  `new_id()` and put `tenant_id` into every unique key.
+- A foreign key to a tenant table locks the row it references and may point at
+  a row of another tenant. Make it composite, `(tenant_id, parent_id)`, against
+  a unique key of the parent that includes `tenant_id`.
+
+PostgreSQL runs its uniqueness and foreign key checks outside row-level
+security, so a policy hides neither case. Only the keys cover them.
+
+Before it sends anything, it refuses
+([SANDLOOM-R018](../../reference/error-codes.md#sandloom-r018)) a model:
+
+- without a unique key that includes `tenant_id`;
+- in an inheritance hierarchy;
+- whose tenant column is not named `tenant_id` in the database;
+- with a column that is not exactly `sqlalchemy.Column`;
+- with a `<dialect>_on_conflict*` option on a column, a constraint or an index.
+  SQLite's `sqlite_on_conflict*` is the one that exists. Its `REPLACE` deletes
+  the row that holds the key, whichever tenant owns it.
+
+It also refuses a call whose statement would read a tenant table. Such a read
+comes from a default, `onupdate` or type `bind_expression` of a column the rows
+leave out, when it selects from a tenant table.
+
+A database without `ON CONFLICT` refuses too
+([SANDLOOM-R015](../../reference/error-codes.md#sandloom-r015)).
+
+The cursor guard rebuilds the statement from its parts with the kernel's own
+builder. It runs the statement only when its SQL is the rebuild's, text for
+text, and the bound tenant is in every row
+([ADR-0018](../../adr/0018-tenant-guard-at-the-cursor.md), decision 6). Any
+other conflict insert on a tenant table stays refused.
+
 ## Deliberate cross-tenant access
 
 Admin or system code that genuinely must cross tenants does so explicitly:
@@ -204,8 +271,9 @@ where the tree hangs the reference: a loader option or a custom `@compiles`
 element still ends up in the compiled SQL.
 
 Outside `unscoped()`, a compiled statement that reaches a tenant table is
-refused. Two kinds pass: a statement the ORM guard approved, and a flush write
-of rows the unit of work verified. A refusal is `UnsafeTenantOperationError`
+refused. Three kinds pass: a statement the ORM guard approved, a flush write
+of rows the unit of work verified, and the upsert `tenant_upsert` builds
+([above](#insert-or-update-one-tenants-rows)). A refusal is `UnsafeTenantOperationError`
 under a bound tenant and `MissingTenantError` with none.
 
 A tenant table is matched by name. A `Table` of another `MetaData`, a
@@ -474,6 +542,7 @@ mistakes, not against malicious Python or SQL inside its process.
 | [SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036) | `unscoped` used other than as a `with` item, or a `yield` inside that block, so the bypass outlives its block |
 | [SANDLOOM-C037](../../reference/error-codes.md#sandloom-c037) | a module that builds an engine or a pool, or opens a driver connection, around the framework's engine and its cursor check |
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | no tenant bound where one is required (`400`) |
+| [SANDLOOM-R018](../../reference/error-codes.md#sandloom-r018) | a `tenant_upsert` call or model that cannot stay inside the bound tenant |
 | [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026) | `tenant_rls` or the system channel on a database without row security |
 
 ??? note "Guarantees, precisely"
@@ -483,6 +552,9 @@ mistakes, not against malicious Python or SQL inside its process.
     - The legacy `Session.bulk_*` methods are refused on tenant models, and
       SQL hidden in loader options, `values()` or column defaults is scoped or
       refused (G-TENANT-21, G-TENANT-22).
+    - `tenant_upsert` is the one conflict insert the cursor admits on a tenant
+      table, for the bound tenant and the exact statement it builds
+      (G-TENANT-27).
     - A missing tenant is `400 tenant_required`, also when the error
       reaches the request boundary (G-TENANT-12).
     - RLS policies are fail-closed, forced and without bypass; the role checks

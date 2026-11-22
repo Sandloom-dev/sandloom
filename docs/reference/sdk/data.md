@@ -65,6 +65,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`search_index`](#search_index) | function | An index that serves substring search (`column.ilike('%term%')`). |
 | [`session_reads`](#session_reads) | function | Run declared operations ON `session` (an open Unit of Work). |
 | [`SnapshotReads`](#snapshotreads) | annotated type |  |
+| [`tenant_upsert`](#tenant_upsert) | async function | Insert `rows` of a `TenantScoped` model for the bound tenant and, where a row of that tenant already exists, refresh the `update` columns... |
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
@@ -934,6 +935,68 @@ SnapshotReads = Annotated[Any, Depends(dependency=<function get_snapshot_reads>,
 ```
 
 *(no docstring)*
+
+### `tenant_upsert`
+
+```python
+async def tenant_upsert(
+    model: type[TenantScoped],
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    update: Sequence[str],
+    conflict_on: Sequence[str] | None = None,
+    session: AsyncSession | None = None,
+) -> None
+```
+
+Insert `rows` of a `TenantScoped` model for the bound tenant and, where a
+row of that tenant already exists, refresh the `update` columns from the
+proposed row:
+
+```python
+# Plan has UniqueConstraint("tenant_id", "code")
+await tenant_upsert(
+    Plan,
+    [{"id": new_id(), "code": "pro", "price": 20}],
+    update=["price"],
+)
+```
+
+`rows` are mappings of attribute name to a plain Python value. A SQL
+expression is refused, and so is the tenant column: a row always takes the
+bound tenant (none bound: `MissingTenantError`). Every row names the same
+columns, the conflict key and the `update` columns among them. `update`
+lists attributes of the model other than the tenant column and the primary
+key.
+
+The row conflicts on a unique key that includes the tenant column: the
+table's only one, else the one `conflict_on=[...]` names (the tenant column
+may be left out). A row of another tenant is never the conflicting row, so it
+is never updated or chosen by the tenant-inclusive key. Every other key and
+every foreign key acts as on a plain insert: a primary key or another unique
+key that a row of another tenant holds is the database's integrity error,
+which shows that the key exists, and a foreign key locks the row it
+references, which may be a parent of another tenant. PostgreSQL runs both
+checks outside row-level security, so a policy hides neither. The helper does
+not check either: applying the advice is the caller's, so make a foreign key
+to a tenant table composite, `(tenant_id, parent_id)`, and do not reuse a
+key across tenants. What the helper does refuse, with `ValueError`
+(SANDLOOM-R018) before anything is sent: a model without such a unique key, a
+model in an inheritance hierarchy, one whose tenant column is not named
+`tenant_id`, one with a column that is not exactly `sqlalchemy.Column` or
+a `<dialect>_on_conflict*` option, one whose statement would read a tenant
+table (a column default or type `bind_expression` that selects from one),
+and a row or an `update` / `conflict_on` column outside the rules above.
+A database without `ON CONFLICT`, or whose statement the tenant guard cannot
+read, refuses (SANDLOOM-R015).
+
+Pending changes of `session` (default: `db`) are flushed first, and
+the call returns nothing. Instances of the upserted rows that the session
+already holds keep their old values until refreshed. The rows go to the
+driver as the parameter sets of one `executemany`, which runs the command
+once per set, so a row that repeats the key of an earlier row of the batch
+updates that row in turn instead of the database refusing the batch. A batch
+that names one key twice is the caller's to avoid.
 
 ### `transaction_lock`
 

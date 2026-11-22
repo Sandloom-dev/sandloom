@@ -93,6 +93,7 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.orm.partial_index": "sandloom.sdk.data",
     "core.orm.search_index": "sandloom.sdk.data",
     "core.orm.conflict_insert": "sandloom.sdk.data",
+    "core.orm.tenant_upsert": "sandloom.sdk.data",
     "core.orm.transaction_lock": "sandloom.sdk.data",
     # The database feature forms (2026-11-05, SANDLOOM-C030 / B033).
     "core.orm.Array": "sandloom.sdk.data",

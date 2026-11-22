@@ -4,7 +4,8 @@ The portable upsert of a tenant-scoped model is not admitted by the tenant
 guard: under a bound tenant it raises ``UnsafeTenantOperationError`` (in both
 forms, ``DO NOTHING`` and ``DO UPDATE``), and only explicit ``unscoped()``
 system work may run it. The guard refuses before any statement reaches the
-database, so nothing here connects.
+database, so nothing here connects. The one upsert of a tenant model the guard
+admits is ``tenant_upsert`` (``src/sandloom/core/tests/test_tenant_upsert.py``).
 """
 
 from __future__ import annotations

@@ -9,7 +9,8 @@ title: "ADR-0018: The tenant guard at the cursor"
 - **Status:** Accepted (2026-11-21, by the owner, in the review of PR #342)
 - **Date:** 2026-11-21
 - **Origin:** three red-team rounds of the tenant guard, the last with 29 open bypasses
-- **Implemented by:** the tm task `tenant-guard-read-paths` (PR #342, two fix rounds after review)
+- **Implemented by:** the tm task `tenant-guard-read-paths` (PR #342, two fix rounds after review);
+  decision 6 by `tenant-upsert-helper`
 
 ## Context
 
@@ -55,10 +56,11 @@ element, a compiled object of a dialect without the recorder, a compiler a drive
 rendered string read the same way, and is refused when it names a tenant table.
 
 Outside `unscoped()`, a statement that names a tenant table is refused
-(`UnsafeTenantOperationError`, `MissingTenantError` when no tenant is bound), with two exceptions:
+(`UnsafeTenantOperationError`, `MissingTenantError` when no tenant is bound), with three exceptions:
 
 - the ORM guard approved this statement (decision 2);
-- it is a flush write of rows the mapper events verified (decision 4).
+- it is a flush write of rows the mapper events verified (decision 4);
+- it is the one conflict insert `tenant_upsert` builds (decision 6).
 
 Tables are matched by name, not by object. A second `Table` of the same name, `table("name")` and a
 `text()` fragment are the same table. The match ignores the schema, so a same-named table in
@@ -179,6 +181,86 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   an alias the same way: `alias = sa` in one function makes `alias` a `sqlalchemy` name in that
   function only.
 
+### 6. The one conflict insert: `tenant_upsert`
+
+A conflict insert (`INSERT ... ON CONFLICT`) on a tenant table stays refused like any statement the
+ORM guard did not approve, and `conflict_insert` keeps working only inside `unscoped()`. The form
+cannot be validated from what a caller builds. Its `DO UPDATE` can copy a column of the existing
+row, its target can name a key that leaves out the tenant, and its slots (a CTE that carries DML,
+`RETURNING`, a value of raw SQL, an index predicate) take any expression. An earlier attempt admitted
+the form by checking each such slot; six review rounds each found another statement that reached
+another tenant's row, as in the Context above.
+
+So the caller builds no statement. `sandloom.sdk.data.tenant_upsert(Model, rows, update=[...])`
+takes rows of plain Python values and the names of the columns to refresh, and builds the statement
+itself:
+
+- A row key is an attribute of the model, resolved through `mapper.column_attrs` to its Column. A
+  value that is a SQL expression, `text()` or `literal_column()` is refused. The tenant column is
+  never a row key: its value is the bound tenant, bound with the column's own type, so a
+  `TypeDecorator` on it runs on the insert and on the update alike. A model whose tenant column is
+  not named `tenant_id` in the database (`mapped_column("org_id")`), a model in an inheritance
+  hierarchy, a model without a unique key that includes the tenant column, a model with a column that
+  is not exactly `Column`, a model with a `<dialect>_on_conflict*` option on a column, a constraint
+  or an index (SQLite's `sqlite_on_conflict*` is the one that exists: its `REPLACE` deletes the row
+  that holds the key before `ON CONFLICT` is asked, whichever tenant owns it) and a call whose statement would read a tenant table (a column default, `onupdate`
+  or type `bind_expression` that selects from one) are refused with `SANDLOOM-R018`, before anything
+  is sent and before the session is flushed.
+- The conflict target is a unique key of the table that includes the tenant column. A row of another
+  tenant is never the row that conflicts, so the update never touches it. That is the whole claim:
+  every other key and every foreign key acts as on a plain insert (see the Consequences). A
+  `DEFERRABLE` key is no candidate, because PostgreSQL cannot use it as the arbiter of `DO UPDATE`.
+- `DO UPDATE SET <column> = excluded.<column>` for the listed columns, which are columns of the table
+  other than the tenant column and the primary key, and `WHERE <tenant column> = <the bound tenant>`.
+  There is no `RETURNING`, no CTE, no caller expression. The helper runs it on the unit's connection
+  with `executemany`, so no value is rendered into the SQL. The dialect that renders it is the one of
+  the bind the connection resolves for the model's mapper.
+
+One function writes the statement: `canonical_tenant_upsert(dialect, table, target, update)` in
+`sandloom.core.sql_alchemy.tenant_upsert`. The helper builds with it, and the cursor guard builds with
+it again, so the guard checks the helper's statement against the helper's own builder and not against
+a second description of it.
+
+The cursor admits this statement and no other conflict insert on a tenant table. The helper marks
+the statement it is about to run in a private weak set, `_UPSERTS`, and removes the mark when the call
+ends, whether it succeeds or fails, so a captured statement cannot be run again. The mark alone
+admits nothing. The guard reads the statement that ran (`context.invoked_statement`), never the compiled
+object, which every statement of the same cache key shares: its reading is kept per marked statement
+object and never on the compiled form. For a marked statement the cursor checks, on the statement and
+on every parameter set:
+
+- the parts. The statement is an `INSERT` over a `Table` that is, by identity, the `local_table` of a
+  `TenantScoped` mapper (a second `Table` of the same name, whose tenant column is a `TypeDecorator`
+  that rewrites its value, is none), made of plain `Column` objects, with every slot SQLAlchemy lists
+  in its `_traverse_internals` empty but the table and the `ON CONFLICT DO UPDATE` clause, whose own
+  slots are read the same way. The check reads SQLAlchemy's list of slots, not a list of ours, so a
+  slot a later SQLAlchemy adds refuses until the check reads it. The target is columns of the table
+  with the tenant column among them. `SET` writes `excluded.<column>` of the same table into a column
+  that is neither the tenant column nor in the primary key. `WHERE` is one comparison, the tenant
+  column equal to the bound parameter `sandloom_tenant_upsert__` typed as the column itself, a
+  callable bind that reads the bound tenant when the statement runs;
+- the text. The guard rebuilds the statement from those parts with `canonical_tenant_upsert`, compiles
+  it as this execution compiled the statement (dialect, column keys, `executemany`), and admits only
+  when the two SQL strings are equal and the statement, the clause and every `SET` value are of
+  exactly the classes of the rebuild. A subclass of `Insert` or of a column, or an object that
+  renders itself, that renders another SQL (a conflict target moved to the primary key, a `WHERE` that
+  is always true, a sub-select in a `SET` value) is read where it lands: in the text;
+- the values. The tenant column holds the bound tenant in every parameter set and so does the `WHERE`
+  parameter, so an execution parameter that overrides either is refused. "Holds the bound tenant" is
+  `type(value) is uuid.UUID and value == tenant`, never `value == tenant` alone: `==` runs the
+  `__eq__` of the object the caller supplied, and a `uuid.UUID` subclass whose `__eq__` says yes is
+  bound to the database as the UUID it was built from. The same helper decides every tenant
+  comparison of the guard that reads a value a caller can supply (the flush insert and update, the
+  criterion parameter). A tenant read from the database is a driver subclass (asyncpg's `UUID`):
+  the bound tenant is read as a plain `uuid.UUID` of the same bits (`_bound_tenant`), and a row that
+  carries such a subclass for the bound tenant is given the plain value at the flush, so nothing of
+  the caller's object is bound to a statement; a subclass that disagrees with itself (its `__eq__`
+  says yes, its bits say another tenant) is `TenantMismatchError`;
+- the reach. The statement reads no tenant table and writes only the upserted one.
+
+The mark counts only at the cursor. The same statement handed to `session.execute` is the conflict
+insert it always was, and the ORM guard refuses it.
+
 ## Consequences
 
 - Every compiled statement that names a tenant table, and that the ORM guard did not approve
@@ -208,6 +290,21 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   only its own target.
 - The mapper events add a listener call to each flushed instance, and the load events one
   dictionary write to each loaded instance.
+- `tenant_upsert` returns nothing and refreshes no instance the session already holds: an instance of
+  an upserted row keeps its old values until it is refreshed. It flushes the session's pending changes
+  first. The rows go to the driver as the parameter sets of one `executemany`, and a driver that
+  runs the command once per set (asyncpg) updates the row the first of two equal keys inserted
+  with the values of the second, rather than the database refusing the batch; a batch that names
+  one key twice is the caller's to avoid. **Upgrade:**
+  a module that ran `conflict_insert` on a tenant model inside `unscoped()` to upsert for one tenant
+  moves to `tenant_upsert`, which needs a unique key that includes `tenant_id`; a model whose only
+  key leaves the tenant out keeps `unscoped()` or gets such a key in a migration.
+- The helper hides no key and no row that another tenant holds beyond the conflict target; the
+  database answers as for a plain insert. A primary key (`id` alone) or another unique key that
+  another tenant owns makes the insert fail on that key, not on the conflict target, with the
+  database's integrity error, which shows that the key exists. A foreign key to a tenant table locks
+  the row it references, and the row may be another tenant's. Use keys that are not reused across
+  tenants, as for the stamp above, and make a foreign key composite, `(tenant_id, parent_id)`.
 - Some seams stay with the caller or with the database, in the order they are named:
   - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;
@@ -245,6 +342,74 @@ outlive its block. Three `sandloom check` rules say it for business modules.
   module alias before it assigns the same name is not reported for that read, and an alias that a
   function re-assigns to an unrelated value is still reported. The runtime cursor guard is the
   boundary; these rules are a static layer.
+
+## Measured cost of the guard
+
+Cachegrind A/B of 2026-11-22 (PR #344, review round 2, CodeRabbit comment 4658372027): what the
+guard of this change costs a guarded ORM write and a guarded ORM read against `main` at `b116334c`,
+and what `tenant_upsert` costs. The rungs are in `benchmarks/ladder/tenant_guard_rungs.py`, on the
+kernel's cachegrind stand (`benchmarks/ladder/cg/`: the image `sandloom-ladder-cg:3.13`,
+`valgrind --tool=cachegrind --cache-sim=no`, `PYTHONHASHSEED=0`, Ir/op = (Ir(200 ops) - Ir(0 ops)) /
+200 after 20 warm-up operations, one fresh PostgreSQL database per run):
+
+- `XTgW`: a new session as the bound tenant, `add` one row, `commit`;
+- `XTgR`: a new session as the bound tenant, `select` one row by primary key;
+- `XTgU`: `tenant_upsert` of one existing row as the bound tenant, then `commit`.
+
+Round 2 added early-outs where the cheap test comes first: `_bound_tenant()` returns the context
+variable as it is when it is `None` or an exact `uuid.UUID`; `_adopt_bound_tenant` compares an exact
+`uuid.UUID` directly and walks the subclass checks only for a subclass; `_flush_write_admitted` tests
+the flush window, the statement's shape and the reach before it reads the bound tenant.
+
+The collector is frozen after the warm-up (`LADDER_CG_GC=freeze`: `gc.collect()` and `gc.freeze()`),
+because the stand's default lets collections fall inside the 200 operations and where they fall
+depends on the heap each build starts with. A first default-mode run gave `XTgR` +46k against `main`;
+that was the phase of a collection, and it vanished once the collector was frozen. A second mode,
+`off` (`freeze` and `gc.disable()`), checks that the result is not an artifact of `freeze`.
+Default-mode numbers of two trees are not comparable.
+
+| Ir/op | `main` | round 1 (`63b1532a`) | round 2 | round 2 vs `main` | round 2 vs round 1 |
+|---|---:|---:|---:|---:|---:|
+| `XTgW`, freeze | 1,708,559 | 1,711,404 | 1,711,398 | +2,839 (+0.17%) | -6 (0.00%) |
+| `XTgR`, freeze | 2,026,754 | 1,952,005 | 1,960,823 | -65,931 (-3.25%) | +8,818 (+0.45%) |
+| `XTgU`, freeze | no helper | 5,733,149 | 5,675,621 | no helper | -57,528 (-1.00%) |
+| `XTgW`, off | 1,704,779 | 1,706,683 | 1,710,599 | +5,820 (+0.34%) | +3,916 (+0.23%) |
+| `XTgR`, off | 2,018,870 | 1,938,715 | 1,940,972 | -77,898 (-3.86%) | +2,257 (+0.12%) |
+| `XTgU`, off | no helper | 5,740,933 | 5,694,871 | no helper | -46,062 (-0.80%) |
+
+- The tables were measured before `XTgR` and `XTgU` addressed row `i % _ROWS` (a later review
+  round, so that an `--n` past the seeded rows reads an existing row): the rungs gained one integer
+  modulo and one assignment per operation, the same on every tree, and no operation index under
+  200 changed.
+- A guarded write costs 0.17% to 0.34% more than on `main`; the early-outs did not lower it. The
+  cost is not attributed per function.
+- The early-outs take 46k to 57k instructions (0.8% to 1.0%) off `XTgU`. A `tenant_upsert` of one
+  row costs 3.3 times a plain `add` and `commit`: the helper builds the `INSERT ... ON CONFLICT DO
+  UPDATE` and the cursor rebuilds the statement to check it.
+- A guarded read is not dearer than on `main`: it measures 66k to 78k instructions cheaper, and this
+  is **not explained and not claimed as a gain**. The Python eval loop differs by +1.5k and the
+  call count by +3 to +5 per operation (a `cProfile` count of both trees), so the guard does not do
+  less work; the difference sits in C code that cachegrind reports as unsymbolized. A bisect over the
+  25 hunks of the diff of `tenant.py` narrowed it to hunks 9 to 14 (the `_flush_write_admitted`
+  changes and the block that defines the upsert shapes), and not to the criterion path, the adoption
+  helpers, the imports, the recorder refactor or padding. Appending definitions nobody calls to
+  `main`'s `tenant.py` moves `XTgR` too (an unused runtime-checkable `Protocol` and `NamedTuple`:
+  2,001,478, -17,392 in `off` mode; an unused `WeakSet` and `WeakKeyDictionary`: 2,016,613, -2,257),
+  so a difference of this size on this rung is no evidence of work the guard saves.
+
+To repeat it, run these from the checkout under test (`main` with the rung file copied in, then the
+branch), on an idle machine, with the test PostgreSQL (`deploy/compose/test.yml`, port 5433) and a
+Redis for the stand, once with `LADDER_CG_GC=freeze` and once with `LADDER_CG_GC=off`. The stand's
+`cgdriver.py` runs `ladder.py`; the rungs have their own entry, so two scratch copies select it and
+nothing committed changes (`$TMPDIR` is any scratch directory):
+
+```
+sed 's#/w/benchmarks/ladder/ladder.py#/w/benchmarks/ladder/tenant_guard_rungs.py#' benchmarks/ladder/cg/cgdriver.py > "$TMPDIR/tgdriver.py"
+sed -e "s#^HERE=.*#HERE=$PWD/benchmarks/ladder/cg#" -e "s#^ROOT=.*#ROOT=$PWD#" -e 's#python /w/benchmarks/ladder/cg/cgdriver.py#python /w/tgdriver.py#' -e "s#^  -w /tmp \\\\#  -v \$TMPDIR/tgdriver.py:/w/tgdriver.py:ro -w /tmp \\\\#" benchmarks/ladder/cg/run_cg.sh > "$TMPDIR/tg-run-cg.sh"
+env TMPDIR="$TMPDIR" LADDER_CG_GC=freeze CG_K=200 DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5433/<db> BENCH_REDIS_URL=redis://127.0.0.1:<port>/0 sh "$TMPDIR/tg-run-cg.sh" XTgW XTgR XTgU
+```
+
+`XTgU` has no row for `main`, which has no `tenant_upsert`. Compare the Ir/op of the same rung only.
 
 ## Out of scope
 

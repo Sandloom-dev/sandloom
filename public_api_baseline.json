@@ -2096,6 +2096,10 @@
       "kind": "function",
       "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> sandloom.core.planner.Reads"
     },
+    "tenant_upsert": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|Any, rows:POSITIONAL_OR_KEYWORD|Sequence[Mapping[str, Any]], update:KEYWORD_ONLY|Sequence[str], conflict_on:KEYWORD_ONLY|Sequence[str] | None=None, session:KEYWORD_ONLY|AsyncSession) -> None"
+    },
     "transaction_lock": {
       "kind": "function",
       "signature": "(key:POSITIONAL_OR_KEYWORD|int, session:KEYWORD_ONLY|AsyncSession) -> None"
@@ -5587,6 +5591,10 @@
     "session_reads": {
       "kind": "function",
       "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> sandloom.core.planner.Reads"
+    },
+    "tenant_upsert": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[TenantScoped], rows:POSITIONAL_OR_KEYWORD|Sequence[Mapping[str, Any]], update:KEYWORD_ONLY|Sequence[str], conflict_on:KEYWORD_ONLY|Sequence[str] | None=None, session:KEYWORD_ONLY|AsyncSession | None=None) -> None"
     },
     "transaction_lock": {
       "kind": "function",

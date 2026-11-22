@@ -68,7 +68,7 @@ These 20 code names are importable from `sandloom.sdk` directly; the six testing
 | [`sandloom.sdk.app`](app.md) | 0 | 3 |  |
 | [`sandloom.sdk.authz`](authz.md) | 3 | 48 |  |
 | [`sandloom.sdk.contracts`](contracts.md) | 3 | 32 |  |
-| [`sandloom.sdk.data`](data.md) | 6 | 42 |  |
+| [`sandloom.sdk.data`](data.md) | 6 | 43 |  |
 | [`sandloom.sdk.effects`](effects.md) | 2 | 8 |  |
 | [`sandloom.sdk.errors`](errors.md) | 0 | 30 |  |
 | [`sandloom.sdk.events`](events.md) | 2 | 7 |  |

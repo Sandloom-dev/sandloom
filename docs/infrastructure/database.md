@@ -86,6 +86,7 @@ renderer belongs to the database's driver package. It names itself in the
 | `partial_index` | `CREATE INDEX ... WHERE` | `CREATE INDEX ... WHERE` |
 | `search_index` | `pg_trgm` GIN index | not created; the search runs unindexed |
 | `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
+| `tenant_upsert` | `INSERT ... ON CONFLICT DO UPDATE ... WHERE tenant_id = <bound>` | the same |
 | `transaction_lock` | `pg_advisory_xact_lock` | the unit's own write lock (`BEGIN IMMEDIATE`); refused in a read-only unit |
 | `aggregate_list` | `array_agg` | `json_group_array`, read back as the same list |
 | `Array(item_type)` | `item_type[]` | refused (no `arrays`) |
