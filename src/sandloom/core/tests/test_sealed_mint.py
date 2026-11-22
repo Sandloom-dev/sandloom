@@ -525,6 +525,38 @@ async def test_a_local_contributor_writing_the_binding_key_is_a_violator(
     assert refused.value.owner == "rogue"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "session", [None, object()], ids=["no-session", "issuer-session"]
+)
+@pytest.mark.parametrize(
+    "value",
+    [IDP, GRANTS, {"a": 1}, 1],
+    ids=["own-path", "other-path", "dict", "int"],
+)
+async def test_the_issuers_own_contributor_writing_the_binding_key_is_a_violator(
+    session: object | None, value: Any
+) -> None:
+    """The contributor passed as ``issuer=`` is the one whose step the mint
+    runs itself (a :class:`~sandloom.core.facade._claims._MintIssuerContract`
+    when it has the issuer's session): it must not carry the kernel's key
+    into a token either. A str, its own path included, would look like the
+    binding the local call drops, so the key is replaced by a marker before
+    that; a critical issuer refuses the mint, with or without the session."""
+    core = _core()
+    idp = _register(
+        core, IDP, {"roles": ["admin"], AUTHORITY_CLAIM: value}, critical=True
+    )
+    _register(core, GRANTS, {"tenant_ids": [TENANT]}, critical=True)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        if session is None:
+            await core.collect_claims(uuid4(), issuer=idp)
+        else:
+            await core.collect_claims(uuid4(), session, issuer=idp)
+    assert refused.value.owner == "idp"
+    assert idp.calls == 1
+
+
 def _remote_issuer(server: CoreFacade, monkeypatch: pytest.MonkeyPatch) -> CoreFacade:
     """A process whose map assigns ``tenant_ids`` to ``acme.grants`` with no
     local owner for it: its mint asks ``grants.claims.v1`` of ``server`` over
