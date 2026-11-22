@@ -291,8 +291,6 @@ class ClaimsContributorContract:
         the import path of the module registered under this owner: a remote
         issuer binds it to its map (the pinned ``service_id`` proves the
         service, this proves which module the service runs under the name).
-        The mint's own local call does not ask for it (a local authority is
-        bound by its registration): it would be built, wired and dropped.
         """
         merged = await self._merge(user_id)
         if AUTHORITY_CLAIM in merged:
@@ -301,6 +299,9 @@ class ClaimsContributorContract:
             # kernel's answer.
             merged[AUTHORITY_CLAIM] = {"written_by": "a contributor"}
         elif not self._for_the_mint and asyncio.current_task() not in _LOCAL_STEP_TASKS:
+            # Not the mint's own local call (a local authority is bound by its
+            # registration: the binding would be built, wired and dropped by
+            # ``_local_answer``): a served call names its module.
             path = self._facade._claims_owner_modules.get(self._owner or "")
             if path:
                 merged[AUTHORITY_CLAIM] = path
