@@ -19,15 +19,18 @@ beyond the in-memory revocation cache).
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, TypeVar
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 
+import sandloom.core.facade._claims as _claims
 from sandloom.core import error_codes
 from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.auth import claims_view as view
@@ -39,6 +42,7 @@ from sandloom.core.claims import (
     UnsealedClaimsError,
 )
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade, CoreRuntime
+from sandloom.core.module_api import contract_session
 from sandloom.core.runtime import use_active_core
 from sandloom.core.testing.auth import make_user_headers, mint_test_token, sealed_claims
 from sandloom.core.tests import test_auth_rotation_revocation as _revocation
@@ -135,13 +139,72 @@ class _Counted:
         return dict(self.result)
 
 
-def _register(
-    core: CoreFacade, path: str, result: dict[str, Any], *, critical: bool = False
-) -> _Counted:
-    fn = _Counted(result)
+class _Gated(_Counted):
+    """A contributor that stops inside its call until ``release`` is set, then
+    answers (or raises ``fail``): a local step suspended mid-flight."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        """Remember the answer; the gate starts closed."""
+        super().__init__(result)
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.fail: Exception | None = None
+
+    async def __call__(self, user_id: Any) -> dict[str, Any]:
+        """Signal the entry, wait for the release, then answer or raise."""
+        self.entered.set()
+        await self.release.wait()
+        if self.fail is not None:
+            raise self.fail
+        return await super().__call__(user_id)
+
+
+class _Driven(_Counted):
+    """A contributor whose answer is made by ``body`` (a test that drives
+    another call from inside a contributor's step)."""
+
+    def __init__(self, body: Callable[[Any], Awaitable[dict[str, Any]]]) -> None:
+        """Remember the body."""
+        super().__init__({})
+        self.body = body
+
+    async def __call__(self, user_id: Any) -> dict[str, Any]:
+        """Count, then answer what the body makes of the user."""
+        self.calls += 1
+        return await self.body(user_id)
+
+
+class _SameTaskProxy:
+    """A remote ``<owner>.claims.v1`` client whose server runs on the caller's
+    task, as an in-process transport does (``httpx.ASGITransport``,
+    ``contract_testing.in_process_rpc_client``)."""
+
+    def __init__(self, server: CoreFacade, contract: str) -> None:
+        """Serve ``contract`` of ``server``."""
+        self.server = server
+        self.contract = contract
+
+    async def contribute(self, user_id: Any) -> dict[str, Any]:
+        """Answer as the server's served method does, on this task."""
+        answer: dict[str, Any] = await self.server.local_contract(
+            self.contract
+        ).contribute(user_id)
+        return answer
+
+
+_G = TypeVar("_G", bound=_Counted)
+
+
+def _register_fn(core: CoreFacade, path: str, fn: _G, *, critical: bool = False) -> _G:
     with core.module_registration(path) as api:
         api.add_claims_contributor(fn, critical=critical)
     return fn
+
+
+def _register(
+    core: CoreFacade, path: str, result: dict[str, Any], *, critical: bool = False
+) -> _Counted:
+    return _register_fn(core, path, _Counted(result), critical=critical)
 
 
 def _core() -> CoreFacade:
@@ -334,6 +397,366 @@ async def test_another_module_writing_the_issuers_fields_is_a_violator() -> None
     with pytest.raises(ClaimsUnavailable) as refused:
         await critical.collect_claims(uuid4(), object(), issuer=idp)
     assert refused.value.owner == "rogue"
+
+
+# --------------------------------------------------------------------------- #
+# the authority binding of a local step (kb-mint-budget-optimize)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "session", [None, object()], ids=["no-session", "issuer-session"]
+)
+async def test_a_local_step_builds_no_authority_binding_the_served_method_does(
+    monkeypatch: pytest.MonkeyPatch, session: object | None
+) -> None:
+    """The mint's own ``contribute`` calls (the issuer's and a local owner's)
+    drop the binding of their answer anyway, so they do not build it; the
+    same method served over RPC (here: called outside the mint) still names
+    its module, which the remote issuer binds to its map."""
+    core = _core()
+    idp = _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    _register(core, GRANTS, {"tenant_ids": [TENANT]}, critical=True)
+    raw: list[dict[str, Any]] = []
+    drop = _claims._local_answer
+
+    def spy(answer: Any) -> Any:
+        raw.append(dict(answer))
+        return drop(answer)
+
+    monkeypatch.setattr(_claims, "_local_answer", spy)
+    if session is None:
+        sealed = await core.collect_claims(uuid4())
+    else:
+        sealed = await core.collect_claims(uuid4(), session, issuer=idp)
+    assert sealed["roles"] == ["admin"] and sealed["tenant_ids"] == [TENANT]
+    assert AUTHORITY_CLAIM not in sealed
+    assert len(raw) == 2
+    assert all(AUTHORITY_CLAIM not in answer for answer in raw)
+    served = await core.local_contract("idp.claims.v1").contribute(uuid4())
+    assert served[AUTHORITY_CLAIM] == IDP
+    served = await core.local_contract("grants.claims.v1").contribute(uuid4())
+    assert served[AUTHORITY_CLAIM] == GRANTS
+
+
+@pytest.mark.asyncio
+async def test_a_served_call_beside_a_local_step_still_names_its_module() -> None:
+    """The local step is told apart per task, not per process: a served
+    ``contribute`` (an RPC request of the same process) that runs while a
+    local step of a mint is suspended inside its own call still builds the
+    binding, so the remote issuer that asked binds it to its map."""
+    core = _core()
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    grants = _register_fn(core, GRANTS, _Gated({"tenant_ids": [TENANT]}), critical=True)
+    mint = asyncio.create_task(core.collect_claims(uuid4()))
+    try:
+        await asyncio.wait_for(grants.entered.wait(), timeout=5)
+        assert len(_claims._LOCAL_STEP_TASKS) == 1
+        served = await core.local_contract("idp.claims.v1").contribute(uuid4())
+        assert served[AUTHORITY_CLAIM] == IDP
+    finally:
+        grants.release.set()
+    sealed = await mint
+    assert sealed["tenant_ids"] == [TENANT] and AUTHORITY_CLAIM not in sealed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("how", ["raises", "cancelled"])
+async def test_a_local_step_leaves_no_mark_however_it_ends(how: str) -> None:
+    """A task left in the set would make its next served ``contribute`` answer
+    without the binding (a remote issuer then refuses the owner)."""
+    core = _core()
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    gated = _Gated({"tenant_ids": [TENANT]})
+    if how == "raises":
+        gated.fail = RuntimeError("boom")
+    _register_fn(core, GRANTS, gated, critical=True)
+    mint = asyncio.create_task(core.collect_claims(uuid4()))
+    try:
+        await asyncio.wait_for(gated.entered.wait(), timeout=5)
+        assert len(_claims._LOCAL_STEP_TASKS) == 1
+        if how == "cancelled":
+            mint.cancel()
+    finally:
+        gated.release.set()
+    if how == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await mint
+    else:
+        with pytest.raises(ClaimsUnavailable):
+            await mint
+    assert _claims._LOCAL_STEP_TASKS == set()
+    gated.fail = None
+    served = await core.local_contract("grants.claims.v1").contribute(uuid4())
+    assert served[AUTHORITY_CLAIM] == GRANTS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "session", [None, object()], ids=["no-session", "issuer-session"]
+)
+@pytest.mark.parametrize("value", [GRANTS, {"a": 1}, 1], ids=["str", "dict", "int"])
+async def test_a_local_contributor_writing_the_binding_key_is_a_violator(
+    session: object | None, value: Any
+) -> None:
+    """Not building the binding for a local call must not let a contributor's
+    own value under the kernel's key through: optional, it loses its whole
+    result; critical, it refuses the mint (a str is never dropped as a
+    binding)."""
+    core = _core()
+    idp = _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    _register(core, ROGUE, {"loyalty_tier": "gold", AUTHORITY_CLAIM: value})
+
+    def collect(c: CoreFacade) -> Any:
+        if session is None:
+            return c.collect_claims(uuid4())
+        return c.collect_claims(uuid4(), session, issuer=idp)
+
+    sealed = await collect(core)
+    assert sealed["claims_sources_failed"] == ["rogue"]
+    assert "loyalty_tier" not in sealed and AUTHORITY_CLAIM not in sealed
+
+    critical = _core()
+    idp = _register(critical, IDP, {"roles": ["admin"]}, critical=True)
+    _register(critical, ROGUE, {AUTHORITY_CLAIM: value}, critical=True)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        await collect(critical)
+    assert refused.value.owner == "rogue"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "session", [None, object()], ids=["no-session", "issuer-session"]
+)
+@pytest.mark.parametrize(
+    "value",
+    [IDP, GRANTS, {"a": 1}, 1],
+    ids=["own-path", "other-path", "dict", "int"],
+)
+async def test_the_issuers_own_contributor_writing_the_binding_key_is_a_violator(
+    session: object | None, value: Any
+) -> None:
+    """The contributor passed as ``issuer=`` is the one whose step the mint
+    runs itself (a :class:`~sandloom.core.facade._claims._MintIssuerContract`
+    when it has the issuer's session): it must not carry the kernel's key
+    into a token either. A str, its own path included, would look like the
+    binding the local call drops, so the key is replaced by a marker before
+    that; a critical issuer refuses the mint, with or without the session."""
+    core = _core()
+    idp = _register(
+        core, IDP, {"roles": ["admin"], AUTHORITY_CLAIM: value}, critical=True
+    )
+    _register(core, GRANTS, {"tenant_ids": [TENANT]}, critical=True)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        if session is None:
+            await core.collect_claims(uuid4(), issuer=idp)
+        else:
+            await core.collect_claims(uuid4(), session, issuer=idp)
+    assert refused.value.owner == "idp"
+    assert idp.calls == 1
+
+
+def _remote_issuer(server: CoreFacade, monkeypatch: pytest.MonkeyPatch) -> CoreFacade:
+    """A process whose map assigns ``tenant_ids`` to ``acme.grants`` with no
+    local owner for it: its mint asks ``grants.claims.v1`` of ``server`` over
+    an in-process transport."""
+    issuer = _core()
+    monkeypatch.setattr(
+        issuer.settings,
+        "service_bindings",
+        {"grants.claims.v1": {"base_url": "http://grants"}},
+    )
+    proxy = _SameTaskProxy(server, "grants.claims.v1")
+    issuer.set_service_resolver(lambda name, binding, **_: proxy)
+    return issuer
+
+
+@pytest.mark.asyncio
+async def test_a_served_call_on_the_marked_task_answers_no_binding_and_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mark is per task, not per call (the bound contract is shared with
+    RPC and carries no per-call state), so a served ``contribute`` awaited on
+    the task of a suspended local step answers without its binding. Only an
+    in-process transport reaches it: the remote issuer refuses the answer as
+    a missing binding (``ClaimsUnavailable``, fail closed, never an
+    acceptance); a request served on its own task names its module."""
+    server = _core()
+    _register(server, GRANTS, {"tenant_ids": [TENANT]}, critical=True)
+    issuer = _remote_issuer(server, monkeypatch)
+    ok = await issuer.collect_claims(uuid4())
+    assert ok["tenant_ids"] == [TENANT]
+    seen: dict[str, Any] = {}
+
+    async def idp_body(user_id: Any) -> dict[str, Any]:
+        seen["marked"] = asyncio.current_task() in _claims._LOCAL_STEP_TASKS
+        try:
+            seen["nested"] = await issuer.collect_claims(uuid4())
+        except ClaimsUnavailable as refused:
+            seen["nested"] = refused
+        return {"roles": []}
+
+    _register_fn(server, IDP, _Driven(idp_body), critical=True)
+    await server.collect_claims(uuid4())
+    assert seen["marked"] is True
+    refused = seen["nested"]
+    assert isinstance(refused, ClaimsUnavailable) and refused.owner == "grants"
+    assert isinstance(refused.__cause__, _claims.ClaimsAuthorityMismatch)
+    assert _claims._LOCAL_STEP_TASKS == set()
+
+
+@pytest.mark.asyncio
+async def test_a_task_a_contributor_spawns_is_not_marked() -> None:
+    """Only an await on the marked task itself is the mint's own: a child task
+    however made (``create_task``, ``gather``, a ``TaskGroup``, a copied
+    context, ``shield``) is another task and its served call names its
+    module."""
+    core = _core()
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    got: dict[str, Any] = {}
+
+    async def served() -> dict[str, Any]:
+        answer: dict[str, Any] = await core.local_contract("idp.claims.v1").contribute(
+            uuid4()
+        )
+        return answer
+
+    async def grants_body(user_id: Any) -> dict[str, Any]:
+        got["create_task"] = await asyncio.create_task(served())
+        got["gather"] = (await asyncio.gather(served()))[0]
+        async with asyncio.TaskGroup() as group:
+            child = group.create_task(served())
+        got["taskgroup"] = child.result()
+        got["copied_context"] = await asyncio.get_running_loop().create_task(
+            served(), context=contextvars.copy_context()
+        )
+        got["shield"] = await asyncio.shield(served())
+        got["same_task"] = await served()
+        return {"tenant_ids": [TENANT]}
+
+    _register_fn(core, GRANTS, _Driven(grants_body), critical=True)
+    sealed = await core.collect_claims(uuid4())
+    assert sealed["tenant_ids"] == [TENANT]
+    for how in ("create_task", "gather", "taskgroup", "copied_context", "shield"):
+        assert got[how][AUTHORITY_CLAIM] == IDP, how
+    assert AUTHORITY_CLAIM not in got["same_task"]
+    assert _claims._LOCAL_STEP_TASKS == set()
+
+
+@pytest.mark.asyncio
+async def test_a_mint_re_entered_from_a_contributor_keeps_the_outer_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The inner step of a mint run from inside a contributor finds its task
+    marked already: it adds nothing and discards nothing, so the outer step
+    stays marked until its own call ends (its answer builds no binding)."""
+    core = _core()
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    state: dict[str, Any] = {"depth": 0}
+    raw: list[dict[str, Any]] = []
+    drop = _claims._local_answer
+
+    def spy(answer: Any) -> Any:
+        raw.append(dict(answer))
+        return drop(answer)
+
+    monkeypatch.setattr(_claims, "_local_answer", spy)
+
+    async def grants_body(user_id: Any) -> dict[str, Any]:
+        state["depth"] += 1
+        if state["depth"] == 1:
+            state["before"] = asyncio.current_task() in _claims._LOCAL_STEP_TASKS
+            await core.collect_claims(uuid4())
+            state["after"] = asyncio.current_task() in _claims._LOCAL_STEP_TASKS
+        return {"tenant_ids": [TENANT]}
+
+    _register_fn(core, GRANTS, _Driven(grants_body), critical=True)
+    sealed = await core.collect_claims(uuid4())
+    assert state["before"] is True and state["after"] is True
+    assert sealed["tenant_ids"] == [TENANT] and AUTHORITY_CLAIM not in sealed
+    assert all(AUTHORITY_CLAIM not in answer for answer in raw)
+    assert _claims._LOCAL_STEP_TASKS == set()
+
+
+def test_a_served_call_runs_without_a_running_event_loop() -> None:
+    """``asyncio.current_task`` raises with no running loop (another async
+    backend, a coroutine stepped by hand): the call still answers, with its
+    binding."""
+    core = _core()
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    step = _claims.ClaimsContributorContract(core, "idp").contribute(uuid4())
+    with pytest.raises(StopIteration) as answered:
+        step.send(None)
+    assert answered.value.value[AUTHORITY_CLAIM] == IDP
+
+
+@pytest.mark.asyncio
+async def test_a_step_with_no_task_marks_nothing() -> None:
+    """A local step run from a loop callback has no current task: nothing is
+    marked (no shared ``None``), so a served call in that window still names
+    its module and the step leaves the set as it found it."""
+    core = _core()
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    seen: dict[str, Any] = {}
+
+    async def grants_body(user_id: Any) -> dict[str, Any]:
+        seen["marks"] = set(_claims._LOCAL_STEP_TASKS)
+        seen["served"] = await _claims.ClaimsContributorContract(
+            core, "idp"
+        ).contribute(uuid4())
+        return {"tenant_ids": [TENANT]}
+
+    _register_fn(core, GRANTS, _Driven(grants_body), critical=True)
+    finished: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+
+    def callback() -> None:
+        assert asyncio.current_task() is None
+        step = core._local_claims_call("grants", uuid4())()
+        try:
+            step.send(None)
+        except StopIteration as stop:
+            finished.set_result(stop.value)
+
+    asyncio.get_running_loop().call_soon(callback)
+    answer = await asyncio.wait_for(finished, timeout=5)
+    assert answer["tenant_ids"] == [TENANT]
+    assert seen["marks"] == set() and _claims._LOCAL_STEP_TASKS == set()
+    assert seen["served"][AUTHORITY_CLAIM] == IDP
+
+
+@pytest.mark.asyncio
+async def test_nothing_set_on_the_public_class_strips_a_served_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mint's own issuer call is a private subclass: an attribute set on
+    ``ClaimsContributorContract`` (reachable through ``sandloom.sdk.infra``)
+    does not turn the binding off for the answers a process serves."""
+    core = _core()
+    _register(core, GRANTS, {"tenant_ids": [TENANT]}, critical=True)
+    monkeypatch.setattr(
+        _claims.ClaimsContributorContract, "_for_the_mint", True, raising=False
+    )
+    served = await core.local_contract("grants.claims.v1").contribute(uuid4())
+    assert served[AUTHORITY_CLAIM] == GRANTS
+
+
+@pytest.mark.asyncio
+async def test_the_issuers_contributor_reads_the_issuer_session() -> None:
+    """The issuer's step builds no binding and is no registered contract, but
+    its contributors still run as a contract call: ``contract_session()``
+    answers the issuer's own session there."""
+    core = _core()
+    seen: list[Any] = []
+
+    async def idp_body(user_id: Any) -> dict[str, Any]:
+        seen.append(contract_session())
+        return {"roles": ["admin"]}
+
+    idp = _register_fn(core, IDP, _Driven(idp_body), critical=True)
+    session = object()
+    sealed = await core.collect_claims(uuid4(), session, issuer=idp)
+    assert sealed["roles"] == ["admin"] and seen == [session]
 
 
 # --------------------------------------------------------------------------- #

@@ -230,10 +230,49 @@ async def _run_claims_plan(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]
     return outcomes
 
 
+#: The tasks that are awaiting the mint's own local ``contribute`` call of a
+#: local owner right now (the issuer's step builds its own call, a
+#: :class:`_MintIssuerContract`, and needs no mark). The answer of such a call
+#: goes to :func:`_local_answer`, which drops the authority binding, so the
+#: call does not build it. A call served over RPC, or any other task's, runs
+#: outside it and still names its module. Keyed by task, not a flag on the
+#: facade: a served call may run beside a local step of the same process.
+#: A task is added for the one await and discarded in a ``finally``, only by
+#: the call that added it (a mint re-entered from a contributor leaves the
+#: outer mark alone). A set, not a context variable: a ``ContextVar`` set and
+#: reset costs 7-8k instructions a mint (measured with cachegrind, see the
+#: sealed mint section of ``benchmarks/ladder/STANDS.md``).
+#:
+#: Only an optimisation, and it can only fail closed. A binding built anyway
+#: (a task spawned by a contributor) is dropped by ``_local_answer``. A served
+#: call awaited on the marked task itself, while its local step is suspended
+#: (an in-process transport such as ``httpx.ASGITransport`` or
+#: ``contract_testing.in_process_rpc_client`` runs the server on the caller's
+#: task), answers without the binding, and a remote issuer refuses that
+#: answer as a missing binding (503, never an acceptance). Production RPC runs
+#: on the server's own request task. The mark is per task, not per call,
+#: because the shared bound contract serves RPC as well and carries no
+#: per-call state; a test pins both outcomes (``test_sealed_mint``).
+_LOCAL_STEP_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _current_task() -> asyncio.Task[Any] | None:
+    """The running asyncio task; ``None`` where there is none: no running event
+    loop (another async backend, a coroutine stepped by hand) or a loop
+    callback. ``contribute`` worked there before the mark, and still does."""
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
 def _local_answer(answer: Any) -> Any:
     """A local ``contribute`` answer without its authority binding: a local
     authority is bound by its registration (the mint check). A value a
-    contributor wrote stays, for the mint check to refuse."""
+    contributor wrote stays, for the mint check to refuse. The binding is not
+    built for a local step (:data:`_LOCAL_STEP_TASKS`) or the issuer's
+    (:class:`_MintIssuerContract`); a str under the key would be one built
+    anyway, so it is dropped here as before."""
     if isinstance(answer, dict) and isinstance(answer.get(AUTHORITY_CLAIM), str):
         del answer[AUTHORITY_CLAIM]
     return answer
@@ -270,23 +309,44 @@ class ClaimsContributorContract:
         service, this proves which module the service runs under the name).
         """
         merged = await self._merge(user_id)
-        path = self._facade._claims_owner_modules.get(self._owner or "")
-        if AUTHORITY_CLAIM in merged:
-            # A contributor wrote the kernel's key: it stays a reserved-key
-            # violation locally and fails the binding remotely, never the
-            # kernel's answer.
-            merged[AUTHORITY_CLAIM] = {"written_by": "a contributor"}
-        elif path:
-            merged[AUTHORITY_CLAIM] = path
+        if AUTHORITY_CLAIM not in merged and _current_task() not in _LOCAL_STEP_TASKS:
+            # Not the mint's own local call (a local authority is bound by its
+            # registration: the binding would be built, wired and dropped by
+            # ``_local_answer``): a served call names its module.
+            path = self._facade._claims_owner_modules.get(self._owner or "")
+            if path:
+                merged[AUTHORITY_CLAIM] = path
         return merged
 
     async def _merge(self, user_id: Any) -> dict[str, Any]:
+        """The contributors' merged claims, never with the kernel's binding: a
+        contributor that wrote the key gets a marker in its place, so it stays
+        a reserved-key violation locally and fails the binding remotely, never
+        the kernel's answer."""
         merged: dict[str, Any] = {}
         for fn in self._facade._contributors_of(self._owner):
             contributed = await fn(user_id)
             if contributed:
                 merged.update(contributed)
+        if AUTHORITY_CLAIM in merged:
+            merged[AUTHORITY_CLAIM] = {"written_by": "a contributor"}
         return merged
+
+
+class _MintIssuerContract(ClaimsContributorContract):
+    """The mint's own call to the contributors of the token issuer's module,
+    built per mint (:meth:`_ClaimsMixin._issuer_claims_call`) and never
+    registered or served: its answer goes straight to :func:`_local_answer`,
+    which would drop the authority binding, so it builds none. A subclass the
+    mint alone constructs, not a flag of the public class: nothing a module
+    sets on ``ClaimsContributorContract`` reaches it or removes the binding of
+    a served answer. Decorated like the method it replaces: the wrapper is
+    what lets the contributors read the issuer's session
+    (:func:`~sandloom.core.module_api.contract_session`)."""
+
+    @contract_method
+    async def contribute(self, user_id: Any) -> dict[str, Any]:
+        return await self._merge(user_id)
 
 
 class _ClaimsMixin(_ServicesMixin):
@@ -556,7 +616,7 @@ class _ClaimsMixin(_ServicesMixin):
         issuer_session: Any,
     ) -> Callable[[], Awaitable[Any]]:
         async def _issuer_call() -> Any:
-            contract = ClaimsContributorContract(cast("CoreFacade", self), owner)
+            contract = _MintIssuerContract(cast("CoreFacade", self), owner)
             with _module_api.bind_contract_session(issuer_session):
                 return _local_answer(await contract.contribute(user_id))
 
@@ -579,7 +639,17 @@ class _ClaimsMixin(_ServicesMixin):
                     database=self._claims_owner_database(owner),
                     name=claims_contract_name(owner) if owner is not None else "claims",
                 )
-            return _local_answer(await contract.contribute(user_id))
+            task = _current_task()
+            if task is None or task in _LOCAL_STEP_TASKS:
+                # No task to mark, or the outer step of this task is marked
+                # already (a mint re-entered from a contributor): its mark
+                # stays and is cleared by the call that set it.
+                return _local_answer(await contract.contribute(user_id))
+            _LOCAL_STEP_TASKS.add(task)
+            try:
+                return _local_answer(await contract.contribute(user_id))
+            finally:
+                _LOCAL_STEP_TASKS.discard(task)
 
         return _local_call
 

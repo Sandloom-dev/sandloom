@@ -607,8 +607,8 @@ runs it, so mono and split would disagree on one map.
 - **Two independent checks for a remote authority, at the mint.** The pinned `service_id` and
   the pair MAC prove which service answered (ADR-0004; a call pinned to one service and answered
   by another is refused). The **authority binding** proves which module that service runs under
-  the short name: every `<m>.claims.v1` answer names the import path of the module registered
-  under `<m>` (`sandloom.authority`, written by the kernel, never kept in a token), and the
+  the short name: every served `<m>.claims.v1` answer names the import path of the module
+  registered under `<m>` (`sandloom.authority`, written by the kernel, never kept in a token), and the
   issuer refuses an answer that names another path, or none, for an owner its map assigns a
   protected key (the step fails; a critical authority refuses the mint, 503). A provider older
   than this check names none: upgrade every `<m>.claims.v1` provider before the issuer. The
