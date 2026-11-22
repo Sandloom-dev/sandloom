@@ -744,6 +744,52 @@ What the fixes did, and what is left:
 
 Data: `ladder/results/cg_infra_agnostic_2026-11-05.json` (`after_fixes`).
 
+### Follow-up: saga step and refresh costs (infra-perf-followups, 2026-11-22)
+
+The two open items above (sagas +1.9 to +2.8 %, `HTr` +2.7 %) were measured
+again on `main` at `ec746655`, on the current architecture (standard
+composition root, section F). The `main@10be493` baseline of the table above
+does not run on this architecture, so the +2 % could not be reproduced as
+such; the question became what the two paths spend that they need not.
+
+Cachegrind, K = 200, `LADDER_CG_GC=freeze`, PostgreSQL, Ir per op:
+
+| rung | `main` ec746655 | this branch | change |
+|---|---|---|---|
+| `XSgS` saga start | 6,585,771 | 3,684,162 | -44 % |
+| `XSgL` local step | 10,911,982 | 4,580,352 | -58 % |
+| `XSgC` command step | 14,942,449 | 7,495,228 | -50 % |
+| `HTr` POST /auth/refresh | 9,855,010 | 9,518,394 | -3.4 % |
+
+- **Sagas: statement construction, not SQL.** cProfile of `XSgL` on both
+  trees sends the same 11 statements per op. The saga store built its
+  `insert`, `lock`, `update` and `upsert` statements per call with
+  `.values(**row)`: one `BindParameter` per column and the cache-key walk
+  over all of them (`coercions.expect` 122 calls per op). They are now built
+  once per dialect with typed `bindparam`s and executed with a params dict
+  (`coercions.expect` 3 calls per op). The SQL text is unchanged (the
+  renderer test compares the text and the ordered values of the lock
+  statement); `operation_key` checks its parts with one regex search instead
+  of `str.isspace` per character (`test_saga_store_prebuilt.py` proves the
+  same refusals over every code point).
+- **`HTr`: a column select instead of two entities.** The refresh read a
+  `RefreshToken` and a `User` as ORM objects and used six columns. It now
+  selects those columns plus `User.is_active` in the same join; a revoked
+  token still goes through the rotation grace window or the family revoke, an
+  expired token and an inactive user still answer 401, and the consume stays
+  the compare-and-set. Tests count mapper `load` events to prove no entity is
+  built.
+- **Noise.** Identical code on `HTr` drifted between 9.52 M and 9.63 M over
+  four runs (about 1 %), so the `HTr` gain is 2 to 3 %, within two noise
+  widths of the base; the saga gains are 40 to 58 % and not noise.
+- `run_cg.sh` now mounts the three driver packages (`sandloom_redis`,
+  `sandloom_celery`, `sandloom_s3`) read-only and puts them on `PYTHONPATH`;
+  without them the standard root fails with `DriverLoadError`.
+
+```bash
+CG_K=200 LADDER_CG_GC=freeze benchmarks/ladder/cg/run_cg.sh HTr XSgS XSgL XSgC
+```
+
 ## E. Trusted claims view (KB-11, `claims_rungs.py`)
 
 What the per-key `cpv` and the trusted view cost on `Role`, `Perm`,

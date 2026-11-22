@@ -879,7 +879,12 @@ class _Rows:
         self.statements: list[tuple[str, dict[str, Any]]] = []
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
-        self.statements.append(_compiled(statement, self.dialect))
+        sql, bound = _compiled(statement, self.dialect)
+        if params:
+            # a prebuilt statement: its values arrive at execution
+            compiled = statement.compile(dialect=self.dialect)
+            bound = dict(compiled.construct_params(params))
+        self.statements.append((sql, bound))
 
         class _Result:
             rowcount = 0
@@ -939,7 +944,17 @@ async def test_the_saga_locks_are_todays_statements_on_postgresql() -> None:
             .where(instances.c.id == instance_id)
             .with_for_update(skip_locked=skip_locked)
         )
-        assert session.statements == [_compiled(today, pg)]
+        # The statement is prebuilt (the id is bound at execution, under its
+        # own name): the same SQL text and the same values, in order.
+        (sent_sql, sent), (today_sql, today_params) = (
+            session.statements[0],
+            _compiled(today, pg),
+        )
+        assert len(session.statements) == 1
+        assert (sent_sql, list(sent.values())) == (
+            today_sql,
+            list(today_params.values()),
+        )
 
     now = datetime(2026, 1, 1)
     before = datetime(2025, 12, 31)

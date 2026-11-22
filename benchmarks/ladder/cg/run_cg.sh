@@ -63,11 +63,14 @@ docker run --rm \
   -e S5_APP_PASSWORD="${S5_APP_PASSWORD:-bench-app-local-password}" \
   -e RPC_STAND_COMMAND_POOL="${RPC_STAND_COMMAND_POOL:-$(( ${CG_K:-200} + 50 ))}" \
   -e RPC_STAND_ENVIRONMENT="${RPC_STAND_ENVIRONMENT:-prod}" \
-  -e PYTHONPATH=/w/src:/w/standard:/w/benchmarks:/w/meta \
+  -e PYTHONPATH=/w/src:/w/standard:/w/redis:/w/celery:/w/s3:/w/benchmarks:/w/meta \
   -v "$ROOT/src:/w/src:ro" \
   -v "$ROOT/benchmarks:/w/benchmarks:ro" \
   -v "$ROOT/migrations:/w/migrations:ro" \
   -v "$ROOT/packages/sandloom-standard/src:/w/standard:ro" \
+  -v "$ROOT/packages/sandloom-redis/src:/w/redis:ro" \
+  -v "$ROOT/packages/sandloom-celery/src:/w/celery:ro" \
+  -v "$ROOT/packages/sandloom-s3/src:/w/s3:ro" \
   -v "$META:/w/meta:ro" \
   -v "${CG_OUT:-/tmp}:/out" -e CG_ANNOTATE="${CG_ANNOTATE:-0}" -e CG_CACHESIM="${CG_CACHESIM:-0}" \
   -w /tmp \
