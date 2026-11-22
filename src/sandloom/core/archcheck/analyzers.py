@@ -2152,7 +2152,8 @@ def _scope_split(node: _ScopeNode) -> tuple[list[ast.AST], list[ast.AST], list[s
     defaults, annotations, bases), the roots of its own body and its parameter
     names."""
     if isinstance(node, ast.ClassDef):
-        return [*node.bases, *node.keywords, *node.decorator_list], node.body, []
+        class_outer: list[ast.AST] = [*node.bases, *node.keywords, *node.decorator_list]
+        return class_outer, [*node.body], []
     args = node.args
     outer: list[ast.AST] = [*args.defaults, *(d for d in args.kw_defaults if d)]
     outer.extend(
@@ -2165,7 +2166,7 @@ def _scope_split(node: _ScopeNode) -> tuple[list[ast.AST], list[ast.AST], list[s
     outer.extend(node.decorator_list)
     if node.returns is not None:
         outer.append(node.returns)
-    return outer, node.body, _parameter_names(args)
+    return outer, [*node.body], _parameter_names(args)
 
 
 def _bound_names_of(node: ast.AST) -> list[str]:

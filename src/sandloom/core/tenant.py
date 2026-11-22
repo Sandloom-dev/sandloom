@@ -436,9 +436,9 @@ _STAMP = "sandloom.tenant_id"
 #: records to the parent; a root commit drops them (the rows exist); a
 #: transaction that ENDS still holding records ended without committing (a
 #: rollback, a ``close()`` with a savepoint open, an exception), so the stamps go.
-_pending_inserts: weakref.WeakKeyDictionary[SessionTransaction, dict[Any, uuid.UUID]] = (
-    weakref.WeakKeyDictionary()
-)
+_pending_inserts: weakref.WeakKeyDictionary[
+    SessionTransaction, dict[Any, uuid.UUID]
+] = weakref.WeakKeyDictionary()
 
 
 class _FlushWindow:

@@ -483,9 +483,7 @@ _ENGINE_BAD_BY_SCOPE = {
 
 
 @pytest.mark.parametrize("case", list(_ENGINE_BAD_BY_SCOPE))
-def test_an_alias_resolves_in_the_scope_that_uses_it(
-    tmp_path: Path, case: str
-) -> None:
+def test_an_alias_resolves_in_the_scope_that_uses_it(tmp_path: Path, case: str) -> None:
     path = tmp_path / "service.py"
     path.write_text(_ENGINE_BAD_BY_SCOPE[case])
     found = find_engine_constructors(path)
