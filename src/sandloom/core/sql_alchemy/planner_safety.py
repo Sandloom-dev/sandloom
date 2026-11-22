@@ -90,13 +90,17 @@ def _session_probe() -> Session:
     return probe
 
 
-#: The tenant guard's own session listener the optimized executor may ignore: the
-#: ``after_transaction_end`` hook that forgets the stamps of the inserts a
-#: transaction owned when it ended without committing
-#: (``sandloom.core.tenant._forget_uncommitted_inserts``). It touches only the
-#: ``info`` of instances a flush inserted; the optimized executor reads rows
-#: through no Session, so it has no instance to stamp.
-_TENANT_GUARD_SESSION_LISTENERS = frozenset({"_forget_uncommitted_inserts"})
+#: The tenant guard's own session listeners the optimized executor may ignore:
+#: the ``after_transaction_end`` and ``after_rollback`` hooks that forget the
+#: stamps of the inserts a transaction owned when it ended without committing or
+#: its database transaction was rolled back
+#: (``sandloom.core.tenant._forget_uncommitted_inserts`` /
+#: ``_forget_rolled_back_inserts``). They touch only the ``info`` of instances a
+#: flush inserted; the optimized executor reads rows through no Session, so it
+#: has no instance to stamp.
+_TENANT_GUARD_SESSION_LISTENERS = frozenset(
+    {"_forget_uncommitted_inserts", "_forget_rolled_back_inserts"}
+)
 
 
 #: The tenant guard's own mapper load listeners (``TenantScoped``,
