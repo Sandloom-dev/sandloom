@@ -241,28 +241,36 @@ What follows from it:
   the unit of work verified in that flush. A second `Table` of the same name is
   none of them. An INSERT carries an explicit `tenant_id` equal to the bound
   tenant. An UPDATE or DELETE names a row, by primary key, that the unit of work
-  verified in that flush. A statement that a column default or a listener wrote
-  on the flush connection is refused unless it passes these same checks: a
-  listener's UPDATE or DELETE that pins, by primary key, a row verified in that
-  flush is admitted without `unscoped()`. An INSERT or UPDATE that sets
-  `tenant_id` through values of its own is refused: `.values(tenant_id=...)`, an
-  expression, a positional row.
-- The load of a deferred or expired column, and the flush UPDATE or DELETE of an
-  instance, need a stamp of the bound tenant. The stamp is the `tenant_id` read
-  from the database, or the one a successful flush inserted the instance with.
-  An insert keeps its stamp only once the root transaction committed. The
-  session tracks the inserts per transaction: a released savepoint hands its
-  inserts to its parent, and a savepoint or root transaction that ends without
-  committing clears the stamps of the inserts it owned. A failed or rolled back
-  insert leaves none, and neither does one the session or a savepoint closed
-  without committing. An instance from `merge(load=False)` or from unpickling
-  is refused at that point, and so is one that went through
-  `make_transient_to_detached`. The same holds for a deferred column of an
-  instance that a `load_only()` or `defer()` projection loaded without its
-  `tenant_id`. Include the column in the projection.
+  verified in that flush.
+- A statement that a column default or a listener wrote on the flush connection
+  is refused unless it passes these same checks. A listener's UPDATE or DELETE
+  that pins, by primary key, a row verified in that flush is admitted without
+  `unscoped()`.
+- An INSERT or UPDATE that sets `tenant_id` through values of its own is
+  refused. That covers `.values(tenant_id=...)`, an expression and a positional
+  row.
+
+The stamp is the second part. It sits on an instance, and it is the `tenant_id`
+read from the database, or the one a successful flush inserted the instance
+with.
+
+- The load of a deferred or expired column needs a stamp of the bound tenant.
+  So does the flush UPDATE or DELETE of an instance.
+- An insert keeps its stamp only once the root transaction committed. The
+  session tracks the inserts per transaction. When a savepoint is released, its
+  inserts pass to its parent. When a savepoint or root transaction ends without
+  committing, the stamps of the inserts it owned go. A failed or rolled back
+  insert leaves none, and neither does one the session closed without
+  committing.
+- An instance from `merge(load=False)`, from unpickling or from
+  `make_transient_to_detached` has no stamp, so the load and the write are
+  refused. The same holds for a deferred column of an instance that a
+  `load_only()` or `defer()` projection loaded without its `tenant_id`. Include
+  the column in the projection.
 - `Session.get`, `get_one` and a many-to-one lazy load answer from the identity
   map only for such an instance. For any other they run the scoped query.
-- `unscoped()` lifts all of it for its block.
+
+`unscoped()` lifts all of it for its block.
 
 Cases the check does not see.
 
@@ -272,15 +280,16 @@ Cases the check does not see.
   approved, which the ORM walk cannot see.
 - `Connection.exec_driver_sql` sends a string with no compiled statement.
 - SQL the database builds from text no scan can read. That covers PostgreSQL
-  dynamic SQL: `query_to_xml('select ... ' || name, ...)` with a concatenated
-  name, `table_to_xml(oid::regclass)`, a `DO $$ ... EXECUTE ... $$` block. It
-  also covers a view, function or trigger over a tenant table, reached by naming
-  only the view or the function. The cursor reads the SQL it is sent.
+  dynamic SQL. One case is `query_to_xml('select ... ' || name, ...)` with a
+  concatenated name. Another is `table_to_xml(oid::regclass)`. A third is a
+  `DO $$ ... EXECUTE ... $$` block. A fourth is a view or a function over a
+  tenant table, or a trigger on one. The statement then names only that object.
+  The cursor reads the SQL it is sent.
   [Row-Level Security](#postgresql-row-level-security-optional) holds these only
   when they run under a role the tenant policy applies to. A view owned by a
-  superuser or another role that bypasses row-level security, and a
-  `SECURITY DEFINER` function owned by one, read the rows with the owner's
-  rights. Create views with `security_invoker = true`, write functions as
+  superuser, or by another role that bypasses row-level security, reads the rows
+  with the owner's rights. So does a `SECURITY DEFINER` function with such an
+  owner. Create views with `security_invoker = true` and write functions as
   `SECURITY INVOKER`, or give them an owner the policy applies to.
 - A `text()` passed straight to `session.execute` is the caller's
   responsibility. Write it with `scoped()`, or let the `unsafe-tenant-sql` check
@@ -297,12 +306,13 @@ whose outer transaction the caller rolls back after `session.commit()`. The
 database discards the row, and Row-Level Security holds that case.
 
 A stamp is the `tenant_id` the row carried when the instance was read or
-inserted. It does not re-read the row, and no rule keeps a primary key from being
-reused. If a row is deleted and another tenant takes its primary key while an
-instance of the old row is still held, a deferred column load or a flush UPDATE
-or DELETE of that instance still passes the stamp check and reaches the new row.
-Use primary keys that are not reused across tenants (UUIDs, or sequences that do
-not recycle values). Row-Level Security holds this case too.
+inserted. It does not re-read the row, and no rule keeps a primary key from
+being reused. Say a row is deleted, and another tenant takes its primary key
+while an instance of the old row is still held. A deferred column load or a
+flush UPDATE or DELETE of that instance then passes the stamp check and reaches
+the new row. Use primary keys that are not reused across tenants, such as UUIDs
+or sequences that do not recycle values. Row-Level Security holds this case
+too.
 
 The `sandloom check` rules are static and miss some spellings. SANDLOOM-C037
 does not see a dynamic import of a name that is not a constant, or `getattr` with
