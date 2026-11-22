@@ -814,6 +814,47 @@ K of 20 000: at K = 200 the 1 M Ir of run-to-run noise is 5 k per op. The
 numbers of the KB-11 measurement are in
 `tests/fixtures/specs/api10-ledger-delta-kb11c.md`.
 
+### The sealed mint (kb-mint-budget-optimize, 2026-11-22)
+
+`KMintI` is `KMint` as the identity token service runs it: the issuer's
+contributor runs in the issuer's session (`collect_claims(user, session,
+issuer=...)`), so the issuer lane is measured, not only the plain merge.
+
+```bash
+CG_K=1000 LADDER_CG_GC=freeze benchmarks/ladder/cg/run_cg.sh KMint KMintI KMintC
+```
+
+Paired on `origin/main` (`b116334c`, the same `claims_rungs.py` in both trees),
+K = 1000, Ir per op, Python 3.13 image `sandloom-ladder-cg:3.13`:
+
+| rung | main | this change | change |
+|---|---|---|---|
+| `KMint` | 1,253,904 | 1,224,357 | -2.4% |
+| `KMintC` | 897,172 | 880,007 | -1.9% |
+| `KMintI` | 852,127 | 850,489 | -0.2% |
+
+A mint of three owners (identity as issuer, tenancy, billing) in one process:
+1,482,650 on main, 1,459,192 here (-1.6%); the base of the KB-12 exception
+(`ee26108`, which still had `precomputed`) is 1,440,887, so the sealed mint is
++1.3% against it, down from +2.9% on main. The same tree without `precomputed`
+(main's issuer shape) is 1,484,506: the sealed checks (resolve, require, seal,
+`create_access_token`: about 13 k Ir, 0.9%) are not what grew; the issuer
+lane's contract hop (kb-sec2-issuer) is. What went: a local `contribute` built
+the `sandloom.authority` binding, which the contract wire carried and
+`_local_answer` then dropped. The mint's own local calls (the issuer's
+instance, a local owner's task, `_LOCAL_STEP_TASKS`) no longer build it; a
+call served over RPC still names its module and the remote issuer still binds
+it. Per-task state, not a context variable: a `ContextVar.set` / `reset` costs
+7-8 k Ir per mint on the 3.13 image (it drops the per-variable cache of every
+other variable the mint reads), and a facade-wide flag would let a served call
+run beside a local step without its binding. The floor of this lever (no flag
+at all) is 1,454,413, +0.9%; the 4.8 k Ir between it and here is the guard.
+Not touched: every issuer, caller-supplied-value, seal and reserved-key
+check, the I/O counts (no new cache).
+
+Left over: the local `contract_wire` encode / decode of an answer is about
+124 us of an 857 us mint (outside this area, `module_api`).
+
 ## F. The cachegrind stand on the kernel-boundary architecture (kb-cg-stand)
 
 `ladder/cg/run_cg.sh` and the rungs boot the **standard** composition root

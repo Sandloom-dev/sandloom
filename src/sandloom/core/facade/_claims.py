@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import nullcontext
-from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException, status
@@ -187,17 +186,6 @@ async def _run_claims_lane(
 
 
 async def _run_claims_plan(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]:
-    """Run every step with the mint's local ``contribute`` calls told not to
-    build the authority binding (:data:`_LOCAL_CONTRIBUTE`, one set / reset
-    per plan: a context variable costs about 1.5k instructions each way)."""
-    local = _LOCAL_CONTRIBUTE.set(True)
-    try:
-        return await _run_claims_steps(plan)
-    finally:
-        _LOCAL_CONTRIBUTE.reset(local)
-
-
-async def _run_claims_steps(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]:
     """Run every step; outcomes by plan index (never raises for a step).
 
     Local owners on the SAME database run back to back on one shared read
@@ -242,24 +230,27 @@ async def _run_claims_steps(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome
     return outcomes
 
 
-#: True while the mint runs its plan (:func:`_run_claims_plan`): the answers of
-#: its local ``contribute`` calls (the issuer's, a local owner's) go to
-#: :func:`_local_answer`, which drops the authority binding, so the calls do
-#: not build it. A provider serving the same method over RPC runs outside the
-#: plan and still names its module; a remote step clears the flag for a
-#: provider that happens to run in this process. Only an optimisation: a
-#: binding built anyway is dropped by ``_local_answer``, one not built for a
-#: remote step is refused by its check.
-_LOCAL_CONTRIBUTE: ContextVar[bool] = ContextVar(
-    "sandloom_claims_local_contribute", default=False
-)
+#: The tasks that are awaiting the mint's own local ``contribute`` call of a
+#: local owner right now (the issuer's step has its own instance, marked by
+#: ``ClaimsContributorContract._for_the_mint``). The answer of such a call goes
+#: to :func:`_local_answer`, which drops the authority binding, so the call
+#: does not build it. A call served over RPC, or any other task's, runs
+#: outside it and still names its module. Keyed by task, not a flag on the
+#: facade: a served call may run beside a local step of the same process.
+#: A task is added for the one await and discarded in a ``finally``. A set,
+#: not a context variable: every ``ContextVar.set`` / ``reset`` drops the
+#: interpreter's per-variable lookup cache, and the mint's calls read a dozen
+#: of them (about 8k instructions a mint). Only an optimisation: a binding
+#: built anyway (a task spawned by a contributor) is dropped by
+#: ``_local_answer``.
+_LOCAL_STEP_TASKS: set[object] = set()
 
 
 def _local_answer(answer: Any) -> Any:
     """A local ``contribute`` answer without its authority binding: a local
     authority is bound by its registration (the mint check). A value a
     contributor wrote stays, for the mint check to refuse. The binding is not
-    built for a local call (:data:`_LOCAL_CONTRIBUTE`); a str under the key
+    built for a local step (:data:`_LOCAL_STEP_TASKS`); a str under the key
     would be one built anyway, so it is dropped here as before."""
     if isinstance(answer, dict) and isinstance(answer.get(AUTHORITY_CLAIM), str):
         del answer[AUTHORITY_CLAIM]
@@ -283,6 +274,11 @@ class ClaimsContributorContract:
     process reaches it over internal RPC via ``SERVICE_BINDINGS``.
     """
 
+    #: True on the instance the mint builds for its own issuer step
+    #: (:meth:`_ClaimsMixin._issuer_claims_call`): only that call reaches it,
+    #: so no task has to be marked (:data:`_LOCAL_STEP_TASKS`).
+    _for_the_mint = False
+
     def __init__(self, facade: CoreFacade, owner: str | None) -> None:
         self._facade = facade
         self._owner = owner
@@ -304,7 +300,7 @@ class ClaimsContributorContract:
             # violation locally and fails the binding remotely, never the
             # kernel's answer.
             merged[AUTHORITY_CLAIM] = {"written_by": "a contributor"}
-        elif not _LOCAL_CONTRIBUTE.get():
+        elif not self._for_the_mint and asyncio.current_task() not in _LOCAL_STEP_TASKS:
             path = self._facade._claims_owner_modules.get(self._owner or "")
             if path:
                 merged[AUTHORITY_CLAIM] = path
@@ -587,6 +583,7 @@ class _ClaimsMixin(_ServicesMixin):
     ) -> Callable[[], Awaitable[Any]]:
         async def _issuer_call() -> Any:
             contract = ClaimsContributorContract(cast("CoreFacade", self), owner)
+            contract._for_the_mint = True
             with _module_api.bind_contract_session(issuer_session):
                 return _local_answer(await contract.contribute(user_id))
 
@@ -609,7 +606,12 @@ class _ClaimsMixin(_ServicesMixin):
                     database=self._claims_owner_database(owner),
                     name=claims_contract_name(owner) if owner is not None else "claims",
                 )
-            return _local_answer(await contract.contribute(user_id))
+            task = asyncio.current_task()
+            _LOCAL_STEP_TASKS.add(task)
+            try:
+                return _local_answer(await contract.contribute(user_id))
+            finally:
+                _LOCAL_STEP_TASKS.discard(task)
 
         return _local_call
 
@@ -617,16 +619,9 @@ class _ClaimsMixin(_ServicesMixin):
         self, owner: str, user_id: Any
     ) -> Callable[[], Awaitable[Any]]:
         async def _remote_call() -> Any:
-            # A provider served in this very process (a loopback transport, a
-            # local-first binding) must still name its module: the binding
-            # is what this step checks.
-            local = _LOCAL_CONTRIBUTE.set(False)
-            try:
-                answer = await self.get_service(claims_contract_name(owner)).contribute(
-                    user_id
-                )
-            finally:
-                _LOCAL_CONTRIBUTE.reset(local)
+            answer = await self.get_service(claims_contract_name(owner)).contribute(
+                user_id
+            )
             if isinstance(answer, dict):
                 self._bind_remote_authority(owner, answer.pop(AUTHORITY_CLAIM, None))
             return answer

@@ -19,10 +19,11 @@ beyond the in-memory revocation cache).
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from collections.abc import Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, TypeVar
 from uuid import uuid4
 
 import pytest
@@ -136,13 +137,39 @@ class _Counted:
         return dict(self.result)
 
 
-def _register(
-    core: CoreFacade, path: str, result: dict[str, Any], *, critical: bool = False
-) -> _Counted:
-    fn = _Counted(result)
+class _Gated(_Counted):
+    """A contributor that stops inside its call until ``release`` is set, then
+    answers (or raises ``fail``): a local step suspended mid-flight."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        """Remember the answer; the gate starts closed."""
+        super().__init__(result)
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.fail: Exception | None = None
+
+    async def __call__(self, user_id: Any) -> dict[str, Any]:
+        """Signal the entry, wait for the release, then answer or raise."""
+        self.entered.set()
+        await self.release.wait()
+        if self.fail is not None:
+            raise self.fail
+        return await super().__call__(user_id)
+
+
+_G = TypeVar("_G", bound=_Counted)
+
+
+def _register_fn(core: CoreFacade, path: str, fn: _G, *, critical: bool = False) -> _G:
     with core.module_registration(path) as api:
         api.add_claims_contributor(fn, critical=critical)
     return fn
+
+
+def _register(
+    core: CoreFacade, path: str, result: dict[str, Any], *, critical: bool = False
+) -> _Counted:
+    return _register_fn(core, path, _Counted(result), critical=critical)
 
 
 def _core() -> CoreFacade:
@@ -379,53 +406,55 @@ async def test_a_local_step_builds_no_authority_binding_the_served_method_does(
 
 
 @pytest.mark.asyncio
-async def test_the_plan_sets_the_local_flag_only_while_it_runs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The flag that skips the binding is set for the plan's steps and reset
-    when the plan ends, however it ends: a flag left set would make the next
-    served ``contribute`` of this task answer without its binding (a remote
-    issuer then refuses the owner)."""
-    seen: list[bool] = []
-
-    async def steps(_plan: Any) -> dict[int, Any]:
-        seen.append(_claims._LOCAL_CONTRIBUTE.get())
-        raise RuntimeError("cancelled")
-
-    assert _claims._LOCAL_CONTRIBUTE.get() is False
-    monkeypatch.setattr(_claims, "_run_claims_steps", steps)
-    with pytest.raises(RuntimeError, match="cancelled"):
-        await _claims._run_claims_plan([])
-    assert seen == [True]
-    assert _claims._LOCAL_CONTRIBUTE.get() is False
+async def test_a_served_call_beside_a_local_step_still_names_its_module() -> None:
+    """The local step is told apart per task, not per process: a served
+    ``contribute`` (an RPC request of the same process) that runs while a
+    local step of a mint is suspended inside its own call still builds the
+    binding, so the remote issuer that asked binds it to its map."""
+    core = _core()
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    grants = _register_fn(core, GRANTS, _Gated({"tenant_ids": [TENANT]}), critical=True)
+    mint = asyncio.create_task(core.collect_claims(uuid4()))
+    try:
+        await asyncio.wait_for(grants.entered.wait(), timeout=5)
+        assert len(_claims._LOCAL_STEP_TASKS) == 1
+        served = await core.local_contract("idp.claims.v1").contribute(uuid4())
+        assert served[AUTHORITY_CLAIM] == IDP
+    finally:
+        grants.release.set()
+    sealed = await mint
+    assert sealed["tenant_ids"] == [TENANT] and AUTHORITY_CLAIM not in sealed
 
 
 @pytest.mark.asyncio
-async def test_a_remote_step_clears_the_local_flag_for_a_provider_in_this_process(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A ``<m>.claims.v1`` provider that happens to run in the issuing
-    process (a loopback transport, a local-first binding) is asked inside the
-    plan, so its ``contribute`` must still be served with the binding: the
-    flag is clear around the remote call and restored after it."""
+@pytest.mark.parametrize("how", ["raises", "cancelled"])
+async def test_a_local_step_leaves_no_mark_however_it_ends(how: str) -> None:
+    """A task left in the set would make its next served ``contribute`` answer
+    without the binding (a remote issuer then refuses the owner)."""
     core = _core()
-    seen: list[bool] = []
-
-    class _Provider:
-        async def contribute(self, _user_id: Any) -> dict[str, Any]:
-            seen.append(_claims._LOCAL_CONTRIBUTE.get())
-            return {"tenant_ids": [TENANT], AUTHORITY_CLAIM: GRANTS}
-
-    monkeypatch.setattr(core, "get_service", lambda _name: _Provider())
-    token = _claims._LOCAL_CONTRIBUTE.set(True)
+    _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    gated = _Gated({"tenant_ids": [TENANT]})
+    if how == "raises":
+        gated.fail = RuntimeError("boom")
+    _register_fn(core, GRANTS, gated, critical=True)
+    mint = asyncio.create_task(core.collect_claims(uuid4()))
     try:
-        call = core._remote_claims_call("grants", uuid4())
-        answer = await call()
-        assert _claims._LOCAL_CONTRIBUTE.get() is True
+        await asyncio.wait_for(gated.entered.wait(), timeout=5)
+        assert len(_claims._LOCAL_STEP_TASKS) == 1
+        if how == "cancelled":
+            mint.cancel()
     finally:
-        _claims._LOCAL_CONTRIBUTE.reset(token)
-    assert seen == [False]
-    assert answer == {"tenant_ids": [TENANT]}
+        gated.release.set()
+    if how == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await mint
+    else:
+        with pytest.raises(ClaimsUnavailable):
+            await mint
+    assert _claims._LOCAL_STEP_TASKS == set()
+    gated.fail = None
+    served = await core.local_contract("grants.claims.v1").contribute(uuid4())
+    assert served[AUTHORITY_CLAIM] == GRANTS
 
 
 @pytest.mark.asyncio
