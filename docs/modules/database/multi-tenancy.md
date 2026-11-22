@@ -163,18 +163,13 @@ bound.
 
 `conflict_insert` on a `TenantScoped` model is refused outside `unscoped()`: the
 guard cannot tell a harmless `ON CONFLICT` from one that rewrites another
-tenant's row. Upsert with `tenant_upsert`, which builds the statement for the
-bound tenant from plain rows:
+tenant's row. Upsert with `tenant_upsert` from `sandloom.sdk.data`, which builds
+the statement for the bound tenant from plain rows:
 
 ```python
-from sandloom.sdk.data import new_id, tenant_upsert
-
 # Plan has UniqueConstraint("tenant_id", "code")
-await tenant_upsert(
-    Plan,
-    [{"id": new_id(), "code": "pro", "price": 20}],
-    update=["price"],
-)
+rows = [{"id": new_id(), "code": "pro", "price": 20}]
+await tenant_upsert(Plan, rows, update=["price"])
 ```
 
 Each row is a mapping of an attribute of the model to a plain value. A row

@@ -975,7 +975,8 @@ may be left out). A row of another tenant is never updated, locked or shown
 to exist. A call outside these rules, a model without such a key, a model in
 an inheritance hierarchy or one whose tenant column is not named
 `tenant_id` raises `ValueError` (SANDLOOM-R018) before anything is sent.
-A database without `ON CONFLICT` refuses (SANDLOOM-R015).
+A database without `ON CONFLICT`, or whose statement the tenant guard
+cannot read, refuses (SANDLOOM-R015).
 
 Pending changes of `session` (default: `db`) are flushed first, and
 the call returns nothing. Instances of the upserted rows that the session
