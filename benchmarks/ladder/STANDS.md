@@ -829,9 +829,13 @@ K = 1000, Ir per op, Python 3.13 image `sandloom-ladder-cg:3.13`:
 
 | rung | main | this change | change |
 |---|---|---|---|
-| `KMint` | 1,253,904 | 1,224,357 | -2.4% |
-| `KMintC` | 897,172 | 880,007 | -1.9% |
-| `KMintI` | 852,127 | 850,489 | -0.2% |
+| `KMint` | 1,253,904 | 1,220,487 | -2.7% |
+| `KMintC` | 897,172 | 871,061 | -2.9% |
+| `KMintI` | 852,127 | 851,547 | -0.1% |
+
+The `main` column is the paired run of the first round of this change (same
+driver, same `claims_rungs.py`); the `this change` column is the final code,
+measured twice (second run: 1,220,403, 871,060 and 850,419).
 
 The budget of the sealed mint is judged on a mint of three owners (identity as
 the issuer, tenancy, billing; one process, fake units of work, no database and
@@ -871,6 +875,13 @@ resolve, require, seal and `create_access_token` are about 13 k Ir, 0.9%. The
 `+1.27%` of the KB-12 delta (`tests/fixtures/specs/api10-ledger-delta-kb12.md`)
 was measured on another workload (its base is 1,347,403); the figure here is
 not a re-measure of it.
+
+**Owner decision, 2026-11-22.** The owner accepted the sealed mint at +1.27%
+against the KB-12 base, which is -1.7% against the equal-workload base
+(1,459,192 against 1,440,887 and 1,484,506: the figures the review read, from
+the first build of this probe). The committed script measures the final code
+at +0.7% and -2.2% (table above). No further lever is looked for in this task;
+the one named below stays open.
 
 What went: a local `contribute` built the `sandloom.authority` binding, which
 the contract wire carried and `_local_answer` then dropped. The mint's own
