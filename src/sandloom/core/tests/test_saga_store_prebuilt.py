@@ -60,7 +60,9 @@ def test_operation_key_refuses_exactly_colon_and_whitespace() -> None:
             assert operation_key("a", f"x{char}y") == f"a:x{char}y"
 
 
-async def test_lock_statement_is_built_once_per_shape(renders: list[bool]) -> None:
+async def test_lock_statement_is_built_once_per_shape(
+    saga_harness, renders: list[bool]
+) -> None:
     async with db_session() as session:
         for _ in range(3):
             for tenant in (store.ANY_TENANT, None, uuid.uuid4()):
@@ -74,7 +76,7 @@ async def test_lock_statement_is_built_once_per_shape(renders: list[bool]) -> No
 
 
 async def test_lock_statement_keeps_skip_locked_in_its_shape(
-    renders: list[bool],
+    saga_harness, renders: list[bool]
 ) -> None:
     async with db_session() as session:
         for skip_locked in (True, False, True, False):
