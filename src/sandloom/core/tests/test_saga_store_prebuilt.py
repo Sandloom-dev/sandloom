@@ -25,6 +25,7 @@ from sandloom.core.tests.saga_fixtures import (
     enroll_input,
     enroll_saga,
     install_fakes,
+    without_skip_locked_renderer,
 )
 from sandloom.core.unit_of_work import db_session
 
@@ -84,6 +85,20 @@ async def test_lock_statement_keeps_skip_locked_in_its_shape(
                 session, uuid.uuid4(), tenant=None, skip_locked=skip_locked
             )
     assert renders == [True, False]
+
+
+async def test_a_renderer_registered_again_is_asked_again(
+    saga_harness, renders: list[bool], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cache key holds the renderer: one that replaces the registered
+    renderer (a driver loaded later, a test's renderer without ``skip_locked``)
+    builds its own statement instead of being served the earlier one."""
+    async with db_session() as session:
+        await store.lock_instance(session, uuid.uuid4(), tenant=None)
+        assert renders == [True]
+        without_skip_locked_renderer(monkeypatch)
+        await store.lock_instance(session, uuid.uuid4(), tenant=None)
+    assert renders == [True, True]
 
 
 async def test_cached_lock_statement_binds_each_calls_tenant(saga_harness) -> None:

@@ -48,6 +48,7 @@ from sandloom.core.sql_alchemy.portable import (
     dialect_name,
     for_update_for,
     skips_locked_rows,
+    sql_dialect,
 )
 
 INSTANCES = cast(Table, SagaInstance.__table__)
@@ -152,7 +153,10 @@ def _prebuilt(
     """The statement ``build()`` makes for ``kind`` on ``session``'s dialect,
     built on the first call. A database without the renderer's form refuses in
     ``build`` every time (nothing is cached for it)."""
-    key = (dialect_name(session), *kind)
+    name = dialect_name(session)
+    # The renderer itself is part of the key: one registered again (a test's
+    # renderer without ``skip_locked``, a driver loaded later) is asked again.
+    key = (name, sql_dialect(name), *kind)
     stmt = _PREBUILT.get(key)
     if stmt is None:
         stmt = _PREBUILT[key] = build()
