@@ -187,6 +187,17 @@ async def _run_claims_lane(
 
 
 async def _run_claims_plan(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]:
+    """Run every step with the mint's local ``contribute`` calls told not to
+    build the authority binding (:data:`_LOCAL_CONTRIBUTE`, one set / reset
+    per plan: a context variable costs about 1.5k instructions each way)."""
+    local = _LOCAL_CONTRIBUTE.set(True)
+    try:
+        return await _run_claims_steps(plan)
+    finally:
+        _LOCAL_CONTRIBUTE.reset(local)
+
+
+async def _run_claims_steps(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]:
     """Run every step; outcomes by plan index (never raises for a step).
 
     Local owners on the SAME database run back to back on one shared read
@@ -231,12 +242,14 @@ async def _run_claims_plan(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]
     return outcomes
 
 
-#: True while the mint awaits one of its own local ``contribute`` calls (the
-#: issuer's or a local owner's step): the answer goes to :func:`_local_answer`,
-#: which drops the authority binding, so the call does not build it. A
-#: provider serving the same method over RPC runs outside it and still names
-#: its module. Set around the one await of each local step, reset in a
-#: ``finally``.
+#: True while the mint runs its plan (:func:`_run_claims_plan`): the answers of
+#: its local ``contribute`` calls (the issuer's, a local owner's) go to
+#: :func:`_local_answer`, which drops the authority binding, so the calls do
+#: not build it. A provider serving the same method over RPC runs outside the
+#: plan and still names its module; a remote step clears the flag for a
+#: provider that happens to run in this process. Only an optimisation: a
+#: binding built anyway is dropped by ``_local_answer``, one not built for a
+#: remote step is refused by its check.
 _LOCAL_CONTRIBUTE: ContextVar[bool] = ContextVar(
     "sandloom_claims_local_contribute", default=False
 )
@@ -575,11 +588,7 @@ class _ClaimsMixin(_ServicesMixin):
         async def _issuer_call() -> Any:
             contract = ClaimsContributorContract(cast("CoreFacade", self), owner)
             with _module_api.bind_contract_session(issuer_session):
-                local = _LOCAL_CONTRIBUTE.set(True)
-                try:
-                    return _local_answer(await contract.contribute(user_id))
-                finally:
-                    _LOCAL_CONTRIBUTE.reset(local)
+                return _local_answer(await contract.contribute(user_id))
 
         setattr(_issuer_call, _ISSUER_ATTR, True)
         return _issuer_call
@@ -600,11 +609,7 @@ class _ClaimsMixin(_ServicesMixin):
                     database=self._claims_owner_database(owner),
                     name=claims_contract_name(owner) if owner is not None else "claims",
                 )
-            local = _LOCAL_CONTRIBUTE.set(True)
-            try:
-                return _local_answer(await contract.contribute(user_id))
-            finally:
-                _LOCAL_CONTRIBUTE.reset(local)
+            return _local_answer(await contract.contribute(user_id))
 
         return _local_call
 
@@ -612,9 +617,16 @@ class _ClaimsMixin(_ServicesMixin):
         self, owner: str, user_id: Any
     ) -> Callable[[], Awaitable[Any]]:
         async def _remote_call() -> Any:
-            answer = await self.get_service(claims_contract_name(owner)).contribute(
-                user_id
-            )
+            # A provider served in this very process (a loopback transport, a
+            # local-first binding) must still name its module: the binding
+            # is what this step checks.
+            local = _LOCAL_CONTRIBUTE.set(False)
+            try:
+                answer = await self.get_service(claims_contract_name(owner)).contribute(
+                    user_id
+                )
+            finally:
+                _LOCAL_CONTRIBUTE.reset(local)
             if isinstance(answer, dict):
                 self._bind_remote_authority(owner, answer.pop(AUTHORITY_CLAIM, None))
             return answer

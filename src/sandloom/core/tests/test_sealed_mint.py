@@ -379,20 +379,53 @@ async def test_a_local_step_builds_no_authority_binding_the_served_method_does(
 
 
 @pytest.mark.asyncio
-async def test_a_failing_local_step_leaves_no_local_flag_behind() -> None:
-    """The flag that skips the binding is reset when the step fails too: a
-    flag left set would make the next served ``contribute`` of this task
-    answer without its binding (a remote issuer then refuses the owner)."""
-    core = _core()
+async def test_the_plan_sets_the_local_flag_only_while_it_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flag that skips the binding is set for the plan's steps and reset
+    when the plan ends, however it ends: a flag left set would make the next
+    served ``contribute`` of this task answer without its binding (a remote
+    issuer then refuses the owner)."""
+    seen: list[bool] = []
 
-    async def down(_user_id: Any) -> dict[str, Any]:
-        raise RuntimeError("down")
+    async def steps(_plan: Any) -> dict[int, Any]:
+        seen.append(_claims._LOCAL_CONTRIBUTE.get())
+        raise RuntimeError("cancelled")
 
-    with core.module_registration(GRANTS) as api:
-        api.add_claims_contributor(down, critical=False)
-    sealed = await core.collect_claims(uuid4())
-    assert sealed["claims_sources_failed"] == ["grants"]
     assert _claims._LOCAL_CONTRIBUTE.get() is False
+    monkeypatch.setattr(_claims, "_run_claims_steps", steps)
+    with pytest.raises(RuntimeError, match="cancelled"):
+        await _claims._run_claims_plan([])
+    assert seen == [True]
+    assert _claims._LOCAL_CONTRIBUTE.get() is False
+
+
+@pytest.mark.asyncio
+async def test_a_remote_step_clears_the_local_flag_for_a_provider_in_this_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``<m>.claims.v1`` provider that happens to run in the issuing
+    process (a loopback transport, a local-first binding) is asked inside the
+    plan, so its ``contribute`` must still be served with the binding: the
+    flag is clear around the remote call and restored after it."""
+    core = _core()
+    seen: list[bool] = []
+
+    class _Provider:
+        async def contribute(self, _user_id: Any) -> dict[str, Any]:
+            seen.append(_claims._LOCAL_CONTRIBUTE.get())
+            return {"tenant_ids": [TENANT], AUTHORITY_CLAIM: GRANTS}
+
+    monkeypatch.setattr(core, "get_service", lambda _name: _Provider())
+    token = _claims._LOCAL_CONTRIBUTE.set(True)
+    try:
+        call = core._remote_claims_call("grants", uuid4())
+        answer = await call()
+        assert _claims._LOCAL_CONTRIBUTE.get() is True
+    finally:
+        _claims._LOCAL_CONTRIBUTE.reset(token)
+    assert seen == [False]
+    assert answer == {"tenant_ids": [TENANT]}
 
 
 @pytest.mark.asyncio
