@@ -2134,8 +2134,41 @@ def find_unsafe_tenant_sql(file_path: Path) -> list[str]:
 _RAW_TENANT_SQL_FACTORIES = frozenset({"text", "DDL", "literal_column"})
 
 
-_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
-_ScopeNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_SCOPES = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ClassDef,
+    *_COMPREHENSIONS,
+)
+_ScopeNode = (
+    ast.FunctionDef
+    | ast.AsyncFunctionDef
+    | ast.Lambda
+    | ast.ClassDef
+    | ast.ListComp
+    | ast.SetComp
+    | ast.DictComp
+    | ast.GeneratorExp
+)
+
+
+def _walrus_targets(node: ast.AST) -> list[ast.AST]:
+    """The targets of the ``:=`` inside a comprehension: they bind in the scope
+    that ENCLOSES the comprehension, not in the comprehension. A function, lambda
+    or class nested in it binds its own."""
+    found: list[ast.AST] = []
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        child = stack.pop()
+        if isinstance(child, ast.NamedExpr):
+            found.append(child.target)
+        if not isinstance(
+            child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+        ):
+            stack.extend(ast.iter_child_nodes(child))
+    return found
 
 
 def _parameter_names(args: ast.arguments) -> list[str]:
@@ -2154,12 +2187,30 @@ def _scope_split(node: _ScopeNode) -> tuple[list[ast.AST], list[ast.AST], list[s
     if isinstance(node, ast.ClassDef):
         class_outer: list[ast.AST] = [*node.bases, *node.keywords, *node.decorator_list]
         return class_outer, [*node.body], []
+    if isinstance(node, _COMPREHENSIONS):
+        # the leftmost iterable is evaluated in the enclosing scope, the rest (the
+        # targets, the conditions, the element) in the comprehension's own
+        first, *rest = node.generators
+        comp_body: list[ast.AST] = [first.target, *first.ifs]
+        for generator in rest:
+            comp_body.extend([generator.target, generator.iter, *generator.ifs])
+        if isinstance(node, ast.DictComp):
+            comp_body.extend([node.key, node.value])
+        else:
+            comp_body.append(node.elt)
+        return [first.iter, *_walrus_targets(node)], comp_body, []
     args = node.args
     outer: list[ast.AST] = [*args.defaults, *(d for d in args.kw_defaults if d)]
     outer.extend(
         a.annotation
-        for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
-        if a.annotation is not None
+        for a in (
+            *args.posonlyargs,
+            *args.args,
+            *args.kwonlyargs,
+            args.vararg,
+            args.kwarg,
+        )
+        if a is not None and a.annotation is not None
     )
     if isinstance(node, ast.Lambda):
         return outer, [node.body], _parameter_names(args)
@@ -2182,7 +2233,34 @@ def _bound_names_of(node: ast.AST) -> list[str]:
         return [a.asname or a.name.split(".")[0] for a in node.names]
     if isinstance(node, ast.ImportFrom):
         return [a.asname or a.name for a in node.names if a.name != "*"]
+    if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+        return [node.name]  # ``case Foo() as tc`` / ``case [*tc]`` / ``case tc``
+    if isinstance(node, ast.MatchMapping) and node.rest:
+        return [node.rest]  # ``case {**tc}``
     return []
+
+
+def _scope_visible(
+    inherited: frozenset[str],
+    own: set[str],
+    good: set[str],
+    declared: set[str],
+    module_visible: frozenset[str] | None,
+) -> set[str]:
+    """The names a scope sees: what it inherits minus what it binds itself, plus
+    what it binds to the thing looked for. ``global name`` resolves the name in
+    the MODULE, whatever an enclosing function binds; a name the scope also binds
+    stays hidden."""
+    visible = set((inherited - own - declared) | good)
+    if module_visible is not None:
+        visible.update((declared - own) & module_visible)
+    return visible
+
+
+def _global_names_of(nodes: list[ast.AST]) -> set[str]:
+    return {
+        name for node in nodes if isinstance(node, ast.Global) for name in node.names
+    }
 
 
 def _no_aliases(_node: ast.AST) -> list[tuple[str, str]]:
@@ -2213,6 +2291,7 @@ def _names_by_scope(
         inherited: frozenset[str],
         *,
         class_body: bool,
+        module_visible: frozenset[str] | None,
     ) -> None:
         nodes: list[ast.AST] = []
         nested: list[tuple[_ScopeNode, list[ast.AST], list[str]]] = []
@@ -2233,7 +2312,9 @@ def _names_by_scope(
             own.update(_bound_names_of(node))
             good.update(binds(node))
             pairs.extend(aliases(node))
-        visible = set((inherited - own) | good)
+        visible = _scope_visible(
+            inherited, own, good, _global_names_of(nodes), module_visible
+        )
         grown = True
         while grown:  # an alias chain is followed whatever order it was written in
             grown = False
@@ -2250,10 +2331,11 @@ def _names_by_scope(
                 nested_parameters,
                 inherited if class_body else frozen,
                 class_body=isinstance(node, ast.ClassDef),
+                module_visible=frozen if module_visible is None else module_visible,
             )
 
     module_roots: list[ast.AST] = [tree]
-    resolve(module_roots, [], frozenset(), class_body=False)
+    resolve(module_roots, [], frozenset(), class_body=False, module_visible=None)
     return result
 
 

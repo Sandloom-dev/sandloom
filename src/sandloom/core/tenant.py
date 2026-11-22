@@ -1686,17 +1686,34 @@ def _release_inserted_rows(session: Session) -> None:
         _pending_inserts.setdefault(parent, {}).update(records)
 
 
+def _discard_insert_records(transaction: SessionTransaction) -> None:
+    """Drop the insert records of ``transaction`` and the stamps they made. A
+    record clears a stamp only while it still names the tenant the record made."""
+    for state, tenant in _pending_inserts.pop(transaction, {}).items():
+        if state.info.get(_STAMP) == tenant:
+            state.info.pop(_STAMP, None)
+
+
 def _forget_uncommitted_inserts(session: Session, transaction: Any) -> None:
     """``after_transaction_end``: a transaction (root, savepoint or the flush's
     own) ended. A record it still owns was never committed: a rollback undid the
     row, and ``session.close()`` rolls back an open root AND an open savepoint
     WITHOUT ``after_soft_rollback``. A stamp that outlived the row would let the
     held instance (``make_transient_to_detached``, or re-attached after another
-    tenant took its primary key) write or read that tenant's row. A record
-    clears a stamp only while it still names the tenant the record made."""
-    for state, tenant in _pending_inserts.pop(transaction, {}).items():
-        if state.info.get(_STAMP) == tenant:
-            state.info.pop(_STAMP, None)
+    tenant took its primary key) write or read that tenant's row."""
+    _discard_insert_records(transaction)
+
+
+def _forget_rolled_back_inserts(session: Session) -> None:
+    """``after_rollback``: the database transaction of the innermost boundary (a
+    savepoint, else the root) was rolled back. A FAILED flush does this while
+    SQLAlchemy ends only the flush's own subtransaction: the boundary stays open
+    (inactive) and ``after_transaction_end`` does not name it, yet the rows it
+    inserted earlier are gone. Their records and stamps go now, fail-closed; the
+    records of the transactions that enclose a rolled-back savepoint stay."""
+    boundary = _innermost_transaction(session)
+    if boundary is not None:
+        _discard_insert_records(boundary)
 
 
 def install_tenant_guard() -> None:  # noqa: C901
@@ -1854,6 +1871,7 @@ def install_tenant_guard() -> None:  # noqa: C901
     # commit of the root (per-transaction records: ``_pending_inserts``).
     event.listen(Session, "after_commit", _release_inserted_rows)
     event.listen(Session, "after_transaction_end", _forget_uncommitted_inserts)
+    event.listen(Session, "after_rollback", _forget_rolled_back_inserts)
     # Per-row re-verification inside the flush (every mapper: a non-TenantScoped
     # one over a tenant table is refused here), after any later before_flush.
     for operation in ("insert", "update", "delete"):

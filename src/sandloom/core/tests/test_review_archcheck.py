@@ -123,6 +123,26 @@ _LOOK_ALIKE_RECEIVERS = {
         "def query(db, helper):\n    with helper.tenant.unscoped():\n"
         "        return text('1')\n"
     ),
+    "a match capture named like the framework import": (
+        "import sandloom.sdk.tenant as tc\n"
+        "def query(db, obj):\n    match obj:\n        case object() as tc:\n"
+        "            with tc.unscoped():\n                return text('1')\n"
+    ),
+    "a match star capture named like the framework import": (
+        "import sandloom.sdk.tenant as tc\n"
+        "def query(db, obj):\n    match obj:\n        case [*tc]:\n"
+        "            with tc.unscoped():\n                return text('1')\n"
+    ),
+    "a match mapping rest named like the framework import": (
+        "import sandloom.sdk.tenant as tc\n"
+        "def query(db, obj):\n    match obj:\n        case {**tc}:\n"
+        "            with tc.unscoped():\n                return text('1')\n"
+    ),
+    "a walrus in a comprehension rebinding the framework import": (
+        "import sandloom.sdk.tenant as tc\n"
+        "def query(db, make):\n    names = [(tc := make()) for _ in db]\n"
+        "    with tc.unscoped():\n        return text('1')\n"
+    ),
 }
 
 

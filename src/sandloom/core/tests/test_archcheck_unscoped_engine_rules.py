@@ -391,6 +391,25 @@ _ENGINE_BAD = {
     "the pool of an alias of sqlalchemy": (
         "import sqlalchemy as sa\nalias = sa\nqueue = alias.pool.QueuePool(lambda: None)\n"
     ),
+    # scope precision: a spelling the static resolver follows
+    "a variadic annotation": (
+        "import sqlalchemy as sa\n"
+        "def f(*args: sa.create_engine('sqlite://')):\n    return args\n"
+    ),
+    "a keyword variadic annotation": (
+        "import sqlalchemy as sa\n"
+        "def f(**kwargs: sa.create_engine('sqlite://')):\n    return kwargs\n"
+    ),
+    "a comprehension target named like the import": (
+        "import sqlalchemy as sa\n"
+        "def f(items):\n    names = [sa for sa in items]\n"
+        "    return sa.create_engine('sqlite://'), names\n"
+    ),
+    "a global declaration under a parameter named like the import": (
+        "import sqlalchemy as sa\n"
+        "def outer(sa):\n    def inner():\n        global sa\n"
+        "        return sa.create_engine('sqlite://')\n    return inner\n"
+    ),
 }
 
 _ENGINE_OK = {

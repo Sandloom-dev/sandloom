@@ -241,6 +241,10 @@ outlive its block. Three `sandloom check` rules say it for business modules.
 - Some C037 cases are not seen: a dynamic import of a non-constant name, `getattr` with a variable
   name on `sqlalchemy`, and a name bound to `sqlalchemy` by anything but a plain assignment of a
   name that holds it (unpacking, a container, a call result).
+- C015 and C037 resolve a name by lexical scope, not by control flow. A class body that reads a
+  module alias before it assigns the same name is not reported for that read, and an alias that a
+  function re-assigns to an unrelated value is still reported. The runtime cursor guard is the
+  boundary; these rules are a static layer.
 
 ## Out of scope
 

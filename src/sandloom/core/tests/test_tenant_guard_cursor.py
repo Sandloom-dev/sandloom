@@ -100,7 +100,7 @@ from sandloom.core.di import (
 from sandloom.core.orm import TenantScoped
 from sandloom.core.sql_alchemy import model_schema
 from sandloom.core.sql_alchemy.write_admission import install_write_admission
-from sandloom.core.tenant import TENANT_CRITERIA_PARAM
+from sandloom.core.tenant import TENANT_CRITERIA_PARAM, _stamp_of
 from sandloom.core.testing import database as harness
 from sandloom.core.testing import reload_test_env
 
@@ -2551,3 +2551,85 @@ async def test_a_savepoint_closed_without_release_leaves_no_stamp_when_the_root_
                     await session.delete(ghost)
                     await session.commit()
     assert await _item_rows(env) == before
+
+
+# R5: a FAILED flush rolls back the database transaction of its boundary (the root,
+# or the innermost savepoint) but SQLAlchemy ends only the flush's own
+# subtransaction, and the session stays open: the stamps of the rows the boundary
+# inserted earlier must go at once, not when the session finally ends.
+@pytest.mark.asyncio
+@pytest.mark.parametrize("write", ["update", "delete", "refresh"])
+async def test_a_failed_flush_clears_the_stamps_of_the_root_it_rolled_back(
+    env: _Env, write: str
+) -> None:
+    async with env.maker() as session:  # stays open: nothing ends its transaction
+        with bind_tenant(env.a):
+            ghost = _Item(id=8, tenant_id=env.a, name="ghost")
+            session.add(ghost)
+            await session.flush()  # inserted and stamped ...
+            session.add(_Item(id=B_ITEM_ID, tenant_id=env.a, name="clash"))
+            with pytest.raises(IntegrityError):
+                await session.flush()  # ... and rolled back with its boundary
+        assert 8 not in await _item_rows(env)  # the row is gone
+        async with env.maker() as taker:  # tenant B takes the primary key
+            with bind_tenant(env.b):
+                taker.add(_Item(id=8, tenant_id=env.b, name="b-eight"))
+                await taker.commit()
+        before = await _item_rows(env)
+        assert before[8] == ("b-eight", env.b)
+        async with env.maker() as other:
+            with bind_tenant(env.a):
+                make_transient_to_detached(ghost)
+                other.add(ghost)
+                with pytest.raises(UnsafeTenantOperationError):
+                    if write == "refresh":
+                        await other.refresh(ghost)  # would READ B's row
+                    elif write == "update":
+                        ghost.name = "pwned"
+                        await other.commit()
+                    else:
+                        await other.delete(ghost)
+                        await other.commit()
+    assert await _item_rows(env) == before
+
+
+@pytest.mark.asyncio
+async def test_a_failed_flush_clears_the_stamps_of_the_savepoint_it_rolled_back(
+    env: _Env,
+) -> None:
+    # (sqlite holds the write lock of the root until it ends, so another tenant
+    # cannot take the key here: the stamp itself is what the test reads)
+    async with env.maker() as session:  # the savepoint stays open
+        with bind_tenant(env.a):
+            await session.begin_nested()
+            ghost = _Item(id=8, tenant_id=env.a, name="ghost")
+            session.add(ghost)
+            await session.flush()
+            assert _stamp_of(ghost) == env.a  # inserted and stamped ...
+            session.add(_Item(id=B_ITEM_ID, tenant_id=env.a, name="clash"))
+            with pytest.raises(IntegrityError):
+                await session.flush()  # ... and rolled back with its savepoint
+            assert _stamp_of(ghost) is None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_flush_in_a_savepoint_keeps_the_stamps_of_the_enclosing_root(
+    env: _Env,
+) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            kept = _Item(id=12, tenant_id=env.a, name="kept")
+            session.add(kept)
+            await session.flush()  # the root's insert
+            nested = await session.begin_nested()
+            session.add(_Item(id=B_ITEM_ID, tenant_id=env.a, name="clash"))
+            with pytest.raises(IntegrityError):
+                await session.flush()  # only the savepoint is rolled back
+            await nested.rollback()  # ... and ended: the root goes on
+            await session.commit()
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(kept)
+            kept.name = "renamed"
+            await session.commit()  # the row exists and the stamp says it is A's
+    assert (await _item_rows(env))[12] == ("renamed", env.a)
