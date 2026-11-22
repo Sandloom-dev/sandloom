@@ -29,12 +29,21 @@ import sandloom.core.sql_alchemy.models
 import sandloom.core.sql_alchemy.models.audit  # noqa: F401
 from sandloom.core.infra.config import database_instance_url
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
+from sandloom.core.tenant_context import unscoped
 
 logger = logging.getLogger(__name__)
 
 #: Sets the database of an engine aside (renames its files) and returns
 #: where it went; the driver's, per database.
 SetAside = Callable[[], Awaitable[str]]
+
+
+def _create_all(connection: Any, metadata: MetaData) -> None:
+    """``metadata.create_all`` as system work: the DDL of every tenant table
+    names it, and the tenant guard refuses a statement that names one with no
+    tenant bound (ADR-0018)."""
+    with unscoped(reason="schema built from the models"):
+        metadata.create_all(bind=connection)
 
 
 class ModelSchemaDrift(RuntimeError):
@@ -141,7 +150,7 @@ async def ensure_model_schema(
             lambda sync: schema_drift(sync, metadata)
         )
         if not drift:
-            await connection.run_sync(lambda sync: metadata.create_all(bind=sync))
+            await connection.run_sync(lambda sync: _create_all(sync, metadata))
             return []
     if set_aside is None:
         raise ModelSchemaDrift(
@@ -154,7 +163,7 @@ async def ensure_model_schema(
     await engine.dispose()
     moved = await set_aside()
     async with engine.begin() as connection:
-        await connection.run_sync(lambda sync: metadata.create_all(bind=sync))
+        await connection.run_sync(lambda sync: _create_all(sync, metadata))
     logger.warning(
         "%s differed from the models (%s): set aside as %s, a fresh database "
         "built [SANDLOOM-B028]",

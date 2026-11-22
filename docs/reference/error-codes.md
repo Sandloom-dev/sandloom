@@ -62,6 +62,8 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
 | [`SANDLOOM-C034`](#sandloom-c034) | `handwritten-access-check` | check | a hand-written Requirement calls a declared access check with other tier, category or risk than its declaration | active |
 | [`SANDLOOM-C035`](#sandloom-c035) | `task-enqueue-ownership` | check | a module enqueues a task by name that is not a string literal naming one of its own tasks | active |
+| [`SANDLOOM-C036`](#sandloom-c036) | `yield-inside-unscoped` | check | a module uses `unscoped` other than as the context expression of a `with` block, or yields inside that block, letting the tenant bypass outlive it | active |
+| [`SANDLOOM-C037`](#sandloom-c037) | `engine-in-module` | check | a business module reaches a database around the framework's engine (builds an engine or a pool, or opens a raw driver connection) | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -371,7 +373,7 @@ Slug: `unsafe-tenant-sql` · kind: check · status: active
 
 **What happened and why it matters**
 
-text(), exec_driver_sql and Model.__table__ statements are not tenant-filtered by the ORM guard.
+text(), DDL(), literal_column(), exec_driver_sql and Model.__table__ statements are not tenant-filtered by the ORM guard. The portability marker `# sandloom: raw-sql` reviews dialect text only and does not lift this check; an unscoped() block does (the module-qualified spelling `tc.unscoped()` counts only when `tc` is an import of a sandloom module).
 
 **Fix:** use ORM entities, or an explicit unscoped() block for trusted system work
 
@@ -797,6 +799,92 @@ still refuses a name no loaded module declares.
 **Fix:** enqueue your own task through the task object (`await my_task.enqueue(payload)`), or name it with a string literal under your package (`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in another module, publish an event or call its contract
 
 **More:** `docs/modules/background/tasks.md`
+
+### SANDLOOM-C036
+
+**a module uses `unscoped` other than as the context expression of a `with` block, or yields inside that block, letting the tenant bypass outlive it**
+
+Slug: `yield-inside-unscoped` · kind: check · status: active
+
+**What happened and why it matters**
+
+unscoped() lifts the tenant guard for the code inside its `with` block, and
+only a `with` block ends it. Anything that lets the bypass outlive its block
+keeps the guard off for a caller that never asked for it: a generator that
+yields inside the block suspends there with the guard still off, and so does
+a `@contextmanager` wrapper whose body yields inside it, a manager entered
+through `ExitStack.enter_context`, a call to `__enter__`, or a variable that
+holds the manager. A route that iterates such a generator, or enters such a
+wrapper, and queries on its own reads every tenant's rows.
+
+sandloom check, over every file of a business module, accepts `unscoped` only
+as the direct context expression of a `with` item (`with unscoped():`,
+`with lock, tc.unscoped():`; `unscoped()` is a synchronous context manager,
+so an `async def` writes `with` too) and reports:
+
+- a `yield` / `yield from` anywhere inside such a block, or in the context
+  expression of a later item of the same `with`, in a plain generator and in a
+  `@contextmanager` / `@asynccontextmanager` function alike, there is no
+  decorator exemption;
+- every other use of the name, of an attribute named `unscoped`, or of the
+  string "unscoped": an alias, a variable, an argument, a return value, a
+  decorator, `getattr(sdk, "unscoped")`, `functools.partial(unscoped)`, a
+  `__dict__["unscoped"]` lookup.
+
+An aliased import used directly as the `with` item is followed. The default
+expressions and decorators of a nested function run in the enclosing block and
+are checked there; its body does not inherit the block. The kernel's own files
+are not scanned: the
+rule is for modules. Not seen: a name built at run time (`getattr(sdk, name)`
+with a variable).
+
+**Fix:** write `with unscoped():` directly, in an `async def` too (it is a synchronous context manager), and keep the block free of `yield`: collect what it reads, leave the block, then yield; never rebind, store, pass or wrap `unscoped` (an imported alias used directly as the `with` item is fine)
+
+**More:** `docs/modules/database/multi-tenancy.md`
+
+### SANDLOOM-C037
+
+**a business module reaches a database around the framework's engine (builds an engine or a pool, or opens a raw driver connection)**
+
+Slug: `engine-in-module` · kind: check · status: active
+
+**What happened and why it matters**
+
+Every engine the framework builds gets install_write_admission (write
+admission and the cursor check that refuses a statement reaching a tenant
+table without the ORM guard, outside unscoped()) and, on a tenant_rls
+database, the per-transaction tenant setting that row-level security reads.
+A connection a module opens itself gets none of them: its statements skip the
+cursor check and write admission, and the tenant setting is never set for it.
+
+sandloom check refuses, in any file of a business module, the capabilities
+that open such a connection, not one spelling of them:
+
+- a star import from sqlalchemy or one of its submodules;
+- `create_engine`, `create_async_engine`, `engine_from_config`,
+  `async_engine_from_config`, `create_mock_engine`, `create_pool_from_url`
+  and the `Engine` classes, by name, by attribute, through an aliased import,
+  through `getattr(sqlalchemy, "create_engine")` or a `vars()` / `__dict__`
+  lookup, also on a name bound to a constant
+  `importlib.import_module("sqlalchemy")` or `__import__("sqlalchemy")`;
+- `sqlalchemy.pool` and everything from it, and `sqlalchemy.engine` beyond its
+  result and URL types (`CursorResult`, `Result`, `Row`, `RowMapping`,
+  `Connection`, `URL`, `make_url`, which stay allowed);
+- a DBAPI driver import, `sqlite3`, `psycopg`, `psycopg2`, `asyncpg` or
+  `aiosqlite`, including `importlib.import_module("psycopg")` with a constant
+  name;
+- `.raw_connection()`, `.get_raw_connection()`, `.driver_connection`, and
+  `.pool` on an engine, a bind or a connection's engine.
+
+A method that only happens to be named `create_engine` on an object that is
+not sqlalchemy is not reported. A database a module needs is declared in INFRA
+and built by a driver (a driver package is not a module); module code reaches
+it through its session. Not seen: a module name or an attribute built at run
+time from a non-constant.
+
+**Fix:** use the module's session (`get_db`, the unit of work); a database is declared in INFRA and built by a driver, never built, wrapped or opened with sqlalchemy engine / pool code or a DBAPI driver in module code
+
+**More:** `docs/modules/database/multi-tenancy.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 

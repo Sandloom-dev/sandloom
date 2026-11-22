@@ -29,7 +29,7 @@ from sandloom.sdk.projections import (
     full_state,
     tombstone,
 )
-from sandloom.sdk.tenant import bind_tenant
+from sandloom.sdk.tenant import bind_tenant, unscoped
 
 SAVED_GROUP = NOTE_INDEX.groups[0]
 LIKES_GROUP = NOTE_INDEX.groups[1]
@@ -108,7 +108,10 @@ def test_the_l2_form_is_one_consumer_per_channel() -> None:
 @pytest_asyncio.fixture
 async def index_db(db: Any) -> AsyncIterator[Any]:
     def create(sync: Any) -> None:
-        FixtureBase.metadata.create_all(sync.connection(), tables=[NoteIndex.__table__])
+        with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
+            FixtureBase.metadata.create_all(
+                sync.connection(), tables=[NoteIndex.__table__]
+            )
 
     await db.run_sync(create)
     yield db

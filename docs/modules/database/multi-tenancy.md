@@ -107,10 +107,44 @@ is refused. Normal ORM inserts inherit the current tenant and reject a
 conflicting `tenant_id`. Bulk inserts and bulk ownership changes are reserved
 for explicit `unscoped()` system work.
 
+The legacy `Session.bulk_save_objects` and `Session.bulk_insert_mappings` plant
+rows. `Session.bulk_update_mappings` rewrites them by primary key. None of the
+three runs the ORM-execute guard or the flush ownership check. On a
+`TenantScoped` model, or any mapper over its table, each is refused outside
+`unscoped()`, with or without a bound tenant. On other models they are
+untouched.
+
+The guard also reads SQL that a statement carries inside itself, which
+`get_children()` does not list:
+
+- `with_loader_criteria(...)` and the extra criteria of a relationship option
+  such as `selectinload(Parent.children.and_(...))`. A subquery in them is
+  scoped to the bound tenant like any other.
+- `insert(Other).values(...)` in every form: dict, keyword arguments, a list of
+  rows. A subquery reading a `TenantScoped` model is scoped. One reading its raw
+  `Table` is refused.
+- `with_expression(...)`. SQLAlchemy strips the annotation the tenant criterion
+  needs from its expression. A subquery that reaches a `TenantScoped` table is
+  refused outside `unscoped()`, whichever tenant's row it reads.
+- A bare `func.f(...)` executable, which is none of select, insert, update or
+  delete. It is refused when it reaches a `TenantScoped` table.
+- A SQL-expression column `default=` or `onupdate=` that reads a `TenantScoped`
+  table, on a table that is not itself tenant-scoped. It is refused on an
+  INSERT or UPDATE statement and, at `before_flush`, on a flushed object. Set
+  such a value in Python, or run the write inside `unscoped()`.
+
+Each refusal is `UnsafeTenantOperationError` under a bound tenant. With none
+bound, the statement raises `MissingTenantError` or
+`UnsafeTenantOperationError`.
+
 Raw `text()` and Core statements carry no ORM criteria. Core SQL on a
-recognised tenant table is refused when it cannot be safely scoped, and
-runtime raw SQL in a business module needs an explicit `unscoped()` admission
-([SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015)). Use the explicit helpers
+recognised tenant table is refused when it cannot be safely scoped. Runtime
+raw SQL in a business module (`text()`, `DDL()`, `literal_column()`)
+needs an explicit `unscoped()` admission
+([SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015)). The portability
+marker `# sandloom: raw-sql` reviews dialect text, not tenant reach, so it does
+not lift that check. The attribute spelling `tc.unscoped()` counts only when `tc`
+is an import of a `sandloom` module. Use the explicit helpers
 there, or enable [row-level security](#postgresql-row-level-security-optional).
 For explicit, hard-to-misuse reads:
 
@@ -145,36 +179,148 @@ open: a task created in an inner block keeps it until the outer block exits
 too. An event consumer's delivery always runs guarded, even when the bus task
 that runs it was first started inside an open `unscoped()`.
 
-A generator that yields inside `with unscoped():` keeps the guard off for its
-caller until the generator closes, because the block stays open across the
-`yield`. Do not yield inside the block: collect the rows in the block and yield
-them after it. A static rule for this is tracked separately.
+In a module `unscoped` is written one way: as the direct context expression of
+a `with` item, with no `yield` inside the block. It is a synchronous context
+manager, so write `with unscoped():` inside an `async def` too. A generator
+that yields inside `with unscoped():` keeps the guard off for its caller until
+the generator closes, because the block stays open across the `yield`.
 
-The guard does not scope a data-modifying CTE. Its tenant criteria apply to the
-SELECTs of a statement, not to a write carried as a CTE. So the check reads the
-compiled statement, the SQL about to be sent, at the cursor of every engine the
-framework builds. It does not matter what ran the statement: a session,
-`session.connection().execute` or an engine. Nor does it matter where the tree
-hangs the CTE. In loader options or in a multi-row `VALUES`, it still ends up in
-the compiled SQL.
+Other spellings let the bypass outlive its block too: a `@contextmanager`
+wrapper, an alias, a variable, `ExitStack.enter_context(unscoped())`,
+`functools.partial(unscoped)`. A `@contextmanager` function is not exempt.
+Collect the rows in the block and yield them after it. `sandloom check` reports
+each of these
+([SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036)). It scans
+modules, not the kernel's own code.
 
-A statement whose compiled SQL carries an INSERT/UPDATE/DELETE CTE is refused
-outside `unscoped()`, whatever table the DML targets: `UnsafeTenantOperationError`
-under a bound tenant, `MissingTenantError` with none. No table is matched. Which
-tables a DML CTE reaches cannot be told reliably from the statement. Four
-shapes defeat it:
+The ORM guard does not scope everything a statement can reach. Its tenant
+criteria apply to the SELECTs the ORM builds from a mapped class. A write carried
+as a CTE is outside it. So is a core `Table` built by name, a hand-written
+clause, a column load or a bulk statement. So the cursor of every engine the
+framework builds checks the compiled SQL, the text about to be sent
+([ADR-0018](../../adr/0018-tenant-guard-at-the-cursor.md)). It does not matter
+whether a session or a bare connection ran the statement. Nor does it matter
+where the tree hangs the reference: a loader option or a custom `@compiles`
+element still ends up in the compiled SQL.
 
-- a name written with `quote=False`;
-- a per-execution `schema_translate_map`;
-- a table named only through the columns of `values()` or `where()`;
-- a SQL-expression column default.
+Outside `unscoped()`, a compiled statement that reaches a tenant table is
+refused. Two kinds pass: a statement the ORM guard approved, and a flush write
+of rows the unit of work verified. A refusal is `UnsafeTenantOperationError`
+under a bound tenant and `MissingTenantError` with none.
 
-So a DML CTE needs `unscoped()`, even on a table that is not `TenantScoped`. SELECT-only CTEs stay allowed and scoped.
+A tenant table is matched by name. A `Table` of another `MetaData`, a
+`table("name")` and `text("select ... from name")` reach it as much as the
+mapped class does. The match ignores the schema, so a same-named table in
+another schema is refused too.
 
-Two cases the check does not see. A `nesting=True` CTE below the top level is
-not in the compiled list, and PostgreSQL itself refuses a data-modifying
-statement there. A CTE built from `text(...).columns(...)` is raw SQL, which is
-out of scope. Cross-tenant work uses `unscoped()`.
+Raw fragments are read word by word, whatever their quoting. A literal or a
+comment that spells a tenant table's name counts. So does a PostgreSQL
+`U&"..."` identifier, for every tenant table at once, because its name is
+written in escapes. The cursor reads a `DDL()` element whole the same way.
+Schema work over a tenant table therefore runs in `unscoped()`. That covers
+`metadata.create_all`, `DDL(...)` and index creation. The framework's
+`ensure_model_schema` does this. A test fixture that creates the tables of a
+tenant model wraps its DDL too.
+
+A data-modifying CTE is refused whichever table it targets, because the
+statement does not tell reliably which one. SELECT-only CTEs that reach no
+tenant table stay allowed.
+
+What follows from it:
+
+- The ORM guard approves the statement it checked in a private map, so a caller
+  cannot forge the approval. A statement that a later `do_orm_execute` listener
+  replaced carries none, and neither does the follow-up statement of a
+  `selectinload`. The tenant criterion parameter must reach the cursor holding
+  the bound tenant. A value of the caller's, in the parameters or from a later
+  listener, is refused.
+- The approval covers the mapper's own table and its plain aliases. A tenant
+  table reached any other way inside that statement is refused: a raw
+  `secondary`, or a hand-written subquery.
+- A flush writes through an allowlist, over the `Table` objects of the mappers
+  the unit of work verified in that flush. A second `Table` of the same name is
+  none of them. An INSERT carries an explicit `tenant_id` equal to the bound
+  tenant. An UPDATE or DELETE names a row, by primary key, that the unit of work
+  verified in that flush.
+- A statement that a column default or a listener wrote on the flush connection
+  is refused unless it passes these same checks. A listener's UPDATE or DELETE
+  that pins, by primary key, a row verified in that flush is admitted without
+  `unscoped()`.
+- An INSERT or UPDATE that sets `tenant_id` through values of its own is
+  refused. That covers `.values(tenant_id=...)`, an expression and a positional
+  row.
+
+The stamp is the second part. It sits on an instance, and it is the `tenant_id`
+read from the database, or the one a successful flush inserted the instance
+with.
+
+- The load of a deferred or expired column needs a stamp of the bound tenant.
+  So does the flush UPDATE or DELETE of an instance.
+- An insert keeps its stamp only once the root transaction committed. The
+  session tracks the inserts per transaction. When a savepoint is released, its
+  inserts pass to its parent. When a savepoint or root transaction ends without
+  committing, the stamps of the inserts it owned go. A failed or rolled back
+  insert leaves none, and neither does one the session closed without
+  committing.
+- An instance from `merge(load=False)`, from unpickling or from
+  `make_transient_to_detached` has no stamp, so the load and the write are
+  refused. The same holds for a deferred column of an instance that a
+  `load_only()` or `defer()` projection loaded without its `tenant_id`. Include
+  the column in the projection.
+- `Session.get`, `get_one` and a many-to-one lazy load answer from the identity
+  map only for such an instance. For any other they run the scoped query.
+
+`unscoped()` lifts all of it for its block.
+
+Cases the check does not see.
+
+- A `nesting=True` CTE below the top level is not in the compiled list, and
+  PostgreSQL itself refuses a data-modifying statement there.
+- A raw reference to a tenant table hidden inside a statement the ORM guard
+  approved, which the ORM walk cannot see.
+- `Connection.exec_driver_sql` sends a string with no compiled statement.
+- SQL the database builds from text no scan can read. That covers PostgreSQL
+  dynamic SQL. One case is `query_to_xml('select ... ' || name, ...)` with a
+  concatenated name. Another is `table_to_xml(oid::regclass)`. A third is a
+  `DO $$ ... EXECUTE ... $$` block. A fourth is a view or a function over a
+  tenant table, or a trigger on one. The statement then names only that object.
+  The cursor reads the SQL it is sent.
+  [Row-Level Security](#postgresql-row-level-security-optional) holds these only
+  when they run under a role the tenant policy applies to. A view owned by a
+  superuser, or by another role that bypasses row-level security, reads the rows
+  with the owner's rights. So does a `SECURITY DEFINER` function with such an
+  owner. Create views with `security_invoker = true` and write functions as
+  `SECURITY INVOKER`, or give them an owner the policy applies to.
+- A `text()` passed straight to `session.execute` is the caller's
+  responsibility. Write it with `scoped()`, or let the `unsafe-tenant-sql` check
+  and [Row-Level Security](#postgresql-row-level-security-optional) hold it.
+- The guard's private state, the `sandloom.tenant_id` key of
+  `InstanceState.info`, and private SQLAlchemy APIs are open to code that writes
+  or imports them.
+
+Two more cases concern the stamp. The load of a column of a stamped instance
+with no tenant bound is not refused. The instance was read under a tenant, and
+the load goes to its own row. A rollback the session never sees keeps the stamp
+of an inserted instance. This happens when the session is bound to a connection
+whose outer transaction the caller rolls back after `session.commit()`. The
+database discards the row, and Row-Level Security holds that case.
+
+A stamp is the `tenant_id` the row carried when the instance was read or
+inserted. It does not re-read the row, and no rule keeps a primary key from
+being reused. Say a row is deleted, and another tenant takes its primary key
+while an instance of the old row is still held. A deferred column load or a
+flush UPDATE or DELETE of that instance then passes the stamp check and reaches
+the new row. Use primary keys that are not reused across tenants, such as UUIDs
+or sequences that do not recycle values. Row-Level Security holds this case
+too.
+
+The `sandloom check` rules are static and miss some spellings. SANDLOOM-C037
+does not see a dynamic import of a name that is not a constant, or `getattr` with
+a variable name on `sqlalchemy`. It does not follow a name bound to `sqlalchemy`
+by unpacking, a container or a call result either. It does follow a plain
+assignment of a name that holds it, however long the chain.
+
+Cross-tenant work uses `unscoped()`.
 
 `unscoped()` disables the ORM guard only. On a database with
 [Row-Level Security](#postgresql-row-level-security-optional) the database still
@@ -325,6 +471,8 @@ mistakes, not against malicious Python or SQL inside its process.
 | [SANDLOOM-C014](../../reference/error-codes.md#sandloom-c014) | a per-tenant table that is not `TenantScoped` |
 | [SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015) | runtime raw SQL or Core table access that can bypass the tenant guard |
 | [SANDLOOM-C024](../../reference/error-codes.md#sandloom-c024) | a raw query on a non-relational store outside `unscoped()` |
+| [SANDLOOM-C036](../../reference/error-codes.md#sandloom-c036) | `unscoped` used other than as a `with` item, or a `yield` inside that block, so the bypass outlives its block |
+| [SANDLOOM-C037](../../reference/error-codes.md#sandloom-c037) | a module that builds an engine or a pool, or opens a driver connection, around the framework's engine and its cursor check |
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | no tenant bound where one is required (`400`) |
 | [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026) | `tenant_rls` or the system channel on a database without row security |
 
@@ -332,6 +480,9 @@ mistakes, not against malicious Python or SQL inside its process.
 
     - Fail-closed scoping of every ORM path, inserts inheriting the bound
       tenant (G-TENANT-01 to G-TENANT-08 and related entries).
+    - The legacy `Session.bulk_*` methods are refused on tenant models, and
+      SQL hidden in loader options, `values()` or column defaults is scoped or
+      refused (G-TENANT-21, G-TENANT-22).
     - A missing tenant is `400 tenant_required`, also when the error
       reaches the request boundary (G-TENANT-12).
     - RLS policies are fail-closed, forced and without bypass; the role checks

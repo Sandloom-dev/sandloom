@@ -163,6 +163,45 @@ def _dynamic_import_callables(tree: ast.AST) -> tuple[set[str], set[str]]:  # no
     return modules, functions
 
 
+def _dynamic_import_target(
+    node: ast.Call, modules: set[str], functions: set[str]
+) -> tuple[str, str] | None:
+    """``(label, module)`` when ``node`` is a dynamic import with a statically
+    known module name, else ``None``."""
+    func = node.func
+    if isinstance(func, ast.Name) and func.id in functions:
+        label = func.id
+    elif (
+        isinstance(func, ast.Attribute)
+        and func.attr in ("import_module", "__import__")
+        and isinstance(func.value, ast.Name)
+        and func.value.id in modules
+    ):
+        label = f"{func.value.id}.{func.attr}"
+    else:
+        return None
+    kwargs = {k.arg: k.value for k in node.keywords if k.arg}
+    name = _const_str(node.args[0] if node.args else kwargs.get("name"))
+    if not name:
+        return None
+    if name.startswith("."):
+        package = _const_str(
+            node.args[1] if len(node.args) > 1 else kwargs.get("package")
+        )
+        level = len(name) - len(name.lstrip("."))
+        resolved = (
+            resolve_relative(package.split("."), level, name[level:] or None)
+            if package
+            else None
+        )
+        if resolved is None:
+            return None
+        # resolve_relative treats ``package`` as the importing module's
+        # package: ``import_module(".x", "a.b")`` is ``a.b.x``.
+        name = resolved
+    return label, name
+
+
 def dynamic_imports(tree: ast.AST) -> list[tuple[int, str, str]]:
     """``(line, module, call text)`` of each constant-string dynamic import.
 
@@ -175,40 +214,11 @@ def dynamic_imports(tree: ast.AST) -> list[tuple[int, str, str]]:
     modules, functions = _dynamic_import_callables(tree)
     out: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Name) and func.id in functions:
-            label = func.id
-        elif (
-            isinstance(func, ast.Attribute)
-            and func.attr in ("import_module", "__import__")
-            and isinstance(func.value, ast.Name)
-            and func.value.id in modules
-        ):
-            label = f"{func.value.id}.{func.attr}"
-        else:
-            continue
-        kwargs = {k.arg: k.value for k in node.keywords if k.arg}
-        name = _const_str(node.args[0] if node.args else kwargs.get("name"))
-        if not name:
-            continue
-        if name.startswith("."):
-            package = _const_str(
-                node.args[1] if len(node.args) > 1 else kwargs.get("package")
-            )
-            level = len(name) - len(name.lstrip("."))
-            resolved = (
-                resolve_relative(package.split("."), level, name[level:] or None)
-                if package
-                else None
-            )
-            if resolved is None:
-                continue
-            # resolve_relative treats ``package`` as the importing module's
-            # package: ``import_module(".x", "a.b")`` is ``a.b.x``.
-            name = resolved
-        out.append((node.lineno, name, f"{label}('{name}')"))
+        if isinstance(node, ast.Call):
+            target = _dynamic_import_target(node, modules, functions)
+            if target is not None:
+                label, name = target
+                out.append((node.lineno, name, f"{label}('{name}')"))
     return out
 
 
@@ -2105,14 +2115,260 @@ def find_unsafe_tenant_sql(file_path: Path) -> list[str]:
     tree = parse_file(file_path)
     sql_text_names, sqlalchemy_names, unscoped_names = _tenant_sql_import_names(tree)
     found: list[str] = []
-    _TenantSqlVisitor(sql_text_names, sqlalchemy_names, unscoped_names, found).visit(
-        tree
-    )
+    _TenantSqlVisitor(
+        sql_text_names,
+        sqlalchemy_names,
+        unscoped_names,
+        _framework_module_names(tree),
+        found,
+    ).visit(tree)
     return found
 
 
+# Factories whose argument is raw SQL text the tenant guard cannot see into: a
+# ``text()`` and a ``DDL()`` element (which the cursor rule refuses when its
+# string names a tenant table, ADR-0018), and a ``literal_column()`` (its text is
+# rendered as written into whatever statement carries it). The portability
+# marker ``# sandloom: raw-sql`` reviews dialect text, not tenant reach: it is
+# never read here.
+_RAW_TENANT_SQL_FACTORIES = frozenset({"text", "DDL", "literal_column"})
+
+
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_SCOPES = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ClassDef,
+    *_COMPREHENSIONS,
+)
+_ScopeNode = (
+    ast.FunctionDef
+    | ast.AsyncFunctionDef
+    | ast.Lambda
+    | ast.ClassDef
+    | ast.ListComp
+    | ast.SetComp
+    | ast.DictComp
+    | ast.GeneratorExp
+)
+
+
+def _walrus_targets(node: ast.AST) -> list[ast.AST]:
+    """The targets of the ``:=`` inside a comprehension: they bind in the scope
+    that ENCLOSES the comprehension, not in the comprehension. A function, lambda
+    or class nested in it binds its own."""
+    found: list[ast.AST] = []
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        child = stack.pop()
+        if isinstance(child, ast.NamedExpr):
+            found.append(child.target)
+        if not isinstance(
+            child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+        ):
+            stack.extend(ast.iter_child_nodes(child))
+    return found
+
+
+def _parameter_names(args: ast.arguments) -> list[str]:
+    every = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg is not None:
+        every.append(args.vararg)
+    if args.kwarg is not None:
+        every.append(args.kwarg)
+    return [a.arg for a in every]
+
+
+def _scope_split(node: _ScopeNode) -> tuple[list[ast.AST], list[ast.AST], list[str]]:
+    """What a scope-opening node evaluates in its ENCLOSING scope (decorators,
+    defaults, annotations, bases), the roots of its own body and its parameter
+    names."""
+    if isinstance(node, ast.ClassDef):
+        class_outer: list[ast.AST] = [*node.bases, *node.keywords, *node.decorator_list]
+        return class_outer, [*node.body], []
+    if isinstance(node, _COMPREHENSIONS):
+        # the leftmost iterable is evaluated in the enclosing scope, the rest (the
+        # targets, the conditions, the element) in the comprehension's own
+        first, *rest = node.generators
+        comp_body: list[ast.AST] = [first.target, *first.ifs]
+        for generator in rest:
+            comp_body.extend([generator.target, generator.iter, *generator.ifs])
+        if isinstance(node, ast.DictComp):
+            comp_body.extend([node.key, node.value])
+        else:
+            comp_body.append(node.elt)
+        return [first.iter, *_walrus_targets(node)], comp_body, []
+    args = node.args
+    outer: list[ast.AST] = [*args.defaults, *(d for d in args.kw_defaults if d)]
+    outer.extend(
+        a.annotation
+        for a in (
+            *args.posonlyargs,
+            *args.args,
+            *args.kwonlyargs,
+            args.vararg,
+            args.kwarg,
+        )
+        if a is not None and a.annotation is not None
+    )
+    if isinstance(node, ast.Lambda):
+        return outer, [node.body], _parameter_names(args)
+    outer.extend(node.decorator_list)
+    if node.returns is not None:
+        outer.append(node.returns)
+    return outer, [*node.body], _parameter_names(args)
+
+
+def _bound_names_of(node: ast.AST) -> list[str]:
+    """Names ``node`` binds in its scope, by any means: an assignment or other
+    store, an import, a ``def`` / ``class``, an ``except ... as`` target."""
+    if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+        return [node.id]
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, ast.Import):
+        return [a.asname or a.name.split(".")[0] for a in node.names]
+    if isinstance(node, ast.ImportFrom):
+        return [a.asname or a.name for a in node.names if a.name != "*"]
+    if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+        return [node.name]  # ``case Foo() as tc`` / ``case [*tc]`` / ``case tc``
+    if isinstance(node, ast.MatchMapping) and node.rest:
+        return [node.rest]  # ``case {**tc}``
+    return []
+
+
+def _scope_visible(
+    inherited: frozenset[str],
+    own: set[str],
+    good: set[str],
+    declared: set[str],
+    module_visible: frozenset[str] | None,
+) -> set[str]:
+    """The names a scope sees: what it inherits minus what it binds itself, plus
+    what it binds to the thing looked for. ``global name`` resolves the name in
+    the MODULE, whatever an enclosing function binds; a name the scope also binds
+    stays hidden."""
+    visible = set((inherited - own - declared) | good)
+    if module_visible is not None:
+        visible.update((declared - own) & module_visible)
+    return visible
+
+
+def _global_names_of(nodes: list[ast.AST]) -> set[str]:
+    return {
+        name for node in nodes if isinstance(node, ast.Global) for name in node.names
+    }
+
+
+def _no_aliases(_node: ast.AST) -> list[tuple[str, str]]:
+    return []
+
+
+def _names_by_scope(
+    tree: ast.AST,
+    binds: Callable[[ast.AST], Iterable[str]],
+    aliases: Callable[[ast.AST], Iterable[tuple[str, str]]] = _no_aliases,
+) -> dict[int, frozenset[str]]:
+    """For the ``id`` of every node of ``tree``: the names that, in the lexical
+    scope the node is in, name something ``binds`` accepts.
+
+    ``binds(node)`` gives the names the node binds to the thing looked for (an
+    import of a framework module, a name bound to ``sqlalchemy``);
+    ``aliases(node)`` gives ``(target, source)`` pairs of a plain re-binding,
+    followed to a fixed point. A name resolves as Python does: a scope that binds
+    it in any way (a parameter, an assignment, a ``def``) decides, so an unrelated
+    local named like an import elsewhere neither hides that import from another
+    function nor lends it to itself. A class body is not visible to the functions
+    nested in it."""
+    result: dict[int, frozenset[str]] = {}
+
+    def resolve(
+        roots: list[ast.AST],
+        parameters: list[str],
+        inherited: frozenset[str],
+        *,
+        class_body: bool,
+        module_visible: frozenset[str] | None,
+    ) -> None:
+        nodes: list[ast.AST] = []
+        nested: list[tuple[_ScopeNode, list[ast.AST], list[str]]] = []
+        stack = list(roots)
+        while stack:
+            node = stack.pop()
+            nodes.append(node)
+            if isinstance(node, _SCOPES):
+                outer, body, nested_parameters = _scope_split(node)
+                stack.extend(outer)
+                nested.append((node, body, nested_parameters))
+            else:
+                stack.extend(ast.iter_child_nodes(node))
+        own = set(parameters)
+        good: set[str] = set()
+        pairs: list[tuple[str, str]] = []
+        for node in nodes:
+            own.update(_bound_names_of(node))
+            good.update(binds(node))
+            pairs.extend(aliases(node))
+        visible = _scope_visible(
+            inherited, own, good, _global_names_of(nodes), module_visible
+        )
+        grown = True
+        while grown:  # an alias chain is followed whatever order it was written in
+            grown = False
+            for target, source in pairs:
+                if source in visible and target not in visible:
+                    visible.add(target)
+                    grown = True
+        frozen = frozenset(visible)
+        for node in nodes:
+            result[id(node)] = frozen
+        for node, body, nested_parameters in nested:
+            resolve(
+                body,
+                nested_parameters,
+                inherited if class_body else frozen,
+                class_body=isinstance(node, ast.ClassDef),
+                module_visible=frozen if module_visible is None else module_visible,
+            )
+
+    module_roots: list[ast.AST] = [tree]
+    resolve(module_roots, [], frozenset(), class_body=False, module_visible=None)
+    return result
+
+
+def _framework_module_names(tree: ast.AST) -> dict[int, frozenset[str]]:
+    """Per node, the names an import binds to a framework module or to something
+    from one (``import sandloom.sdk.tenant as tc``, ``import sandloom.sdk``,
+    ``from sandloom.sdk import tenant``) in the scope the node is in, unless that
+    scope binds the name some other way: the receivers an attribute-style
+    ``X.unscoped()`` is accepted on. A parameter, a local object or another
+    package's module is none of them, and one function's parameter named like the
+    import does not take it from another function."""
+
+    def binds(node: ast.AST) -> list[str]:
+        if isinstance(node, ast.Import):
+            return [
+                alias.asname or "sandloom"
+                for alias in node.names
+                if alias.name.split(".")[0] == "sandloom"
+            ]
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and (node.module or "").split(".")[0] == "sandloom"
+        ):
+            return [a.asname or a.name for a in node.names if a.name != "*"]
+        return []
+
+    return _names_by_scope(tree, binds)
+
+
 def _tenant_sql_import_names(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
-    """Names bound to ``sqlalchemy.text``, ``sqlalchemy`` and ``unscoped``."""
+    """Names bound to ``sqlalchemy``'s raw SQL factories, ``sqlalchemy`` and
+    ``unscoped``."""
     sql_text_names: set[str] = set()
     sqlalchemy_names: set[str] = set()
     unscoped_names = {"unscoped"}
@@ -2125,7 +2381,7 @@ def _tenant_sql_import_names(tree: ast.AST) -> tuple[set[str], set[str], set[str
             for alias in node.names:
                 if (node.module or "").startswith(
                     "sqlalchemy"
-                ) and alias.name == "text":
+                ) and alias.name in _RAW_TENANT_SQL_FACTORIES:
                     sql_text_names.add(alias.asname or alias.name)
                 if alias.name == "unscoped":
                     unscoped_names.add(alias.asname or alias.name)
@@ -2140,14 +2396,36 @@ class _TenantSqlVisitor(ast.NodeVisitor):
         sql_text_names: set[str],
         sqlalchemy_names: set[str],
         unscoped_names: set[str],
+        framework_names: dict[int, frozenset[str]],
         found: list[str],
     ) -> None:
         self.sql_text_names = sql_text_names
         self.sqlalchemy_names = sqlalchemy_names
         self.unscoped_names = unscoped_names
+        self.framework_names = framework_names
         self.found = found
         self.function_depth = 0
         self.system_depth = 0
+
+    def _is_system_scope(self, expr: ast.expr) -> bool:
+        """``unscoped()`` by name, or ``X.unscoped()`` where ``X`` (or the root of
+        a dotted ``X``) is a name bound to a framework module. C036 accepts the
+        attribute spelling on any receiver; here it lifts the raw SQL check, so a
+        local helper or a parameter that merely has an ``unscoped`` attribute
+        does not count."""
+        if not isinstance(expr, ast.Call):
+            return False
+        func = expr.func
+        if isinstance(func, ast.Name):
+            return func.id in self.unscoped_names
+        if isinstance(func, ast.Attribute) and func.attr == "unscoped":
+            receiver = func.value
+            while isinstance(receiver, ast.Attribute):
+                receiver = receiver.value
+            return isinstance(receiver, ast.Name) and receiver.id in (
+                self.framework_names.get(id(receiver), frozenset())
+            )
+        return False
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         old_system = self.system_depth
@@ -2193,12 +2471,7 @@ class _TenantSqlVisitor(ast.NodeVisitor):
             # Context expressions run left-to-right, before that context
             # is entered. Earlier contexts already protect later ones.
             self.visit(item.context_expr)
-            system = (
-                isinstance(item.context_expr, ast.Call)
-                and isinstance(item.context_expr.func, ast.Name)
-                and item.context_expr.func.id in self.unscoped_names
-            )
-            self.system_depth += int(system)
+            self.system_depth += int(self._is_system_scope(item.context_expr))
             if item.optional_vars is not None:
                 self.visit(item.optional_vars)
         for statement in node.body:
@@ -2213,7 +2486,7 @@ class _TenantSqlVisitor(ast.NodeVisitor):
         raw_method = isinstance(fn, ast.Attribute) and (
             fn.attr == "exec_driver_sql"
             or (
-                fn.attr == "text"
+                fn.attr in _RAW_TENANT_SQL_FACTORIES
                 and isinstance(fn.value, ast.Name)
                 and fn.value.id in self.sqlalchemy_names
             )
@@ -2232,6 +2505,402 @@ class _TenantSqlVisitor(ast.NodeVisitor):
                 "unscoped() system access"
             )
         self.generic_visit(node)
+
+
+def find_yield_inside_unscoped(file_path: Path) -> list[str]:
+    """The ``unscoped()`` bypass leaves its ``with`` block (SANDLOOM-C036).
+
+    In a business module ``unscoped`` appears in exactly one shape: the direct
+    context expression of a ``with`` / ``async with`` item, and nothing inside
+    that block yields. Everything else lets the bypass outlive the block it was
+    opened for, so it is reported: a ``yield`` / ``yield from`` in the block
+    (the generator suspends with the tenant guard lifted and its consumer's
+    statements run unguarded), and any other mention of the name, whatever the
+    alias or spelling: ``cm = unscoped()``, ``stack.enter_context(unscoped())``,
+    ``system = unscoped``, ``sdk.unscoped``, ``functools.partial(unscoped)``,
+    ``getattr(sdk, "unscoped")``, a decorator. There is no exemption for a
+    ``@contextmanager``: a module's own wrapper around the bypass is the same
+    laundering. Only module code is scanned; the kernel's own context managers
+    (``sandloom.sdk``, the test harness) are not business modules.
+    """
+    tree = parse_file(file_path)
+    _, _, unscoped_names = _tenant_sql_import_names(tree)
+    found: list[str] = []
+    _UnscopedUseVisitor(unscoped_names, found).visit(tree)
+    return found
+
+
+class _UnscopedUseVisitor(ast.NodeVisitor):
+    def __init__(self, unscoped_names: set[str], found: list[str]) -> None:
+        self.unscoped_names = unscoped_names
+        self.found = found
+        self.depth = 0  # open ``with unscoped()`` blocks of the current function
+        self.admitted: set[int] = set()  # ids of the ``unscoped`` refs of a with item
+
+    def _is_unscoped_ref(self, expr: ast.expr) -> bool:
+        return (isinstance(expr, ast.Name) and expr.id in self.unscoped_names) or (
+            isinstance(expr, ast.Attribute) and expr.attr == "unscoped"
+        )
+
+    def _report_use(self, node: ast.expr) -> None:
+        self.found.append(
+            f"Line {node.lineno}: `unscoped` may appear only as the context "
+            "expression of `with unscoped():`; an alias bound to a "
+            "variable, an attribute reference, a string, a decorator or a wrapper "
+            "lets the tenant bypass outlive its block"
+        )
+
+    def _deferred(self, body: Sequence[ast.AST]) -> None:
+        """Visit a function or lambda BODY: it runs when called, after the
+        enclosing ``with unscoped()`` block may have closed, so it starts at
+        depth 0. Its defaults, decorators and annotations are not part of it."""
+        saved = self.depth
+        self.depth = 0
+        for node in body:
+            self.visit(node)
+        self.depth = saved
+
+    def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        # Definition-time expressions run in the enclosing block, at its depth: a
+        # ``yield`` in a default suspends the ENCLOSING generator.
+        for expr in node.decorator_list:
+            self.visit(expr)
+        self.visit(node.args)
+        if node.returns is not None:
+            self.visit(node.returns)
+        self._deferred(node.body)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self.visit(node.args)
+        self._deferred([node.body])
+
+    def visit_With(self, node: ast.With | ast.AsyncWith) -> None:
+        # Each item is entered before the next one's expression runs, so a
+        # ``yield`` in a later item runs inside an earlier ``unscoped()``.
+        entered = 0
+        for item in node.items:
+            expr = item.context_expr
+            system = False
+            if isinstance(expr, ast.Call) and self._is_unscoped_ref(expr.func):
+                self.admitted.add(id(expr.func))
+                system = True
+            self.visit(expr)
+            # ``unscoped()`` is entered BEFORE the ``as`` target is evaluated
+            # (``with unscoped() as sinks[(yield 1)]:``)
+            entered += int(system)
+            self.depth += int(system)
+            if item.optional_vars is not None:
+                self.visit(item.optional_vars)
+        for statement in node.body:
+            self.visit(statement)
+        self.depth -= entered
+
+    visit_AsyncWith = visit_With
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if (
+            isinstance(node.ctx, ast.Load)
+            and node.id in self.unscoped_names
+            and id(node) not in self.admitted
+        ):
+            self._report_use(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr == "unscoped" and id(node) not in self.admitted:
+            self._report_use(node)
+        self.generic_visit(node)
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if (
+            isinstance(node.value, str)
+            and node.value.replace(":", ".").rsplit(".", 1)[-1] == "unscoped"
+        ):
+            self._report_use(node)
+
+    def visit_Yield(self, node: ast.Yield | ast.YieldFrom) -> None:
+        if self.depth:
+            self.found.append(
+                f"Line {node.lineno}: yield inside `with unscoped()` keeps the "
+                "tenant guard off for the caller until the generator closes; "
+                "read inside the block and yield after it"
+            )
+        self.generic_visit(node)
+
+    visit_YieldFrom = visit_Yield
+
+
+#: SQLAlchemy names that build an engine or a pool: what they make never went
+#: through ``install_write_admission`` or the tenant_rls session setup.
+_ENGINE_BUILDERS = frozenset(
+    {
+        "create_engine",
+        "create_async_engine",
+        "engine_from_config",
+        "async_engine_from_config",
+        "create_mock_engine",
+        "create_pool_from_url",
+        "Engine",
+        "AsyncEngine",
+        "Pool",
+        "QueuePool",
+        "AsyncAdaptedQueuePool",
+        "NullPool",
+        "StaticPool",
+        "SingletonThreadPool",
+        "AssertionPool",
+    }
+)
+#: What ``sqlalchemy.engine`` hands out that only DESCRIBES a result or a URL:
+#: importing it builds and reaches nothing (everything else there, and all of
+#: ``sqlalchemy.pool``, is refused).
+_ENGINE_VALUE_TYPES = frozenset(
+    {
+        "CursorResult",
+        "Result",
+        "ResultProxy",
+        "Row",
+        "RowMapping",
+        "Connection",
+        "URL",
+        "make_url",
+    }
+)
+#: DBAPI drivers: ``sqlite3.connect`` and its kind open a connection that has
+#: neither an engine nor a dialect hook between it and the database.
+_DBAPI_DRIVERS = frozenset(
+    {
+        "sqlite3",
+        "psycopg",
+        "psycopg2",
+        "psycopg_pool",
+        "asyncpg",
+        "aiosqlite",
+        "aiomysql",
+        "pymysql",
+        "MySQLdb",
+        "pg8000",
+        "pyodbc",
+        "oracledb",
+    }
+)
+#: Attributes that hand out the DBAPI connection under an engine's own checks.
+_RAW_CONNECTION_ATTRS = frozenset(
+    {"raw_connection", "get_raw_connection", "driver_connection", "dbapi_connection"}
+)
+#: Names that, in the chain before ``.pool``, say the receiver is an engine.
+_ENGINE_HOLDERS = frozenset({"engine", "sync_engine", "bind", "get_bind"})
+
+
+def _sqlalchemy_dynamic_imports(tree: ast.AST) -> set[int]:
+    """The ``id`` of every call that imports ``sqlalchemy`` (or a submodule) by a
+    constant name: ``importlib.import_module("sqlalchemy")``, ``__import__``."""
+    modules, functions = _dynamic_import_callables(tree)
+    found: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            target = _dynamic_import_target(node, modules, functions)
+            if target is not None and target[1].split(".")[0] == "sqlalchemy":
+                found.add(id(node))
+    return found
+
+
+def _rooted_in_sqlalchemy(
+    expr: ast.expr, bound: frozenset[str], sa_imports: set[int]
+) -> bool:
+    """``expr`` is a chain of attributes and calls that starts at a name bound to
+    ``sqlalchemy`` or at a constant dynamic import of it."""
+    while True:
+        if isinstance(expr, ast.Call):
+            if id(expr) in sa_imports:
+                return True
+            expr = expr.func
+        elif isinstance(expr, ast.Attribute):
+            expr = expr.value
+        else:
+            return isinstance(expr, ast.Name) and expr.id in bound
+
+
+def _sqlalchemy_bound_names(
+    tree: ast.AST, sa_imports: set[int]
+) -> dict[int, frozenset[str]]:
+    """Per node, the names bound to ``sqlalchemy`` or something imported from it
+    (a submodule imported with ``from sqlalchemy.ext import asyncio as aio``
+    cannot be told from a class, so both count), or assigned a constant dynamic
+    import of it (``sa = importlib.import_module("sqlalchemy")``), or re-bound
+    from such a name by a plain assignment (``other = sa``), however long the
+    chain and in whatever order it is written. Names resolve by lexical scope
+    (:func:`_names_by_scope`): ``alias = sa`` in one function makes ``alias`` a
+    ``sqlalchemy`` name there only, not in a function that assigns it something
+    else."""
+
+    def assigned(node: ast.AST) -> tuple[list[ast.expr], ast.expr | None]:
+        if isinstance(node, ast.Assign):
+            return node.targets, node.value
+        if isinstance(node, ast.AnnAssign):
+            return [node.target], node.value
+        return [], None
+
+    def binds(node: ast.AST) -> list[str]:
+        targets, value = assigned(node)
+        if isinstance(value, ast.Call) and id(value) in sa_imports:
+            return [t.id for t in targets if isinstance(t, ast.Name)]
+        if isinstance(node, ast.Import):
+            return [
+                alias.asname or "sqlalchemy"
+                for alias in node.names
+                if alias.name.split(".")[0] == "sqlalchemy"
+            ]
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and (node.module or "").split(".")[0] == "sqlalchemy"
+        ):
+            # a result / URL type is a value, not a namespace of engine factories:
+            # ``getattr(Row, "__name__")`` is not a factory lookup
+            return [
+                a.asname or a.name
+                for a in node.names
+                if a.name != "*" and a.name not in _ENGINE_VALUE_TYPES
+            ]
+        return []
+
+    def rebinds(node: ast.AST) -> list[tuple[str, str]]:
+        targets, value = assigned(node)
+        if not isinstance(value, ast.Name):
+            return []
+        return [(t.id, value.id) for t in targets if isinstance(t, ast.Name)]
+
+    return _names_by_scope(tree, binds, rebinds)
+
+
+def _chain(expr: ast.expr) -> tuple[str | None, set[str]]:
+    """``(root name, every name along the chain)`` of ``a.b().c`` -> ``a``,
+    ``{a, b, c}``; the root is ``None`` when the chain starts at no name."""
+    names: set[str] = set()
+    while True:
+        if isinstance(expr, ast.Attribute):
+            names.add(expr.attr)
+            expr = expr.value
+        elif isinstance(expr, ast.Call):
+            expr = expr.func
+        elif isinstance(expr, ast.Name):
+            names.add(expr.id)
+            return expr.id, names
+        else:
+            return None, names
+
+
+def _engine_import_findings(line: int, module: str, name: str | None) -> list[str]:
+    """What importing ``name`` from ``module`` (``name`` ``None``: the module
+    itself) lets a module do: C037 reports the capability, not a spelling."""
+    parts = module.split(".")
+    if parts[0] in _DBAPI_DRIVERS:
+        return [
+            f"Line {line}: imports the DBAPI driver {module}, which connects to the "
+            "database outside the framework's engine"
+        ]
+    if parts[0] != "sqlalchemy":
+        return []
+    if name == "*":
+        return [
+            f"Line {line}: star import from {module} hides the engine and pool "
+            "factories it brings in"
+        ]
+    if name in _ENGINE_BUILDERS:
+        return [
+            f"Line {line}: imports {name}, which builds an engine or a pool outside "
+            "the framework's drivers"
+        ]
+    path = [*parts, *([name] if name else [])]
+    if len(path) > 1 and path[1] in {"engine", "pool"}:
+        if (
+            path[1] == "engine"
+            and parts[:2] == ["sqlalchemy", "engine"]
+            and name in _ENGINE_VALUE_TYPES
+        ):
+            return []
+        return [
+            f"Line {line}: imports {'.'.join(path)}: the engine and pool layers are "
+            "the framework's; only result and URL types come from sqlalchemy.engine"
+        ]
+    return []
+
+
+def _engine_attribute_findings(
+    node: ast.Attribute, bound: frozenset[str], sa_imports: set[int], allowed: set[int]
+) -> list[str]:
+    _root, names = _chain(node.value)
+    from_sqlalchemy = _rooted_in_sqlalchemy(node.value, bound, sa_imports)
+    if node.attr in _RAW_CONNECTION_ATTRS:
+        reason = "hands out the DBAPI connection, which skips the engine's checks"
+    elif node.attr in _ENGINE_BUILDERS and from_sqlalchemy:
+        reason = "builds an engine or a pool outside the framework's drivers"
+    elif node.attr in {"engine", "pool"} and from_sqlalchemy:
+        if id(node) in allowed:
+            return []
+        reason = "reaches the engine and pool layers, which are the framework's"
+    elif node.attr == "pool" and not names.isdisjoint(_ENGINE_HOLDERS):
+        reason = "is the connection pool of an engine, which skips the engine's checks"
+    elif node.attr == "__dict__" and from_sqlalchemy:
+        reason = "reads sqlalchemy's engine factories by name"
+    else:
+        return []
+    return [f"Line {node.lineno}: `.{node.attr}` {reason}"]
+
+
+def find_engine_constructors(file_path: Path) -> list[str]:
+    """A business module reaching the database around the framework's engine
+    (SANDLOOM-C037).
+
+    An engine the framework builds carries ``install_write_admission`` and the
+    tenant_rls session setup; anything a module opens itself carries neither.
+    The rule asks which capability an import or access gives, so no spelling
+    gets around it: the engine and pool factories and classes (imported under any
+    alias, or reached as an attribute of a name bound to ``sqlalchemy``), any
+    import of ``sqlalchemy.engine`` besides its result and URL types, any import
+    of ``sqlalchemy.pool``, a star import from ``sqlalchemy``, a DBAPI driver
+    (also as a constant-string ``import_module``), ``.raw_connection()`` and its
+    kin, an engine's ``.pool``, and ``getattr`` / ``__dict__`` on ``sqlalchemy``.
+    A ``.create_engine()`` of an object that is not from ``sqlalchemy`` is no
+    finding.
+    """
+    tree = parse_file(file_path)
+    sa_imports = _sqlalchemy_dynamic_imports(tree)
+    scoped = _sqlalchemy_bound_names(tree, sa_imports)
+    found: list[str] = []
+    allowed: set[int] = set()  # ``sa.engine`` nodes that only lead to a value type
+    for node in ast.walk(tree):
+        bound = scoped.get(id(node), frozenset())
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                found.extend(_engine_import_findings(node.lineno, alias.name, None))
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            for alias in node.names:
+                found.extend(
+                    _engine_import_findings(node.lineno, node.module, alias.name)
+                )
+        elif isinstance(node, ast.Attribute):
+            if node.attr in _ENGINE_VALUE_TYPES and isinstance(
+                node.value, ast.Attribute
+            ):
+                allowed.add(id(node.value))
+            found.extend(_engine_attribute_findings(node, bound, sa_imports, allowed))
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"getattr", "vars"}
+            and node.args
+            and _rooted_in_sqlalchemy(node.args[0], bound, sa_imports)
+        ):
+            found.append(
+                f"Line {node.lineno}: {node.func.id}() on sqlalchemy reads its "
+                "engine factories by name"
+            )
+    for line, module, _call in dynamic_imports(tree):
+        found.extend(_engine_import_findings(line, module, None))
+    return found
 
 
 def import_refs(tree: ast.AST, package: Sequence[str]) -> list[tuple[int, str, str]]:
@@ -2427,6 +3096,8 @@ __all__ = [
     "import_refs",
     "find_unportable_sql",
     "find_unsafe_tenant_sql",
+    "find_yield_inside_unscoped",
+    "find_engine_constructors",
     "module_test_import_hits",
     "read_source",
     "endpoint_method",

@@ -51,6 +51,13 @@ the framework's own lives in ``backend/``) and runs every analyzer of
     generated-reserved     <module>/_generated/ holds only what sandloom
                            generate wrote, unedited; no import of another
                            module's _generated package
+    yield-inside-unscoped  `unscoped` only as a `with` item, with no yield
+                           inside the block, a @contextmanager included (the
+                           caller would run unguarded)
+    engine-in-module       no engine or pool, no DBAPI driver import, no raw
+                           connection or pool access in a module: use its
+                           session (anything of its own skips write
+                           admission and the RLS session)
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):

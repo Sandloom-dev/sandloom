@@ -27,6 +27,7 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.planner_adapter import SQLAlchemyExecutionAdapter
 from sandloom.core.sql_alchemy.planner_adapter.units import _Lease
 from sandloom.core.tenant import bind_tenant
+from sandloom.core.tenant_context import UnsafeTenantOperationError
 from benchsuite.bench.api import ItemOut
 from benchsuite.bench.operations import get_tenant_item
 from benchsuite.bench.tenant_models import BenchTenantItem
@@ -226,7 +227,15 @@ async def test_late_row_filter_also_protects_a_prepared_plan(
     event.listen(target, name, fn, **({"retval": True} if where == "engine" else {}))
     try:
         with bind_tenant(A):
-            assert await execute_one(core, get_tenant_item, {"id": 1}) is None
+            if where == "session":
+                # the late listener replaces the guarded statement: the general
+                # executor runs it through the session, and the cursor refuses a
+                # statement the guard did not approve (ADR-0018), so the row
+                # filter is never skipped and never silently dropped either
+                with pytest.raises(UnsafeTenantOperationError):
+                    await execute_one(core, get_tenant_item, {"id": 1})
+            else:
+                assert await execute_one(core, get_tenant_item, {"id": 1}) is None
         assert plan_for(core, get_tenant_item).executor == "general"
     finally:
         event.remove(target, name, fn)

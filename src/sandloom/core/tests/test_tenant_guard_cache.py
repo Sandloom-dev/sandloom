@@ -100,14 +100,29 @@ def test_structurally_different_statements_get_their_own_verdict() -> None:
     assert tenant_mod._references_tenant_scoped(_plain_stmt("b")) is False
 
 
-def test_same_named_table_in_other_metadata_is_not_confused() -> None:
+def test_same_named_table_in_other_metadata_is_a_tenant_reference() -> None:
+    """A tenant table is matched by NAME: a second ``Table`` of another
+    ``MetaData`` (or ``to_metadata``, or a lightweight ``table()``) names the same
+    physical table and is no safer than the original; an unrelated name stays free."""
     tenant_mod._invalidate_guard_caches()
     lookalike = Table(
         "test_tgc_notes",
         MetaData(),
         Column("id", PG_UUID(as_uuid=True), primary_key=True),
     )
-    assert tenant_mod._references_tenant_scoped(select(lookalike)) is False
+    unrelated = Table(
+        "test_tgc_unrelated",
+        MetaData(),
+        Column("id", PG_UUID(as_uuid=True), primary_key=True),
+    )
+    assert tenant_mod._references_tenant_scoped(select(lookalike)) is True
+    assert (
+        tenant_mod._references_tenant_scoped(
+            select(_Note.__table__.to_metadata(MetaData()))
+        )
+        is True
+    )
+    assert tenant_mod._references_tenant_scoped(select(unrelated)) is False
     assert tenant_mod._references_tenant_scoped(select(_Note)) is True
 
 
