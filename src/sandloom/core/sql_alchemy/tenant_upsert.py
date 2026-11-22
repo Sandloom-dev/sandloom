@@ -12,12 +12,17 @@ of the columns to refresh, and this module builds the statement:
 * the tenant column is never a row key: its value is the bound tenant, bound
   with the column's own type;
 * the conflict target is a unique key of the table that includes the tenant
-  column, so a row of another tenant is never the one that conflicts;
+  column, so a row of another tenant is never the one that conflicts (every other
+  key and every foreign key of the table acts as on a plain insert: see the
+  multi-tenancy page);
 * ``DO UPDATE SET <column> = excluded.<column>`` for the listed columns, ``WHERE
   <tenant column> = <bound tenant>``, and nothing else: no caller expression;
-* the statement runs on the unit's connection, marked for the cursor guard,
-  which admits a marked statement only when it has exactly that shape and the
-  bound tenant in every row (:func:`sandloom.core.tenant._tenant_upsert_admitted`).
+* the statement is built by :func:`canonical_tenant_upsert`, the one builder both
+  this helper and the cursor guard use: the statement runs on the unit's
+  connection, marked for the guard, which admits it only when its SQL equals the
+  SQL of the statement the builder makes from the parts it read out of it, and
+  the bound tenant is the tenant value of every row
+  (:func:`sandloom.core.tenant._tenant_upsert_admitted`).
 """
 
 from __future__ import annotations
@@ -26,7 +31,9 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Column, Index, Table, UniqueConstraint, inspect
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapper
+from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ClauseElement
 
 from sandloom.core import error_codes
@@ -38,11 +45,14 @@ from sandloom.core.sql_alchemy.portable import (
 )
 from sandloom.core.tenant import (
     TenantScoped,
+    _plain_uuid,
     _seal_tenant_upsert,
     _tenant_column,
-    _tenant_upsert_column,
+    _tenant_tables_read,
+    _tenant_upsert_shape,
     _tenant_upsert_where,
     _unseal_tenant_upsert,
+    has_plain_columns,
 )
 from sandloom.core.tenant_context import current_tenant_id
 
@@ -89,7 +99,43 @@ def _mapper_of(model: Any) -> tuple[Mapper[Any], Table]:
             "to one plain table; the helper writes one table from plain values and "
             "does not support joined or single-table inheritance"
         )
+    if not has_plain_columns(table):
+        raise TenantUpsertError(
+            f"{table.name} has a column that is not exactly sqlalchemy.Column (a "
+            "subclass renders its own SQL, which the tenant guard cannot vouch for "
+            "in an upsert); declare its columns with mapped_column / Column"
+        )
+    replacing = _conflict_clauses(table)
+    if replacing:
+        raise TenantUpsertError(
+            f"{table.name} declares a conflict resolution of its own "
+            f"({', '.join(replacing)}): SQLite's REPLACE deletes the row that "
+            "conflicts and inserts the new one, whichever tenant owns it. Remove the "
+            "sqlite_on_conflict* option, or write the rows through the ORM"
+        )
     return mapper, table
+
+
+def _conflict_clauses(table: Table) -> list[str]:
+    """The ``sqlite_on_conflict*`` options a column or a constraint of ``table``
+    carries (``Column(..., sqlite_on_conflict_unique="REPLACE")``,
+    ``UniqueConstraint(..., sqlite_on_conflict="REPLACE")``): SQLite resolves such
+    a conflict before ``ON CONFLICT DO UPDATE`` sees it, by deleting the row of
+    ANY tenant that holds the key."""
+    owners: list[tuple[str, Any]] = [
+        *((f"column {column.name}", column) for column in table.columns),
+        *(
+            (f"constraint {constraint.name or type(constraint).__name__}", constraint)
+            for constraint in table.constraints
+        ),
+        *((f"index {index.name}", index) for index in table.indexes),
+    ]
+    return [
+        f"{label}: {option}"
+        for label, owner in owners
+        for option in owner.dialect_kwargs
+        if option.startswith("sqlite_on_conflict")
+    ]
 
 
 def _column_of(mapper: Mapper[Any], table: Table, key: Any, what: str) -> Column[Any]:
@@ -143,14 +189,15 @@ def _has_predicate(index: Index) -> bool:
 def _unique_keys(table: Table) -> list[tuple[Column[Any], ...]]:
     """The unique keys of ``table`` an ``ON CONFLICT`` target can name: its
     primary key, its unique constraints and its plain unique indexes over
-    columns (no predicate, no expression)."""
+    columns (no predicate, no expression). A ``DEFERRABLE`` constraint is left
+    out: PostgreSQL cannot infer it as the arbiter of ``ON CONFLICT DO UPDATE``."""
     keys: list[tuple[Column[Any], ...]] = []
-    if table.primary_key.columns:
+    if table.primary_key.columns and not table.primary_key.deferrable:
         keys.append(tuple(table.primary_key.columns))
     keys.extend(
         tuple(constraint.columns)
         for constraint in table.constraints
-        if isinstance(constraint, UniqueConstraint)
+        if isinstance(constraint, UniqueConstraint) and not constraint.deferrable
     )
     for index in table.indexes:
         columns = tuple(index.expressions)
@@ -160,6 +207,10 @@ def _unique_keys(table: Table) -> list[tuple[Column[Any], ...]]:
             and all(isinstance(c, Column) and c.table is table for c in columns)
         ):
             keys.append(tuple(c for c in columns if isinstance(c, Column)))
+    # ``table.constraints`` is a set: without an order the message and the
+    # statement would change from one process to the next
+    position = {column.name: place for place, column in enumerate(table.columns)}
+    keys.sort(key=lambda key: tuple(position[column.name] for column in key))
     seen: set[frozenset[str]] = set()
     unique: list[tuple[Column[Any], ...]] = []
     for key in keys:
@@ -188,7 +239,7 @@ def _conflict_target(
         if isinstance(conflict_on, str) or not conflict_on:
             raise TenantUpsertError(
                 "conflict_on must be a non-empty list of the attributes of a unique "
-                "key" + _candidates_hint(candidates, table)
+                "key" + _candidates_hint(candidates, mapper)
             )
         wanted = {
             _column_of(mapper, table, key, "conflict_on").name for key in conflict_on
@@ -198,7 +249,7 @@ def _conflict_target(
                 return key
         raise TenantUpsertError(
             f"conflict_on={list(conflict_on)!r} is not a unique key of {model} that "
-            "includes the tenant column" + _candidates_hint(candidates, table)
+            "includes the tenant column" + _candidates_hint(candidates, mapper)
         )
     if not candidates:
         raise TenantUpsertError(
@@ -211,14 +262,26 @@ def _conflict_target(
         raise TenantUpsertError(
             f"{model} has several unique keys that include the tenant column; "
             "name the one to conflict on with conflict_on=[...]"
-            + _candidates_hint(candidates, table)
+            + _candidates_hint(candidates, mapper)
         )
     return candidates[0]
 
 
-def _candidates_hint(candidates: list[tuple[Column[Any], ...]], table: Table) -> str:
-    keys = "; ".join(", ".join(column.name for column in key) for key in candidates)
-    return f" (candidates on {table.name}: {keys or 'none'})"
+def _candidates_hint(
+    candidates: list[tuple[Column[Any], ...]], mapper: Mapper[Any]
+) -> str:
+    """The candidate keys by MODEL ATTRIBUTE name (what ``conflict_on`` takes),
+    not by the column names of the table."""
+    attributes = {
+        id(column): prop.key for prop in mapper.column_attrs for column in prop.columns
+    }
+    keys = "; ".join(
+        ", ".join(attributes.get(id(column), column.name) for column in key)
+        for key in candidates
+    )
+    return (
+        f" (candidate keys of {mapper.class_.__name__}, by attribute: {keys or 'none'})"
+    )
 
 
 def _plain_row(
@@ -253,20 +316,38 @@ def _plain_row(
     return parameters
 
 
-async def tenant_upsert(
-    model: Any,
-    rows: Sequence[Mapping[str, Any]],
-    *,
-    update: Sequence[str],
-    conflict_on: Sequence[str] | None = None,
-    session: AsyncSession,
-) -> None:
-    """Insert ``rows`` of ``model`` for the bound tenant, updating ``update`` of the
-    row that already exists. See :func:`sandloom.sdk.data.tenant_upsert`."""
-    mapper, table = _mapper_of(model)
-    tenant = _tenant_of(mapper, table)
-    tid = current_tenant_id()
-    target = _conflict_target(mapper, table, tenant, conflict_on)
+def canonical_tenant_upsert(
+    dialect: Dialect,
+    table: Table,
+    target: Sequence[Column[Any]],
+    update: Sequence[Column[Any]],
+) -> Insert:
+    """THE statement of a tenant upsert, from its parts: ``INSERT`` into ``table``,
+    ``ON CONFLICT (target) DO UPDATE SET <c> = excluded.<c> for c in update WHERE
+    tenant_id = <bound tenant>``, written by ``dialect``'s renderer.
+
+    The helper builds the statement it runs with this function, and the cursor
+    guard rebuilds the statement it is shown with the same function from the parts
+    it reads out of it (:func:`sandloom.core.tenant._renders_canonically`): the
+    guard admits only a statement whose SQL is this one's, so what it admits is
+    what this function writes and nothing a caller shaped."""
+    tenant = _tenant_column(table)
+    if tenant is None:
+        raise TenantUpsertError(f"{table.name} has no tenant_id column")
+    statement = conflict_insert_for(dialect, table)
+    excluded = statement.excluded
+    return statement.on_conflict_do_update(
+        index_elements=list(target),
+        set_={column: excluded[column.key] for column in update},
+        where=_tenant_upsert_where(tenant),
+    )
+
+
+def _refreshed_columns(
+    mapper: Mapper[Any], table: Table, tenant: Column[Any], update: Sequence[str]
+) -> tuple[Column[Any], ...]:
+    """The columns ``update`` names: the table's own, never the tenant or a primary
+    key column, each once."""
     if isinstance(update, str) or not update:
         raise TenantUpsertError(
             "update must be a non-empty list of the column attributes to refresh "
@@ -284,6 +365,51 @@ async def tenant_upsert(
         if column.name in refreshed:
             raise TenantUpsertError(f"update names {key!r} twice")
         refreshed[column.name] = column
+    return tuple(refreshed.values())
+
+
+def _refuse_what_the_guard_would(
+    statement: Insert,
+    dialect: Dialect,
+    table: Table,
+    parameters: list[dict[str, Any]],
+) -> None:
+    """Answer before ``session.flush()`` what the cursor guard would answer after
+    it: a refusal then would come after the pending changes were sent."""
+    if _tenant_upsert_shape(statement) is None:
+        # a dialect renderer whose ON CONFLICT clause the cursor guard cannot read
+        raise UnsupportedSqlForm("tenant_upsert", dialect_name(dialect))
+    reads = _tenant_tables_read(
+        statement,
+        dialect,
+        column_keys=sorted(parameters[0]),
+        for_executemany=len(parameters) > 1,
+    )
+    if reads:
+        raise TenantUpsertError(
+            f"the statement would read the tenant table {', '.join(sorted(reads))} "
+            "(a column default, onupdate or type bind_expression of "
+            f"{table.name} that selects from one): the cursor guard refuses a "
+            "statement that reads another tenant table. Give the column a value in "
+            "every row, or drop the expression"
+        )
+
+
+async def tenant_upsert(
+    model: Any,
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    update: Sequence[str],
+    conflict_on: Sequence[str] | None = None,
+    session: AsyncSession,
+) -> None:
+    """Insert ``rows`` of ``model`` for the bound tenant, updating ``update`` of the
+    row that already exists. See :func:`sandloom.sdk.data.tenant_upsert`."""
+    mapper, table = _mapper_of(model)
+    tenant = _tenant_of(mapper, table)
+    tid = _plain_uuid(current_tenant_id())
+    target = _conflict_target(mapper, table, tenant, conflict_on)
+    refreshed = _refreshed_columns(mapper, table, tenant, update)
     parameters = [
         _plain_row(row, i, mapper, table, tenant) for i, row in enumerate(rows)
     ]
@@ -295,10 +421,7 @@ async def tenant_upsert(
     (named,) = keys
     missing = [
         column.name
-        for column in (
-            *refreshed.values(),
-            *(c for c in target if c.name != tenant.name),
-        )
+        for column in (*refreshed, *(c for c in target if c.name != tenant.name))
         if column.key not in named
     ]
     if missing:
@@ -308,17 +431,11 @@ async def tenant_upsert(
         )
     for row in parameters:
         row[tenant.key] = tid
-    statement = conflict_insert_for(session, table)
-    excluded = statement.excluded
-    statement = statement.on_conflict_do_update(
-        index_elements=list(target),
-        set_={column: excluded[column.key] for column in refreshed.values()},
-        where=_tenant_upsert_where(tenant),
-    )
-    if _tenant_upsert_column(statement) is None:
-        # a dialect renderer whose ON CONFLICT clause the cursor guard cannot read:
-        # it would refuse the statement at the cursor, so refuse here, clearly
-        raise UnsupportedSqlForm("tenant_upsert", dialect_name(session))
+    # the database the statement runs on is the mapper's, the one the connection
+    # below resolves: its dialect builds the statement and answers the checks
+    dialect = session.get_bind(mapper=mapper).dialect
+    statement = canonical_tenant_upsert(dialect, table, target, refreshed)
+    _refuse_what_the_guard_would(statement, dialect, table, parameters)
     # pending changes first: the upsert is ordered after them, as an ORM statement is
     await session.flush()
     connection = await session.connection(bind_arguments={"mapper": mapper})
@@ -329,4 +446,4 @@ async def tenant_upsert(
         _unseal_tenant_upsert(statement)
 
 
-__all__ = ["TenantUpsertError", "tenant_upsert"]
+__all__ = ["TenantUpsertError", "canonical_tenant_upsert", "tenant_upsert"]

@@ -180,25 +180,45 @@ whose `code` the tenant has already stored keeps its `id` and gets the new
 - takes plain values. A SQL expression, `text()` or `literal_column()` as a
   value is refused.
 - updates columns of the table other than `tenant_id` and the primary key.
-- conflicts on a unique key that includes `tenant_id`, so a row of another
-  tenant is never updated, locked or shown to exist. With several such keys,
-  name one with `conflict_on=["code"]` (the tenant column may be left out).
+- conflicts on a unique key that includes `tenant_id`. A row of another tenant
+  is never the conflicting row, so it is never updated. With several such keys,
+  name one with `conflict_on=["code"]` (the tenant column may be left out). A
+  `DEFERRABLE` key is no candidate: PostgreSQL cannot use it as the arbiter.
 - writes `SET column = excluded.column` for the `update` columns and nothing
   else, `WHERE` the row's `tenant_id` is the bound tenant. It returns nothing,
   and an instance the session holds keeps its old values until it is refreshed.
+
+Every other key and every foreign key acts as on a plain insert, so the helper
+does not hide another tenant's data from them:
+
+- Another tenant's row can hold your primary key or another unique key. The
+  insert then raises the database's integrity error, which shows that the key
+  exists. Do not reuse a key across tenants. Generate primary keys with
+  `new_id()` and put `tenant_id` into every unique key.
+- A foreign key to a tenant table locks the row it references and may point at
+  a row of another tenant. Make it composite, `(tenant_id, parent_id)`, against
+  a unique key of the parent that includes `tenant_id`.
 
 Before it sends anything, it refuses
 ([SANDLOOM-R018](../../reference/error-codes.md#sandloom-r018)) a model:
 
 - without a unique key that includes `tenant_id`;
 - in an inheritance hierarchy;
-- whose tenant column is not named `tenant_id` in the database.
+- whose tenant column is not named `tenant_id` in the database;
+- with a column that is not exactly `sqlalchemy.Column`;
+- with a `sqlite_on_conflict*` option on a column or a constraint (SQLite's
+  `REPLACE` deletes the row that holds the key, whichever tenant owns it).
+
+It also refuses a call whose statement would read a tenant table. Such a read
+comes from a default, `onupdate` or type `bind_expression` of a column the rows
+leave out, when it selects from a tenant table.
 
 A database without `ON CONFLICT` refuses too
 ([SANDLOOM-R015](../../reference/error-codes.md#sandloom-r015)).
 
-The cursor guard runs the statement only when it has exactly this shape and the
-bound tenant in every row
+The cursor guard rebuilds the statement from its parts with the kernel's own
+builder. It runs the statement only when its SQL is the rebuild's, text for
+text, and the bound tenant is in every row
 ([ADR-0018](../../adr/0018-tenant-guard-at-the-cursor.md), decision 6). Any
 other conflict insert on a tenant table stays refused.
 

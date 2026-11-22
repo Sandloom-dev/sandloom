@@ -200,32 +200,62 @@ itself:
   never a row key: its value is the bound tenant, bound with the column's own type, so a
   `TypeDecorator` on it runs on the insert and on the update alike. A model whose tenant column is
   not named `tenant_id` in the database (`mapped_column("org_id")`), a model in an inheritance
-  hierarchy and a model without a unique key that includes the tenant column are refused with
-  `SANDLOOM-R018`, before anything is sent.
+  hierarchy, a model without a unique key that includes the tenant column, a model with a column that
+  is not exactly `Column`, a model with a `sqlite_on_conflict*` option on a column or a constraint
+  (SQLite's `REPLACE` deletes the row that holds the key before `ON CONFLICT` is asked, whichever
+  tenant owns it) and a call whose statement would read a tenant table (a column default, `onupdate`
+  or type `bind_expression` that selects from one) are refused with `SANDLOOM-R018`, before anything
+  is sent and before the session is flushed.
 - The conflict target is a unique key of the table that includes the tenant column. A row of another
-  tenant is never the one that conflicts, so the call neither updates it, nor locks it, nor shows
-  that it exists.
+  tenant is never the row that conflicts, so the update never touches it. That is the whole claim:
+  every other key and every foreign key acts as on a plain insert (see the Consequences). A
+  `DEFERRABLE` key is no candidate, because PostgreSQL cannot use it as the arbiter of `DO UPDATE`.
 - `DO UPDATE SET <column> = excluded.<column>` for the listed columns, which are columns of the table
   other than the tenant column and the primary key, and `WHERE <tenant column> = <the bound tenant>`.
   There is no `RETURNING`, no CTE, no caller expression. The helper runs it on the unit's connection
-  with `executemany`, so no value is rendered into the SQL.
+  with `executemany`, so no value is rendered into the SQL. The dialect that renders it is the one of
+  the bind the connection resolves for the model's mapper.
+
+One function writes the statement: `canonical_tenant_upsert(dialect, table, target, update)` in
+`sandloom.core.sql_alchemy.tenant_upsert`. The helper builds with it, and the cursor guard builds with
+it again, so the guard checks the helper's statement against the helper's own builder and not against
+a second description of it.
 
 The cursor admits this statement and no other conflict insert on a tenant table. The helper marks
 the statement it is about to run in a private weak set, `_UPSERTS`, and removes the mark when the call
 ends, whether it succeeds or fails, so a captured statement cannot be run again. The mark alone
-admits nothing. For a marked statement the cursor checks, on the statement and on every parameter
-set:
+admits nothing. The guard reads the statement that ran (`context.invoked_statement`), never the compiled
+object, which every statement of the same cache key shares: its reading is kept per marked statement
+object and never on the compiled form. For a marked statement the cursor checks, on the statement and
+on every parameter set:
 
-- the shape. The statement is an `INSERT` over a `Table` with a `tenant_id` column, and every slot
-  SQLAlchemy lists in its `_traverse_internals` is empty but the table and the `ON CONFLICT DO UPDATE`
-  clause, whose own slots are read the same way. The check reads SQLAlchemy's list of slots, not a list
-  of ours, so a slot a later SQLAlchemy adds refuses until the check reads it. The target is columns
-  of the table with the tenant column among them. `SET` writes `excluded.<column>` of the same table
-  into a column that is neither the tenant column nor in the primary key. `WHERE` is one comparison,
-  the tenant column equal to the bound parameter `sandloom_tenant_upsert__` typed as the column
-  itself, a callable bind that reads the bound tenant when the statement runs;
+- the parts. The statement is an `INSERT` over a `Table` that is, by identity, the `local_table` of a
+  `TenantScoped` mapper (a second `Table` of the same name, whose tenant column is a `TypeDecorator`
+  that rewrites its value, is none), made of plain `Column` objects, with every slot SQLAlchemy lists
+  in its `_traverse_internals` empty but the table and the `ON CONFLICT DO UPDATE` clause, whose own
+  slots are read the same way. The check reads SQLAlchemy's list of slots, not a list of ours, so a
+  slot a later SQLAlchemy adds refuses until the check reads it. The target is columns of the table
+  with the tenant column among them. `SET` writes `excluded.<column>` of the same table into a column
+  that is neither the tenant column nor in the primary key. `WHERE` is one comparison, the tenant
+  column equal to the bound parameter `sandloom_tenant_upsert__` typed as the column itself, a
+  callable bind that reads the bound tenant when the statement runs;
+- the text. The guard rebuilds the statement from those parts with `canonical_tenant_upsert`, compiles
+  it as this execution compiled the statement (dialect, column keys, `executemany`), and admits only
+  when the two SQL strings are equal and the statement, the clause and every `SET` value are of
+  exactly the classes of the rebuild. A subclass of `Insert` or of a column, or an object that
+  renders itself, that renders another SQL (a conflict target moved to the primary key, a `WHERE` that
+  is always true, a sub-select in a `SET` value) is read where it lands: in the text;
 - the values. The tenant column holds the bound tenant in every parameter set and so does the `WHERE`
-  parameter, so an execution parameter that overrides either is refused;
+  parameter, so an execution parameter that overrides either is refused. "Holds the bound tenant" is
+  `type(value) is uuid.UUID and value == tenant`, never `value == tenant` alone: `==` runs the
+  `__eq__` of the object the caller supplied, and a `uuid.UUID` subclass whose `__eq__` says yes is
+  bound to the database as the UUID it was built from. The same helper decides every tenant
+  comparison of the guard that reads a value a caller can supply (the flush insert and update, the
+  criterion parameter). A tenant read from the database is a driver subclass (asyncpg's `UUID`):
+  the bound tenant is read as a plain `uuid.UUID` of the same bits (`_bound_tenant`), and a row that
+  carries such a subclass for the bound tenant is given the plain value at the flush, so nothing of
+  the caller's object is bound to a statement; a subclass that disagrees with itself (its `__eq__`
+  says yes, its bits say another tenant) is `TenantMismatchError`;
 - the reach. The statement reads no tenant table and writes only the upserted one.
 
 The mark counts only at the cursor. The same statement handed to `session.execute` is the conflict
@@ -266,10 +296,12 @@ insert it always was, and the ORM guard refuses it.
   a module that ran `conflict_insert` on a tenant model inside `unscoped()` to upsert for one tenant
   moves to `tenant_upsert`, which needs a unique key that includes `tenant_id`; a model whose only
   key leaves the tenant out keeps `unscoped()` or gets such a key in a migration.
-- The helper does not hide a key that another tenant holds when the key does not include the tenant. A
-  primary key shared across tenants (`id` alone) that another tenant owns makes the insert fail on that
-  key, not on the conflict target, with the database's integrity error, as a plain ORM `add` does. Use
-  keys that are not reused across tenants, as for the stamp above.
+- The helper hides no key and no row that another tenant holds beyond the conflict target; the
+  database answers as for a plain insert. A primary key (`id` alone) or another unique key that
+  another tenant owns makes the insert fail on that key, not on the conflict target, with the
+  database's integrity error, which shows that the key exists. A foreign key to a tenant table locks
+  the row it references, and the row may be another tenant's. Use keys that are not reused across
+  tenants, as for the stamp above, and make a foreign key composite, `(tenant_id, parent_id)`.
 - Some seams stay with the caller or with the database, in the order they are named:
   - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;

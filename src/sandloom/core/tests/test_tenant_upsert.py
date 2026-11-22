@@ -5,15 +5,24 @@ A conflict insert on a ``TenantScoped`` table is refused at the cursor whatever
 its caller built. ``tenant_upsert`` is the one way in: it takes plain rows,
 builds ``INSERT ... ON CONFLICT DO UPDATE SET col = excluded.col WHERE tenant_id
 = <bound>`` itself and marks the statement; the guard admits a marked statement
-only when it has exactly that shape and the bound tenant in every row. So:
+only when the statement that ran renders, text for text, as the one the kernel's
+builder writes from the same parts. So:
 
-* the helper's own behaviour (the happy path, the models it refuses, the plain
-  values only rule, the column rules);
+* the helper's own behaviour (the happy path, the models it refuses before a
+  flush, the plain values only rule, the column rules, the keys it picks, a
+  deferrable key, a column default that would read a tenant table);
 * the guard, driven with statements forged by hand: the canonical shape is
   admitted, and every deviation (the red-team findings of PR #337, insert side
-  F1-F7 and update side F1-F11, one slot or one parameter at a time) is refused
-  with ``UnsafeTenantOperationError`` and leaves every row as it was;
-* the marker alone is not trusted, and only counts at the cursor.
+  F1-F7 and update side F1-F11, then the exact-class and rendering spoofs of the
+  security review, one slot or one parameter at a time) is refused with
+  ``UnsafeTenantOperationError`` and leaves every row as it was;
+* the marker alone is not trusted, only counts at the cursor, and a refused
+  statement does not decide for the next one;
+* the tenant is compared by its exact type on every path (the upsert, the flush,
+  the cursor): a ``uuid.UUID`` subclass that only reads as the bound tenant is
+  refused, a driver's honest subclass is replaced by the plain value;
+* a ``sqlite_on_conflict*`` option and a column that is not exactly ``Column``
+  are refused before a flush.
 
 Tenant A owns ``tups_items`` row 1 and tenant B row 2, both under the key
 ``shared``.
@@ -22,6 +31,7 @@ Tenant A owns ``tups_items`` row 1 and tenant B row 2, both under the key
 from __future__ import annotations
 
 import inspect as py_inspect
+import re
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -32,8 +42,10 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import (
+    Column,
     ForeignKey,
     Integer,
+    MetaData,
     PrimaryKeyConstraint,
     String,
     Table,
@@ -46,6 +58,7 @@ from sqlalchemy import (
     cast,
     column,
     delete,
+    event,
     func,
     insert,
     inspect,
@@ -71,10 +84,13 @@ from sqlalchemy.orm import (
     mapped_column,
     synonym,
 )
+from sqlalchemy.sql.elements import ColumnClause
 
 from sandloom.core import tenant as tenant_mod
+from sandloom.core.config.settings import settings
 from sandloom.core.di import (
     MissingTenantError,
+    TenantMismatchError,
     UnsafeTenantOperationError,
     bind_tenant,
     unscoped,
@@ -225,6 +241,132 @@ class _Hexed(TenantScoped, _Base):
     name: Mapped[str] = mapped_column(Text)
 
 
+class _Keyed(TenantScoped, _Base):
+    """Two unique keys over the tenant, one of them on the attribute ``label``
+    whose column is ``title``: an ambiguity message names the ATTRIBUTE."""
+
+    __tablename__ = "tups_keyed"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key"),
+        UniqueConstraint("tenant_id", "title"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    label: Mapped[str] = mapped_column("title", Text)
+
+
+class _PgBase(DeclarativeBase):
+    """Tables only PostgreSQL can create: SQLite has no ``DEFERRABLE`` unique key."""
+
+
+class _Deferred(TenantScoped, _PgBase):
+    """PostgreSQL cannot infer a DEFERRABLE constraint as the arbiter of ``ON
+    CONFLICT DO UPDATE``: it is no candidate, ``slug`` is the one key."""
+
+    __tablename__ = "tups_deferred"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key", deferrable=True, initially="DEFERRED"),
+        UniqueConstraint("tenant_id", "slug"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    slug: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+
+
+class _ReplacingPk(TenantScoped, _Base):
+    """A1: SQLite resolves a conflict on the GLOBAL primary key by deleting the row
+    of any tenant that holds it, before ``ON CONFLICT DO UPDATE`` is asked."""
+
+    __tablename__ = "tups_replacing_pk"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", sqlite_on_conflict="REPLACE"),
+        UniqueConstraint("tenant_id", "key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer)
+    key: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+
+
+class _ReplacingUnique(TenantScoped, _Base):
+    __tablename__ = "tups_replacing_unique"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key"),
+        UniqueConstraint("email", sqlite_on_conflict="REPLACE"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    email: Mapped[str] = mapped_column(Text)
+
+
+class _ReplacingColumn(TenantScoped, _Base):
+    __tablename__ = "tups_replacing_column"
+    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    email: Mapped[str] = mapped_column(
+        Text, unique=True, sqlite_on_conflict_unique="REPLACE"
+    )
+
+
+class _Defaulted(TenantScoped, _Base):
+    """A client-side SQL default that reads a tenant table: it renders into the
+    ``VALUES`` of a statement that omits ``snap``, and only then."""
+
+    __tablename__ = "tups_defaulted"
+    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    snap: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        default=select(ITEMS.c.name).where(ITEMS.c.id == B_ITEM_ID).scalar_subquery(),
+    )
+
+
+class _Peek(TypeDecorator[str]):
+    """A type whose ``bind_expression`` selects from a tenant table."""
+
+    impl = Text
+    cache_ok = True
+
+    def bind_expression(self, bindvalue: Any) -> Any:
+        peek = select(ITEMS.c.name).where(ITEMS.c.id == B_ITEM_ID).scalar_subquery()
+        return func.coalesce(peek, bindvalue)
+
+
+class _Peeking(TenantScoped, _Base):
+    __tablename__ = "tups_peeking"
+    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(_Peek())
+
+
+class _OddColumn(Column[Any]):
+    """A ``Column`` subclass: it may render its own SQL, which the statement and
+    its rebuild share, so only the class itself can rule it out."""
+
+    inherit_cache = True
+
+
+class _Odd(TenantScoped, _Base):
+    __tablename__ = "tups_odd"
+    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
+
+    id = Column(Integer, primary_key=True)
+    key = Column(Text)
+    name = _OddColumn("name", Text)
+
+
 @dataclass
 class _Env:
     engine: AsyncEngine
@@ -251,11 +393,9 @@ async def env(
     if request.param == "sqlite":
         url = f"sqlite+aiosqlite:///{tmp_path / 'upsert.db'}"
     else:
-        import os
-
-        url = os.getenv("DATABASE_URL", "")
-        if not url:
-            pytest.fail("DATABASE_URL not set: the guard test needs a PostgreSQL URL")
+        url = settings.database_url
+        if not url.startswith("postgresql"):
+            pytest.fail(f"the guard test needs a PostgreSQL URL, got {url[:12]!r}")
     engine = create_async_engine(url)
     try:  # the engine is released whether setup, the test or the drop fails
         state = await _seed(engine)
@@ -367,7 +507,7 @@ class _Fake:
     def __init__(self, dialect: Any) -> None:
         self._bind = type("Bind", (), {"dialect": dialect})()
 
-    def get_bind(self) -> Any:
+    def get_bind(self, *args: Any, **kwargs: Any) -> Any:
         return self._bind
 
     async def flush(self) -> None:
@@ -983,6 +1123,113 @@ def _b_row() -> Any:
     return ITEMS.c.id == B_ITEM_ID
 
 
+class _Liar(uuid.UUID):
+    """A UUID that says it equals everything. It is bound to the database as the
+    UUID it was built from, whatever ``==`` told the guard (N1, P1, P2)."""
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    def __ne__(self, other: object) -> bool:
+        return False
+
+    __hash__ = uuid.UUID.__hash__
+
+
+def _liar(tenant: uuid.UUID) -> _Liar:
+    return _Liar(int=tenant.int)
+
+
+def _evil_insert(env: _Env) -> Any:
+    """N2: an ``Insert`` subclass with its own ``_compiler_dispatch``: the clause it
+    holds is the canonical one, the SQL it renders is not (the conflict target
+    moved to the primary key, the WHERE always true)."""
+    base = type(conflict_insert_for(env.dialect, ITEMS))
+
+    class EvilInsert(base):  # type: ignore[misc, valid-type]
+        inherit_cache = True
+
+        def _compiler_dispatch(self, visitor: Any, **kw: Any) -> str:
+            sql = visitor.visit_insert(self, **kw)
+            sql = re.sub(r"ON CONFLICT \([^)]*\)", "ON CONFLICT (id)", sql)
+            return sql.replace(" WHERE ", " WHERE 1=1 OR ")
+
+    statement = EvilInsert(ITEMS)
+    statement._post_values_clause = _canonical(env)._post_values_clause
+    return statement
+
+
+class _EvilColumn(ColumnClause):  # type: ignore[type-arg]
+    """N3: looks like ``excluded.name`` (a column of the ``excluded`` alias, under
+    its name) and renders a sub-select that reads B's row."""
+
+    inherit_cache = True
+
+    def _compiler_dispatch(self, visitor: Any, **kw: Any) -> str:
+        return f"(SELECT x.note FROM tups_items AS x WHERE x.id = {B_ITEM_ID})"
+
+
+class _SameColumn(ColumnClause):  # type: ignore[type-arg]
+    """N3, the quiet one: a subclass that renders exactly like ``excluded.name``.
+    Only its class can tell it from the real one."""
+
+    inherit_cache = True
+
+
+def _same_sql_insert(env: _Env) -> Any:
+    """N2, the quiet one: an ``Insert`` subclass that changes nothing in the SQL."""
+    base = type(conflict_insert_for(env.dialect, ITEMS))
+
+    class QuietInsert(base):  # type: ignore[misc, valid-type]
+        inherit_cache = True
+
+    statement = QuietInsert(ITEMS)
+    statement._post_values_clause = _canonical(env)._post_values_clause
+    return statement
+
+
+def _self_rendering(env: _Env) -> Any:
+    """The classes are exactly the canonical ones and the OBJECT renders itself (the
+    conflict target moved to the primary key, the WHERE always true): only the text
+    of the SQL can tell."""
+    statement = _canonical(env)
+    render = type(statement)._compiler_dispatch
+
+    def dispatch(visitor: Any, **kw: Any) -> str:
+        sql = render(statement, visitor, **kw)
+        sql = re.sub(r"ON CONFLICT \([^)]*\)", "ON CONFLICT (id)", sql)
+        return sql.replace(" WHERE ", " WHERE 1=1 OR ")
+
+    statement._compiler_dispatch = dispatch  # type: ignore[method-assign]
+    return statement
+
+
+class _ToB(TypeDecorator[uuid.UUID]):
+    """N4: a tenant type that stores whatever it is given as ``target``."""
+
+    impl = Uuid
+    cache_ok = True
+    target: uuid.UUID | None = None
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        return _ToB.target
+
+
+def _second_table(env: _Env) -> tuple[Any, list[dict[str, Any]]]:
+    """N4: a ``Table`` of the same name that no mapper maps, whose tenant column
+    rewrites every tenant to B."""
+    _ToB.target = env.b
+    second = Table(
+        "tups_items",
+        MetaData(),
+        Column("id", Integer, primary_key=True),
+        Column("tenant_id", _ToB(), nullable=False),
+        Column("key", Text),
+        Column("name", Text),
+    )
+    return _canonical(env, table=second), [_row(env, name="pwned-n4")]
+
+
 _FORGED: dict[str, Forgery] = {
     # --- the slots a statement has besides the ones the helper fills (insert side).
     # A CTE with DML is also refused at compile time (``check_compiled_statement``),
@@ -1274,6 +1521,62 @@ _FORGED: dict[str, Forgery] = {
         _canonical(e),
         [_row(e), _row(e, id=91, key="two", **{tenant_mod.TENANT_UPSERT_PARAM: e.b})],
     ),
+    # --- N1: the guard compares the tenant with an exact type check, never with
+    # the ``==`` of an object the caller supplied
+    "N1 a row tenant that is a UUID subclass equal to everything": lambda e: (
+        _canonical(e),
+        [_row(e, key="planted", tenant_id=_liar(e.b))],
+    ),
+    "N1 the WHERE parameter likewise: B's row rewritten": lambda e: (
+        _canonical(e),
+        [
+            _row(
+                e,
+                id=B_ITEM_ID,
+                tenant_id=_liar(e.b),
+                **{tenant_mod.TENANT_UPSERT_PARAM: _liar(e.b)},
+            )
+        ],
+    ),
+    # --- N2 / N3: the SQL must be the SQL of the statement the builder makes
+    "N2 an Insert subclass that rewrites the conflict target and the WHERE": lambda e: (
+        _evil_insert(e),
+        [_row(e, id=B_ITEM_ID, name="pwned-n2")],
+    ),
+    "N3 a SET value that looks like excluded.name and reads B": lambda e: (
+        _canonical(
+            e,
+            set_=lambda x: {
+                ITEMS.c.name: _EvilColumn("name", _selectable=x.name.table)
+            },
+        ),
+        [_row(e)],
+    ),
+    "N2 an Insert subclass that renders the canonical SQL": lambda e: (
+        _same_sql_insert(e),
+        [_row(e)],
+    ),
+    "N2 an exact Insert that renders itself": lambda e: (
+        _self_rendering(e),
+        [_row(e, id=B_ITEM_ID, name="pwned-n2-text")],
+    ),
+    "N3 a SET value of a subclass that renders as excluded.name": lambda e: (
+        _canonical(
+            e,
+            set_=lambda x: {
+                ITEMS.c.name: _SameColumn("name", _selectable=x.name.table)
+            },
+        ),
+        [_row(e)],
+    ),
+    # --- N4: the table is a mapper's own
+    "N4 a second Table of the same name whose tenant type rewrites to B": (
+        _second_table
+    ),
+    "N4 a model table whose column is a Column subclass": lambda e: (
+        _canonical(e, table=_table(_Odd)),
+        [{"id": 1, "key": "k", "name": "x", "tenant_id": e.a}],
+    ),
     # --- F7: the tenant column under another name
     "F7 a table whose tenant column is org_id": lambda e: (
         _canonical(e, table=_table(_Renamed)),
@@ -1363,11 +1666,14 @@ async def test_a_marked_upsert_needs_a_parameter_set_to_check(
     with bind_tenant(env.a):
         tenant_mod._seal_tenant_upsert(statement)
         try:
+            build = helper_mod.canonical_tenant_upsert
             if sets:
-                tenant_mod.check_tenant_reach(context, compiled)
+                tenant_mod.check_tenant_reach(context, compiled, upsert_builder=build)
             else:
                 with pytest.raises(UnsafeTenantOperationError):
-                    tenant_mod.check_tenant_reach(context, compiled)
+                    tenant_mod.check_tenant_reach(
+                        context, compiled, upsert_builder=build
+                    )
         finally:
             tenant_mod._unseal_tenant_upsert(statement)
 
@@ -1419,11 +1725,12 @@ async def test_the_marker_is_gone_when_the_statement_fails(
         real(statement)
 
     monkeypatch.setattr(helper_mod, "_seal_tenant_upsert", record)
-    with pytest.raises(Exception):  # noqa: B017 - the database refuses the row
+    with pytest.raises(IntegrityError):  # the database refuses the row
         # no ``name``: NOT NULL, so the statement reaches the database and fails
         await _upsert(env, env.a, _Item, [{"id": 5, "key": "k"}], update=["key"])
-    assert all(statement not in tenant_mod._UPSERTS for statement in captured)
-    assert len(tenant_mod._UPSERTS) == 0
+    (statement,) = captured  # the one statement of the one call
+    assert statement not in tenant_mod._UPSERTS
+    assert statement not in tenant_mod._UPSERT_SHAPES
 
 
 @pytest.mark.asyncio
@@ -1445,3 +1752,540 @@ async def test_a_conflict_insert_the_caller_builds_stays_refused(env: _Env) -> N
         await _assert_refused_and_untouched(
             env, lambda statement=statement: _forge(env, statement, None, seal=False)
         )
+
+
+# ------------------------------- what the cursor reads from the statement that ran
+
+
+@pytest.mark.asyncio
+async def test_a_refused_statement_does_not_decide_for_the_next_one(env: _Env) -> None:
+    """N5: the shape is read from the statement object that ran, never kept on the
+    compiled form the statement cache shares. A refused unmarked statement does not
+    deny tenant B's honest call, and an honest call that filled the cache does not
+    admit an unmarked statement of the same shape."""
+    poison = _canonical(
+        env,
+        where=ITEMS.c.tenant_id
+        == bindparam(
+            tenant_mod.TENANT_UPSERT_PARAM,
+            callable_=tenant_mod._tenant_criteria_value,
+            type_=Uuid(),
+        ),
+    )
+    await _assert_refused_and_untouched(
+        env, lambda: _forge(env, poison, [_row(env)], seal=False)
+    )
+    await _upsert(
+        env, env.b, _Item, [{"id": 7, "key": "kb", "name": "nb"}], update=["name"]
+    )
+    assert (await _items(env))[7][:3] == (env.b, "kb", "nb")
+    await _assert_refused_and_untouched(
+        env, lambda: _forge(env, _canonical(env), [_row(env)], seal=False)
+    )
+
+
+# ------------------------- a value that only reads as the bound tenant (P1, P2, N1)
+
+
+class _Honest(uuid.UUID):
+    """What a driver returns for a UUID column (asyncpg's ``UUID``): a subclass that
+    tells the truth."""
+
+
+class _SelectiveLiar(uuid.UUID):
+    """Equal to ONE object only, the bound tenant the guard compares it with, and
+    to nothing else, the value the row was loaded with included: the persistence
+    layer sees a change (so the value reaches an UPDATE) while the guard sees the
+    bound tenant. An always-equal liar is never written by an UPDATE."""
+
+    passes: Any = None
+
+    def __eq__(self, other: object) -> bool:
+        return other is _SelectiveLiar.passes
+
+    def __ne__(self, other: object) -> bool:
+        return other is not _SelectiveLiar.passes
+
+    __hash__ = uuid.UUID.__hash__
+
+
+class _SplitBits(uuid.UUID):
+    """Reads as ``int`` the tenant it was built from and writes another ``bytes``."""
+
+    other: uuid.UUID = uuid.UUID(int=0)
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    __hash__ = uuid.UUID.__hash__
+
+    @property
+    def bytes(self) -> bytes:
+        return _SplitBits.other.bytes
+
+
+def test_only_a_plain_uuid_that_is_the_bound_tenant_counts_as_it() -> None:
+    tid = uuid.uuid4()
+    assert tenant_mod._is_bound_tenant(uuid.UUID(int=tid.int), tid)
+    assert not tenant_mod._is_bound_tenant(uuid.uuid4(), tid)
+    assert not tenant_mod._is_bound_tenant(_liar(uuid.uuid4()), tid)  # ``==`` says yes
+    assert not tenant_mod._is_bound_tenant(_liar(tid), tid)  # right bits, wrong class
+    assert not tenant_mod._is_bound_tenant(_Honest(int=tid.int), tid)
+    assert not tenant_mod._is_bound_tenant(str(tid), tid)
+    assert not tenant_mod._is_bound_tenant(None, tid)
+
+
+def test_the_bound_tenant_is_read_as_a_plain_uuid() -> None:
+    tid = uuid.uuid4()
+    assert tenant_mod._plain_uuid(tid) is tid
+    plain = tenant_mod._plain_uuid(_Honest(int=tid.int))
+    assert type(plain) is uuid.UUID and plain == tid
+    plain = tenant_mod._plain_uuid(_liar(tid))
+    assert type(plain) is uuid.UUID and plain.int == tid.int
+    with bind_tenant(_Honest(int=tid.int)):
+        bound = tenant_mod._bound_tenant()
+    assert bound is not None and type(bound) is uuid.UUID and bound == tid
+
+
+def test_a_row_carrying_a_driver_class_of_the_tenant_is_given_the_plain_one() -> None:
+    tid = uuid.uuid4()
+    honest = SimpleNamespace(tenant_id=_Honest(int=tid.int))
+    assert tenant_mod._adopt_bound_tenant(honest, tid)
+    assert honest.tenant_id is tid
+    own = SimpleNamespace(tenant_id=tid)
+    assert tenant_mod._adopt_bound_tenant(own, tid)
+    assert own.tenant_id is tid
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_liar(uuid.uuid4()), id="equal to everything"),
+        pytest.param(_Honest(int=uuid.uuid4().int), id="another tenant"),
+        pytest.param("not a uuid", id="a string"),
+        pytest.param(uuid.uuid4(), id="a plain other tenant"),
+    ],
+)
+def test_a_row_whose_tenant_is_not_the_bound_one_is_not_adopted(value: Any) -> None:
+    tid = uuid.uuid4()
+    row = SimpleNamespace(tenant_id=value)
+    assert not tenant_mod._adopt_bound_tenant(row, tid)
+    assert row.tenant_id is value  # nothing was rewritten
+
+
+def test_a_subclass_whose_bits_disagree_with_each_other_is_not_adopted() -> None:
+    tid = uuid.uuid4()
+    _SplitBits.other = uuid.uuid4()  # what it would write to the database
+    row = SimpleNamespace(tenant_id=_SplitBits(int=tid.int))
+    assert not tenant_mod._adopt_bound_tenant(row, tid)
+
+
+@pytest.mark.asyncio
+async def test_a_criterion_value_that_only_reads_as_the_bound_tenant_is_refused(
+    env: _Env,
+) -> None:
+    """P1: the ORM refuses a caller's parameter that names the scoping bind, whatever
+    it holds, and the cursor backstop takes only a plain UUID that IS the bound
+    tenant (``==`` is the value's own word)."""
+    param = tenant_mod.TENANT_CRITERIA_PARAM
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            with pytest.raises(UnsafeTenantOperationError, match="caller-supplied"):
+                await session.execute(
+                    select(_Item.note).where(_Item.id == B_ITEM_ID),
+                    {param: _liar(env.b)},
+                )
+    with bind_tenant(env.a):
+        tenant_mod._check_criterion(
+            SimpleNamespace(compiled_parameters=[{param: env.a}])
+        )
+        for value in (_liar(env.b), _liar(env.a), _Honest(int=env.a.int), str(env.a)):
+            with pytest.raises(UnsafeTenantOperationError):
+                tenant_mod._check_criterion(
+                    SimpleNamespace(compiled_parameters=[{param: value}])
+                )
+
+
+@pytest.mark.asyncio
+async def test_a_new_row_whose_tenant_id_only_reads_as_the_bound_tenant_is_refused(
+    env: _Env,
+) -> None:
+    """P2, ``before_flush``: the row of tenant B whose ``==`` says A."""
+    before = await _snapshot(env)
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(_Item(id=55, tenant_id=_liar(env.b), key="planted", name="x"))
+            with pytest.raises(TenantMismatchError):
+                await session.commit()
+    assert await _snapshot(env) == before
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_id_swapped_after_the_before_flush_check_is_refused(
+    env: _Env,
+) -> None:
+    """P2, the mapper event: a ``before_flush`` listener of the session itself runs
+    after the guard's own and swaps the value in."""
+    before = await _snapshot(env)
+
+    def swap(session: Any, _context: Any, _instances: Any) -> None:
+        for obj in session.new:
+            if isinstance(obj, _Item):
+                obj.tenant_id = _liar(env.b)
+
+    async with env.maker() as session:
+        event.listen(session.sync_session, "before_flush", swap)
+        with bind_tenant(env.a):
+            session.add(_Item(id=55, key="planted", name="x"))
+            with pytest.raises(TenantMismatchError):
+                await session.commit()
+    assert await _snapshot(env) == before
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_id_swapped_in_a_late_before_insert_is_refused_at_the_cursor(
+    env: _Env,
+) -> None:
+    """P2, the cursor: a listener of the model runs after the mapper events of the
+    guard, so the INSERT carries a value nothing verified. The refusal is the
+    cursor's, not the mapper event's."""
+    before = await _snapshot(env)
+
+    def swap(_mapper: Any, _connection: Any, target: Any) -> None:
+        target.tenant_id = _liar(env.b)
+
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            session.add(_Item(id=55, key="planted", name="x"))
+            event.listen(_Item, "before_insert", swap)
+            try:
+                with pytest.raises(Exception) as caught:
+                    await session.commit()
+            finally:
+                event.remove(_Item, "before_insert", swap)
+    assert _is_refusal(caught.value), repr(caught.value)
+    assert not isinstance(caught.value, TenantMismatchError)
+    assert await _snapshot(env) == before
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_id_swapped_in_a_late_before_update_is_refused_at_the_cursor(
+    env: _Env,
+) -> None:
+    """P2, an UPDATE that would move the row of tenant A to B: the value is equal to
+    the bound tenant for the guard and different for the persistence layer."""
+    _SelectiveLiar.passes = env.a
+    before = await _snapshot(env)
+
+    def swap(_mapper: Any, _connection: Any, target: Any) -> None:
+        target.tenant_id = _SelectiveLiar(int=env.b.int)
+
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            item = await session.get(_Item, A_ITEM_ID)
+            assert item is not None
+            item.name = "moved"
+            event.listen(_Item, "before_update", swap)
+            try:
+                with pytest.raises(Exception) as caught:
+                    await session.commit()
+            finally:
+                event.remove(_Item, "before_update", swap)
+    assert _is_refusal(caught.value), repr(caught.value)
+    assert not isinstance(caught.value, TenantMismatchError)
+    assert await _snapshot(env) == before
+
+
+@pytest.mark.asyncio
+async def test_a_driver_class_of_the_bound_tenant_is_not_refused(env: _Env) -> None:
+    """The class a driver returns for a UUID column is a ``uuid.UUID`` subclass that
+    tells the truth, and the outbox hooks, sagas and request scopes bind the value
+    they loaded. Under it a flush, an upsert and a read all work as under the plain
+    UUID, and the row is written with the plain one."""
+    honest = _Honest(int=env.a.int)
+    async with env.maker() as session:
+        with bind_tenant(honest):
+            item = _Item(id=56, tenant_id=_Honest(int=env.a.int), key="h", name="x")
+            session.add(item)
+            await session.commit()
+            assert type(item.tenant_id) is uuid.UUID
+            notes = await session.execute(select(_Item.note).order_by(_Item.id))
+            assert notes.scalars().all() == ["a-note", None]
+    await _upsert(
+        env,
+        honest,
+        _Item,
+        [{"id": 57, "key": "shared", "name": "honest-upsert"}],
+        update=["name"],
+    )
+    items = await _items(env)
+    assert items[56][:3] == (env.a, "h", "x")
+    assert items[A_ITEM_ID][:3] == (env.a, "shared", "honest-upsert")
+    assert items[B_ITEM_ID][2] == "b-name"
+
+
+# --------------------------------- the helper: a table that resolves conflicts itself
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "row", "update", "named"),
+    [
+        (
+            _ReplacingPk,
+            {"id": 1, "key": "k", "name": "n"},
+            ["name"],
+            "constraint PrimaryKeyConstraint: sqlite_on_conflict",
+        ),
+        (
+            _ReplacingUnique,
+            {"id": 1, "key": "k", "email": "e"},
+            ["email"],
+            "constraint UniqueConstraint: sqlite_on_conflict",
+        ),
+        (
+            _ReplacingColumn,
+            {"id": 1, "key": "k", "email": "e"},
+            ["email"],
+            "column email: sqlite_on_conflict_unique",
+        ),
+    ],
+    ids=["primary key", "unique constraint", "column"],
+)
+async def test_a_table_with_a_conflict_resolution_of_its_own_is_refused(
+    model: Any, row: dict[str, Any], update: list[str], named: str
+) -> None:
+    error = await _refused(model, [row], update=update)
+    assert named in str(error)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_replace_never_deletes_the_row_of_another_tenant(
+    env: _Env,
+) -> None:
+    """A1: under ``PRIMARY KEY (id) ON CONFLICT REPLACE`` SQLite deletes the row that
+    holds the key, whoever owns it, before ``ON CONFLICT DO UPDATE`` is asked."""
+    async with env.maker() as session:
+        with unscoped():
+            session.add(_ReplacingPk(id=1, tenant_id=env.b, key="k", name="b-name"))
+            await session.commit()
+    with pytest.raises(TenantUpsertError, match="sqlite_on_conflict"):
+        await _upsert(
+            env,
+            env.a,
+            _ReplacingPk,
+            [{"id": 1, "key": "k2", "name": "pwned"}],
+            update=["name"],
+        )
+    rows = await _read(env, _ReplacingPk.id, _ReplacingPk.tenant_id, _ReplacingPk.name)
+    assert rows == [(1, env.b, "b-name")]
+
+
+@pytest.mark.asyncio
+async def test_a_column_that_is_not_exactly_a_column_is_refused() -> None:
+    error = await _refused(_Odd, [_ROW], update=["name"])
+    assert "not exactly sqlalchemy.Column" in str(error)
+
+
+# ------------------------------------------ the helper: the database the rows go to
+
+
+class _TwoBinds(_Recorder):
+    """A session that routes the model's mapper to another database than its
+    default one (``Session(binds=...)``)."""
+
+    def __init__(self, default: Any, mapper_bind: Any) -> None:
+        super().__init__(default)
+        self._mapper_bind = type("Bind", (), {"dialect": mapper_bind})()
+        self.bind_arguments: list[Any] = []
+
+    def get_bind(self, mapper: Any = None, **kwargs: Any) -> Any:
+        return self._bind if mapper is None else self._mapper_bind
+
+    async def connection(self, *args: Any, **kwargs: Any) -> Any:
+        self.bind_arguments.append(kwargs.get("bind_arguments"))
+        return self
+
+
+@pytest.mark.asyncio
+async def test_the_statement_is_built_for_the_database_of_the_mapper() -> None:
+    """A4: the dialect that renders and checks the statement is the one of the bind
+    the connection resolves for the mapper, not the session's default."""
+    rows = [{"id": 1, "key": "k", "name": "n"}]
+    with bind_tenant(uuid.uuid4()):
+        refused = _TwoBinds(sqlite.dialect(), mysql.dialect())  # type: ignore[no-untyped-call]
+        with pytest.raises(UnsupportedSqlForm):
+            await tenant_upsert(_Item, rows, update=["name"], session=refused)  # type: ignore[arg-type]
+        routed = _TwoBinds(mysql.dialect(), postgresql.dialect())  # type: ignore[no-untyped-call]
+        await tenant_upsert(_Item, rows, update=["name"], session=routed)  # type: ignore[arg-type]
+    ((statement, _),) = routed.sent
+    assert "ON CONFLICT" in str(statement.compile(dialect=postgresql.dialect()))  # type: ignore[no-untyped-call]
+    assert routed.bind_arguments == [{"mapper": inspect(_Item)}]
+
+
+# ------------------------------------------------- the helper: which key it conflicts on
+
+
+@pytest.mark.asyncio
+async def test_the_candidate_keys_are_named_by_attribute() -> None:
+    """``conflict_on`` takes attribute names; the message lists the keys in them
+    (the attribute ``label`` is the column ``title``)."""
+    row = {"id": 1, "key": "k", "label": "l"}
+    error = await _refused(_Keyed, [row], update=["label"])
+    assert "tenant_id, key; tenant_id, label" in str(error)
+    assert "title" not in str(error)
+    error = await _refused(_Keyed, [row], update=["label"], conflict_on=["id"])
+    assert "tenant_id, key; tenant_id, label" in str(error)
+    session = _Recorder(sqlite.dialect())  # type: ignore[no-untyped-call]
+    with bind_tenant(uuid.uuid4()):
+        await tenant_upsert(
+            _Keyed,
+            [row],
+            update=["key"],
+            conflict_on=["label"],
+            session=session,  # type: ignore[arg-type]
+        )
+    ((statement, _),) = session.sent
+    sql = str(statement.compile(dialect=sqlite.dialect())).replace('"', "")  # type: ignore[no-untyped-call]
+    assert "ON CONFLICT (tenant_id, title)" in sql
+
+
+def test_the_candidate_keys_come_in_the_order_of_the_columns() -> None:
+    """``Table.constraints`` is a set: the order of the keys (in the message and in
+    the statement) is the columns', not the order the hashes of the constraints
+    give. Eight keys: the odds of the right order by luck are 1 in 40320."""
+    table = Table(
+        "tups_ordered",
+        MetaData(),
+        Column("tenant_id", Uuid()),
+        *(Column(f"c{i}", Text) for i in range(8)),
+        *(UniqueConstraint("tenant_id", f"c{i}") for i in range(8)),
+    )
+    keys = helper_mod._unique_keys(table)
+    assert [[c.name for c in key] for key in keys] == [
+        ["tenant_id", f"c{i}"] for i in range(8)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_deferrable_key_is_not_a_candidate() -> None:
+    """PostgreSQL cannot infer a ``DEFERRABLE`` constraint as the arbiter: ``slug``
+    is the one key, and the deferrable one cannot be named."""
+    rows = [{"id": 1, "key": "k", "slug": "s", "name": "n"}]
+    session = _Recorder(postgresql.dialect())  # type: ignore[no-untyped-call]
+    with bind_tenant(uuid.uuid4()):
+        await tenant_upsert(_Deferred, rows, update=["name"], session=session)  # type: ignore[arg-type]
+    ((statement, _),) = session.sent
+    sql = str(statement.compile(dialect=postgresql.dialect())).replace('"', "")  # type: ignore[no-untyped-call]
+    assert "ON CONFLICT (tenant_id, slug)" in sql
+    error = await _refused(_Deferred, rows, update=["name"], conflict_on=["key"])
+    assert "not a unique key" in str(error)
+    assert "by attribute: tenant_id, slug)" in str(error)
+
+
+@pytest_asyncio.fixture
+async def pg_deferred() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    """The ``DEFERRABLE`` table, on the PostgreSQL the lane runs: a missing
+    database is a failure, never a skip."""
+    url = settings.database_url
+    if not url.startswith("postgresql"):
+        pytest.fail(f"the deferrable-key test needs a PostgreSQL URL, got {url[:12]!r}")
+    engine = create_async_engine(url)
+    install_write_admission(engine)
+    try:
+        with unscoped():
+            async with engine.begin() as conn:
+                await conn.run_sync(_PgBase.metadata.drop_all)
+                await conn.run_sync(_PgBase.metadata.create_all)
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        try:
+            with unscoped():
+                async with engine.begin() as conn:
+                    await conn.run_sync(_PgBase.metadata.drop_all)
+        finally:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_the_key_it_picks_next_to_a_deferrable_one_runs_on_postgresql(
+    pg_deferred: async_sessionmaker[AsyncSession],
+) -> None:
+    tenant = uuid.uuid4()
+    for name in ("first", "second"):
+        async with pg_deferred() as session:
+            with bind_tenant(tenant):
+                await tenant_upsert(
+                    _Deferred,
+                    [{"id": 1, "key": name, "slug": "s", "name": name}],
+                    update=["name"],
+                    session=session,
+                )
+                await session.commit()
+    async with pg_deferred() as session:
+        with unscoped():
+            result = await session.execute(select(_Deferred.key, _Deferred.name))
+            assert [tuple(row) for row in result.all()] == [("first", "second")]
+
+
+# --------------------- the helper: a statement that reads a tenant table is refused first
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "row", "update"),
+    [
+        (_Defaulted, {"id": 1, "key": "k", "name": "n"}, ["name"]),
+        (_Peeking, {"id": 1, "key": "k", "name": "n"}, ["name"]),
+    ],
+    ids=["column default", "bind_expression"],
+)
+async def test_a_statement_that_would_read_a_tenant_table_is_refused_before_a_flush(
+    model: Any, row: dict[str, Any], update: list[str]
+) -> None:
+    """The fake session fails the test on a flush: the refusal came first, so the
+    pending changes of the session were not sent."""
+    error = await _refused(model, [row], update=update)
+    assert "would read the tenant table tups_items" in str(error)
+
+
+@pytest.mark.asyncio
+async def test_a_statement_that_reads_nothing_is_not_refused() -> None:
+    """The controls: the default is not rendered when the row names its column, and
+    the type's expression is not rendered when the column is left out."""
+    with bind_tenant(uuid.uuid4()):
+        defaulted = _Recorder(sqlite.dialect())  # type: ignore[no-untyped-call]
+        await tenant_upsert(
+            _Defaulted,
+            [{"id": 1, "key": "k", "name": "n", "snap": "given"}],
+            update=["name"],
+            session=defaulted,  # type: ignore[arg-type]
+        )
+        peeking = _Recorder(sqlite.dialect())  # type: ignore[no-untyped-call]
+        await tenant_upsert(
+            _Peeking,
+            [{"id": 1, "key": "k"}],
+            update=["key"],
+            session=peeking,  # type: ignore[arg-type]
+        )
+    assert len(defaulted.sent) == 1 and len(peeking.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_refused_read_leaves_the_pending_changes_of_the_session_pending(
+    env: _Env,
+) -> None:
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            pending = _Item(id=77, key="pending", name="p")
+            session.add(pending)
+            with pytest.raises(TenantUpsertError, match="would read"):
+                await tenant_upsert(
+                    _Defaulted,
+                    [{"id": 1, "key": "k", "name": "n"}],
+                    update=["name"],
+                    session=session,
+                )
+            assert pending in session.new
+            await session.rollback()
+    assert 77 not in await _items(env)

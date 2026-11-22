@@ -119,12 +119,21 @@ async def tenant_upsert(
 
     The row conflicts on a unique key that includes the tenant column: the
     table's only one, else the one ``conflict_on=[...]`` names (the tenant column
-    may be left out). A row of another tenant is never updated, locked or shown
-    to exist. A call outside these rules, a model without such a key, a model in
-    an inheritance hierarchy or one whose tenant column is not named
-    ``tenant_id`` raises ``ValueError`` (SANDLOOM-R018) before anything is sent.
-    A database without ``ON CONFLICT``, or whose statement the tenant guard
-    cannot read, refuses (SANDLOOM-R015).
+    may be left out). A row of another tenant is never the conflicting row, so it
+    is never updated or chosen by the tenant-inclusive key. Every other key and
+    every foreign key acts as on a plain insert: a primary key or another unique
+    key that a row of another tenant holds is the database's integrity error,
+    which shows that the key exists, and a foreign key locks the row it
+    references, which may be a parent of another tenant. Make a foreign key to a
+    tenant table composite, ``(tenant_id, parent_id)``, and do not reuse a key
+    across tenants. A call outside these rules, a model without such a key, a
+    model in an inheritance hierarchy, one whose tenant column is not named
+    ``tenant_id``, one with a column that is not exactly ``sqlalchemy.Column`` or
+    a ``sqlite_on_conflict*`` option, or one whose statement would read a tenant
+    table (a column default or type ``bind_expression`` that selects from one)
+    raises ``ValueError`` (SANDLOOM-R018) before anything is sent. A database
+    without ``ON CONFLICT``, or whose statement the tenant guard cannot read,
+    refuses (SANDLOOM-R015).
 
     Pending changes of ``session`` (default: :func:`db`) are flushed first, and
     the call returns nothing. Instances of the upserted rows that the session

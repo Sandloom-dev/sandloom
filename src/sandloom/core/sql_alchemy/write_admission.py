@@ -75,6 +75,7 @@ import sandloom.core.unit_of_work.request as _request
 import sandloom.core.unit_of_work.risk as _risk
 from sandloom.core.config.settings import settings
 from sandloom.core.sql_alchemy.money_ledger import MONEY_TABLES as _MONEY_TABLES
+from sandloom.core.sql_alchemy.tenant_upsert import canonical_tenant_upsert
 from sandloom.core.tenant import (
     check_compiled_statement,
     check_tenant_reach,
@@ -249,7 +250,7 @@ def _check_tenant(context: Any, compiled: Any) -> None:
     # a statement that names a tenant table, outside the tenant guard (a
     # compiled statement the recorder did not compile, a DDL element, is read
     # from its rendered SQL)
-    check_tenant_reach(context, compiled)
+    check_tenant_reach(context, compiled, upsert_builder=canonical_tenant_upsert)
 
 
 def _check(context: Any, statement: Any) -> None:
