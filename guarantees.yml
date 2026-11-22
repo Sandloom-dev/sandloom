@@ -9890,6 +9890,7 @@ adr_sections:
     "6. The one conflict insert: `tenant_upsert`":
     - G-TENANT-27
     "Consequences": informational
+    "Measured cost of the guard": informational
     "Out of scope": informational
     "Related": informational
 planned_adrs:
