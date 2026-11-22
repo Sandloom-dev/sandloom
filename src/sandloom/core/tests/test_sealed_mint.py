@@ -28,6 +28,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 
+import sandloom.core.facade._claims as _claims
 from sandloom.core import error_codes
 from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.auth import claims_view as view
@@ -333,6 +334,97 @@ async def test_another_module_writing_the_issuers_fields_is_a_violator() -> None
     _register(critical, ROGUE, {"email_verified": True}, critical=True)
     with pytest.raises(ClaimsUnavailable) as refused:
         await critical.collect_claims(uuid4(), object(), issuer=idp)
+    assert refused.value.owner == "rogue"
+
+
+# --------------------------------------------------------------------------- #
+# the authority binding of a local step (kb-mint-budget-optimize)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "session", [None, object()], ids=["no-session", "issuer-session"]
+)
+async def test_a_local_step_builds_no_authority_binding_the_served_method_does(
+    monkeypatch: pytest.MonkeyPatch, session: object | None
+) -> None:
+    """The mint's own ``contribute`` calls (the issuer's and a local owner's)
+    drop the binding of their answer anyway, so they do not build it; the
+    same method served over RPC (here: called outside the mint) still names
+    its module, which the remote issuer binds to its map."""
+    core = _core()
+    idp = _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    _register(core, GRANTS, {"tenant_ids": [TENANT]}, critical=True)
+    raw: list[dict[str, Any]] = []
+    drop = _claims._local_answer
+
+    def spy(answer: Any) -> Any:
+        raw.append(dict(answer))
+        return drop(answer)
+
+    monkeypatch.setattr(_claims, "_local_answer", spy)
+    if session is None:
+        sealed = await core.collect_claims(uuid4())
+    else:
+        sealed = await core.collect_claims(uuid4(), session, issuer=idp)
+    assert sealed["roles"] == ["admin"] and sealed["tenant_ids"] == [TENANT]
+    assert AUTHORITY_CLAIM not in sealed
+    assert len(raw) == 2
+    assert all(AUTHORITY_CLAIM not in answer for answer in raw)
+    served = await core.local_contract("idp.claims.v1").contribute(uuid4())
+    assert served[AUTHORITY_CLAIM] == IDP
+    served = await core.local_contract("grants.claims.v1").contribute(uuid4())
+    assert served[AUTHORITY_CLAIM] == GRANTS
+
+
+@pytest.mark.asyncio
+async def test_a_failing_local_step_leaves_no_local_flag_behind() -> None:
+    """The flag that skips the binding is reset when the step fails too: a
+    flag left set would make the next served ``contribute`` of this task
+    answer without its binding (a remote issuer then refuses the owner)."""
+    core = _core()
+
+    async def down(_user_id: Any) -> dict[str, Any]:
+        raise RuntimeError("down")
+
+    with core.module_registration(GRANTS) as api:
+        api.add_claims_contributor(down, critical=False)
+    sealed = await core.collect_claims(uuid4())
+    assert sealed["claims_sources_failed"] == ["grants"]
+    assert _claims._LOCAL_CONTRIBUTE.get() is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "session", [None, object()], ids=["no-session", "issuer-session"]
+)
+@pytest.mark.parametrize("value", [GRANTS, {"a": 1}, 1], ids=["str", "dict", "int"])
+async def test_a_local_contributor_writing_the_binding_key_is_a_violator(
+    session: object | None, value: Any
+) -> None:
+    """Not building the binding for a local call must not let a contributor's
+    own value under the kernel's key through: optional, it loses its whole
+    result; critical, it refuses the mint (a str is never dropped as a
+    binding)."""
+    core = _core()
+    idp = _register(core, IDP, {"roles": ["admin"]}, critical=True)
+    _register(core, ROGUE, {"loyalty_tier": "gold", AUTHORITY_CLAIM: value})
+
+    def collect(c: CoreFacade) -> Any:
+        if session is None:
+            return c.collect_claims(uuid4())
+        return c.collect_claims(uuid4(), session, issuer=idp)
+
+    sealed = await collect(core)
+    assert sealed["claims_sources_failed"] == ["rogue"]
+    assert "loyalty_tier" not in sealed and AUTHORITY_CLAIM not in sealed
+
+    critical = _core()
+    idp = _register(critical, IDP, {"roles": ["admin"]}, critical=True)
+    _register(critical, ROGUE, {AUTHORITY_CLAIM: value}, critical=True)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        await collect(critical)
     assert refused.value.owner == "rogue"
 
 

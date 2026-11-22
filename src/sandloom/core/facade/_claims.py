@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import nullcontext
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException, status
@@ -230,10 +231,23 @@ async def _run_claims_plan(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]
     return outcomes
 
 
+#: True while the mint awaits one of its own local ``contribute`` calls (the
+#: issuer's or a local owner's step): the answer goes to :func:`_local_answer`,
+#: which drops the authority binding, so the call does not build it. A
+#: provider serving the same method over RPC runs outside it and still names
+#: its module. Set around the one await of each local step, reset in a
+#: ``finally``.
+_LOCAL_CONTRIBUTE: ContextVar[bool] = ContextVar(
+    "sandloom_claims_local_contribute", default=False
+)
+
+
 def _local_answer(answer: Any) -> Any:
     """A local ``contribute`` answer without its authority binding: a local
     authority is bound by its registration (the mint check). A value a
-    contributor wrote stays, for the mint check to refuse."""
+    contributor wrote stays, for the mint check to refuse. The binding is not
+    built for a local call (:data:`_LOCAL_CONTRIBUTE`); a str under the key
+    would be one built anyway, so it is dropped here as before."""
     if isinstance(answer, dict) and isinstance(answer.get(AUTHORITY_CLAIM), str):
         del answer[AUTHORITY_CLAIM]
     return answer
@@ -268,16 +282,19 @@ class ClaimsContributorContract:
         the import path of the module registered under this owner: a remote
         issuer binds it to its map (the pinned ``service_id`` proves the
         service, this proves which module the service runs under the name).
+        The mint's own local call does not ask for it (a local authority is
+        bound by its registration): it would be built, wired and dropped.
         """
         merged = await self._merge(user_id)
-        path = self._facade._claims_owner_modules.get(self._owner or "")
         if AUTHORITY_CLAIM in merged:
             # A contributor wrote the kernel's key: it stays a reserved-key
             # violation locally and fails the binding remotely, never the
             # kernel's answer.
             merged[AUTHORITY_CLAIM] = {"written_by": "a contributor"}
-        elif path:
-            merged[AUTHORITY_CLAIM] = path
+        elif not _LOCAL_CONTRIBUTE.get():
+            path = self._facade._claims_owner_modules.get(self._owner or "")
+            if path:
+                merged[AUTHORITY_CLAIM] = path
         return merged
 
     async def _merge(self, user_id: Any) -> dict[str, Any]:
@@ -558,7 +575,11 @@ class _ClaimsMixin(_ServicesMixin):
         async def _issuer_call() -> Any:
             contract = ClaimsContributorContract(cast("CoreFacade", self), owner)
             with _module_api.bind_contract_session(issuer_session):
-                return _local_answer(await contract.contribute(user_id))
+                local = _LOCAL_CONTRIBUTE.set(True)
+                try:
+                    return _local_answer(await contract.contribute(user_id))
+                finally:
+                    _LOCAL_CONTRIBUTE.reset(local)
 
         setattr(_issuer_call, _ISSUER_ATTR, True)
         return _issuer_call
@@ -579,7 +600,11 @@ class _ClaimsMixin(_ServicesMixin):
                     database=self._claims_owner_database(owner),
                     name=claims_contract_name(owner) if owner is not None else "claims",
                 )
-            return _local_answer(await contract.contribute(user_id))
+            local = _LOCAL_CONTRIBUTE.set(True)
+            try:
+                return _local_answer(await contract.contribute(user_id))
+            finally:
+                _LOCAL_CONTRIBUTE.reset(local)
 
         return _local_call
 
