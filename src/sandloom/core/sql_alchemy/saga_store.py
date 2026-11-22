@@ -154,13 +154,17 @@ def _prebuilt(
     built on the first call. A database without the renderer's form refuses in
     ``build`` every time (nothing is cached for it)."""
     name = dialect_name(session)
-    # The renderer itself is part of the key: one registered again (a test's
-    # renderer without ``skip_locked``, a driver loaded later) is asked again.
-    key = (name, sql_dialect(name), *kind)
-    stmt = _PREBUILT.get(key)
-    if stmt is None:
-        stmt = _PREBUILT[key] = build()
-    return stmt
+    renderer = sql_dialect(name)
+    # The renderer's identity is part of the key (never its hash: a renderer
+    # may define ``__eq__`` without ``__hash__``): one registered again (a
+    # test's renderer without ``skip_locked``, a driver loaded later) is asked
+    # again. The entry holds the renderer, so its ``id`` is not reused while
+    # the entry lives; a hit still checks it is that renderer.
+    key = (name, id(renderer), *kind)
+    entry = _PREBUILT.get(key)
+    if entry is None or entry[0] is not renderer:
+        entry = _PREBUILT[key] = (renderer, build())
+    return entry[1]
 
 
 def _value_binds(table: Table, names: Sequence[str]) -> dict[str, Any]:

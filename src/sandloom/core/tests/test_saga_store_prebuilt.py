@@ -16,9 +16,11 @@ from typing import Any
 
 import pytest
 
+import sandloom.core.sql_alchemy.portable as _portable
 import sandloom.core.sql_alchemy.saga_store as store
 from sandloom.core.descriptors.sagas import operation_key
-from sandloom.core.sql_alchemy.portable import for_update_for
+from sandloom.core.drivers.sql_dialects import PostgresqlSql
+from sandloom.core.sql_alchemy.portable import for_update_for, sql_dialect
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
 from sandloom.core.tests.saga_fixtures import (
     Ledger,
@@ -99,6 +101,26 @@ async def test_a_renderer_registered_again_is_asked_again(
         without_skip_locked_renderer(monkeypatch)
         await store.lock_instance(session, uuid.uuid4(), tenant=None)
     assert renders == [True, True]
+
+
+class _UnhashableRenderer(PostgresqlSql):
+    """A renderer that defines ``__eq__`` without ``__hash__``."""
+
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+async def test_an_unhashable_renderer_still_builds_and_caches(
+    saga_harness, renders: list[bool], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql_dialect("postgresql")  # the entry points are read first
+    monkeypatch.setitem(_portable._registered, "postgresql", _UnhashableRenderer())
+    async with db_session() as session:
+        for _ in range(2):
+            await store.lock_instance(session, uuid.uuid4(), tenant=None)
+    assert renders == [True]  # built once, served the second time
 
 
 async def test_cached_lock_statement_binds_each_calls_tenant(saga_harness) -> None:
