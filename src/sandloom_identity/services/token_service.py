@@ -2,7 +2,7 @@
 
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, NoReturn, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn, cast
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
@@ -26,16 +26,36 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.sdk.infra import CoreRuntime
 
 
-#: The presented token and the user it belongs to, in one statement. Identity's
-#: claims are NOT read here: they are collected after the issuance check and
-#: the consume, so the token is stamped at a read that follows every
-#: revocation the check saw (``claims_read_at``). Built once; the hash is
-#: bound per call.
+#: The presented token's state and whether its user is active, in one
+#: statement: the columns the rotation decides on, not the two entities (a
+#: refresh needs no mutable ``User`` or ``RefreshToken`` object, and building
+#: 31 columns' worth of ORM instances per refresh was most of this statement's
+#: Python cost). Identity's claims are NOT read here: they are collected after
+#: the issuance check and the consume, so the token is stamped at a read that
+#: follows every revocation the check saw (``claims_read_at``). Built once; the
+#: hash is bound per call.
 _LOAD_TOKEN_AND_USER = (
-    select(RefreshToken, User)
+    select(
+        RefreshToken.id,
+        RefreshToken.user_id,
+        RefreshToken.family_id,
+        RefreshToken.auth_time,
+        RefreshToken.is_revoked,
+        RefreshToken.expires_at,
+        User.is_active,
+    )
     .join(User, User.id == RefreshToken.user_id)
     .where(RefreshToken.token == bindparam("b_token_hash"))
 )
+
+
+class _TokenSubject(NamedTuple):
+    """The only thing minting reads of a user: its id (a refresh holds no
+    ``User`` object, see ``_LOAD_TOKEN_AND_USER``)."""
+
+    id: UUID
+
+
 #: The rotation's compare-and-set consume (``is_revoked = false`` → ``true``):
 #: the row comes back only when THIS call flipped the flag. The token is
 #: already in the session (``_LOAD_TOKEN_AND_USER``), so its state is
@@ -69,7 +89,7 @@ class TokenService:
     @classmethod
     async def create_tokens(
         cls,
-        user: User,
+        user: "User | _TokenSubject",
         db: AsyncSession,
         core: "CoreRuntime | None" = None,
         *,
@@ -215,11 +235,9 @@ class TokenService:
                 detail="Invalid or expired refresh token",
             )
 
-        token_obj, user = loaded
-        family_id = token_obj.family_id
-        auth_time = token_obj.auth_time
-        token_id = token_obj.id
-        user_id = token_obj.user_id
+        token_id, user_id, family_id, auth_time, is_revoked, expires_at, is_active = (
+            loaded
+        )
 
         # An emergency-blocked user gets nothing — checked live BEFORE any
         # rotation / reuse-detection side effect touches the family.
@@ -241,10 +259,10 @@ class TokenService:
                 detail="Session lifetime expired; sign in again",
             )
 
-        if token_obj.is_revoked:
+        if is_revoked:
             await cls._reject_rotated(token_id, family_id, user_id, now, db)
 
-        if token_obj.expires_at <= now:
+        if expires_at <= now:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired refresh token",
@@ -257,7 +275,7 @@ class TokenService:
         if consumed is None:
             # Lost the CAS race to a concurrent refresh of the same token.
             await cls._reject_rotated(token_id, family_id, user_id, now, db)
-        if not user.is_active:
+        if not is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active"
             )
@@ -269,7 +287,7 @@ class TokenService:
         # after it is revoked by its mark however long the refresh takes, and
         # a mark the check saw (a change before it) lifts the token past it.
         return await cls.create_tokens(
-            user,
+            _TokenSubject(user_id),
             db,
             core,
             family_id=family_id,

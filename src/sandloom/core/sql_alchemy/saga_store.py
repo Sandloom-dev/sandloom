@@ -20,12 +20,22 @@ from __future__ import annotations
 
 import enum
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Any, Final, Literal, cast
 
-from sqlalchemy import Table, and_, delete, func, or_, select, update
+from sqlalchemy import (
+    Select,
+    Table,
+    and_,
+    bindparam,
+    delete,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.sql_alchemy.models.saga import (
@@ -35,8 +45,10 @@ from sandloom.core.sql_alchemy.models.saga import (
 )
 from sandloom.core.sql_alchemy.portable import (
     conflict_insert,
+    dialect_name,
     for_update_for,
     skips_locked_rows,
+    sql_dialect,
 )
 
 INSTANCES = cast(Table, SagaInstance.__table__)
@@ -123,6 +135,49 @@ class DueInstance:
     version: int
 
 
+#: Statements the per-step protocol runs, built once and executed with
+#: parameters: building one per call (``.values(**row)`` makes one bind per
+#: column, then the cache key walks them all) cost more than the database
+#: round trip's own Python. A statement that depends on the database (the
+#: ``ON CONFLICT`` form, ``FOR UPDATE``) is keyed by the dialect name too, so
+#: it is rendered by that database's renderer. The SQL sent is unchanged.
+_PREBUILT: dict[tuple[Any, ...], Any] = {}
+
+#: Bind name of a column's value (a bind may not be named like its column).
+_BIND_PREFIX = "v_"
+
+
+def _prebuilt(
+    session: AsyncSession, kind: tuple[Any, ...], build: Callable[[], Any]
+) -> Any:
+    """The statement ``build()`` makes for ``kind`` on ``session``'s dialect,
+    built on the first call. A database without the renderer's form refuses in
+    ``build`` every time (nothing is cached for it)."""
+    name = dialect_name(session)
+    renderer = sql_dialect(name)
+    # The renderer's identity is part of the key (never its hash: a renderer
+    # may define ``__eq__`` without ``__hash__``): one registered again (a
+    # test's renderer without ``skip_locked``, a driver loaded later) is asked
+    # again. The entry holds the renderer, so its ``id`` is not reused while
+    # the entry lives; a hit still checks it is that renderer.
+    key = (name, id(renderer), *kind)
+    entry = _PREBUILT.get(key)
+    if entry is None or entry[0] is not renderer:
+        entry = _PREBUILT[key] = (renderer, build())
+    return entry[1]
+
+
+def _value_binds(table: Table, names: Sequence[str]) -> dict[str, Any]:
+    """``{column: bind}`` for ``.values()``: one typed bind per column."""
+    return {
+        name: bindparam(_BIND_PREFIX + name, type_=table.c[name].type) for name in names
+    }
+
+
+def _value_params(values: Mapping[str, Any]) -> dict[str, Any]:
+    return {_BIND_PREFIX + name: value for name, value in values.items()}
+
+
 async def insert_instance(session: AsyncSession, values: Mapping[str, Any]) -> bool:
     """INSERT the instance unless ``(saga_type, saga_id)`` exists (create-or-get).
 
@@ -130,13 +185,17 @@ async def insert_instance(session: AsyncSession, values: Mapping[str, Any]) -> b
     unique index makes a concurrent start of the same business id wait for the
     other transaction, then see its row.
     """
-    stmt = (
-        conflict_insert(INSTANCES, session=session)
-        .values(**values)
-        .on_conflict_do_nothing(index_elements=["saga_type", "saga_id"])
-        .returning(INSTANCES.c.id)
+    stmt = _prebuilt(
+        session,
+        ("insert_instance", tuple(values)),
+        lambda: (
+            conflict_insert(INSTANCES, session=session)
+            .values(_value_binds(INSTANCES, tuple(values)))
+            .on_conflict_do_nothing(index_elements=["saga_type", "saga_id"])
+            .returning(INSTANCES.c.id)
+        ),
     )
-    created = (await session.execute(stmt)).first()
+    created = (await session.execute(stmt, _value_params(values))).first()
     return created is not None
 
 
@@ -168,22 +227,45 @@ async def lock_instance(
     ``lock_timeout``), and so does every transition on a database without
     ``skip_locked``. An instance of another ``tenant`` is ``None`` too.
     """
-    stmt = for_update_for(
-        session,
-        select(INSTANCES).where(INSTANCES.c.id == instance_id, *_of_tenant(tenant)),
-        skip_locked=skip_locked,
-    )
-    row = (await session.execute(stmt)).mappings().first()
+    # The tenant filter is part of the statement's shape (none / ``IS NULL`` /
+    # ``= :b_tenant``); the instance id and the tenant are bound per call.
+    shape = "any" if tenant is ANY_TENANT else "none" if tenant is None else "tenant"
+
+    def build() -> Select[Any]:
+        where = [INSTANCES.c.id == bindparam("b_id", type_=INSTANCES.c.id.type)]
+        if shape == "none":
+            where.append(INSTANCES.c.tenant_id.is_(None))
+        elif shape == "tenant":
+            where.append(
+                INSTANCES.c.tenant_id
+                == bindparam("b_tenant", type_=INSTANCES.c.tenant_id.type)
+            )
+        return for_update_for(
+            session, select(INSTANCES).where(*where), skip_locked=skip_locked
+        )
+
+    stmt = _prebuilt(session, ("lock_instance", shape, skip_locked), build)
+    params: dict[str, Any] = {"b_id": instance_id}
+    if shape == "tenant":
+        params["b_tenant"] = tenant
+    row = (await session.execute(stmt, params)).mappings().first()
     return InstanceRow.from_mapping(row) if row is not None else None
+
+
+_UPDATE_FIELDS: Final = tuple(f.name for f in fields(InstanceRow) if f.name != "id")
+#: ``UPDATE saga_instances SET <every column but id> WHERE id = :b_id``.
+_UPDATE_INSTANCE: Final = (
+    update(INSTANCES)
+    .where(INSTANCES.c.id == bindparam("b_id", type_=INSTANCES.c.id.type))
+    .values(_value_binds(INSTANCES, _UPDATE_FIELDS))
+)
 
 
 async def update_instance(session: AsyncSession, row: InstanceRow) -> None:
     """Write the (locked) row back; the caller already bumped ``version``."""
-    values = row.as_values()
-    values.pop("id")
-    await session.execute(
-        update(INSTANCES).where(INSTANCES.c.id == row.id).values(**values)
-    )
+    params = {_BIND_PREFIX + name: getattr(row, name) for name in _UPDATE_FIELDS}
+    params["b_id"] = row.id
+    await session.execute(_UPDATE_INSTANCE, params)
 
 
 async def upsert_step(session: AsyncSession, values: Mapping[str, Any]) -> None:
@@ -192,20 +274,25 @@ async def upsert_step(session: AsyncSession, values: Mapping[str, Any]) -> None:
     ``first_attempt_at`` keeps its first value; ``attempts`` is the caller's
     running count (the instance row is locked, so no concurrent writer).
     """
-    stmt = conflict_insert(STEPS, session=session).values(**values)
-    updated: dict[str, Any] = {
-        key: stmt.excluded[key]
-        for key in values
-        if key not in ("instance_id", "step", "direction", "first_attempt_at")
-    }
-    updated["first_attempt_at"] = func.coalesce(
-        STEPS.c.first_attempt_at, stmt.excluded.first_attempt_at
-    )
-    await session.execute(
-        stmt.on_conflict_do_update(
+
+    def build() -> Any:
+        stmt = conflict_insert(STEPS, session=session).values(
+            _value_binds(STEPS, tuple(values))
+        )
+        updated: dict[str, Any] = {
+            key: stmt.excluded[key]
+            for key in values
+            if key not in ("instance_id", "step", "direction", "first_attempt_at")
+        }
+        updated["first_attempt_at"] = func.coalesce(
+            STEPS.c.first_attempt_at, stmt.excluded.first_attempt_at
+        )
+        return stmt.on_conflict_do_update(
             index_elements=["instance_id", "step", "direction"], set_=updated
         )
-    )
+
+    stmt = _prebuilt(session, ("upsert_step", tuple(values)), build)
+    await session.execute(stmt, _value_params(values))
 
 
 async def mark_step_started(
@@ -217,12 +304,17 @@ async def mark_step_started(
     ``None`` when this call inserted it; otherwise the existing row's
     ``status``, ``outcome`` and ``first_attempt_at`` (a surviving marker of
     a call whose transition rolled back, or a recorded attempt)."""
-    inserted = await session.execute(
-        conflict_insert(STEPS, session=session)
-        .values(**values)
-        .on_conflict_do_nothing(index_elements=["instance_id", "step", "direction"])
-        .returning(STEPS.c.step)
+    stmt = _prebuilt(
+        session,
+        ("mark_step_started", tuple(values)),
+        lambda: (
+            conflict_insert(STEPS, session=session)
+            .values(_value_binds(STEPS, tuple(values)))
+            .on_conflict_do_nothing(index_elements=["instance_id", "step", "direction"])
+            .returning(STEPS.c.step)
+        ),
     )
+    inserted = await session.execute(stmt, _value_params(values))
     if inserted.first() is not None:
         return None
     found = await session.execute(
@@ -236,16 +328,24 @@ async def mark_step_started(
     return None if row is None else dict(row)
 
 
+_STEP_STARTED: Final = (
+    select(STEPS.c.step)
+    .where(
+        STEPS.c.instance_id == bindparam("b_instance", type_=STEPS.c.instance_id.type)
+    )
+    .where(STEPS.c.step == bindparam("b_step", type_=STEPS.c.step.type))
+    .where(STEPS.c.direction == bindparam("b_direction", type_=STEPS.c.direction.type))
+    .limit(1)
+)
+
+
 async def step_started(
     session: AsyncSession, instance_id: uuid.UUID, step: str, direction: str
 ) -> bool:
     """Whether the step was ever called (a marker or a recorded attempt)."""
     found = await session.execute(
-        select(STEPS.c.step)
-        .where(STEPS.c.instance_id == instance_id)
-        .where(STEPS.c.step == step)
-        .where(STEPS.c.direction == direction)
-        .limit(1)
+        _STEP_STARTED,
+        {"b_instance": instance_id, "b_step": step, "b_direction": direction},
     )
     return found.first() is not None
 

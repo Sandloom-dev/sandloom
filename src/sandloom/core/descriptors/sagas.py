@@ -111,13 +111,19 @@ def operation_key(*parts: object) -> str:
     rendered: list[str] = []
     for part in parts:
         text = str(part)
-        if not text or ":" in text or any(ch.isspace() for ch in text):
+        if not text or _KEY_PART_FORBIDDEN.search(text):
             raise ValueError(
                 f"operation_key part {text!r} must be non-empty and contain "
                 "no ':' or whitespace"
             )
         rendered.append(text)
     return ":".join(rendered)
+
+
+#: A character no key part may contain: ``:`` or whitespace (``\s`` on a
+#: ``str`` is exactly ``str.isspace``). One search per part, not one Python
+#: step per character: every saga step derives its key.
+_KEY_PART_FORBIDDEN = re.compile(r"[:\s]")
 
 
 def saga_step_key(saga_type: str, saga_id: str, step: str, direction: Direction) -> str:
