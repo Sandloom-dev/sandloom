@@ -279,7 +279,26 @@ def _replace_on_a_declarative_table_object(base: Any, t: str) -> None:
         )
 
 
+def _replace_on_a_column_of_a_single_table_subclass(base: Any, t: str) -> None:
+    """The subclass adds its column to the base table after the base mapper exists."""
+
+    class Parent(TenantScoped, base):
+        __tablename__ = f"tgap_st_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        kind: Mapped[str] = mapped_column(String(10))
+        __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_identity": "p"}
+
+    class Sub(Parent):
+        __mapper_args__ = {"polymorphic_identity": "s"}
+
+        email: Mapped[str | None] = mapped_column(
+            Text, unique=True, sqlite_on_conflict_unique="REPLACE"
+        )
+
+
 REPLACE_FORMS: dict[str, Define] = {
+    "single-table subclass column": _replace_on_a_column_of_a_single_table_subclass,
     "primary key constraint": _replace_in_primary_key_constraint,
     "unique constraint": _replace_in_unique_constraint,
     "column unique": _replace_in_column_unique,
@@ -568,7 +587,24 @@ def _fk_on_a_table_a_plain_model_mapped_first(base: Any, t: str) -> None:
     reg.map_imperatively(Scoped, child)
 
 
+def _fk_on_a_column_of_a_single_table_subclass(base: Any, t: str) -> None:
+    _tenant_parent(base, t)
+
+    class Child(TenantScoped, base):
+        __tablename__ = f"tgap_c_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        kind: Mapped[str] = mapped_column(String(10))
+        __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_identity": "c"}
+
+    class Sub(Child):
+        __mapper_args__ = {"polymorphic_identity": "s"}
+
+        parent_id: Mapped[int | None] = mapped_column(ForeignKey(f"tgap_p_{t}.id"))
+
+
 FOREIGN_KEY_FORMS: dict[str, Define] = {
+    "single-table subclass column": _fk_on_a_column_of_a_single_table_subclass,
     "column": _fk_on_a_column,
     "parent defined second": _fk_whose_parent_is_defined_second,
     "constraint": _fk_in_a_constraint,
@@ -701,6 +737,98 @@ def test_joined_inheritance_is_not_refused() -> None:
         id: Mapped[int] = mapped_column(
             ForeignKey(f"tgap_jp_{suffix}.id"), primary_key=True
         )
+
+
+# The attribute ``tenant_id`` may map a column the database calls ``org_id``: the
+# ORM guard scopes such a model through the attribute, so its key must pair that
+# column, whichever name each side gives it.
+
+
+def _renamed_parent(base: Any, t: str, column: str = "org_id") -> Any:
+    class Parent(TenantScoped, base):
+        __tablename__ = f"tgap_rp_{t}"
+        __table_args__ = (UniqueConstraint(column, "id"),)
+
+        tenant_id: Mapped[uuid.UUID] = mapped_column(column, Uuid(), nullable=False)
+        id: Mapped[int] = mapped_column(primary_key=True)
+
+    return Parent
+
+
+def _renamed_child(
+    base: Any, t: str, *args: Any, column: str = "org_id", reference: Any = None
+) -> Any:
+    parent_column = (
+        mapped_column(reference) if reference is not None else mapped_column(Integer)
+    )
+
+    class Child(TenantScoped, base):
+        __tablename__ = f"tgap_rc_{t}"
+        __table_args__ = args
+
+        tenant_id: Mapped[uuid.UUID] = mapped_column(column, Uuid(), nullable=False)
+        id: Mapped[int] = mapped_column(primary_key=True)
+        parent_id: Mapped[int] = parent_column
+
+    return Child
+
+
+@pytest.mark.parametrize(
+    ("parent_column", "child_column"),
+    [("org_id", "org_id"), ("org_id", "tenant_id"), ("tenant_id", "org_id")],
+    ids=["both renamed", "only the parent renamed", "only the child renamed"],
+)
+@pytest.mark.parametrize(
+    "parent_first", [True, False], ids=["parent first", "parent second"]
+)
+def test_a_foreign_key_over_a_renamed_tenant_column_is_refused(
+    parent_column: str, child_column: str, parent_first: bool
+) -> None:
+    def define(base: Any, suffix: str) -> None:
+        def child() -> None:
+            _renamed_child(
+                base,
+                suffix,
+                column=child_column,
+                reference=ForeignKey(f"tgap_rp_{suffix}.id"),
+            )
+
+        def parent() -> None:
+            _renamed_parent(base, suffix, parent_column)
+
+        for step in (parent, child) if parent_first else (child, parent):
+            step()
+
+    error = _refused(define)
+    assert error.sandloom_code == "SANDLOOM-R020"
+    assert f"ForeignKeyConstraint(['{child_column}', 'parent_id']" in str(error)
+    assert f"UniqueConstraint('{parent_column}', 'id')" in str(error)
+
+
+def test_the_composite_key_over_a_renamed_tenant_column_is_not_refused() -> None:
+    base, suffix = _fresh()
+    _renamed_parent(base, suffix)
+    _renamed_child(
+        base,
+        suffix,
+        ForeignKeyConstraint(
+            ["org_id", "parent_id"],
+            [f"tgap_rp_{suffix}.org_id", f"tgap_rp_{suffix}.id"],
+        ),
+    )
+
+
+def test_a_foreign_key_added_afterwards_over_a_renamed_tenant_column_is_refused() -> (
+    None
+):
+    base, suffix = _fresh()
+    _renamed_parent(base, suffix)
+    child = _renamed_child(base, suffix)
+    with pytest.raises(UnsafeTenantModelError) as caught:
+        child.__table__.append_constraint(
+            ForeignKeyConstraint(["parent_id"], [f"tgap_rp_{suffix}.id"])
+        )
+    assert caught.value.sandloom_code == "SANDLOOM-R020"
 
 
 # ------------------------------- SANDLOOM-R021: a tenant column type that processes it
@@ -844,7 +972,18 @@ def _type_on_a_table_a_plain_model_mapped_first(base: Any, t: str) -> None:
     reg.map_imperatively(Scoped, table)
 
 
+def _type_on_a_renamed_column(base: Any, t: str) -> None:
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_t13_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        tenant_id: Mapped[uuid.UUID] = mapped_column(
+            "org_id", _Prefixed(), nullable=False
+        )
+
+
 TYPE_FORMS: dict[str, Define] = {
+    "renamed column": _type_on_a_renamed_column,
     "mapped_column TypeDecorator": _type_on_mapped_column,
     "TypeDecorator over Uuid": _type_that_wraps_uuid,
     "variant on one dialect": _type_variant_on_one_dialect,
@@ -876,6 +1015,16 @@ def test_a_tenant_column_replaced_on_the_table_afterwards_is_refused() -> None:
     with pytest.raises(UnsafeTenantModelError) as caught:
         table.append_column(
             Column("tenant_id", _Prefixed(), nullable=False), replace_existing=True
+        )
+    assert caught.value.sandloom_code == "SANDLOOM-R021"
+
+
+def test_a_renamed_tenant_column_replaced_on_the_table_afterwards_is_refused() -> None:
+    base, suffix = _fresh()
+    parent = _renamed_parent(base, suffix)
+    with pytest.raises(UnsafeTenantModelError) as caught:
+        parent.__table__.append_column(
+            Column("org_id", _Prefixed(), nullable=False), replace_existing=True
         )
     assert caught.value.sandloom_code == "SANDLOOM-R021"
 

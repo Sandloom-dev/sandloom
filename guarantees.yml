@@ -572,7 +572,9 @@ guarantees:
     table to another tenant table that leaves tenant_id out (the database accepts, locks and probes a parent
     row of another tenant, PostgreSQL outside row-level security; the key must pair the tenant columns,
     (tenant_id, col) -> parent(tenant_id, id), and the error names it; whichever of the two models is defined
-    second is refused, tables match by lower-cased name, the schema ignored, as the guard matches them; a
+    second is refused, tables match by lower-cased name, the schema ignored, as the guard matches them, and
+    the tenant column is the one named tenant_id or the one the attribute tenant_id maps, so a column the
+    database calls org_id is covered and named in the fix; a
     foreign key to a table without tenant_id, a table without one pointing at a tenant table, and the key of a
     joined-inheritance subclass table, which carries no tenant column, are not refused). SANDLOOM-R021, a
     tenant column whose type is not exactly SQLAlchemy's Uuid (its postgresql spelling UUID included, every
@@ -602,6 +604,10 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_to_a_table_without_a_tenant_is_not_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_from_a_table_without_a_tenant_is_not_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_joined_inheritance_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_over_a_renamed_tenant_column_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_composite_key_over_a_renamed_tenant_column_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_added_afterwards_over_a_renamed_tenant_column_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_renamed_tenant_column_replaced_on_the_table_afterwards_is_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_type_that_processes_the_value_is_refused_when_defined
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_replaced_on_the_table_afterwards_is_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_plain_uuid_spellings_are_not_refused

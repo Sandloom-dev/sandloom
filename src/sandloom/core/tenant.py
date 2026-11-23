@@ -231,10 +231,16 @@ _REPLACE = re.compile(r"\bREPLACE\b", re.IGNORECASE)
 #: class (a ``TypeDecorator``, a ``UserDefinedType``, a subclass) may process it.
 _PLAIN_TENANT_TYPES: tuple[type, ...] = (Uuid, UUID)
 
-#: Tables of every TenantScoped mapper, held weakly. The attach listeners ask it
-#: for each constraint and column of every table the process defines, so it is a
-#: plain set lookup that no new mapper invalidates.
-_known_tenant_tables: weakref.WeakSet[Table] = weakref.WeakSet()
+#: Tables of every TenantScoped mapper, held weakly, each with the NAMES of its
+#: tenant columns: ``tenant_id`` when the table has a column of that name, and the
+#: column the attribute ``tenant_id`` maps when the database calls it something
+#: else (``mapped_column("org_id")``: the ORM guard scopes such a model through
+#: the attribute). The attach listeners ask it for each constraint and column of
+#: every table the process defines, so it is a plain lookup that no new mapper
+#: invalidates. A table with no name is the table of a joined subclass.
+_known_tenant_tables: weakref.WeakKeyDictionary[Table, frozenset[str]] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _conflict_owners(table: Table) -> Iterator[tuple[str, DialectKWArgs]]:
@@ -291,8 +297,35 @@ def _plain_tenant_type(column_type: TypeEngine[Any]) -> bool:
 
 def _describe(column: ColumnElement[Any]) -> str:
     if isinstance(column, Column) and column.table is not None:
-        return f"{column.table.name}.{column.name}"
+        name = f"{column.table.name}.{column.name}"
+        if column.name == _TENANT_COLUMN:
+            return name
+        return f"{name} (the {_TENANT_COLUMN} attribute)"
     return f"the {_TENANT_COLUMN} attribute ({type(column).__name__} expression)"
+
+
+def _tenant_column_names(table: Table) -> frozenset[str]:
+    return _known_tenant_tables.get(table, frozenset())
+
+
+def _tenant_name(table: Table) -> str:
+    """The name of the tenant column of a tenant ``table``, for the fix the error
+    gives: ``tenant_id``, else the name the attribute ``tenant_id`` maps."""
+    names = _tenant_column_names(table)
+    return _TENANT_COLUMN if _TENANT_COLUMN in names else min(names)
+
+
+def _note_tenant_tables(mapper: Mapper[Any], tables: Sequence[Table]) -> None:
+    """Record ``tables`` as the tables of a TenantScoped mapper and the names of
+    their tenant columns."""
+    attribute = mapper.columns.get(_TENANT_COLUMN)
+    for table in tables:
+        names = set(_tenant_column_names(table))
+        if _tenant_column(table) is not None:
+            names.add(_TENANT_COLUMN)
+        if isinstance(attribute, Column) and attribute.table is table:
+            names.add(attribute.name)
+        _known_tenant_tables[table] = frozenset(names)
 
 
 def _tenant_type_problems(mapper: Mapper[Any], tables: Sequence[Table]) -> list[str]:
@@ -325,24 +358,31 @@ def _referred(constraint: ForeignKeyConstraint) -> tuple[str, list[str]]:
 
 
 def _tenant_tables_by_name() -> dict[str, list[Table]]:
-    """The TenantScoped tables that carry a ``tenant_id`` column, by lower-cased
-    name (a name may be two ``Table`` objects: the guard never trusts identity)."""
+    """The TenantScoped tables that carry a tenant column, by lower-cased name (a
+    name may be two ``Table`` objects: the guard never trusts identity)."""
     by_name: dict[str, list[Table]] = {}
-    for table in _known_tenant_tables:
-        if _tenant_column(table) is not None:
+    for table, names in _known_tenant_tables.items():
+        if names:
             by_name.setdefault(table.name.lower(), []).append(table)
     return by_name
 
 
-def _keeps_the_tenant(constraint: ForeignKeyConstraint, parent: Table) -> bool:
-    """``constraint`` pairs the tenant column of its own table with the tenant
-    column of ``parent``: a row can only reference a parent of its own tenant."""
-    parent_tenant = _tenant_column(parent)
-    return any(
-        element.parent.name == _TENANT_COLUMN
-        and parent.c.get(element.target_fullname.split(".")[-1]) is parent_tenant
-        for element in constraint.elements
-    )
+def _keeps_the_tenant(
+    constraint: ForeignKeyConstraint, child: Table, parent: Table
+) -> bool:
+    """``constraint`` pairs the tenant column of ``child`` with the tenant column
+    of ``parent``: a row can only reference a parent of its own tenant."""
+    child_names = _tenant_column_names(child)
+    parent_names = _tenant_column_names(parent)
+    for element in constraint.elements:
+        referred = parent.c.get(element.target_fullname.split(".")[-1])
+        if (
+            element.parent.name in child_names
+            and referred is not None
+            and referred.name in parent_names
+        ):
+            return True
+    return False
 
 
 def _foreign_key_problems(
@@ -351,22 +391,29 @@ def _foreign_key_problems(
     parents: Mapping[str, Sequence[Table]],
 ) -> list[str]:
     """The ``constraints`` of ``table`` that reference a TenantScoped table (one
-    with a ``tenant_id`` column, ``table`` itself included) and leave the tenant
-    column out of the key, each with the composite key that replaces it."""
+    with a tenant column, ``table`` itself included) and leave the tenant column
+    out of the key, each with the composite key that replaces it. A table with no
+    tenant column of its own (a joined subclass) has nothing to leave out."""
+    if not _tenant_column_names(table):
+        return []
     problems = []
     for constraint in constraints:
         parent_name, targets = _referred(constraint)
         candidates = parents.get(parent_name, ())
-        if candidates and not all(_keeps_the_tenant(constraint, p) for p in candidates):
+        if candidates and not all(
+            _keeps_the_tenant(constraint, table, p) for p in candidates
+        ):
             local = [element.parent.name for element in constraint.elements]
             columns = ", ".join(local)
             referred = ", ".join(targets)
+            own = _tenant_name(table)
+            theirs = _tenant_name(candidates[0])
             problems.append(
                 f"{table.name}({columns}) -> {parent_name}({referred}) must be the "
-                f"composite key (tenant_id, {columns}) -> {parent_name}(tenant_id, "
-                f"{referred}): ForeignKeyConstraint({['tenant_id', *local]}, "
-                f"{[f'{parent_name}.{c}' for c in ('tenant_id', *targets)]}), with "
-                f"UniqueConstraint('tenant_id', {', '.join(map(repr, targets))}) on "
+                f"composite key ({own}, {columns}) -> {parent_name}({theirs}, "
+                f"{referred}): ForeignKeyConstraint({[own, *local]}, "
+                f"{[f'{parent_name}.{c}' for c in (theirs, *targets)]}), with "
+                f"UniqueConstraint({', '.join(map(repr, (theirs, *targets)))}) on "
                 f"{parent_name}"
             )
     return problems
@@ -465,11 +512,16 @@ def _refuse_unsafe_constraint(constraint: Constraint, parent: SchemaItem) -> Non
 @event.listens_for(Column, "after_parent_attach", propagate=True)
 def _refuse_unsafe_column(column: Column[Any], parent: SchemaItem) -> None:
     """A column added to the table of a TenantScoped model after the model was
-    defined: a ``REPLACE`` option of its own, or a ``tenant_id`` of another type."""
+    defined: a ``REPLACE`` option of its own, or a tenant column of another type
+    (a ``tenant_id``, or the column the attribute ``tenant_id`` maps)."""
     if not isinstance(parent, Table) or parent not in _known_tenant_tables:
         return
+    if column.name == _TENANT_COLUMN:
+        _known_tenant_tables[parent] = _tenant_column_names(parent) | {_TENANT_COLUMN}
     _refuse_replace(parent.name, _replace_clauses([(f"column {column.name}", column)]))
-    if column.name == _TENANT_COLUMN and not _plain_tenant_type(column.type):
+    if column.name in _tenant_column_names(parent) and not _plain_tenant_type(
+        column.type
+    ):
         _refuse_tenant_type(
             parent.name, [f"{_describe(column)} has type {column.type!r}"]
         )
@@ -484,8 +536,8 @@ def _note_tenant_mapper(mapper: Mapper[Any], class_: type) -> None:
     model's table is still a tenant table."""
     if _is_tenant_class(class_):
         _tenant_mappers.add(mapper)
-        _known_tenant_tables.update(
-            table for table in mapper.tables if isinstance(table, Table)
+        _note_tenant_tables(
+            mapper, [table for table in mapper.tables if isinstance(table, Table)]
         )
         _invalidate_guard_caches()
         _refuse_unsafe_tenant_model(mapper)

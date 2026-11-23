@@ -2255,9 +2255,12 @@ rows is enough.
 Such a model is refused when it is defined; the table that is defined second
 runs the check, so the order of the model files decides nothing, and a foreign
 key added to a TenantScoped table afterwards is refused when it is attached.
-Both tables must carry a tenant_id column: a reference to a table that has none
-(the base table of a joined inheritance hierarchy) is no reference to a row of
-a tenant, and is not refused.
+Both tables must carry a tenant column, the column named tenant_id or the one
+the attribute tenant_id maps (mapped_column("org_id")), and the fix names the
+columns the models use. A reference to a table with no tenant column is no
+reference to a row of a tenant, and a table with none of its own (the subclass
+table of a joined inheritance hierarchy, which joins the row of its base table)
+has nothing to leave out: neither is refused.
 
 The key must pair the tenant column of the child with the tenant column of the
 parent:

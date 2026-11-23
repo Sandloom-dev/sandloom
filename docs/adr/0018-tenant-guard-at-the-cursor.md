@@ -294,7 +294,9 @@ The check reads every table that the mapper of a `TenantScoped` class maps, what
 declarative or imperative mapping, joined inheritance, one `Table` under two models. It runs once
 per mapper, at `after_mapper_constructed`, so a model defined after its foreign key target is
 checked when the second of the two is defined. Tables match by lower-cased name with the schema
-ignored, as the guard matches them. A constraint or a column attached to such a table afterwards
+ignored, as the guard matches them. The tenant column of a table is the column named `tenant_id`
+or the one that the attribute `tenant_id` maps (`mapped_column("org_id")`), so a renamed column is
+checked and named in the fix. A constraint or a column attached to such a table afterwards
 is refused as it is attached (`after_parent_attach`). The refusal comes after the constraint is on
 the `Table`, so a process that caught it is not meant to go on with that object.
 
