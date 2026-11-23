@@ -95,10 +95,13 @@ How it behaves:
   `FOR UPDATE` (SQLite takes its one write lock first), ranked in the driver as an
   exact `decimal.Decimal` and then written. A float or text never decides the rank.
   Two instants that differ only past the 15th significant digit rank by that digit.
-  On SQLite the writes of one process take turns before their
+  On SQLite the writes of one store instance take turns before their
   `statement_timeout_seconds` starts. A burst does not time out on the queue for
-  SQLite's one write lock. The deadline still bounds each statement. Another
-  process on the file waits on SQLite's own busy timeout.
+  SQLite's one write lock. When the queue is stuck behind a lock this instance
+  does not hold, it fails with `Timeout` near the deadline. Writers outside the
+  instance (a second store, the module's own engine, another process) still
+  contend through SQLite's busy handler. The handler gives up at the same
+  deadline, also with `Timeout`.
 - **No advisory locks.** It works behind pgbouncer in transaction pooling mode:
   no session state, no `LISTEN`, no prepared-statement names it must keep.
 - **Keys without a TTL are kept.** The enqueue-dedupe pending record has none.

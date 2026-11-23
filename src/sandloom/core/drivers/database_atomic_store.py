@@ -58,7 +58,9 @@ import asyncio
 import contextlib
 import hashlib
 import logging
+import os
 import time
+import weakref
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, ClassVar
 
@@ -296,8 +298,15 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         #: it, so a registry that only logs the refusal never serves from it.
         self._refusal: str | None = None
         self._purge_task: asyncio.Task[None] | None = None
-        #: The turn of a SQLite writer in this process (see ``_write_turn``).
-        self._sqlite_writers = asyncio.Lock()
+        #: The turn of a SQLite writer (see ``_write_turn``): one lock per
+        #: running event loop (a lock binds to the loop that first waits on it),
+        #: dropped in a forked child (a lock the parent held would stay locked).
+        self._turn_locks: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncio.Lock
+        ] = weakref.WeakKeyDictionary()
+        self._turn_pid = os.getpid()
+        #: Turns that ended without an error: the queue's sign of life.
+        self._turns_served = 0
 
     # ------------------------------------------------------------ plumbing
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
@@ -307,6 +316,9 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         if isinstance(exc, TimeoutError | sa_exc.TimeoutError):
             return Timeout(label, capability=self.capability, instance=self.name)
         text_of = str(getattr(exc, "orig", exc)).lower()
+        if isinstance(exc, sa_exc.OperationalError) and "database is locked" in text_of:
+            # SQLite's busy handler gave up: the wait for its write lock ran out.
+            return Timeout(label, capability=self.capability, instance=self.name)
         if isinstance(exc, sa_exc.DBAPIError) and (
             "password authentication" in text_of or "permission denied" in text_of
         ):
@@ -343,7 +355,11 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
                     "pool_pre_ping": self._opts.pool_pre_ping,
                 }
                 if backend == "postgresql"
-                else {}
+                else {
+                    # SQLite's busy handler (default 5 s) must end within the
+                    # statement deadline, or a queued writer outlives it.
+                    "connect_args": {"timeout": self._opts.statement_timeout_seconds}
+                }
             )
             engine = create_async_engine(
                 self._opts.url, isolation_level="AUTOCOMMIT", **pool
@@ -373,7 +389,7 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         writes = not isinstance(statement, Select)
         for attempt in (1, 2):
             try:
-                async with self._write_turn(dialect, writes=writes):
+                async with self._write_turn(operation, dialect, writes=writes):
                     async with asyncio.timeout(self._opts.statement_timeout_seconds):
                         async with engine.connect() as conn:
                             result = await conn.execute(statement)
@@ -390,24 +406,61 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
                 raise self._failure(operation, exc) from None
         raise AssertionError("unreachable")  # pragma: no cover
 
+    def _turn_lock(self) -> asyncio.Lock:
+        """The turn lock of the running loop (a forked child starts with none)."""
+        pid = os.getpid()
+        if pid != self._turn_pid:
+            self._turn_locks = weakref.WeakKeyDictionary()
+            self._turn_pid = pid
+        loop = asyncio.get_running_loop()
+        lock = self._turn_locks.get(loop)
+        if lock is None:
+            lock = self._turn_locks[loop] = asyncio.Lock()
+        return lock
+
+    async def _take_turn(self, operation: str, lock: asyncio.Lock) -> None:
+        """Wait for the turn, at most ``statement_timeout_seconds`` without a
+        turn ending well in between: a queue that moves keeps its waiters, a
+        queue stuck behind a lock this store does not hold (another process, a
+        second store on the file) fails them near the deadline, not one
+        deadline after another."""
+        while True:
+            seen = self._turns_served
+            try:
+                async with asyncio.timeout(self._opts.statement_timeout_seconds):
+                    await lock.acquire()
+                return
+            except TimeoutError as exc:
+                if self._turns_served == seen:
+                    raise self._failure(operation, exc) from None
+
     @contextlib.asynccontextmanager
     async def _write_turn(
-        self, dialect: _Dialect, *, writes: bool
+        self, operation: str, dialect: _Dialect, *, writes: bool
     ) -> AsyncIterator[None]:
-        """One writer at a time on a SQLite file, taken BEFORE the statement
-        deadline starts. SQLite has one write lock and no queue for it: the
-        writers of a burst poll it (a busy handler sleeping 1 to 100 ms, in no
-        order) while the statement deadline runs, so on a loaded host the unlucky
-        ones spent all of ``statement_timeout_seconds`` waiting for the lock and
-        raised ``Timeout`` for a statement that was healthy. In process the wait
-        is a FIFO ``asyncio.Lock`` and each writer gets its whole deadline for
-        its own statement; another process on the file still contends through
-        SQLite's busy timeout. PostgreSQL takes row locks: no turn."""
-        if dialect.sqlite and writes:
-            async with self._sqlite_writers:
-                yield
-        else:
+        """One write at a time of this store instance on a SQLite file, taken
+        BEFORE the statement deadline starts. SQLite has one write lock and no
+        queue for it: the writers of a burst poll it (a busy handler sleeping 1 to
+        100 ms, in no order) while the statement deadline runs, so on a loaded
+        host the unlucky ones spent all of it waiting for the lock and raised
+        ``Timeout`` for a healthy statement. The wait is a FIFO ``asyncio.Lock``
+        (see ``_take_turn`` for its bound) and each writer gets its whole
+        deadline for its own statement. Other writers of the file (a second
+        store instance, the module's own engine, another process) still contend
+        through SQLite's busy handler, which ends within the deadline
+        (``connect_args`` ``timeout``). A reader outside the turn can still
+        delay a commit in rollback-journal mode, inside that deadline.
+        PostgreSQL takes row locks: no turn."""
+        if not (dialect.sqlite and writes):
             yield
+            return
+        lock = self._turn_lock()
+        await self._take_turn(operation, lock)
+        try:
+            yield
+            self._turns_served += 1
+        finally:
+            lock.release()
 
     def _contended(self, operation: str) -> InfraError:
         atomic_store_operation_errors_total.labels(self.name, operation).inc()
@@ -631,7 +684,7 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         for attempt in range(self._opts.max_attempts):
             held: str | None = None
             try:
-                async with self._write_turn(dialect, writes=True):
+                async with self._write_turn("set_subject_state", dialect, writes=True):
                     async with asyncio.timeout(self._opts.statement_timeout_seconds):
                         async with engine.connect() as conn:
                             await conn.execution_options(

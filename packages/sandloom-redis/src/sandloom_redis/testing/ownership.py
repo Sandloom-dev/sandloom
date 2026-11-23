@@ -58,7 +58,8 @@ def _redact(url: str) -> str:
     netloc = parts.hostname or ""
     if parts.port:
         netloc += f":{parts.port}"
-    return urlunsplit(parts._replace(netloc=netloc))
+    # Neither the query (``?password=…``) nor a fragment is echoed.
+    return urlunsplit(parts._replace(netloc=netloc, query="", fragment=""))
 
 
 def claim_redis(

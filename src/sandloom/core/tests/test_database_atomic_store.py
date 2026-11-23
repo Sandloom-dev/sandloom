@@ -11,6 +11,9 @@ database is SQLite.
 from __future__ import annotations
 
 import asyncio
+import os
+import sqlite3
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import partial
@@ -400,6 +403,89 @@ async def test_a_statement_past_the_deadline_still_raises_timeout_on_sqlite(
         with pytest.raises(Timeout):
             await provider.set_subject_state("k", "v1:after:1")
     finally:
+        await provider.aclose()
+
+
+def test_one_provider_serves_writers_from_two_event_loops(tmp_path: Path) -> None:
+    """A lock binds to the loop that first waits on it: the turn is per loop."""
+    url = f"sqlite+aiosqlite:///{tmp_path / 'loops.db'}"
+    asyncio.run(_create_table(url))
+    provider = _provider(url)
+
+    async def burst(tag: str) -> None:
+        await asyncio.gather(
+            *(provider.set_subject_state(f"{tag}", f"v1:after:{i}") for i in range(10))
+        )
+        assert await provider.get(tag) == "v1:after:9"
+
+    try:
+        asyncio.run(burst("first"))
+        asyncio.run(burst("second"))  # the second loop meets the first one's lock
+    finally:
+        asyncio.run(provider.aclose())
+
+
+async def test_a_forked_child_does_not_inherit_a_held_turn(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A turn held by the parent at ``fork`` stays held in the child for ever:
+    a new process id starts the store with free turns."""
+    release, entered = asyncio.Event(), asyncio.Event()
+    original = DatabaseAtomicStoreProvider._write_if_higher
+    calls = 0
+
+    async def hold_the_first(*args: Any, **kwargs: Any) -> str | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()  # the turn is held, SQLite's lock is not
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(hold_the_first)
+    )
+    provider = _provider(sqlite_url, statement_timeout_seconds=30)
+    parent = asyncio.ensure_future(provider.set_subject_state("k", "v1:after:1"))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        child_pid = os.getpid() + 1
+        monkeypatch.setattr(os, "getpid", lambda: child_pid)
+        answer = await asyncio.wait_for(
+            provider.set_subject_state("k", "v1:after:2"), 3
+        )
+        assert answer == "v1:after:2"
+    finally:
+        release.set()
+        await parent
+        await provider.aclose()
+
+
+async def test_writers_queued_behind_a_foreign_lock_fail_near_the_deadline(
+    sqlite_url: str,
+) -> None:
+    """Another connection holds SQLite's write lock: the writer holding the turn
+    waits on it and the queue behind it must not wait one deadline after the
+    other (4 writers, 0.5 s deadline: about 0.5 s, never 4 x busy timeout)."""
+    path = sqlite_url.split(":///", 1)[1]
+    foreign = sqlite3.connect(path, isolation_level=None)
+    foreign.execute("BEGIN IMMEDIATE")
+    provider = _provider(sqlite_url, statement_timeout_seconds=0.5)
+    try:
+        started = time.monotonic()
+        results = await asyncio.gather(
+            *(provider.set(f"k{i}", "v") for i in range(4)), return_exceptions=True
+        )
+        elapsed = time.monotonic() - started
+        assert [type(r) for r in results] == [Timeout] * 4, results
+        assert elapsed < 3.0, (
+            f"the queue failed one deadline after the other: {elapsed}"
+        )
+        foreign.rollback()
+        await provider.set("after", "v")  # the turn was released, not leaked
+        assert await provider.get("after") == "v"
+    finally:
+        foreign.close()
         await provider.aclose()
 
 

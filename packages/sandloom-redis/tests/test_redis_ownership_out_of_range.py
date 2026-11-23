@@ -76,3 +76,26 @@ def test_the_refusal_never_echoes_the_url_password(
         claim_redis("redis://user:s3cret-pw@127.0.0.1:1/99", owner="secret-test")
     assert "s3cret-pw" not in str(caught.value)
     assert "/99" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://127.0.0.1:1/99?password=q-secret",
+        "redis://127.0.0.1:1/99?db=99&username=u&password=q-secret",
+        "redis://127.0.0.1:1/99#q-secret",
+    ],
+)
+def test_the_refusal_never_echoes_the_query_or_fragment(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    import redis
+
+    def from_url(*args: Any, **kwargs: Any) -> _FailingClient:
+        return _FailingClient("ERR DB index is out of range")
+
+    monkeypatch.setattr(redis.Redis, "from_url", from_url)
+    with pytest.raises(ownership.TestResourceOwnershipError) as caught:
+        claim_redis(url, owner="query-secret-test")
+    assert "q-secret" not in str(caught.value)
+    assert "127.0.0.1:1/99" in str(caught.value)
