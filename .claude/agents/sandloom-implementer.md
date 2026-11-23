@@ -65,15 +65,17 @@ subagent): pass no actor on tm calls.
   tool call re-sends your whole context, so a test run per step is what made
   tasks slow. When the task is written: ONE pytest call over the tests of
   what you touched plus every test that references the changed symbols
-  (`grep -rln '<symbol>' src tests`), fix and rerun only the failures, then
-  the static gates once (below). One extra run mid-way is allowed only when
-  you are stuck on behaviour you cannot judge by reading.
-- Name your key tests in the `checks` part of your report and the checklist
-  (`key: <test ids>`): the reviewer and CI start from them.
+  (`grep -rln '<symbol>' src tests`), fix and rerun only the failures
+  (`--lf`, or their test ids), then the static gates once (below). One extra
+  run mid-way is allowed only when you are stuck on behaviour you cannot
+  judge by reading.
+- Name your key tests in your report (`key: <test ids>`), not in the
+  checklist: the reviewer and CI start from them.
 - Never `sandloom test --full`: the orchestrator runs it once per wave. Never
-  a pytest without test paths. A hook (`.claude/hooks/implementer_tests.py`)
-  refuses both; a whole-suite run you truly need takes `SANDLOOM_RUN_OK=1`
-  in the command and a reason in your report.
+  a pytest without test paths (or `--lf`). A hook
+  (`.claude/hooks/implementer_tests.py`) refuses both; a whole-suite run you
+  truly need takes `SANDLOOM_RUN_OK=1` in the command and a reason in your
+  report.
 - After every Edit / Write a hook formats the file and reports, in the same
   turn, the NEW ruff findings of a `.py`, the new prose-lint hits of a `.md`
   and broken JSON. Fix them in your next edit; do not run ruff or the prose
@@ -131,7 +133,7 @@ subagent): pass no actor on tm calls.
 - Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
-  same command, `env SANDLOOM_TEST_OWNER=<alias> … uv run pytest … -q`: no
+  same command, `env SANDLOOM_TEST_OWNER=<alias> … uv run pytest <test paths> -q`: no
   env file, no `source`. This repository's `.env.test` declares a Redis url for
   both `cache.default` and `taskqueue.default`, so both overrides apply here;
   the harness refuses one for a capability `INFRA` declares no url for.
