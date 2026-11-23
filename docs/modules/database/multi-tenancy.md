@@ -392,11 +392,28 @@ with.
 
 Cases the check does not see.
 
+<!-- lookup -->
 - A `nesting=True` CTE below the top level is not in the compiled list, and
   PostgreSQL itself refuses a data-modifying statement there.
 - A raw reference to a tenant table hidden inside a statement the ORM guard
   approved, which the ORM walk cannot see.
 - `Connection.exec_driver_sql` sends a string with no compiled statement.
+- A listener that acts at the cursor runs after the check has read the statement
+  ([ADR-0018](../../adr/0018-tenant-guard-at-the-cursor.md), decision 8). A
+  `before_cursor_execute` listener registered with `retval=True` replaces the
+  SQL text or the parameters the driver receives. It can sit on the engine or on
+  a connection, and a listener on the `Engine` class does the same. A dialect listener (`do_execute`,
+  `do_executemany`, `do_execute_no_params`) that runs the cursor itself and
+  returns `True` makes SQLAlchemy skip the method that holds the check. Then
+  none of that method's checks runs for the statement. The tenant rule and the
+  Row-Level Security setting sync are among them. Both reach a tenant table as
+  `exec_driver_sql` does. No static check flags `event.listen` on these events in a module, so
+  review such a registration like raw SQL.
+  [Row-Level Security](#postgresql-row-level-security-optional) is the
+  boundary. For a dialect listener it holds only when the setting is already the
+  bound tenant. A `before_execute` listener with `retval=True` is not part of
+  this. It replaces the clause before it compiles, and the check refuses the
+  replacement.
 - SQL the database builds from text no scan can read. That covers PostgreSQL
   dynamic SQL. One case is `query_to_xml('select ... ' || name, ...)` with a
   concatenated name. Another is `table_to_xml(oid::regclass)`. A third is a

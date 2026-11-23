@@ -332,41 +332,65 @@ base. A model with `sqlite_on_conflict="REPLACE"` drops it or uses a composite k
 maps `tenant_id` through a synonym, a hybrid or an expression maps the column itself. A tenant
 column type other than `Uuid` moves its conversion to a column that is not the tenant.
 
-### 8. A cursor listener that rewrites the statement is a seam, named and not refused
+### 8. A listener that acts at the cursor after the rule read the statement is a seam, named and not refused
 
-The cursor rule reads the compiled statement of the execution context, inside `dialect.do_execute`.
-SQLAlchemy runs the `before_cursor_execute` listeners before that call. A listener registered with
-`retval=True` returns the SQL text and the parameters the driver receives, and the rule has read the
-ones it compiled. A listener that sends the read of a tenant table without its `WHERE` clause, or one
-that binds another tenant where the guard checked the bound one, reaches the rows of that tenant.
-`test_tenant_guard_cursor_listener.py` shows both on SQLite and on PostgreSQL.
+The cursor rule reads the compiled statement of the execution context, inside `dialect.do_execute`
+(and `do_executemany`, `do_execute_no_params`). Two kinds of listener run before that call.
 
-G-TENANT-25 lists it as not covered, beside `Connection.exec_driver_sql`, which has the same reach:
-a string the rule has no compiled statement for. The engine on which a listener is registered belongs
-to the application, in the process that runs the module code, and that code can call `exec_driver_sql`
-or the driver's cursor as well. A `before_execute` listener with `retval=True` is not part of the seam.
-It replaces the clause before it is compiled, so the rule reads the replacement, which no ORM guard
+- **A `before_cursor_execute` listener registered with `retval=True`**, on the engine, on a
+  connection or on the `Engine` class. It returns the SQL text and the parameters the driver
+  receives, and the rule has read the ones it compiled. A listener that sends the read of a tenant
+  table without its `WHERE` clause, or one that binds another tenant where the guard checked the
+  bound one, reaches the rows of that tenant.
+- **A dialect listener** (`do_execute`, `do_executemany`, `do_execute_no_params`) that runs the
+  cursor itself and returns `True`. SQLAlchemy runs these before the dialect method and skips the
+  method when one returns `True` (`Connection._execute_context`). The cursor hook is that method,
+  so none of its checks runs for the statement: the tenant rule, the data-modifying CTE check,
+  write admission (SANDLOOM-R007), the owner check (SANDLOOM-R013) and the money rule
+  (SANDLOOM-B014). `tenant_rls` wraps the same method, so the setting sync is skipped as well.
+  Row-level security still filters, by the setting an earlier statement of the transaction set,
+  or by none. It holds only when that setting is the bound tenant.
+
+`test_tenant_guard_cursor_listener.py` shows each on SQLite and on PostgreSQL: the rewrite from the
+three sites, and a Core read and a Core `executemany` insert that a dialect listener sends to the
+cursor.
+
+G-TENANT-25 lists them as not covered, beside `Connection.exec_driver_sql`. Both reach a tenant table
+as it does, with a statement the tenant rule has not read. A dialect listener also skips the other
+checks of the hook, which `exec_driver_sql` does not. They are not the same case for module code.
+`unsafe-tenant-sql` (SANDLOOM-C015) and `portable-sql` (SANDLOOM-C031) flag `exec_driver_sql` in a
+module. No static check flags `event.listen` on these events, and the listener runs in the process
+that runs the module code. A rule that refuses it in a module needs its own error code and is not
+part of this decision. A `before_execute` listener with `retval=True` is not part of the seam. It
+replaces the clause before it is compiled, so the rule reads the replacement, which no ORM guard
 approved, and refuses it. A test pins that too.
 
 No refusal is added. Two designs were measured or built:
 
 - **Refuse at startup.** A scan of `engine.dispatch.before_cursor_execute` takes 0.46 µs once, for two
-  listeners, and no statement pays for it. It sees only the listeners registered before the scan, so
-  a later `event.listen` escapes it. It tells a `retval=True` listener from another by SQLAlchemy's
-  private wrapper, `ConnectionEvents._listen.<locals>.wrap_before_cursor_execute`, which only a
-  listener without `retval` carries. It would also refuse a listener that appends a comment to the SQL
-  and reaches nothing. Its call site is `install_write_admission` or `enforce_configuration`, not
+  listeners, and no statement pays for it. It sees only the engine's list as it stands at the scan,
+  so a later `event.listen`, a listener of one connection and a dialect listener escape it. It tells
+  a `retval=True` listener from another by SQLAlchemy's private wrapper,
+  `ConnectionEvents._listen.<locals>.wrap_before_cursor_execute`, which only a listener without
+  `retval` carries. It would also refuse a listener that appends a comment to the SQL and reaches
+  nothing. Its call site is `install_write_admission` or `enforce_configuration`, not
   `sandloom.core.tenant`.
 - **Compare at the cursor.** The rule can test `statement is not context.statement` in
   `dialect.do_execute`. A microbenchmark of that test in a wrapper (`timeit`, 5 million calls, best of
   5, Python 3.12 on a laptop, not the cachegrind stand) measures 52.7 ns for the call without it and
   65.1 ns with it: 12.4 ns a statement. It sees a replaced SQL text and no replaced parameter. A run
-  with the test added failed the text case of the new tests and passed the parameter case.
+  with the test added failed the text case of the new tests and passed the parameter case. It sees
+  nothing of a dialect listener, because the hook does not run. It would also refuse every
+  `insertmanyvalues` batch: SQLAlchemy sends the batch's own rewritten statement (`sub_stmt`) to
+  the `before_cursor_execute` listeners and to `do_execute` (`Connection._exec_insertmany_context`),
+  so the test would have to tell SQLAlchemy's rewrite from a listener's.
 
-Neither closes the seam, and the second puts a cost on every statement for a reach that
+None of them closes the seam, and the second puts a cost on every statement for a reach that
 `exec_driver_sql` already gives. Closing it would take a read of the final statement and the final
-parameters at the cursor, a per-statement cost to measure on the cachegrind stand below and a decision
-of the owner. Row-level security is the boundary for it, as for the other seams.
+parameters at the cursor, and a refusal of a dialect listener that takes a statement over: a
+per-statement cost to measure on the cachegrind stand below and a decision of the owner. Row-level
+security is the boundary for it, as for the other seams, and for a dialect listener only when its
+setting is already the bound tenant.
 
 ## Consequences
 
@@ -417,9 +441,11 @@ of the owner. Row-level security is the boundary for it, as for the other seams.
 - Some seams stay with the caller or with the database, in the order they are named:
   - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;
-  - an engine `before_cursor_execute` listener registered with `retval=True`, which runs after the
-    cursor rule read the compiled statement and can replace the SQL text or the parameters the
-    driver receives (decision 8);
+  - a `before_cursor_execute` listener registered with `retval=True` (on the engine, a connection
+    or the `Engine` class), which runs after the cursor rule read the compiled statement and can
+    replace the SQL text or the parameters the driver receives, and a dialect listener
+    (`do_execute`, `do_executemany`, `do_execute_no_params`) that runs the cursor itself and
+    returns `True`, after which the rule does not run at all (decision 8);
   - a `text()` passed straight to `session.execute`, which the ORM guard approves as the caller's:
     `scoped()`, the `unsafe-tenant-sql` check and row-level security hold it;
   - a column load of a stamped instance when no tenant is bound: the instance was read under a

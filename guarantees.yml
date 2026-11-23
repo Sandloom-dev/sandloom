@@ -362,10 +362,13 @@ guarantees:
     MissingTenantError with none. ORM statements over tenant models, flush writes whose default is a custom
     @compiles element that reads no table, and statements that name no tenant table stay allowed. The test
     harness's schema reset, ensure_model_schema and fixtures that build tenant tables run inside
-    unscoped(). Not covered, by design - Connection.exec_driver_sql (no compiled statement), an engine
-    before_cursor_execute listener registered with retval=True (it runs after the cursor check has read
-    the compiled statement and replaces the SQL text or the parameters the driver receives, a reach no
-    wider than exec_driver_sql, see ADR-0018 decision 8), a text()
+    unscoped(). Not covered, by design - Connection.exec_driver_sql (no compiled statement), a
+    before_cursor_execute listener registered with retval=True on the engine, a connection or the Engine
+    class (it runs after the cursor check has read the compiled statement and replaces the SQL text or
+    the parameters the driver receives), a dialect listener (do_execute, do_executemany,
+    do_execute_no_params) that runs the cursor itself and returns True (SQLAlchemy then skips the dialect
+    method that holds the cursor check, write admission and the tenant_rls setting sync with it); both
+    reach a tenant table as exec_driver_sql does, see ADR-0018 decision 8, a text()
     sent straight to session.execute (the caller's), SQL the database builds from text no scan can read
     (PostgreSQL dynamic SQL such as query_to_xml with a concatenated name, table_to_xml(oid::regclass) and
     DO $$ EXECUTE $$, and a view, function or trigger over a tenant table; row-level security holds
@@ -419,6 +422,8 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_listener_that_only_observes_leaves_the_guard_whole
   - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_retval_listener_that_replaces_the_sql_reaches_another_tenants_rows
   - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_retval_listener_that_replaces_the_parameters_reaches_another_tenants_rows
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_dialect_listener_that_runs_the_cursor_reads_another_tenants_rows
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_do_executemany_listener_that_runs_the_cursor_writes_another_tenants_rows
   - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_exec_driver_sql_has_the_same_reach_as_the_rewriting_listener
   - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_before_execute_listener_that_replaces_the_statement_is_refused
 - id: G-TENANT-26
@@ -9975,7 +9980,7 @@ adr_sections:
     - G-TENANT-27
     "7. What the database does with a plain insert":
     - G-TENANT-28
-    "8. A cursor listener that rewrites the statement is a seam, named and not refused":
+    "8. A listener that acts at the cursor after the rule read the statement is a seam, named and not refused":
     - G-TENANT-25
     "Consequences": informational
     "Measured cost of the guard": informational

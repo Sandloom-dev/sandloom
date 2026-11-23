@@ -1,25 +1,35 @@
-"""An engine ``before_cursor_execute`` listener with ``retval=True`` (ADR-0018, decision 8).
+"""Listeners that act at the cursor, after the guard read the statement (ADR-0018, decision 8).
 
-The cursor guard reads the compiled statement of the execution context. SQLAlchemy runs
-the ``before_cursor_execute`` listeners after that statement is compiled and before
-``dialect.do_execute``, where the guard stands, so a listener registered with
-``retval=True`` can hand the driver another SQL text or other parameters than the ones
-the guard checked. That is a seam, not a refusal, and the reach is the one of
-``Connection.exec_driver_sql``: a string the guard never reads.
+The cursor guard reads the compiled statement of the execution context inside
+``dialect.do_execute`` (and ``do_executemany``, ``do_execute_no_params``). Two kinds of
+listener run before that call, so they are a seam and not a refusal:
+
+* a ``before_cursor_execute`` listener registered with ``retval=True``, on the engine, on
+  a connection or on the ``Engine`` class, hands the driver another SQL text or other
+  parameters than the ones the guard checked;
+* a dialect listener (``do_execute``, ``do_executemany``, ``do_execute_no_params``) that
+  runs the cursor itself and returns ``True`` makes SQLAlchemy skip the dialect method,
+  so the guard never runs for that statement.
+
+For the tenant rule the reach is that of ``Connection.exec_driver_sql``: a statement the
+guard never reads. A dialect listener also skips the other checks of the hook.
 
 These tests pin the seam where it is, so that the documented limit (G-TENANT-25, "Not
 covered") and the code cannot drift apart:
 
-* a listener that only observes (no ``retval``) leaves the guard whole;
-* a ``retval=True`` listener that replaces the SQL text, or the parameters, reads the
-  rows of another tenant under a bound tenant, on SQLite and on PostgreSQL;
+* a listener that only observes (no ``retval``) leaves the guard whole: it still refuses
+  a Core read of a tenant table;
+* a ``retval=True`` cursor listener that replaces the SQL text, or the parameters, reads
+  the rows of another tenant under a bound tenant, on SQLite and on PostgreSQL, wherever
+  the listener is registered;
+* a dialect listener that runs the cursor reads, and writes, rows of another tenant;
 * ``exec_driver_sql`` has the same reach, which is what the documents claim;
 * the same rewrite one step earlier, ``before_execute`` with ``retval=True``, is a
-  statement the guard compiles and refuses: the seam is the cursor listener only.
+  statement the guard compiles and refuses: the seam is the cursor and the dialect only.
 
-If a test of the second group starts to fail because the guard now sees the rewrite, the
-seam is closed: update G-TENANT-25, ADR-0018 decision 8 and the multi-tenancy page, then
-turn the test into the refusal it has become.
+If a test of the second to fourth group starts to fail because the guard now sees the
+rewrite, the seam is closed: update G-TENANT-25, ADR-0018 decision 8 and the multi-tenancy
+page, then turn the test into the refusal it has become.
 """
 
 from __future__ import annotations
@@ -32,7 +42,8 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import Text, Uuid, event, select
+from sqlalchemy import Text, Uuid, event, insert, select
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -40,6 +51,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.sql.expression import Executable
 
 from sandloom.core.config.settings import settings
 from sandloom.core.di import UnsafeTenantOperationError, bind_tenant, unscoped
@@ -124,6 +136,31 @@ async def _bodies_read_as(env: _Env, tenant: uuid.UUID) -> list[str]:
             return list(result.scalars())
 
 
+#: A Core read of the table: it names no tenant criterion.
+_READ_THE_TABLE = select(_Note.__table__.c.body).order_by(_Note.__table__.c.id)
+
+
+async def _table_bodies_read_as(
+    env: _Env, tenant: uuid.UUID, statement: Executable = _READ_THE_TABLE
+) -> list[str]:
+    """What a Core read of the table returns with ``tenant`` bound, run on the session's
+    connection: the ORM guard refuses ``session.execute`` of it, so only the cursor rule
+    stands between the statement and the rows."""
+    async with env.maker() as session:
+        with bind_tenant(tenant):
+            connection = await session.connection()
+            result = await connection.execute(statement)
+            return list(result.scalars())
+
+
+async def _all_bodies(env: _Env) -> list[str]:
+    """Every note of every tenant, read as system work."""
+    async with env.maker() as session:
+        with unscoped():
+            result = await session.execute(select(_Note.body).order_by(_Note.id))
+            return list(result.scalars())
+
+
 def _reads_the_notes(statement: str) -> bool:
     return statement.startswith("SELECT") and "FROM tgcl_notes" in statement
 
@@ -172,7 +209,8 @@ def _swap_the_tenant(
 @pytest.mark.asyncio
 async def test_a_listener_that_only_observes_leaves_the_guard_whole(env: _Env) -> None:
     """Control: a listener without ``retval`` sees the statement, cannot change it, and the
-    read keeps the tenant filter."""
+    guard stays whole: the ORM read keeps the tenant filter, and the cursor rule still
+    refuses a Core read of the table (the part that no ORM criterion can answer for)."""
     seen: list[str] = []
 
     def observe(
@@ -189,23 +227,51 @@ async def test_a_listener_that_only_observes_leaves_the_guard_whole(env: _Env) -
     event.listen(sync_engine, "before_cursor_execute", observe)
     try:
         assert await _bodies_read_as(env, env.a) == ["a-note"]
+        with pytest.raises(UnsafeTenantOperationError):
+            await _table_bodies_read_as(env, env.a)
     finally:
         event.remove(sync_engine, "before_cursor_execute", observe)
     assert any(_reads_the_notes(s) and "tenant_id" in s for s in seen)
 
 
+#: Where a ``before_cursor_execute`` listener is registered: SQLAlchemy runs the ones of
+#: the engine, of the connection and of the ``Engine`` class alike.
+_SITES = ("engine", "connection", "Engine class")
+
+
+async def _bodies_read_with_a_cursor_listener(
+    env: _Env, site: str, listener: _CursorListener
+) -> list[str]:
+    """The ORM read of the notes as tenant A, with ``listener`` registered (``retval=True``)
+    on ``site`` for the length of the read."""
+    async with env.maker() as session:
+        with bind_tenant(env.a):
+            connection = await session.connection()
+            target: Any = {
+                "engine": env.engine.sync_engine,
+                "connection": connection.sync_connection,
+                "Engine class": Engine,
+            }[site]
+            event.listen(target, "before_cursor_execute", listener, retval=True)
+            try:
+                result = await session.execute(select(_Note.body).order_by(_Note.id))
+                return list(result.scalars())
+            finally:
+                event.remove(target, "before_cursor_execute", listener)
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize("site", _SITES)
 async def test_a_retval_listener_that_replaces_the_sql_reaches_another_tenants_rows(
-    env: _Env,
+    env: _Env, site: str
 ) -> None:
-    """The seam: the guard approved the filtered statement, the driver gets the other one."""
+    """The seam: the guard approved the filtered statement, the driver gets the other one,
+    whether the listener is the engine's, the connection's or the ``Engine`` class's."""
     assert await _bodies_read_as(env, env.a) == ["a-note"]  # without the listener
-    sync_engine = env.engine.sync_engine
-    event.listen(sync_engine, "before_cursor_execute", _drop_the_filter, retval=True)
-    try:
-        assert await _bodies_read_as(env, env.a) == ["a-note", "b-secret"]
-    finally:
-        event.remove(sync_engine, "before_cursor_execute", _drop_the_filter)
+    assert await _bodies_read_with_a_cursor_listener(env, site, _drop_the_filter) == [
+        "a-note",
+        "b-secret",
+    ]
     assert await _bodies_read_as(env, env.a) == ["a-note"]  # and again without it
 
 
@@ -230,8 +296,9 @@ async def test_a_retval_listener_that_replaces_the_parameters_reaches_another_te
 async def test_exec_driver_sql_has_the_same_reach_as_the_rewriting_listener(
     env: _Env,
 ) -> None:
-    """What the documents claim: the listener adds nothing that ``exec_driver_sql`` does not
-    already give, a string the guard has no compiled statement to read for."""
+    """What the documents claim for the tenant rule: the cursor listener adds nothing that
+    ``exec_driver_sql`` does not already give, a string the guard has no compiled statement
+    to read for."""
     async with env.maker() as session:
         with bind_tenant(env.a):
             connection = await session.connection()
@@ -239,6 +306,106 @@ async def test_exec_driver_sql_has_the_same_reach_as_the_rewriting_listener(
                 "SELECT body FROM tgcl_notes ORDER BY id"
             )
             assert list(result.scalars()) == ["a-note", "b-secret"]
+
+
+def _runs_the_cursor_itself(event_name: str) -> Callable[..., bool]:
+    """A dialect listener for ``event_name`` that sends a statement on the notes table to
+    the cursor itself and returns ``True``: SQLAlchemy then skips ``dialect.do_execute``
+    (``do_executemany``, ``do_execute_no_params``), the method the guard wraps."""
+
+    def do_execute(cursor: Any, statement: str, parameters: Any, context: Any) -> bool:
+        if "tgcl_notes" not in statement:
+            return False
+        cursor.execute(statement, parameters)
+        return True
+
+    def do_executemany(
+        cursor: Any, statement: str, parameters: Any, context: Any
+    ) -> bool:
+        if "tgcl_notes" not in statement:
+            return False
+        cursor.executemany(statement, parameters)
+        return True
+
+    def do_execute_no_params(cursor: Any, statement: str, context: Any) -> bool:
+        if "tgcl_notes" not in statement:
+            return False
+        cursor.execute(statement)
+        return True
+
+    return {
+        "do_execute": do_execute,
+        "do_executemany": do_executemany,
+        "do_execute_no_params": do_execute_no_params,
+    }[event_name]
+
+
+#: The Core read a dialect listener takes over, by the event that carries it.
+#: ``no_parameters`` sends the statement through ``do_execute_no_params``.
+_DIALECT_READS = {
+    "do_execute": _READ_THE_TABLE,
+    "do_execute_no_params": _READ_THE_TABLE.execution_options(no_parameters=True),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_name", list(_DIALECT_READS))
+async def test_a_dialect_listener_that_runs_the_cursor_reads_another_tenants_rows(
+    env: _Env, event_name: str
+) -> None:
+    """The seam one step before the guard's hook: SQLAlchemy runs the dialect listeners
+    first and skips ``dialect.do_execute`` when one returns ``True``, so the Core read that
+    the cursor rule refuses reads every tenant's rows."""
+    statement = _DIALECT_READS[event_name]
+    with pytest.raises(UnsafeTenantOperationError):  # without the listener
+        await _table_bodies_read_as(env, env.a, statement)
+    listener = _runs_the_cursor_itself(event_name)
+    dialect = env.engine.sync_engine
+    event.listen(dialect, event_name, listener)
+    try:
+        assert await _table_bodies_read_as(env, env.a, statement) == [
+            "a-note",
+            "b-secret",
+        ]
+    finally:
+        event.remove(dialect, event_name, listener)
+    with pytest.raises(UnsafeTenantOperationError):  # and again without it
+        await _table_bodies_read_as(env, env.a, statement)
+
+
+async def _insert_notes_as(env: _Env, tenant: uuid.UUID, notes: list[_Note]) -> None:
+    """A Core ``INSERT`` of several rows (one ``executemany``) with ``tenant`` bound."""
+    rows = [
+        {"id": note.id, "tenant_id": note.tenant_id, "body": note.body}
+        for note in notes
+    ]
+    async with env.maker() as session:
+        with bind_tenant(tenant):
+            connection = await session.connection()
+            await connection.execute(insert(_Note.__table__), rows)
+            await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_do_executemany_listener_that_runs_the_cursor_writes_another_tenants_rows(
+    env: _Env,
+) -> None:
+    """The same seam for a write: tenant A inserts two rows that belong to tenant B."""
+    planted = [
+        _Note(id=3, tenant_id=env.b, body="planted-1"),
+        _Note(id=4, tenant_id=env.b, body="planted-2"),
+    ]
+    with pytest.raises(UnsafeTenantOperationError):  # without the listener
+        await _insert_notes_as(env, env.a, planted)
+    assert await _all_bodies(env) == ["a-note", "b-secret"]
+    listener = _runs_the_cursor_itself("do_executemany")
+    dialect = env.engine.sync_engine
+    event.listen(dialect, "do_executemany", listener)
+    try:
+        await _insert_notes_as(env, env.a, planted)
+    finally:
+        event.remove(dialect, "do_executemany", listener)
+    assert await _all_bodies(env) == ["a-note", "b-secret", "planted-1", "planted-2"]
 
 
 @pytest.mark.asyncio
