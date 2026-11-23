@@ -32,6 +32,7 @@ import re
 import threading
 import uuid
 from collections.abc import AsyncGenerator, Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -987,20 +988,14 @@ def _defined_without_hanging(define: Define) -> None:
     """``define`` runs in a thread that is given ``_HANG_SECONDS``: a loop at import
     fails the test where it would otherwise stop the suite."""
     base, suffix = _fresh()
-    failures: list[BaseException] = []
-
-    def run() -> None:
-        try:
-            define(base, suffix)
-        except BaseException as error:  # noqa: BLE001 - handed to the test thread
-            failures.append(error)
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    thread.join(_HANG_SECONDS)
-    assert not thread.is_alive(), "the definition of the models does not end"
-    if failures:
-        raise failures[0]
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        # an error of ``define`` is raised here as it came
+        pool.submit(define, base, suffix).result(timeout=_HANG_SECONDS)
+    except TimeoutError:
+        pytest.fail("the definition of the models does not end")
+    finally:
+        pool.shutdown(wait=False)
 
 
 def _joined_then_single_table(base: Any, t: str) -> None:

@@ -84,7 +84,6 @@ from sqlalchemy.sql.selectable import (
     Values,
 )
 from sqlalchemy.sql.type_api import TypeEngine
-from sqlalchemy.sql.util import criterion_as_pairs
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
@@ -403,13 +402,20 @@ def _inherit_condition_pairs(
     condition = mapper.inherit_condition
     if condition is None:
         return frozenset()
-    pairs = {
-        (column.name, referred.name)
-        for referred, column in criterion_as_pairs(
-            condition, consider_as_foreign_keys=set(child.c)
-        )
-        if column.table is child and referred.table is parent
-    }
+    pairs: set[tuple[str, str]] = set()
+    for clause in visitors.iterate(condition):
+        if (
+            isinstance(clause, BinaryExpression)
+            and clause.operator is operators.eq
+            and isinstance(clause.left, Column)
+            and isinstance(clause.right, Column)
+        ):
+            for column, referred in (
+                (clause.left, clause.right),
+                (clause.right, clause.left),
+            ):
+                if column.table is child and referred.table is parent:
+                    pairs.add((column.name, referred.name))
     child_keys = {column.name for column in child.primary_key}
     parent_keys = {column.name for column in parent.primary_key}
     if any(c not in child_keys or p not in parent_keys for c, p in pairs):
@@ -487,10 +493,10 @@ def _is_inherit_key(constraint: ForeignKeyConstraint, child: Table) -> bool:
     inherited = _inherited_tables.get(child)
     if inherited is None:
         return False
-    pairs = {
+    pairs = frozenset(
         (element.parent.name, element.target_fullname.split(".")[-1])
         for element in constraint.elements
-    }
+    )
     return (
         _referred(constraint)[0] == inherited.name.lower()
         and bool(pairs)
