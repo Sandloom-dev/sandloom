@@ -5,11 +5,11 @@ is Appendix C of ``tests/fixtures/specs/public-api-1.0-spec.md`` (one row per na
 today: its 1.0 home and status). This script checks the table against the
 code, in three directions:
 
-1. **Unmapped kernel names.** Every public name of today's public modules
-   (``public_api`` of ``architecture_rules.yml`` plus ``sandloom.shared.authz``,
-   ``sandloom.shared.guards.*``, ``sandloom.core.testing``,
-   ``sandloom.core.contract_testing``)
-   has a row.
+1. **Unmapped kernel names.** Every public name of the modules in
+   ``EXTRA_PUBLIC`` (``sandloom.shared.authz``, ``sandloom.shared.guards.*``,
+   ``sandloom.shared.subject``, ``sandloom.core.testing``,
+   ``sandloom.core.contract_testing``) has a row. No other kernel module is
+   scanned: ``public_api`` lists ``sandloom.sdk`` modules only.
 2. **Unmapped kernel imports.** Every ``from sandloom.core… / sandloom.shared… import``
    in the bundled modules (identity, tenancy, billing) and ``examples/``
    (tests included) names a row (contract DTO packages excepted).
@@ -42,9 +42,9 @@ from typing import Any
 BACKEND = Path(__file__).resolve().parents[2]
 REPO = BACKEND
 SPEC = REPO / "tests" / "fixtures" / "specs" / "public-api-1.0-spec.md"
-RULES = BACKEND / "architecture_rules.yml"
 
-#: Today's public kernel modules beyond ``public_api`` (spec Appendix C).
+#: The kernel and shared modules direction 1 scans (spec Appendix C): the test
+#: surfaces and ``sandloom.shared``, which ``public_api`` does not list.
 EXTRA_PUBLIC = (
     "sandloom.shared.authz",
     "sandloom.shared.guards.auth",
@@ -215,12 +215,12 @@ def _key(module: str, name: str) -> str:
 
 
 def _public_modules() -> list[str]:
-    yaml = importlib.import_module("yaml")
-    data: dict[str, Any] = yaml.safe_load(RULES.read_text()) or {}
-    modules = [
-        m for m in data.get("public_api", []) or [] if m.startswith("sandloom.core")
-    ]
-    return sorted(dict.fromkeys([*modules, *EXTRA_PUBLIC]))
+    """The kernel and shared modules direction 1 scans: ``EXTRA_PUBLIC`` only.
+
+    ``public_api`` of ``architecture_rules.yml`` lists ``sandloom.sdk`` modules
+    and no kernel module (a ``sandloom.core`` entry is refused, SANDLOOM-C038),
+    so it adds none."""
+    return sorted(EXTRA_PUBLIC)
 
 
 def _public_names(module: Any) -> list[str]:

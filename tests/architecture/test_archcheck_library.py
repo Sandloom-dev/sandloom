@@ -33,6 +33,7 @@ from sandloom.core.archcheck.analyzers import (
 )
 from sandloom.core.archcheck.manifest import (
     CORE_IN_PUBLIC_API_CODE,
+    DEFAULT_FORBIDDEN_PATTERNS,
     DEFAULT_PUBLIC_API,
     DEFAULT_TEST_API,
     ManifestError,
@@ -43,6 +44,8 @@ from sandloom.core.archcheck.runner import (
     driver_import_violations,
     iter_module_test_files,
 )
+from sandloom.core.cli.add import GeneratorError
+from sandloom.core.cli.add import layout as add_layout
 from sandloom.core.cli.check import main as check_main
 from sandloom.core.cli.project import generate_project
 
@@ -574,6 +577,78 @@ def test_a_manifest_without_public_api_takes_the_sdk_default(tmp_path: Path) -> 
     assert "sandloom.sdk" in DEFAULT_PUBLIC_API
 
 
+def _sdk_private_import_violations(tmp_path: Path, extra: str, line: str) -> list[str]:
+    """The `framework-imports` details of a module doing ``line``, over a
+    manifest that names only the module location (``extra`` is appended)."""
+    module = tmp_path / "app" / "modules" / "m"
+    module.mkdir(parents=True)
+    (module / "__init__.py").write_text("")
+    (module / "leak.py").write_text(line)
+    manifest = tmp_path / "architecture_rules.yml"
+    manifest.write_text(
+        "modules_path: app/modules\nmodules_package: app.modules\n" + extra
+    )
+    found = run_checks(load_rules(manifest), only=["framework-imports"])
+    assert {v.rule for v in found} <= {"framework-imports"}
+    return [v.detail for v in found]
+
+
+def test_the_default_forbids_the_private_layers_of_the_sdk() -> None:
+    assert DEFAULT_FORBIDDEN_PATTERNS == ("sandloom.sdk._*", "sandloom.sdk.*._*")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "from sandloom.sdk._prim import data\n",
+        "import sandloom.sdk._decl.module\n",
+        "from sandloom.sdk.testing._helpers import x\n",
+    ],
+)
+def test_a_manifest_naming_no_patterns_still_refuses_the_sdk_private_layers(
+    tmp_path: Path, line: str
+) -> None:
+    """The sdk default of `public_api` matches by prefix and admits
+    ``sandloom.sdk._prim``; the default forbidden patterns close that, with no
+    ``forbidden_patterns`` key in the manifest."""
+    details = _sdk_private_import_violations(tmp_path, "", line)
+    assert details
+    assert all("forbidden_pattern" in d for d in details)
+
+
+def test_a_public_sdk_import_is_not_refused_by_the_default_patterns(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _sdk_private_import_violations(
+            tmp_path, "", "from sandloom.sdk.data import open_uow\n"
+        )
+        == []
+    )
+
+
+def test_the_default_patterns_are_kept_when_the_manifest_names_its_own(
+    tmp_path: Path,
+) -> None:
+    extra = 'forbidden_patterns:\n  - "app.modules.*._internal*"\n'
+    rules = load_rules(_public_api_manifest(tmp_path, None))
+    assert rules.forbidden_patterns == list(DEFAULT_FORBIDDEN_PATTERNS)
+    (tmp_path / "second").mkdir()
+    details = _sdk_private_import_violations(
+        tmp_path / "second", extra, "from sandloom.sdk._prim import data\n"
+    )
+    assert details
+    manifest = tmp_path / "second" / "architecture_rules.yml"
+    own = load_rules(manifest)
+    assert own.forbidden_patterns == [
+        *DEFAULT_FORBIDDEN_PATTERNS,
+        "app.modules.*._internal*",
+    ]
+    # a manifest that repeats a default does not list it twice
+    manifest.write_text(manifest.read_text() + '  - "sandloom.sdk._*"\n')
+    assert load_rules(manifest).forbidden_patterns == own.forbidden_patterns
+
+
 def test_the_default_is_the_public_api_of_the_repository_and_the_scaffold(
     tmp_path: Path,
 ) -> None:
@@ -585,6 +660,26 @@ def test_the_default_is_the_public_api_of_the_repository_and_the_scaffold(
     generate_project("probe", tmp_path)
     scaffold = load_rules(tmp_path / "probe" / "architecture_rules.yml")
     assert scaffold.public_api == set(DEFAULT_PUBLIC_API)
+
+
+def test_sandloom_add_does_not_send_a_refused_manifest_to_the_project_root(
+    tmp_path: Path,
+) -> None:
+    """The root hint is for a manifest that is not found or not readable; on
+    C038 the manifest was read, and the hint would mislead."""
+    refused = tmp_path / "refused"
+    _public_api_manifest(refused, ["sandloom.core.di"])
+    with pytest.raises(GeneratorError) as raised:
+        add_layout(refused)
+    assert CORE_IN_PUBLIC_API_CODE in str(raised.value)
+    assert "from the project root" not in str(raised.value)
+
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(GeneratorError) as missing:
+        add_layout(other)
+    assert "manifest not found" in str(missing.value)
+    assert "from the project root" in str(missing.value)
 
 
 def test_sandloom_check_refuses_the_manifest_with_exit_code_2(

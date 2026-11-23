@@ -190,11 +190,16 @@ no broker.
 
 A business module imports `sandloom.sdk` and nothing of `sandloom.core`. The
 `public_api` list of `architecture_rules.yml` names the framework modules a module may
-import, and it no longer accepts a kernel module. `sandloom check` refuses a file that lists
-one, before it scans any module, with
-[SANDLOOM-C038](../reference/error-codes.md#sandloom-c038) and exit code 2. There is no
-warning phase and no alias. An application scaffolded before this release lists six
-kernel modules, `sandloom.core.di` first; the examples listed fewer.
+import, and it no longer accepts a kernel module. Every command that reads the manifest
+stops with [SANDLOOM-C038](../reference/error-codes.md#sandloom-c038) on a file that
+lists one. That is `sandloom check` (before it scans any module, exit code 2), `generate`,
+`test`, `add` and `add deploy` alike. There is no warning phase and no alias. An application
+scaffolded before this release lists six kernel modules, `sandloom.core.di` first; the
+examples listed fewer.
+
+The private layers of the sdk, `sandloom.sdk._*` and `sandloom.sdk.*._*`, are forbidden
+import patterns whatever the manifest says. A manifest with no `forbidden_patterns` gets
+them. One that names its own keeps them.
 
 | Before | After |
 | --- | --- |
@@ -207,7 +212,8 @@ kernel modules, `sandloom.core.di` first; the examples listed fewer.
 Delete the entries first: with them in place the check cannot run and reports no import.
 Then run `uv run sandloom check` and fix the imports it reports. A file-scoped `allowlist`
 entry that names a `sandloom.core` import is a separate exception. Remove it once the
-import moves.
+import moves. C038 reads `public_api` only: the `allowlist`, `framework_packages` and
+`kernel_package` keys are not checked for a kernel entry.
 
 The repository's `public_api_baseline.json` no longer records the six kernel modules: they
 are not public API.

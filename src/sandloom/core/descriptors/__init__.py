@@ -5,7 +5,9 @@ name, version, routes, health check, migrations, and the infrastructure
 :class:`CapabilityRequirement`s it needs. The loader consumes these to wire the
 module and preflight its dependencies, producing a :class:`ModuleLoadSummary`.
 
-This is part of the stable public API (``sandloom.core.descriptors``).
+Kernel-internal: a module imports these names from ``sandloom.sdk.module``
+(``sandloom.sdk.infra`` for the capability types), never from
+``sandloom.core.descriptors``.
 """
 
 from __future__ import annotations

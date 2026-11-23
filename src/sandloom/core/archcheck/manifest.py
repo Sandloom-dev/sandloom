@@ -87,6 +87,13 @@ DEFAULT_PUBLIC_API: tuple[str, ...] = (
     "sandloom.sdk.tooling",
     "sandloom.sdk.web",
 )
+#: Forbidden whatever the manifest says: the private layers of ``sandloom.sdk``
+#: (``_decl``, ``_prim``, ``_x.y``), which the prefix match of ``public_api``
+#: would otherwise admit. ``load_rules`` merges them into ``forbidden_patterns``.
+DEFAULT_FORBIDDEN_PATTERNS: tuple[str, ...] = (
+    "sandloom.sdk._*",
+    "sandloom.sdk.*._*",
+)
 #: The catalogue code of a ``public_api`` that lists a ``sandloom.core`` module.
 CORE_IN_PUBLIC_API_CODE = "SANDLOOM-C038"
 DEFAULT_SHARED_API: tuple[str, ...] = ("sandloom.shared",)
@@ -306,7 +313,14 @@ def load_rules(path: Path) -> ArchRules:  # noqa: C901
         public_api=public_api,
         shared_api=shared_api,
         test_api=test_api,
-        forbidden_patterns=_str_list(data, "forbidden_patterns"),
+        forbidden_patterns=[
+            *dict.fromkeys(
+                (
+                    *DEFAULT_FORBIDDEN_PATTERNS,
+                    *_str_list(data, "forbidden_patterns"),
+                )
+            )
+        ],
         allowlist=list(cast("list[dict[str, Any]]", data.get("allowlist") or [])),
         layers_enabled=bool(layers_any.get("enabled", False)),
         layers_defs=defs,
@@ -319,6 +333,7 @@ def load_rules(path: Path) -> ArchRules:  # noqa: C901
 
 
 __all__ = [
+    "DEFAULT_FORBIDDEN_PATTERNS",
     "DEFAULT_PUBLIC_API",
     "DEFAULT_SHARED_API",
     "DEFAULT_TEST_API",
