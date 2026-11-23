@@ -96,6 +96,12 @@ DEFAULT_FORBIDDEN_PATTERNS: tuple[str, ...] = (
 )
 #: The catalogue code of a ``public_api`` that lists a ``sandloom.core`` module.
 CORE_IN_PUBLIC_API_CODE = "SANDLOOM-C038"
+#: The catalogue codes ``load_rules`` raises itself, as a refusal of the manifest
+#: before any module is scanned. They are ``check``-kind catalogue entries but no
+#: archcheck rule (``runner.RULES``): the catalogue invariant in
+#: ``core/tests/test_error_codes.py`` names them from here and proves each one is
+#: raised by ``load_rules``.
+MANIFEST_REFUSAL_CODES: tuple[str, ...] = (CORE_IN_PUBLIC_API_CODE,)
 DEFAULT_SHARED_API: tuple[str, ...] = ("sandloom.shared",)
 DEFAULT_TEST_API: tuple[str, ...] = (
     "sandloom.core.testing",
