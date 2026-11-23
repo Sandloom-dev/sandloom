@@ -15,6 +15,7 @@ import gc
 import os
 import sqlite3
 import time
+import types
 import uuid
 import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -30,6 +31,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from sandloom.core.config.settings import settings
+from sandloom.core.drivers import database_atomic_store as store_module
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.drivers.database_atomic_store import (
     _TABLE as DRIVER_TABLE,
@@ -37,6 +39,7 @@ from sandloom.core.drivers.database_atomic_store import (
 from sandloom.core.drivers.database_atomic_store import (
     DatabaseAtomicStoreOptions,
     DatabaseAtomicStoreProvider,
+    _Dialect,
 )
 from sandloom.core.infra.errors import InvalidArgument, Timeout, Unavailable
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
@@ -494,39 +497,120 @@ async def test_writers_queued_behind_a_foreign_lock_fail_near_the_deadline(
 
 
 async def test_a_waiter_that_keeps_waiting_keeps_its_place_in_the_queue(
-    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Writers A-F start together, G arrives while they queue; each turn takes
-    0.1 s and the wait is looked at every 0.25 s. A waiter that gave up its
-    acquire at that look and asked again would rejoin behind G."""
+    """The order of the queue, on ``_write_turn`` alone: no SQL and no clock.
+    The turns end when the test sets their gate and a waiter's look at its
+    acquire happens when the test says so. A holds the turn, B, C, D queue; A
+    ends, B takes the turn, then C looks (a turn ended, so it keeps waiting):
+    when B ends the turn must go to C. A waiter that cancelled its acquire at
+    the look and asked again would rejoin behind D."""
+    names = "ABCD"
+    entered = {n: asyncio.Event() for n in names}  # in the turn
+    queued = {n: asyncio.Event() for n in names}  # waiting for it
+    look_now = {n: asyncio.Event() for n in names}
+    looked = {n: asyncio.Event() for n in names}
+    gates = {n: asyncio.Event() for n in names}  # the turn may end
     order: list[str] = []
-    original = DatabaseAtomicStoreProvider._write_if_higher
+    real_wait = asyncio.wait
 
-    async def recording(
-        conn: Any, dialect: Any, key: str, *args: Any, **kwargs: Any
-    ) -> str | None:
-        order.append(key)
-        held = await original(conn, dialect, key, *args, **kwargs)
-        await asyncio.sleep(0.1)
-        return held
+    async def look_when_told(
+        fs: set[asyncio.Future[Any]], *, timeout: float
+    ) -> tuple[set[asyncio.Future[Any]], set[asyncio.Future[Any]]]:
+        task = asyncio.current_task()
+        assert task is not None
+        who = task.get_name()
+        queued[who].set()
+        told = asyncio.ensure_future(look_now[who].wait())
+        try:
+            await real_wait({*fs, told}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            told.cancel()
+        look_now[who].clear()
+        done = {f for f in fs if f.done()}
+        looked[who].set()
+        return done, fs - done
 
     monkeypatch.setattr(
-        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(recording)
+        store_module,
+        "asyncio",
+        types.SimpleNamespace(**{**vars(asyncio), "wait": look_when_told}),
     )
-    provider = _provider(sqlite_url, statement_timeout_seconds=0.25)
+    provider = _provider("sqlite+aiosqlite:///unused.db")
+    sqlite_dialect = _Dialect("sqlite")
 
-    async def late() -> str:
-        await asyncio.sleep(0.12)
-        return await provider.set_subject_state("G", "v1:after:1")
+    async def writer(who: str) -> None:
+        async with provider._write_turn("set", sqlite_dialect, writes=True):
+            order.append(who)
+            entered[who].set()
+            await gates[who].wait()
 
+    async def settle() -> None:
+        for _ in range(20):  # loop steps, not time
+            await asyncio.sleep(0)
+
+    tasks = {n: asyncio.create_task(writer(n), name=n) for n in "A"}
     try:
-        await asyncio.gather(
-            *(provider.set_subject_state(key, "v1:after:1") for key in "ABCDEF"),
-            late(),
-        )
-        assert order == list("ABCDEFG")
+        await entered["A"].wait()
+        for who in "BCD":
+            tasks[who] = asyncio.create_task(writer(who), name=who)
+            await queued[who].wait()
+            await settle()
+        gates["A"].set()
+        await entered["B"].wait()
+        look_now["C"].set()
+        await looked["C"].wait()
+        await settle()
+        gates["B"].set()
+        await settle()
+        assert order == ["A", "B", "C"], order
     finally:
-        await provider.aclose()
+        for gate in gates.values():
+            gate.set()
+        await asyncio.wait_for(  # a hang guard for a failing run, not a budget
+            asyncio.gather(*tasks.values(), return_exceptions=True), 30
+        )
+    assert order == list("ABCD")
+
+
+@pytest.mark.parametrize("steps", [0, 1, 2, 3])
+async def test_a_waiter_cancelled_right_after_the_holder_releases_hands_the_turn_on(
+    steps: int,
+) -> None:
+    """The holder releases and the queued waiter is cancelled ``steps`` loop
+    steps later: the lock was already granted to its acquire (a step from
+    done), and nobody would release it. The next writer must get the turn and
+    the lock ends free."""
+    provider = _provider(
+        "sqlite+aiosqlite:///unused.db", statement_timeout_seconds=3600
+    )
+    sqlite_dialect = _Dialect("sqlite")
+    holding, hold = asyncio.Event(), asyncio.Event()
+
+    async def holder() -> None:
+        async with provider._write_turn("set", sqlite_dialect, writes=True):
+            holding.set()
+            await hold.wait()
+
+    async def writer() -> str:
+        async with provider._write_turn("set", sqlite_dialect, writes=True):
+            return "wrote"
+
+    first = asyncio.create_task(holder())
+    await holding.wait()
+    waiter = asyncio.create_task(writer())
+    for _ in range(3):  # the waiter's acquire is queued behind the holder
+        await asyncio.sleep(0)
+    assert not waiter.done()
+    hold.set()
+    await first
+    for _ in range(steps):
+        await asyncio.sleep(0)
+    waiter.cancel()
+    await asyncio.gather(waiter, return_exceptions=True)
+    # The guard only bounds a failing run, where the turn was never handed on.
+    assert await asyncio.wait_for(writer(), 5) == "wrote"
+    assert not provider._turn_lock().locked()
 
 
 def test_a_closed_event_loop_is_not_kept_by_the_turn(tmp_path: Path) -> None:

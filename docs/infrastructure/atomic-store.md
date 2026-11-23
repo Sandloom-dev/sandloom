@@ -100,7 +100,9 @@ How it behaves:
   the queue for SQLite's one write lock. A queue that moves has no fixed bound:
   each turn ends within its own deadline, so a writer with k ahead waits at most
   k deadlines. When the queue is stuck behind a lock this instance does not
-  hold, it fails with `Timeout` near the deadline. Writers outside the
+  hold, it fails with `Timeout` near the deadline. The turn belongs to one
+  event loop at a time per provider: concurrent loops in threads fall back to
+  SQLite's busy handler. Writers outside the
   instance (a second store, the module's own engine, another process) still
   contend through SQLite's busy handler. The handler gives up at the same
   deadline, also with `Timeout`.

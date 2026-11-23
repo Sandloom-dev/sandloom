@@ -405,14 +405,22 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         raise AssertionError("unreachable")  # pragma: no cover
 
     def _turn_lock(self) -> asyncio.Lock:
-        """The turn lock of the running loop (a forked child starts with none)."""
+        """The turn lock of the running loop (a forked child starts with none).
+
+        One event loop at a time per provider: the slot holds one loop, so
+        loops running at once in threads take it from each other, and their
+        writers fall back to SQLite's busy handler (no corruption: the handler
+        and the statement deadline still bound every write). The slot is read
+        once into a local, so a thread switch cannot pair one loop with the
+        other's lock."""
         pid = os.getpid()
         if pid != self._turn_pid:
             self._turn_slot, self._turn_pid = None, pid
         loop = asyncio.get_running_loop()
-        if self._turn_slot is None or self._turn_slot[0] is not loop:
-            self._turn_slot = (loop, asyncio.Lock())
-        return self._turn_slot[1]
+        slot = self._turn_slot
+        if slot is None or slot[0] is not loop:
+            slot = self._turn_slot = (loop, asyncio.Lock())
+        return slot[1]
 
     async def _take_turn(self, operation: str, lock: asyncio.Lock) -> None:
         """Wait for the turn in the lock's FIFO queue. The waiter keeps ONE
