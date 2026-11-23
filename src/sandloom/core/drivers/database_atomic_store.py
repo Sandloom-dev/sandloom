@@ -59,7 +59,7 @@ import contextlib
 import hashlib
 import logging
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -68,6 +68,7 @@ from sqlalchemy import (
     DateTime,
     Interval,
     MetaData,
+    Select,
     String,
     Table,
     Text,
@@ -295,6 +296,8 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         #: it, so a registry that only logs the refusal never serves from it.
         self._refusal: str | None = None
         self._purge_task: asyncio.Task[None] | None = None
+        #: The turn of a SQLite writer in this process (see ``_write_turn``).
+        self._sqlite_writers = asyncio.Lock()
 
     # ------------------------------------------------------------ plumbing
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
@@ -366,13 +369,17 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         rowcount of a statement that returns none. An idempotent statement is
         sent again once on a connection the pool found dead."""
         self._refused()
-        engine, _ = self._engine_dialect()
+        engine, dialect = self._engine_dialect()
+        writes = not isinstance(statement, Select)
         for attempt in (1, 2):
             try:
-                async with asyncio.timeout(self._opts.statement_timeout_seconds):
-                    async with engine.connect() as conn:
-                        result = await conn.execute(statement)
-                        return result.all() if result.returns_rows else result.rowcount
+                async with self._write_turn(dialect, writes=writes):
+                    async with asyncio.timeout(self._opts.statement_timeout_seconds):
+                        async with engine.connect() as conn:
+                            result = await conn.execute(statement)
+                            return (
+                                result.all() if result.returns_rows else result.rowcount
+                            )
             except InfraError:
                 raise
             except sa_exc.DBAPIError as exc:
@@ -382,6 +389,25 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
             except _BACKEND_ERRORS as exc:
                 raise self._failure(operation, exc) from None
         raise AssertionError("unreachable")  # pragma: no cover
+
+    @contextlib.asynccontextmanager
+    async def _write_turn(
+        self, dialect: _Dialect, *, writes: bool
+    ) -> AsyncIterator[None]:
+        """One writer at a time on a SQLite file, taken BEFORE the statement
+        deadline starts. SQLite has one write lock and no queue for it: the
+        writers of a burst poll it (a busy handler sleeping 1 to 100 ms, in no
+        order) while the statement deadline runs, so on a loaded host the unlucky
+        ones spent all of ``statement_timeout_seconds`` waiting for the lock and
+        raised ``Timeout`` for a statement that was healthy. In process the wait
+        is a FIFO ``asyncio.Lock`` and each writer gets its whole deadline for
+        its own statement; another process on the file still contends through
+        SQLite's busy timeout. PostgreSQL takes row locks: no turn."""
+        if dialect.sqlite and writes:
+            async with self._sqlite_writers:
+                yield
+        else:
+            yield
 
     def _contended(self, operation: str) -> InfraError:
         atomic_store_operation_errors_total.labels(self.name, operation).inc()
@@ -605,15 +631,16 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         for attempt in range(self._opts.max_attempts):
             held: str | None = None
             try:
-                async with asyncio.timeout(self._opts.statement_timeout_seconds):
-                    async with engine.connect() as conn:
-                        await conn.execution_options(
-                            isolation_level=dialect.transaction_level
-                        )
-                        async with conn.begin():
-                            held = await self._write_if_higher(
-                                conn, dialect, key, value, incoming, ttl
+                async with self._write_turn(dialect, writes=True):
+                    async with asyncio.timeout(self._opts.statement_timeout_seconds):
+                        async with engine.connect() as conn:
+                            await conn.execution_options(
+                                isolation_level=dialect.transaction_level
                             )
+                            async with conn.begin():
+                                held = await self._write_if_higher(
+                                    conn, dialect, key, value, incoming, ttl
+                                )
             except InfraError:
                 raise
             except sa_exc.DBAPIError as exc:

@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import Table, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
@@ -31,7 +32,7 @@ from sandloom.core.drivers.database_atomic_store import (
     DatabaseAtomicStoreOptions,
     DatabaseAtomicStoreProvider,
 )
-from sandloom.core.infra.errors import InvalidArgument, Unavailable
+from sandloom.core.infra.errors import InvalidArgument, Timeout, Unavailable
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
 from sandloom.core.migrations.backup import CORE_TABLES
 from sandloom.core.schema.registry import InMemorySchemaRegistry
@@ -351,6 +352,119 @@ async def test_a_losing_insert_of_set_subject_state_reads_again(
         assert await provider.set_subject_state("k", "v1:blocked:1") == "v1:blocked:1"
     finally:
         await provider.aclose()
+
+
+# --------------------------------------------------- the writers' turn on SQLite
+async def test_sqlite_writers_wait_for_their_turn_outside_the_statement_deadline(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ten writers of 0.1 s each take 1 s together, past a 0.4 s deadline: each
+    one's own statement fits it, so none may raise ``Timeout`` for the wait."""
+    original = DatabaseAtomicStoreProvider._write_if_higher
+
+    async def slow(*args: Any, **kwargs: Any) -> str | None:
+        held = await original(*args, **kwargs)
+        await asyncio.sleep(0.1)  # the write lock is still held
+        return held
+
+    monkeypatch.setattr(
+        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(slow)
+    )
+    provider = _provider(sqlite_url, statement_timeout_seconds=0.4)
+    try:
+        await asyncio.gather(
+            *(provider.set_subject_state("k", f"v1:after:{i}") for i in range(10))
+        )
+        assert await provider.get("k") == "v1:after:9"
+    finally:
+        await provider.aclose()
+
+
+async def test_a_statement_past_the_deadline_still_raises_timeout_on_sqlite(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The turn moves the wait out of the deadline; a statement that is itself
+    slow keeps its ``Timeout``."""
+    original = DatabaseAtomicStoreProvider._write_if_higher
+
+    async def stuck(*args: Any, **kwargs: Any) -> str | None:
+        held = await original(*args, **kwargs)
+        await asyncio.sleep(1)
+        return held
+
+    monkeypatch.setattr(
+        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(stuck)
+    )
+    provider = _provider(sqlite_url, statement_timeout_seconds=0.2)
+    try:
+        with pytest.raises(Timeout):
+            await provider.set_subject_state("k", "v1:after:1")
+    finally:
+        await provider.aclose()
+
+
+async def _peak_concurrency(
+    url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    calls: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]],
+    *,
+    only: str,
+) -> int:
+    """The most statements of one kind (``SELECT`` or a write) in flight at once."""
+    original = AsyncConnection.execute
+    in_flight = peak = 0
+
+    async def watched(
+        self: AsyncConnection, statement: Any, *args: Any, **kw: Any
+    ) -> Any:
+        nonlocal in_flight, peak
+        mine = str(statement).lstrip().split(None, 1)[0].upper() == only
+        if mine:
+            in_flight += 1
+            peak = max(peak, in_flight)
+        try:
+            await asyncio.sleep(0.02)
+            return await original(self, statement, *args, **kw)
+        finally:
+            if mine:
+                in_flight -= 1
+
+    monkeypatch.setattr(AsyncConnection, "execute", watched)
+    provider = _provider(url)
+    try:
+        await asyncio.gather(*(call(provider) for call in calls))
+    finally:
+        await provider.aclose()
+    return peak
+
+
+async def test_sqlite_runs_one_writer_at_a_time_but_reads_together(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sets: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]] = [
+        partial(_set_one, f"k{i}") for i in range(8)
+    ]
+    states: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]] = [
+        partial(_state_one, f"s{i}") for i in range(8)
+    ]
+    gets: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]] = [
+        partial(_get_one, f"k{i}") for i in range(8)
+    ]
+    assert await _peak_concurrency(sqlite_url, monkeypatch, sets, only="INSERT") == 1
+    assert await _peak_concurrency(sqlite_url, monkeypatch, states, only="UPDATE") == 1
+    assert await _peak_concurrency(sqlite_url, monkeypatch, gets, only="SELECT") > 1
+
+
+async def _set_one(key: str, provider: DatabaseAtomicStoreProvider) -> None:
+    await provider.set(key, "v")
+
+
+async def _state_one(key: str, provider: DatabaseAtomicStoreProvider) -> str:
+    return await provider.set_subject_state(key, "v1:after:1")
+
+
+async def _get_one(key: str, provider: DatabaseAtomicStoreProvider) -> str | None:
+    return await provider.get(key)
 
 
 # ------------------------------------------------------------------- the purge

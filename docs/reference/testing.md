@@ -88,6 +88,13 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   queue whose `default` instance your `INFRA` gives a Redis url. Where `INFRA` has
   none (an app with no task queue, likewise cache), export no override: the harness
   refuses it.
+- **A test Redis needs more than the stock 16 indexes.** Each parallel worker
+  gets its own Redis index. The default layout puts worker N at the base index
+  plus 16 x (N + 1). A stock `redis:7` therefore stops the run before the first
+  test: "the test Redis … has fewer database indexes than this run needs". Start
+  it with `--databases 256`: `docker run -d -p 6379:6379 redis:7 --databases 256`.
+  `deploy/compose/test.yml` does the same, and 256 covers 15 workers. Several
+  parallel runs on one server need more, such as 512.
 
 ## Which fixture
 
