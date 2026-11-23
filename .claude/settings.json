@@ -20,6 +20,15 @@
         ]
       },
       {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/implementer_tests.py\"; [ -f \"$f\" ] || exit 0; python3 -I \"$f\""
+          }
+        ]
+      },
+      {
         "matcher": "^mcp__tm(-[A-Za-z0-9-]+)?__task_done$",
         "hooks": [
           {
