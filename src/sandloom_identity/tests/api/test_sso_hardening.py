@@ -1,6 +1,5 @@
 """HTTP-level SSO hardening: flow binding, 2FA step, authenticated linking."""
 
-import time
 from typing import Any
 from unittest.mock import patch
 
@@ -13,6 +12,7 @@ from sqlalchemy import select
 from sandloom_identity.models.external_identity import ExternalIdentity, Provider
 from sandloom_identity.services import sso_service as sso_mod
 from sandloom_identity.services.twofa_service import TwoFAService
+from sandloom_identity.tests.utils.totp import enable_2fa
 
 
 class _Client:
@@ -88,13 +88,7 @@ async def test_sso_login_with_2fa_goes_through_mfa_endpoint(
     init = await TwoFAService.init_2fa(
         user, test_db, current_password="TestPassword123!"
     )
-    step = int(time.time()) // 30 - 1
-    await TwoFAService.enable_2fa(
-        user,
-        pyotp.TOTP(init.secret).at(step * 30),
-        test_db,
-        current_password="TestPassword123!",
-    )
+    await enable_2fa(user, init.secret, test_db, current_password="TestPassword123!")
     test_db.add(
         ExternalIdentity(user_id=user.id, provider=Provider.GOOGLE, external_id="g-2fa")
     )
@@ -170,13 +164,7 @@ async def _enable_2fa(user, test_db):
     init = await TwoFAService.init_2fa(
         user, test_db, current_password="TestPassword123!"
     )
-    step = int(time.time()) // 30 - 1
-    await TwoFAService.enable_2fa(
-        user,
-        pyotp.TOTP(init.secret).at(step * 30),
-        test_db,
-        current_password="TestPassword123!",
-    )
+    await enable_2fa(user, init.secret, test_db, current_password="TestPassword123!")
     await test_db.commit()
     return init.secret
 
