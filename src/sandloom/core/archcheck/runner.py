@@ -452,12 +452,23 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
             continue  # framework code above the kernel: import-linter's job
         if _skip(rel_mod, migrations=True):
             continue
+        # ``sys.modules['x']`` is an import that never says ``import``: a read the
+        # scan can name is judged as one, a read it cannot follow is refused.
+        reads, refused = az.sys_modules_reads(tree)
+        violations += [Violation("framework-imports", file, text) for text in refused]
+        read_only: dict[str, str] = {}
+        for line, module, _text in reads:
+            if module not in imports:
+                imports.append(module)
+                import_lines[module] = line
+                read_only[module] = " via sys.modules"
         for imp in imports:
             found = _installed_module_violation(
                 imp, installed, file, import_lines.get(imp, 1)
             )
             if found is not None and not _is_allowed(rel, imp, rules.allowlist):
                 violations.append(found)
+            via = read_only.get(imp, "")
             if imp == "sandloom.core" or imp.startswith("sandloom.core."):
                 if not _covered(imp, rules.public_api) and not _is_allowed(
                     rel, imp, rules.allowlist
@@ -466,7 +477,7 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
                         Violation(
                             "framework-imports",
                             file,
-                            f"Line {import_lines.get(imp, 1)}: {imp} "
+                            f"Line {import_lines.get(imp, 1)}: {imp}{via} "
                             "(non_public_api: not in public_api)",
                         )
                     )
@@ -482,7 +493,7 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
                     Violation(
                         "framework-imports",
                         file,
-                        f"Line {import_lines.get(imp, 1)}: {imp} "
+                        f"Line {import_lines.get(imp, 1)}: {imp}{via} "
                         "(framework_module: only the public API and "
                         f"{', '.join(sorted(rules.shared_api))} may be imported)",
                     )
@@ -496,7 +507,8 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
                     Violation(
                         "framework-imports",
                         file,
-                        f"Line {import_lines.get(imp, 1)}: {imp} (forbidden_pattern)",
+                        f"Line {import_lines.get(imp, 1)}: {imp}{via} "
+                        "(forbidden_pattern)",
                     )
                 )
     return violations

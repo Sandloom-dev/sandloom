@@ -66,6 +66,9 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C037`](#sandloom-c037) | `engine-in-module` | check | a business module reaches a database around the framework's engine (builds an engine or a pool, or opens a raw driver connection) | active |
 | [`SANDLOOM-C038`](#sandloom-c038) | `core-in-public-api` | check | architecture_rules.yml public_api lists an entry that covers the kernel (sandloom, sandloom.core, sandloom.core.*) | active |
 | [`SANDLOOM-C039`](#sandloom-c039) | `cursor-listener` | check | a business module registers a listener at the cursor or on the pool (before_cursor_execute, do_execute, connect, ...), or under an event name the check cannot read | active |
+| [`SANDLOOM-C040`](#sandloom-c040) | `kernel-exempt-package` | check | architecture_rules.yml sets kernel_package or framework_packages outside the framework's own tree | active |
+| [`SANDLOOM-C041`](#sandloom-c041) | `core-in-api-list` | check | architecture_rules.yml test_api or shared_api lists an entry that covers the kernel (sandloom, sandloom.core, sandloom.core.*) | active |
+| [`SANDLOOM-C042`](#sandloom-c042) | `core-in-allowlist` | check | architecture_rules.yml allowlist excuses the kernel (or a private sandloom.sdk layer) for more than named modules of one business module | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -176,6 +179,26 @@ A business module may import only the public API (sandloom.sdk.*: web, data,
 events, contracts, authz, testing, ...), sandloom.shared.* and its own package.
 Importing a kernel module (sandloom.core.*) couples the module to code that
 changes without notice; every name a module needs is re-exported by sandloom.sdk.
+
+A read of `sys.modules` is an import that never says import, and the check
+judges it the same way. `sys.modules["sandloom.core.x"]` is reported like
+`import sandloom.core.x`, whatever the spelling: `sys` under an alias,
+`from sys import modules`, `vars(sys)["modules"]`, `getattr(sys, "modules")`,
+`__import__("sys")`, a key folded from constants.
+
+A read the check cannot follow is refused:
+
+- a key that is not a constant, or may name the kernel (`sys.modules[name]`,
+  `f"sandloom.{x}"`);
+- the whole mapping: `.items()`, a loop, `dict(sys.modules)`, a copy;
+- `sys` or `sys.modules` handed to other code, or stored in a field;
+- the bare key `sys.modules["sandloom"]`, which hands out the package.
+
+`sys.modules[__name__]` and the keys of other packages pass. A deliberate read
+is waived on its line with `# sandloom: allow framework-imports <reason>`. Not
+seen: `pkgutil.resolve_name("sandloom.core.x")`, `importlib.util.find_spec`,
+`eval` and `exec`, and a module's tests (the test-imports rule reads imports
+only).
 
 **Fix:** import only sandloom.sdk.* (the public API), sandloom.shared.* and your own package
 
@@ -908,9 +931,10 @@ prefix, so each would let a module import the kernel). Every command that reads
 the manifest stops with this code: `sandloom check` before it scans any module
 (exit code 2), and `generate`, `test`, `add` and `add deploy`. The message names
 the entries to delete. A module's tests keep `sandloom.core.testing` and
-`sandloom.core.contract_testing` through `test_api`. The check reads
-`public_api` only: the `allowlist`, `framework_packages` and `kernel_package`
-keys are not covered.
+`sandloom.core.contract_testing` through `test_api`. The other keys that could
+admit the kernel are refused by SANDLOOM-C040 (`kernel_package`,
+`framework_packages`), SANDLOOM-C041 (`test_api`, `shared_api`) and
+SANDLOOM-C042 (`allowlist`).
 
 **Fix:** delete every entry that covers the kernel from public_api (a module imports sandloom.sdk only); see docs/operate/upgrade.md
 
@@ -973,6 +997,86 @@ attached outside module code (a driver, a test).
 **Fix:** remove the listener: a module never rewrites or runs a statement at the cursor, and a database is set up by its driver; a listener on another event (`load`, `before_insert`, ...) stays allowed, written with a string literal event name
 
 **More:** `docs/modules/database/multi-tenancy.md`
+
+### SANDLOOM-C040
+
+**architecture_rules.yml sets kernel_package or framework_packages outside the framework's own tree**
+
+Slug: `kernel-exempt-package` · kind: check · status: active
+
+**What happened and why it matters**
+
+`kernel_package` and `framework_packages` name packages under `modules_path`
+that are not business modules. The import check skips each one completely, and
+only the layer rules read the kernel package. In an application that is an
+exemption for any package of its own: with `kernel_package: orders`, the
+package `orders` imports `sandloom.core` freely.
+
+Only the framework's own tree may set them: top-level modules (`modules_package`
+empty), `kernel_package: sandloom` and the kernel itself (`sandloom/core`) under
+`modules_path`. A manifest that spells the first two without the kernel is an
+application dressed as the framework. Every other manifest that names either key
+is refused before any module is scanned, with the exit code and commands of
+SANDLOOM-C038. The message names the key.
+
+Not covered: `exclude_modules` drops a package from the per-module rules (not
+from this import check) and is not validated.
+
+**Fix:** delete kernel_package and framework_packages from the manifest of an application; see docs/operate/upgrade.md
+
+**More:** `docs/operate/upgrade.md`
+
+### SANDLOOM-C041
+
+**architecture_rules.yml test_api or shared_api lists an entry that covers the kernel (sandloom, sandloom.core, sandloom.core.*)**
+
+Slug: `core-in-api-list` · kind: check · status: active
+
+**What happened and why it matters**
+
+`test_api` names the framework modules a module's tests may import on top of the
+public API, and `shared_api` names the framework prefixes they may import beyond
+it. The import checks match an entry by prefix. An entry `sandloom`,
+`sandloom.core` or `sandloom.core.<module>` would let a module's tests import
+the kernel, so `load_rules` refuses it.
+
+The test harness stays valid: entries under `sandloom.core.testing` and
+`sandloom.core.contract_testing`, the surfaces the default `test_api` lists.
+The refusal comes before any module is scanned, with the exit code and
+commands of SANDLOOM-C038. The message names the key and the entries to delete.
+
+**Fix:** delete the entry from test_api / shared_api (tests import sandloom.sdk.testing, and the default test_api keeps sandloom.core.testing and sandloom.core.contract_testing); see docs/operate/upgrade.md
+
+**More:** `docs/operate/upgrade.md`
+
+### SANDLOOM-C042
+
+**architecture_rules.yml allowlist excuses the kernel (or a private sandloom.sdk layer) for more than named modules of one business module**
+
+Slug: `core-in-allowlist` · kind: check · status: active
+
+**What happened and why it matters**
+
+An `allowlist` entry, `{file: <glob>, imports: [<glob>, ...]}`, keeps an import
+the check would report in the files `file` matches. An entry whose `imports`
+admit `sandloom.core` modules or the private layers `sandloom.sdk._*` is
+refused in two cases:
+
+- a pattern matches a whole family: `*`, `sandloom*`, `sandloom.core*`,
+  `sandloom.core.*` or `sandloom.sdk._*`, not one module and its submodules;
+- `file` is not under one business module: it must start with
+  `<modules_path>/<module>/` and hold no glob in the module name.
+
+`{file: "*", imports: ["sandloom.core*"]}` would exempt every module, so it is
+refused. `{file: "acme/modules/orders/tests/*", imports:
+["sandloom.core.database*"]}` stays valid: one module, one named kernel module.
+An entry without a `file` glob and a list of `imports` is refused too, without a
+code. The refusal comes before any module is scanned, with the exit code and
+commands of SANDLOOM-C038. Entries for imports of other packages are unchanged.
+
+**Fix:** list the specific sandloom.core.&lt;module> imports under the files of one business module, or import sandloom.sdk instead; see docs/operate/upgrade.md
+
+**More:** `docs/operate/upgrade.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 

@@ -3221,6 +3221,489 @@ def parse_imports(py_path: Path, *, source_root: Path) -> list[str]:
     return [m for _l, m, _t in import_refs(tree, _package_of(py_path, source_root))]
 
 
+# --------------------------------------------------------------------------- #
+# ``sys.modules`` reads: an import that never says ``import``
+# --------------------------------------------------------------------------- #
+
+#: Methods that read, write or probe ONE key of ``sys.modules``.
+_MODULES_KEY_METHODS = frozenset(
+    {
+        "get",
+        "pop",
+        "setdefault",
+        "__getitem__",
+        "__setitem__",
+        "__delitem__",
+        "__contains__",
+    }
+)
+_KERNEL_PACKAGE = "sandloom"
+_KERNEL_CORE = "sandloom.core"
+
+
+def _sys_modules_refusal(line: int, what: str) -> str:
+    return (
+        f"Line {line}: {what} (sys_modules: name the module with a constant string, "
+        "or import it)"
+    )
+
+
+class _SysModulesScan:
+    """The reads of ``sys.modules`` in one file (see :func:`sys_modules_reads`).
+
+    Names are resolved file-wide, not by scope, to a fixed point: a name that
+    stands for ``sys``, ``sys.modules`` or ``vars(sys)`` anywhere stands for it
+    everywhere (more is reported, never less). Every expression that IS one of the
+    three is then judged by the way its parent uses it, and a use the scan cannot
+    read is refused: an allow-list of what it understands, not a list of spellings.
+    """
+
+    def __init__(self, tree: ast.AST) -> None:
+        self.tree = tree
+        self.parents: dict[ast.AST, ast.AST] = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        self.sys_names: set[str] = set()
+        self.modules_names: set[str] = set()
+        self.dict_names: set[str] = set()
+        self.builtins = {"builtins"}
+        self.operators = {"operator"}
+        self.callables: dict[str, set[str]] = {
+            "getattr": {"getattr"},
+            "vars": {"vars"},
+            "attrgetter": set(),
+        }
+        self.dyn_modules, self.dyn_functions = _dynamic_import_callables(tree)
+        self.consts = self._const_bindings()
+        pairs = [pair for node in ast.walk(tree) for pair in _assignment_pairs(node)]
+        #: Values assigned to a plain name: an alias, whose own uses are judged
+        #: where they stand.
+        self.alias_values = {id(value) for _name, value in pairs}
+        self._bind_imports()
+        self._bind_assignments(pairs)
+
+    # -- bindings ----------------------------------------------------------- #
+
+    def _const_bindings(self) -> dict[str, str]:
+        """Names bound exactly once or more, always to the same constant string."""
+        values: dict[str, list[str | None]] = {}
+        bound: dict[str, int] = {}
+        for node in ast.walk(self.tree):
+            for name, value in _assignment_pairs(node):
+                values.setdefault(name, []).append(_const_str(value))
+            names: list[str] = []
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                names = [node.id]
+            elif isinstance(node, ast.arg):
+                names = [node.arg]
+            elif isinstance(node, ast.Import | ast.ImportFrom):
+                names = [(a.asname or a.name).split(".")[0] for a in node.names]
+            elif (
+                isinstance(
+                    node,
+                    ast.FunctionDef
+                    | ast.AsyncFunctionDef
+                    | ast.ClassDef
+                    | ast.ExceptHandler,
+                )
+                and node.name
+            ):
+                names = [node.name]
+            for name in names:
+                bound[name] = bound.get(name, 0) + 1
+        return {
+            name: found[0]
+            for name, found in values.items()
+            if found[0] is not None
+            and len(set(found)) == 1
+            and bound.get(name, 0) == len(found)
+        }
+
+    def _bind_imports(self) -> None:
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    bound = alias.asname or alias.name.split(".")[0]
+                    if alias.name == "sys":
+                        self.sys_names.add(bound)
+                    elif alias.name == "builtins":
+                        self.builtins.add(bound)
+                    elif alias.name == "operator":
+                        self.operators.add(bound)
+            elif isinstance(node, ast.ImportFrom):
+                source = None if node.level else node.module
+                for alias in node.names:
+                    self._bind_from_import(
+                        source, alias.name, alias.asname or alias.name
+                    )
+
+    def _bind_from_import(self, source: str | None, name: str, bound: str) -> None:
+        """``from <source> import <name> as <bound>``."""
+        if name == "sys":  # ``from os import sys``
+            self.sys_names.add(bound)
+        elif source == "sys" and name in ("modules", "*"):
+            self.modules_names.add("modules" if name == "*" else bound)
+        elif source == "sys" and name == "__dict__":
+            self.dict_names.add(bound)
+        elif source == "builtins" and name in ("getattr", "vars"):
+            self.callables[name].add(bound)
+        elif source == "operator" and name == "attrgetter":
+            self.callables["attrgetter"].add(bound)
+
+    def _bind_assignments(self, pairs: list[tuple[str, ast.expr]]) -> None:
+        changed = True
+        while changed:
+            changed = False
+            for name, value in pairs:
+                hits = [
+                    (self.sys_names, self._is_sys(value)),
+                    (self.modules_names, self._is_modules(value)),
+                    (self.dict_names, self._is_dict(value)),
+                ]
+                kind = self._callee_kind(value)
+                if kind is not None:
+                    hits.append((self.callables[kind], True))
+                for names, hit in hits:
+                    if hit and name not in names:
+                        names.add(name)
+                        changed = True
+
+    def _callee_kind(self, func: ast.AST) -> str | None:
+        """``getattr`` / ``vars`` / ``attrgetter`` for an expression naming one."""
+        if isinstance(func, ast.Name):
+            for kind, names in self.callables.items():
+                if func.id in names:
+                    return kind
+        elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            if func.attr in ("getattr", "vars") and func.value.id in self.builtins:
+                return func.attr
+            if func.attr == "attrgetter" and func.value.id in self.operators:
+                return "attrgetter"
+        return None
+
+    # -- what an expression is ---------------------------------------------- #
+
+    def _is_sys(self, node: ast.AST) -> bool:
+        """``sys`` under any name, ``os.sys``, ``__import__("sys")``,
+        ``importlib.import_module("sys")``, ``sys.modules["sys"]``."""
+        if isinstance(node, ast.NamedExpr):  # ``(s := sys).modules``
+            return self._is_sys(node.value)
+        if isinstance(node, ast.Name):
+            return isinstance(node.ctx, ast.Load) and node.id in self.sys_names
+        if isinstance(node, ast.Attribute):
+            return node.attr == "sys"
+        if isinstance(node, ast.Subscript):
+            return self._is_modules(node.value) and _const_str(node.slice) == "sys"
+        if isinstance(node, ast.Call):
+            target = _dynamic_import_target(node, self.dyn_modules, self.dyn_functions)
+            if target is not None:
+                return target[1] == "sys"
+            func = node.func
+            return (
+                isinstance(func, ast.Attribute)
+                and func.attr in ("get", "__getitem__")
+                and bool(node.args)
+                and _const_str(node.args[0]) == "sys"
+                and self._is_modules(func.value)
+            )
+        return False
+
+    def _is_dict(self, node: ast.AST) -> bool:
+        """The namespace of ``sys``: ``vars(sys)``, ``sys.__dict__``,
+        ``getattr(sys, "__dict__")``, or a name bound to one."""
+        if isinstance(node, ast.NamedExpr):
+            return self._is_dict(node.value)
+        if isinstance(node, ast.Name):
+            return isinstance(node.ctx, ast.Load) and node.id in self.dict_names
+        if isinstance(node, ast.Attribute):
+            return node.attr == "__dict__" and self._is_sys(node.value)
+        if isinstance(node, ast.Call):
+            kind = self._callee_kind(node.func)
+            if kind == "vars":
+                return len(node.args) == 1 and self._is_sys(node.args[0])
+            return (
+                kind == "getattr"
+                and len(node.args) >= 2
+                and self._is_sys(node.args[0])
+                and _const_str(node.args[1]) == "__dict__"
+            )
+        return False
+
+    def _is_modules(self, node: ast.AST) -> bool:
+        """``sys.modules`` however reached: an attribute, ``getattr(sys,
+        "modules")``, ``attrgetter("modules")(sys)``, ``vars(sys)["modules"]``,
+        ``sys.__dict__.get("modules")``, or a name bound to one."""
+        if isinstance(node, ast.NamedExpr):
+            return self._is_modules(node.value)
+        if isinstance(node, ast.Name):
+            return isinstance(node.ctx, ast.Load) and node.id in self.modules_names
+        if isinstance(node, ast.Attribute):
+            return node.attr == "modules" and self._is_sys(node.value)
+        if isinstance(node, ast.Subscript):
+            return self._is_dict(node.value) and _const_str(node.slice) == "modules"
+        if isinstance(node, ast.Call):
+            func = node.func
+            if self._callee_kind(func) == "getattr":
+                return (
+                    len(node.args) >= 2
+                    and self._is_sys(node.args[0])
+                    and _const_str(node.args[1]) == "modules"
+                )
+            if (
+                isinstance(func, ast.Call)
+                and self._callee_kind(func.func) == "attrgetter"
+            ):
+                return (
+                    len(func.args) == 1
+                    and _const_str(func.args[0]) == "modules"
+                    and len(node.args) == 1
+                    and self._is_sys(node.args[0])
+                )
+            if isinstance(func, ast.Attribute) and func.attr == "get":
+                return (
+                    self._is_dict(func.value)
+                    and bool(node.args)
+                    and _const_str(node.args[0]) == "modules"
+                )
+        return False
+
+    # -- the text of a key -------------------------------------------------- #
+
+    def _text(self, node: ast.AST) -> tuple[str, bool]:
+        """``(known leading text, complete)`` of a key: a literal, a constant
+        concatenation or f-string, a name bound to a constant string, and the
+        text before the first hole of a ``%`` or ``.format`` template."""
+        folded = _const_str(node)
+        if folded is not None:
+            return folded, True
+        if isinstance(node, ast.Name):
+            known = self.consts.get(node.id)
+            return (known, True) if known is not None else ("", False)
+        if isinstance(node, ast.JoinedStr):
+            return self._fstring_text(node)
+        if isinstance(node, ast.BinOp):
+            return self._binop_text(node)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "format"
+        ):
+            return self._text(node.func.value)[0].split("{", 1)[0], False
+        return "", False
+
+    def _fstring_text(self, node: ast.JoinedStr) -> tuple[str, bool]:
+        out = ""
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                out += part.value
+                continue
+            if (
+                isinstance(part, ast.FormattedValue)
+                and part.conversion == -1
+                and part.format_spec is None
+            ):
+                text, done = self._text(part.value)
+                if done:
+                    out += text
+                    continue
+            return out, False
+        return out, True
+
+    def _binop_text(self, node: ast.BinOp) -> tuple[str, bool]:
+        if isinstance(node.op, ast.Add):
+            left, done = self._text(node.left)
+            if not done:
+                return left, False
+            right, done = self._text(node.right)
+            return left + right, done
+        if isinstance(node.op, ast.Mod):
+            return self._text(node.left)[0].split("%", 1)[0], False
+        return "", False
+
+    # -- judging a use ------------------------------------------------------ #
+
+    def run(self) -> tuple[list[tuple[int, str, str]], list[str]]:
+        reads: list[tuple[int, str, str]] = []
+        refused: list[str] = []
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.expr) or id(node) in self.alias_values:
+                continue
+            if self._is_sys(node):
+                self._judge_sys(node, refused)
+            if self._is_modules(node):
+                self._judge_modules(node, reads, refused)
+            if self._is_dict(node):
+                self._judge_dict(node, refused)
+        return list(dict.fromkeys(reads)), list(dict.fromkeys(refused))
+
+    def _attrgetter_names(self, call: ast.Call) -> list[str] | None:
+        """The attribute paths of ``attrgetter(...)``, ``None`` when one is not a
+        constant."""
+        names = [_const_str(arg) for arg in call.args]
+        return None if None in names or call.keywords else [n or "" for n in names]
+
+    def _judge_sys(self, node: ast.expr, refused: list[str]) -> None:
+        parent = self.parents.get(node)
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            # ``sys.argv``; ``.modules`` and ``.__dict__`` are judged as themselves.
+            return
+        if isinstance(parent, ast.Call) and parent.args and parent.args[0] is node:
+            kind = self._callee_kind(parent.func)
+            if kind == "vars":
+                return
+            if isinstance(parent.func, ast.Name) and parent.func.id == "hasattr":
+                return
+            if kind == "getattr":
+                if len(parent.args) < 2 or _const_str(parent.args[1]) is not None:
+                    return
+                refused.append(
+                    _sys_modules_refusal(
+                        node.lineno,
+                        "getattr reads an attribute of sys by a name it cannot read",
+                    )
+                )
+                return
+        if (
+            isinstance(parent, ast.Call)
+            and isinstance(parent.func, ast.Call)
+            and self._callee_kind(parent.func.func) == "attrgetter"
+            and any(arg is node for arg in parent.args)
+        ):
+            paths = self._attrgetter_names(parent.func)
+            if paths is not None and all(
+                p == "modules" or not {"modules", "__dict__"} & set(p.split("."))
+                for p in paths
+            ):
+                return
+            refused.append(
+                _sys_modules_refusal(
+                    node.lineno,
+                    "attrgetter reads sys by a path the check cannot follow",
+                )
+            )
+            return
+        refused.append(
+            _sys_modules_refusal(
+                node.lineno, "the sys module is handed to code the check cannot follow"
+            )
+        )
+
+    def _judge_modules(
+        self, node: ast.expr, reads: list[tuple[int, str, str]], refused: list[str]
+    ) -> None:
+        parent = self.parents.get(node)
+        line = node.lineno
+        if isinstance(parent, ast.Subscript) and parent.value is node:
+            self._judge_key(parent.slice, line, reads, refused)
+            return
+        if (
+            isinstance(parent, ast.Compare)
+            and len(parent.ops) == 1
+            and isinstance(parent.ops[0], ast.In | ast.NotIn)
+            and parent.comparators[0] is node
+        ):
+            self._judge_key(parent.left, line, reads, refused)
+            return
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            call = self.parents.get(parent)
+            if (
+                parent.attr in _MODULES_KEY_METHODS
+                and isinstance(call, ast.Call)
+                and call.func is parent
+            ):
+                self._judge_key(
+                    call.args[0] if call.args else None, line, reads, refused
+                )
+                return
+            refused.append(
+                _sys_modules_refusal(
+                    line, f"sys.modules.{parent.attr} reads the whole of sys.modules"
+                )
+            )
+            return
+        refused.append(
+            _sys_modules_refusal(
+                line, "sys.modules is handed to code the check cannot follow"
+            )
+        )
+
+    def _judge_dict(self, node: ast.expr, refused: list[str]) -> None:
+        parent = self.parents.get(node)
+        if (
+            isinstance(parent, ast.Subscript)
+            and parent.value is node
+            and _const_str(parent.slice) is not None
+        ):
+            return  # ``vars(sys)["argv"]``; ``["modules"]`` is judged as sys.modules
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            call = self.parents.get(parent)
+            if (
+                parent.attr == "get"
+                and isinstance(call, ast.Call)
+                and call.func is parent
+                and call.args
+                and _const_str(call.args[0]) is not None
+            ):
+                return
+        refused.append(
+            _sys_modules_refusal(
+                node.lineno,
+                "the namespace of sys is read in a way the check cannot follow",
+            )
+        )
+
+    def _judge_key(
+        self,
+        key: ast.AST | None,
+        line: int,
+        reads: list[tuple[int, str, str]],
+        refused: list[str],
+    ) -> None:
+        if isinstance(key, ast.Name) and key.id == "__name__":
+            return  # the module's own name: never the kernel
+        text, complete = self._text(key) if key is not None else ("", False)
+        if complete and text == _KERNEL_PACKAGE:
+            refused.append(
+                _sys_modules_refusal(
+                    line,
+                    "sys.modules['sandloom'] hands out the package, and its `core` "
+                    "is the kernel",
+                )
+            )
+        elif complete:
+            reads.append((line, text, f"sys.modules[{text!r}]"))
+        elif _KERNEL_CORE.startswith(text) or text.startswith(f"{_KERNEL_PACKAGE}."):
+            # The key may name the kernel: only a prefix that rules it out passes.
+            shown = f"starts with {text!r} and goes on" if text else "is"
+            refused.append(
+                _sys_modules_refusal(
+                    line,
+                    f"the key of sys.modules {shown} in a way the check cannot read",
+                )
+            )
+
+
+def sys_modules_reads(tree: ast.AST) -> tuple[list[tuple[int, str, str]], list[str]]:
+    """``(reads, refused)`` for the ``sys.modules`` reads of one file.
+
+    A read whose key the scan can name (a literal, a constant fold, a name bound
+    once to a constant string) is ``(line, module, text)``: an import in all but
+    the keyword, judged by the same rules as ``import <module>``. A use it cannot
+    follow comes back in ``refused`` as ``"Line N: ..."``: a key it cannot read or
+    that may be the kernel, a bulk read (``.items()``, a loop, ``dict(sys.modules)``),
+    ``sys.modules`` or ``sys`` handed to other code, ``sys.modules['sandloom']``.
+    Covers ``sys`` under any name or alias, ``from sys import modules``,
+    ``sys.__dict__`` / ``vars(sys)``, ``getattr(sys, "modules")``,
+    ``operator.attrgetter("modules")(sys)``, ``__import__("sys")`` and
+    ``importlib.import_module("sys")``; ``key in sys.modules`` and every
+    single-key method (``get``, ``pop``, ``setdefault``, ``__getitem__`` ...).
+    A key that is the module's own ``__name__`` is never the kernel and passes.
+    """
+    return _SysModulesScan(tree).run()
+
+
 #: The mixin that declares ``tenant_id`` AND opts a model into the tenant guard.
 TENANT_SCOPED_MIXIN = "TenantScoped"
 
@@ -3401,6 +3884,7 @@ __all__ = [
     "resolve_relative",
     "scan_endpoint",
     "sql_function_hint",
+    "sys_modules_reads",
     "tenant_column_hits",
     "tenant_model_hits",
 ]

@@ -231,6 +231,26 @@ A business module may import only the public API (sandloom.sdk.*: web, data,
 events, contracts, authz, testing, ...), sandloom.shared.* and its own package.
 Importing a kernel module (sandloom.core.*) couples the module to code that
 changes without notice; every name a module needs is re-exported by sandloom.sdk.
+
+A read of `sys.modules` is an import that never says import, and the check
+judges it the same way. `sys.modules["sandloom.core.x"]` is reported like
+`import sandloom.core.x`, whatever the spelling: `sys` under an alias,
+`from sys import modules`, `vars(sys)["modules"]`, `getattr(sys, "modules")`,
+`__import__("sys")`, a key folded from constants.
+
+A read the check cannot follow is refused:
+
+- a key that is not a constant, or may name the kernel (`sys.modules[name]`,
+  `f"sandloom.{x}"`);
+- the whole mapping: `.items()`, a loop, `dict(sys.modules)`, a copy;
+- `sys` or `sys.modules` handed to other code, or stored in a field;
+- the bare key `sys.modules["sandloom"]`, which hands out the package.
+
+`sys.modules[__name__]` and the keys of other packages pass. A deliberate read
+is waived on its line with `# sandloom: allow framework-imports <reason>`. Not
+seen: `pkgutil.resolve_name("sandloom.core.x")`, `importlib.util.find_spec`,
+`eval` and `exec`, and a module's tests (the test-imports rule reads imports
+only).
 """,
     ),
     _entry(
@@ -932,9 +952,10 @@ prefix, so each would let a module import the kernel). Every command that reads
 the manifest stops with this code: `sandloom check` before it scans any module
 (exit code 2), and `generate`, `test`, `add` and `add deploy`. The message names
 the entries to delete. A module's tests keep `sandloom.core.testing` and
-`sandloom.core.contract_testing` through `test_api`. The check reads
-`public_api` only: the `allowlist`, `framework_packages` and `kernel_package`
-keys are not covered.
+`sandloom.core.contract_testing` through `test_api`. The other keys that could
+admit the kernel are refused by SANDLOOM-C040 (`kernel_package`,
+`framework_packages`), SANDLOOM-C041 (`test_api`, `shared_api`) and
+SANDLOOM-C042 (`allowlist`).
 """,
         docs="docs/operate/upgrade.md",
     ),
@@ -997,6 +1018,85 @@ name made by `str.join` or `getattr` on a computed string, and a listener
 attached outside module code (a driver, a test).
 """,
         docs="docs/modules/database/multi-tenancy.md",
+    ),
+    _entry(
+        "SANDLOOM-C040",
+        "kernel-exempt-package",
+        "check",
+        "architecture_rules.yml sets kernel_package or framework_packages outside "
+        "the framework's own tree",
+        "delete kernel_package and framework_packages from the manifest of an "
+        "application; see docs/operate/upgrade.md",
+        """
+`kernel_package` and `framework_packages` name packages under `modules_path`
+that are not business modules. The import check skips each one completely, and
+only the layer rules read the kernel package. In an application that is an
+exemption for any package of its own: with `kernel_package: orders`, the
+package `orders` imports `sandloom.core` freely.
+
+Only the framework's own tree may set them: top-level modules (`modules_package`
+empty), `kernel_package: sandloom` and the kernel itself (`sandloom/core`) under
+`modules_path`. A manifest that spells the first two without the kernel is an
+application dressed as the framework. Every other manifest that names either key
+is refused before any module is scanned, with the exit code and commands of
+SANDLOOM-C038. The message names the key.
+
+Not covered: `exclude_modules` drops a package from the per-module rules (not
+from this import check) and is not validated.
+""",
+        docs="docs/operate/upgrade.md",
+    ),
+    _entry(
+        "SANDLOOM-C041",
+        "core-in-api-list",
+        "check",
+        "architecture_rules.yml test_api or shared_api lists an entry that "
+        "covers the kernel (sandloom, sandloom.core, sandloom.core.*)",
+        "delete the entry from test_api / shared_api (tests import sandloom.sdk."
+        "testing, and the default test_api keeps sandloom.core.testing and "
+        "sandloom.core.contract_testing); see docs/operate/upgrade.md",
+        """
+`test_api` names the framework modules a module's tests may import on top of the
+public API, and `shared_api` names the framework prefixes they may import beyond
+it. The import checks match an entry by prefix. An entry `sandloom`,
+`sandloom.core` or `sandloom.core.<module>` would let a module's tests import
+the kernel, so `load_rules` refuses it.
+
+The test harness stays valid: entries under `sandloom.core.testing` and
+`sandloom.core.contract_testing`, the surfaces the default `test_api` lists.
+The refusal comes before any module is scanned, with the exit code and
+commands of SANDLOOM-C038. The message names the key and the entries to delete.
+""",
+        docs="docs/operate/upgrade.md",
+    ),
+    _entry(
+        "SANDLOOM-C042",
+        "core-in-allowlist",
+        "check",
+        "architecture_rules.yml allowlist excuses the kernel (or a private "
+        "sandloom.sdk layer) for more than named modules of one business module",
+        "list the specific sandloom.core.<module> imports under the files of one "
+        "business module, or import sandloom.sdk instead; see "
+        "docs/operate/upgrade.md",
+        """
+An `allowlist` entry, `{file: <glob>, imports: [<glob>, ...]}`, keeps an import
+the check would report in the files `file` matches. An entry whose `imports`
+admit `sandloom.core` modules or the private layers `sandloom.sdk._*` is
+refused in two cases:
+
+- a pattern matches a whole family: `*`, `sandloom*`, `sandloom.core*`,
+  `sandloom.core.*` or `sandloom.sdk._*`, not one module and its submodules;
+- `file` is not under one business module: it must start with
+  `<modules_path>/<module>/` and hold no glob in the module name.
+
+`{file: "*", imports: ["sandloom.core*"]}` would exempt every module, so it is
+refused. `{file: "acme/modules/orders/tests/*", imports:
+["sandloom.core.database*"]}` stays valid: one module, one named kernel module.
+An entry without a `file` glob and a list of `imports` is refused too, without a
+code. The refusal comes before any module is scanned, with the exit code and
+commands of SANDLOOM-C038. Entries for imports of other packages are unchanged.
+""",
+        docs="docs/operate/upgrade.md",
     ),
     # ------------------------------------------------------------- boot time
     _entry(

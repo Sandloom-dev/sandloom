@@ -5042,14 +5042,22 @@ guarantees:
   rules:
   - module-boundaries
 - id: G-MODULE-02
-  statement: 'A business module may import from the kernel nothing: `public_api` lists `sandloom.sdk` modules only (an entry that covers the kernel is refused by every command that reads the manifest, SANDLOOM-C038), plus `sandloom.shared.*` and its own package; any `sandloom.core.*` import is a framework-imports violation.'
+  statement: 'A business module may import from the kernel nothing: `public_api` lists `sandloom.sdk` modules only (an entry that covers the kernel is refused by every command that reads the manifest, SANDLOOM-C038), plus `sandloom.shared.*` and its own package; any `sandloom.core.*` import, and any read of `sys.modules` that names or may name one, is a framework-imports violation. No manifest key is another way in: `kernel_package` and `framework_packages` outside the framework tree (SANDLOOM-C040), a kernel entry in `test_api` or `shared_api` (SANDLOOM-C041) and an `allowlist` entry that admits the kernel for more than one module''s named imports (SANDLOOM-C042) are refused like C038.'
   sources:
   - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
+  - 'docs/operate/upgrade.md#Upgrading an application: no other way into the kernel'
   tests:
   - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
   - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   - src/sandloom/core/tests/test_architecture.py::test_architecture_checker_runs_without_violations
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_read_of_the_kernel_is_found
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_use_the_scan_cannot_follow_is_refused
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_read_of_a_kernel_module_is_reported_like_the_import
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_an_application_may_not_exempt_a_package
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_the_api_lists_may_not_cover_the_kernel
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_an_allowlist_entry_may_not_excuse_a_family_of_kernel_modules
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_an_allowlist_entry_for_a_kernel_module_must_name_one_business_module
   rules:
   - framework-imports
 - id: G-MODULE-03
