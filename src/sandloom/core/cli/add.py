@@ -167,8 +167,10 @@ def app_tenancy_mode(root: Path) -> Literal["multi", "single"]:
     ).get("TENANCY_MODE")
     if value is None:
         return "multi"
-    if value == "multi" or value == "single":
-        return value
+    if value == "multi":
+        return "multi"
+    if value == "single":
+        return "single"
     source = {"env": "the process environment", "dotenv": ".env"}.get(
         origin or "", "SECRETS_DIR"
     )
