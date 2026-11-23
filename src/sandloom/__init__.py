@@ -45,7 +45,8 @@ Subcommands:
                          checks (see sandloom.core.cli.contracts)
     sandloom routes ...       per-module route snapshots (method, path, operation
                          class) and the route reference (sandloom.core.cli.routes)
-    sandloom admin export     export the platform-owner UI manifest
+    sandloom admin ...        platform administrators (create / invite / list)
+                         and the admin UI manifest (export)
     sandloom backup ...       backup plan, restore verification, security-store
                          reconciliation after a restore (see sandloom.core.cli.backup)
     sandloom sagas ...        list / show / retry / park / resolve saga instances
@@ -178,6 +179,8 @@ def main() -> None:
     """The ``sandloom`` entry point: a connection failure is one line."""
     errors = _static_import("sandloom.core.cli.dev.errors")
     debug = errors.debug_requested(sys.argv, errors.environment())
+    verbose = errors.verbose_requested(sys.argv)
+    errors.quiet_logs(sys.argv, errors.environment(), verbose=verbose or debug)
     if debug:
         # Child processes too (`dev run`'s server, the wizard's steps).
         errors.enable_debug(errors.environment())
@@ -191,96 +194,88 @@ def main() -> None:
         raise
 
 
+#: ``sandloom --help``: every command once, grouped by what you are doing.
+COMMAND_GROUPS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    (
+        "start",
+        (
+            ("new", "scaffold an application"),
+            (
+                "dev",
+                "local PostgreSQL + Redis: up / status / run / reset / down / logs",
+            ),
+            ("docs", "the sandloom.sdk reference: sandloom docs <name>"),
+            ("explain", "explain an error code: SANDLOOM-C001, C001 or a rule id"),
+            ("version", "print the framework version"),
+        ),
+    ),
+    (
+        "build",
+        (
+            ("add", "generate code: module, event, contract, consumer, saga, ..."),
+            ("generate", "write the generated files (snapshots, stubs, schemas)"),
+            ("test", "module tests + fast suite + static gates"),
+            ("check", "run the architecture (module isolation) checks"),
+            ("migrate", "database migrations: new, plan, upgrade-all"),
+            ("context", "compact module map with interfaces and file pointers"),
+            ("graph", "offline architecture graph and module discovery"),
+            ("explore", "(experimental) generate and open the architecture explorer"),
+            ("contracts", "contract snapshots and compatibility checks"),
+            ("routes", "route snapshots (each route's policy)"),
+            ("release", "generate, and mark every contract and event released"),
+        ),
+    ),
+    (
+        "operate",
+        (
+            ("doctor", "read-only deployment preflight"),
+            ("config", "the effective settings (sandloom config dump)"),
+            ("keys", "generate signing keys"),
+            (
+                "admin",
+                "platform administrators (create / invite / list) and the "
+                "admin UI manifest (export)",
+            ),
+            ("worker", "run a task worker; `worker check` is the healthcheck"),
+            ("beat", "run the task scheduler"),
+            ("projection", "operate query projections"),
+            ("outbox", "requeue dead-lettered outbox events"),
+            ("streams", "replay the Streams dead-letter queue"),
+            ("sagas", "list / show / retry / park / resolve sagas"),
+            ("backup", "backup plan and restore verification"),
+            ("security", "incident response (sessions, audit export)"),
+        ),
+    ),
+)
+
+
+def _grouped_command_help() -> str:
+    """The command list of ``sandloom --help``, one block per group."""
+    width = max(len(name) for _, entries in COMMAND_GROUPS for name, _ in entries)
+    blocks = []
+    for group, entries in COMMAND_GROUPS:
+        lines = [f"{group}:"]
+        lines += [f"  {name.ljust(width)}  {summary}" for name, summary in entries]
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def _main() -> None:  # noqa: C901
     parser = argparse.ArgumentParser(
-        prog="sandloom", description="Sandloom framework CLI"
+        prog="sandloom",
+        description="Sandloom framework CLI. `sandloom <command> --help` for one "
+        "command; `-v` before the command shows the framework's INFO log lines.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_grouped_command_help(),
+        usage="sandloom [-v] [--debug] <command> [args]",
     )
-    sub = parser.add_subparsers(dest="command")
-    sub.add_parser("new", add_help=False, help="scaffold a standalone application")
-    sub.add_parser(
-        "add",
-        add_help=False,
-        help="generate code: module, event, contract, consumer, saga, "
-        "projection, task, deploy, skills",
+    sub = parser.add_subparsers(
+        dest="command", metavar="<command>", help=argparse.SUPPRESS
     )
-    sub.add_parser(
-        "check", add_help=False, help="run architecture (module isolation) checks"
-    )
-    sub.add_parser(
-        "explain",
-        add_help=False,
-        help="explain an error code: SANDLOOM-C001, C001 or a rule id",
-    )
-    sub.add_parser(
-        "docs", add_help=False, help="the sandloom.sdk reference: sandloom docs <name>"
-    )
-    sub.add_parser(
-        "generate",
-        add_help=False,
-        help="write the generated files (snapshots, stubs, DTO copies, schemas)",
-    )
-    sub.add_parser(
-        "release",
-        add_help=False,
-        help="generate, and mark every contract and event of this project released",
-    )
-    sub.add_parser(
-        "test", add_help=False, help="module tests + fast suite + static gates"
-    )
-    sub.add_parser(
-        "context",
-        add_help=False,
-        help="compact module map with interfaces and file pointers",
-    )
-    sub.add_parser(
-        "graph",
-        add_help=False,
-        help="offline declared architecture graph and module discovery",
-    )
-    sub.add_parser(
-        "explore",
-        add_help=False,
-        help="(experimental) generate and open the architecture explorer",
-    )
-    sub.add_parser("migrate", add_help=False, help="run database migrations")
-    sub.add_parser("projection", add_help=False, help="operate query projections")
-    sub.add_parser("outbox", add_help=False, help="requeue dead-lettered outbox events")
-    sub.add_parser(
-        "streams", add_help=False, help="replay the Streams dead-letter queue"
-    )
-    sub.add_parser("keys", add_help=False, help="generate signing keys")
-    sub.add_parser(
-        "contracts",
-        add_help=False,
-        help="contract snapshots / compatibility checks",
-    )
-    sub.add_parser(
-        "routes", add_help=False, help="route snapshots (each route's policy)"
-    )
-    sub.add_parser("admin", add_help=False, help="export a generated admin UI manifest")
-    sub.add_parser("backup", add_help=False, help="backup plan / restore verification")
-    sub.add_parser(
-        "security", add_help=False, help="incident response (sessions, audit export)"
-    )
-    sub.add_parser(
-        "sagas", add_help=False, help="list / show / retry / park / resolve sagas"
-    )
-    sub.add_parser(
-        "config", add_help=False, help="effective settings (sandloom config dump)"
-    )
-    sub.add_parser("doctor", add_help=False, help="read-only deployment preflight")
-    sub.add_parser(
-        "worker",
-        add_help=False,
-        help="run a task worker; `worker check` is the container healthcheck",
-    )
-    sub.add_parser("beat", add_help=False, help="run the task scheduler")
-    sub.add_parser(
-        "dev",
-        add_help=False,
-        help="local Postgres + Redis: up / status / run / reset / down / prune / logs",
-    )
-    sub.add_parser("version", help="print the framework version")
+    for _group, entries in COMMAND_GROUPS:
+        for name, _summary in entries:
+            # Not listed by argparse itself: the epilog groups them.
+            sub.add_parser(name, add_help=False)
 
     args, rest = parser.parse_known_args()
     _refuse_unfinished_stack(args.command, rest)

@@ -1859,6 +1859,23 @@ _NO_TENANT_HELP = (
 )
 
 
+#: One example per generator, the last line of its ``--help``.
+_EXAMPLES: dict[str, str] = {
+    "module": "uv run sandloom add module notes",
+    "event": "uv run sandloom add event notes NoteArchived "
+    "--field note_id:UUID --field reason:str",
+    "contract": "uv run sandloom add contract notes summary",
+    "contract-use": "uv run sandloom add contract-use billing tenancy.membership.v1",
+    "consumer": "uv run sandloom add consumer billing notes.note.created.v1 "
+    "--field note_id:UUID",
+    "saga": "uv run sandloom add saga orders checkout",
+    "projection": "uv run sandloom add projection reports note_counts",
+    "task": 'uv run sandloom add task notes purge_old --periodic "0 3 * * *"',
+    "stack": "uv run sandloom add stack",
+    "skills": "uv run sandloom add skills --agents claude,codex",
+}
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sandloom add",
@@ -1871,7 +1888,12 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="what", required=True)
 
     def generator(name: str, summary: str) -> argparse.ArgumentParser:
-        return sub.add_parser(name, help=summary, description=summary)
+        return sub.add_parser(
+            name,
+            help=summary,
+            description=summary,
+            epilog=f"example: {_EXAMPLES[name]}",
+        )
 
     types = ", ".join(FIELD_TYPES)
     module = generator(
@@ -1972,10 +1994,12 @@ def _parser() -> argparse.ArgumentParser:
         help="write the stack's own lines (compose blocks, urls) that `sandloom "
         "new` left for the app's environment: needs the stack's package "
         "(`uv sync` installs it)",
+        epilog=f"example: {_EXAMPLES['stack']}",
     )
     skills = sub.add_parser(
         "skills",
         help="write the app's agent skills (.claude/skills, .agents/skills)",
+        epilog=f"example: {_EXAMPLES['skills']}",
     )
     skills.add_argument(
         "--force", action="store_true", help="overwrite a skill file you edited"

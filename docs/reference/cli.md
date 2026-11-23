@@ -10,6 +10,15 @@ and the local CI runner. Run the commands from the application root (or
 the framework repository root) with `uv run sandloom ...`. Every command
 has `--help`.
 
+`sandloom --help` lists the commands in three groups, by what you are doing: `start`,
+`build` and `operate`.
+
+A command that runs once logs warnings and errors only, so its own output stays readable.
+`sandloom -v <command>` shows the framework's INFO lines, and `--debug` shows them with
+tracebacks. An exported `LOG_LEVEL` wins over both. `dev`, `worker` and `beat` keep the
+configured level, because their log is their output. Put `-v` before the command: after it,
+the flag belongs to the command.
+
 ## Context and declared architecture
 
 Available in `sandloom>=0.7.0a16,<0.8`. <!-- sandloom-release -->
@@ -71,7 +80,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)). The app depends on `sandloom[postgres,redis,celery]>=0.7.0a16,<0.8` plus `sandloom-<module>>=0.7.0a16,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). They are for working on the framework itself, so `sandloom new --help` does not list them: it ends with a line that points to [Framework dependency sources](#framework-dependency-sources) and the [contributing setup](../contributing/setup.md). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)); with `--yes` and no `--agents` only the shared `.agents/skills` and `AGENTS.md` are written. The app depends on `sandloom[postgres,redis,celery]>=0.7.0a16,<0.8` plus `sandloom-<module>>=0.7.0a16,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). They are for working on the framework itself, so `sandloom new --help` does not list them: it ends with a line that points to [Framework dependency sources](#framework-dependency-sources) and the [contributing setup](../contributing/setup.md). |
 | `sandloom new` (at a terminal) | The wizard. It asks what the flags leave open: the name, the standard modules, the coding agents, how to run PostgreSQL and Redis (Docker, servers you already run, or later) and whether to set the app up now. The setup runs `uv sync`, `generate`, `dev up` and the migrations; its output goes to `.sandloom/run/new-setup.log`. With the console it then asks the administrator's email and runs `admin create` on the terminal, which asks the password itself: the wizard never handles it. The summary says how to start the app and what to open, with help apart, and ends with a pinned `uvx` command that makes the same app without questions. Without a terminal, in CI or under a coding agent, nothing is asked. |
 | `sandloom new … [--stack standard]` | The stack the app runs on: the backing servers and the packages installed for them. Today there is one, `standard` (PostgreSQL and Redis; it installs `sandloom-redis` and `sandloom-celery`): the wizard asks only when there is a choice, and the flag answers it. The kernel's list holds a name, a summary and the extras; the stack's package writes the compose files, `.env` and the CI service. With `sandloom-redis` importable (`sandloom[standard]`, `sandloom[redis]`) `new` writes them at once. From a bare `sandloom` it writes the rest of the app with markers where they go, then runs `uv sync`, `uv run sandloom add stack` and `uv run sandloom generate` in the new app; without `uv`, or when a step fails, it prints the commands to run later. The files are byte for byte the same on both paths. `--services external` needs the package at once. |
 | `sandloom new … [--no-git]` | A git repository with a first commit is the default; `--no-git` skips it. Inside an existing repository none is created and nothing is committed. The first commit runs no hook and is not signed (`--no-verify`, `-c commit.gpgsign=false`); without a git identity the repository stays uncommitted and the output says how to commit. |

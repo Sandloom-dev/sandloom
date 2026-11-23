@@ -117,6 +117,10 @@ CODING_AGENTS: tuple[CodingAgent, ...] = (
 #: The agents of an application that chose none: the two folders every
 #: documented agent but Kiro reads.
 DEFAULT_AGENTS: tuple[str, ...] = ("claude", "codex")
+#: ``sandloom new --yes`` without ``--agents``: the shared ``.agents/skills``
+#: folder and ``AGENTS.md``, no agent-specific pointer file and no detection
+#: (an app made without questions starts small; ``--agents`` adds more).
+SHARED_AGENTS: tuple[str, ...] = ("codex",)
 _BY_KEY = {a.key: a for a in CODING_AGENTS}
 
 
@@ -355,6 +359,7 @@ __all__ = [
     "CODING_AGENTS",
     "DEFAULT_AGENTS",
     "RECORD",
+    "SHARED_AGENTS",
     "CodingAgent",
     "agents_by_key",
     "ask_agents",

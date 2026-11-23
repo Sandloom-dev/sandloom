@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping, MutableMapping, MutableSequence
+from collections.abc import Mapping, MutableMapping, MutableSequence, Sequence
 from pathlib import Path
 from typing import TextIO
 
@@ -70,6 +70,45 @@ def debug_requested(argv: MutableSequence[str], environ: Mapping[str, str]) -> b
         index += 1
     raw = (environ.get(DEBUG_ENV) or "").strip().lower()
     return found or raw in {"1", "true", "yes", "on"}
+
+
+VERBOSE_FLAGS = ("-v", "--verbose")
+
+#: Commands that run a long-lived process: their INFO lines are the output.
+_LOGGING_COMMANDS = frozenset({"dev", "worker", "beat"})
+
+
+def verbose_requested(argv: MutableSequence[str]) -> bool:
+    """``-v`` / ``--verbose`` before the subcommand (removed from ``argv``).
+    One after the subcommand is left to it."""
+    found = False
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--" or not arg.startswith("-"):
+            break
+        if arg in VERBOSE_FLAGS:
+            del argv[index]
+            found = True
+            continue
+        index += 1
+    return found
+
+
+def quiet_logs(
+    argv: Sequence[str], environ: MutableMapping[str, str], *, verbose: bool
+) -> None:
+    """A one-shot command (``migrate new``, ``add``, ``generate``, ``test`` ...)
+    logs WARNING and above: ``LOG_LEVEL=WARNING`` unless ``LOG_LEVEL`` is
+    already exported or ``verbose`` (``sandloom -v <command>``, ``--debug``).
+    The processes it starts inherit the level. ``dev`` / ``worker`` / ``beat``
+    keep the configured level: their log is what they print."""
+    if verbose:
+        return
+    command = next((a for a in argv[1:] if not a.startswith("-")), None)
+    if command is None or command in _LOGGING_COMMANDS:
+        return
+    environ.setdefault("LOG_LEVEL", "WARNING")
 
 
 def enable_debug(environ: MutableMapping[str, str]) -> None:

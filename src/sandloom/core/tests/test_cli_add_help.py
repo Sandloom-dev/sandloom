@@ -106,3 +106,27 @@ def test_no_tenant_is_a_flag_of_module_and_event_with_its_own_help(
 def test_the_event_help_states_the_tenant_default_and_the_flag_that_drops_it() -> None:
     text = " ".join(_subparsers(add._parser()).choices["event"].format_help().split())
     assert "also gets tenant_id: UUID, unless --no-tenant" in text
+
+
+def test_every_generator_ends_its_help_with_an_example_that_parses() -> None:
+    """One example per generator (``deploy`` has its own parser and help): it is
+    in the generator's ``--help`` and the parser accepts it as written."""
+    import shlex
+
+    prefix = "uv run sandloom add "
+    choices = _subparsers(add._parser()).choices
+    assert set(add._EXAMPLES) == set(choices) - {"deploy"}
+    for name, example in add._EXAMPLES.items():
+        assert example.startswith(prefix), name
+        assert f"example: {example}" in " ".join(choices[name].format_help().split())
+        parsed = add._parser().parse_args(shlex.split(example.removeprefix(prefix)))
+        assert parsed.what == name
+
+
+def test_an_example_the_parser_refuses_is_caught(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Meta: the walk above bites. A wrong example (a missing argument) fails."""
+    monkeypatch.setitem(add._EXAMPLES, "event", "uv run sandloom add event notes")
+    with pytest.raises(SystemExit):
+        add._parser().parse_args(["event", "notes"])
