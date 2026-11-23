@@ -266,10 +266,33 @@ def _module_files(
     )
     router_doc = " and binds the tenant" if tenant_scoped else ""
     owner_of_items = "the tenant's items" if tenant_scoped else "the items"
+    # The tests take the tenant the app's mode expects at run time (the
+    # scaffold never reads TENANCY_MODE): a fresh one under ``multi``, the
+    # canonical SINGLE_TENANT_ID under ``single``, where any other tenant is a
+    # 403 ``tenant_mismatch``.
     test_user = (
-        "as_user(tenant_id=uuid4())" if tenant_scoped else "as_user(tenant=False)"
+        "as_user(tenant_id=_app_tenant(sandloom_core))"
+        if tenant_scoped
+        else "as_user(tenant=False)"
     )
-    uuid_import = "from uuid import uuid4\n" if tenant_scoped else ""
+    fixtures = "client: Any, sandloom_core: Any" if tenant_scoped else "client: Any"
+    # The longer test name wraps (ruff format), as the app's own gate checks.
+    list_fixtures = f"\n    {fixtures}\n" if tenant_scoped else fixtures
+    uuid_import = "from uuid import UUID, uuid4\n" if tenant_scoped else ""
+    tenant_helper = (
+        '''
+
+def _app_tenant(core: Any) -> UUID:
+    """The tenant this app's mode expects: SINGLE_TENANT_ID when
+    TENANCY_MODE=single, else a fresh tenant."""
+    settings = core.settings
+    if settings.tenancy_mode == "single":
+        return UUID(str(settings.single_tenant_id))
+    return uuid4()
+'''
+        if tenant_scoped
+        else ""
+    )
     settings_import = ""
     settings_argument = ""
     settings_reader = ""
@@ -514,7 +537,15 @@ def test_migrations_match_models() -> None:
     if tenant_scoped:
         list_test += "_and_tenant_scoped"
         other_user = "    _, other = as_user(tenant_id=uuid4())\n"
-        foreign_check = f"{foreign}\n    assert foreign.json() == []\n"
+        foreign_check = (
+            f"{foreign}\n"
+            '    if sandloom_core.settings.tenancy_mode == "single":\n'
+            "        # One canonical tenant: a token naming another one is refused.\n"
+            "        assert foreign.status_code == 403\n"
+            '        assert foreign.json()["code"] == "tenant_mismatch"\n'
+            "    else:\n"
+            "        assert foreign.json() == []\n"
+        )
     over_cap = _call(
         "    over_cap = await client.get",
         f'{items}, params={{"limit": 101}}, headers=headers',
@@ -528,9 +559,9 @@ from typing import Any
 from sandloom.sdk.testing import as_user, published
 
 from ..events import ItemCreated
+{tenant_helper}
 
-
-async def test_create_and_read_an_item(client: Any) -> None:
+async def test_create_and_read_an_item({fixtures}) -> None:
     _, headers = {test_user}
 {create}
     assert created.status_code == 201, created.text
@@ -541,7 +572,7 @@ async def test_create_and_read_an_item(client: Any) -> None:
     assert fetched.json()["title"] == "first"
 
 
-async def {list_test}(client: Any) -> None:
+async def {list_test}({list_fixtures}) -> None:
     _, headers = {test_user}
 {other_user}    for title in ("a", "b", "c"):
 {add_one}

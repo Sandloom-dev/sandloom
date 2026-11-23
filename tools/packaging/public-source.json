@@ -3189,6 +3189,7 @@
         "THIRD_PARTY.md",
         "architecture_rules.yml",
         "changelog.d/README.md",
+        "changelog.d/scaffold-example-single-tenancy.md",
         "changelog.d/graph-sync-risks-view.md",
         "changelog.d/legacy-tokens-remove.md",
         "changelog.d/tenant-guard-cte-dml.md",
