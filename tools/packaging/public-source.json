@@ -1269,6 +1269,7 @@
         "packages/sandloom-redis/tests/test_testing_redis_optional.py",
         "packages/sandloom-redis/tests/test_testing_resources.py",
         "packages/sandloom-redis/tests/test_testing_ownership.py",
+        "packages/sandloom-redis/tests/test_redis_ownership_out_of_range.py",
         "packages/sandloom-redis/tests/test_transport_redis.py",
         "packages/sandloom-redis/tests/test_streams_driverkit.py",
         "packages/sandloom-redis/tests/test_streams_group_recreate.py",

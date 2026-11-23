@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import urlunsplit
 
 from sandloom.driverkit.testing_family import (
+    TestResourceOwnershipError,
     already_claimed,
     check_holder,
     current_owner,
@@ -33,6 +34,8 @@ REDIS_OWNER_KEY = "sandloom:test:owner"
 #: Redis key carrying when a run last claimed / flushed the index (epoch s).
 REDIS_LAST_USED_KEY = "sandloom:test:last_used"
 
+#: The text of the reply to ``SELECT n`` with ``n`` past the server's ``databases``.
+OUT_OF_RANGE = "DB index is out of range"
 _KIND = "Redis database"
 _HINT = (
     "export SANDLOOM_TEST_CACHE_URL / SANDLOOM_TEST_BROKER_URL=redis://…/<your index>"
@@ -55,7 +58,8 @@ def _redact(url: str) -> str:
     netloc = parts.hostname or ""
     if parts.port:
         netloc += f":{parts.port}"
-    return urlunsplit(parts._replace(netloc=netloc))
+    # Neither the query (``?password=…``) nor a fragment is echoed.
+    return urlunsplit(parts._replace(netloc=netloc, query="", fragment=""))
 
 
 def claim_redis(
@@ -77,6 +81,18 @@ def claim_redis(
             holder = decoded(client.get(REDIS_OWNER_KEY))
         except redis.exceptions.ConnectionError:
             return  # server down: the tests that need it skip / fail
+        except redis.exceptions.ResponseError as exc:
+            if OUT_OF_RANGE not in str(exc):
+                raise
+            raise TestResourceOwnershipError(
+                f"the test Redis {_redact(url)} has fewer database indexes than "
+                "this run needs (a stock redis:7 has 16, and the default "
+                "xdist layout puts worker N at index + 16 * (N + 1)): start it "
+                "with `--databases 256` (`docker run redis:7 --databases 256`), "
+                "or point the run at a Redis that has them "
+                "(docs/reference/testing.md, 'Running the tests'). "
+                f"The server said: {exc}"
+            ) from None
         check_holder(_KIND, _redact(url), holder, owner, _HINT, environ)
         if holder != owner:
             client.set(REDIS_OWNER_KEY, owner)

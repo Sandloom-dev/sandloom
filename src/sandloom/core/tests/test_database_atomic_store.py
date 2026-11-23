@@ -11,18 +11,27 @@ database is SQLite.
 from __future__ import annotations
 
 import asyncio
+import gc
+import os
+import sqlite3
+import time
+import types
 import uuid
-from collections.abc import AsyncIterator, Callable
+import weakref
+from collections.abc import AsyncIterator, Awaitable, Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import Table, text
+from sqlalchemy import exc as sa_exc
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from sandloom.core.config.settings import settings
+from sandloom.core.drivers import database_atomic_store as store_module
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.drivers.database_atomic_store import (
     _TABLE as DRIVER_TABLE,
@@ -30,8 +39,9 @@ from sandloom.core.drivers.database_atomic_store import (
 from sandloom.core.drivers.database_atomic_store import (
     DatabaseAtomicStoreOptions,
     DatabaseAtomicStoreProvider,
+    _Dialect,
 )
-from sandloom.core.infra.errors import InvalidArgument, Unavailable
+from sandloom.core.infra.errors import InvalidArgument, Timeout, Unavailable
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
 from sandloom.core.migrations.backup import CORE_TABLES
 from sandloom.core.schema.registry import InMemorySchemaRegistry
@@ -351,6 +361,356 @@ async def test_a_losing_insert_of_set_subject_state_reads_again(
         assert await provider.set_subject_state("k", "v1:blocked:1") == "v1:blocked:1"
     finally:
         await provider.aclose()
+
+
+# --------------------------------------------------- the writers' turn on SQLite
+async def test_sqlite_writers_wait_for_their_turn_outside_the_statement_deadline(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ten writers of 0.1 s each take 1 s together, past a 0.4 s deadline: each
+    one's own statement fits it, so none may raise ``Timeout`` for the wait."""
+    original = DatabaseAtomicStoreProvider._write_if_higher
+
+    async def slow(*args: Any, **kwargs: Any) -> str | None:
+        held = await original(*args, **kwargs)
+        await asyncio.sleep(0.1)  # the write lock is still held
+        return held
+
+    monkeypatch.setattr(
+        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(slow)
+    )
+    provider = _provider(sqlite_url, statement_timeout_seconds=0.4)
+    try:
+        await asyncio.gather(
+            *(provider.set_subject_state("k", f"v1:after:{i}") for i in range(10))
+        )
+        assert await provider.get("k") == "v1:after:9"
+    finally:
+        await provider.aclose()
+
+
+async def test_a_statement_past_the_deadline_still_raises_timeout_on_sqlite(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The turn moves the wait out of the deadline; a statement that is itself
+    slow keeps its ``Timeout``."""
+    original = DatabaseAtomicStoreProvider._write_if_higher
+
+    async def stuck(*args: Any, **kwargs: Any) -> str | None:
+        held = await original(*args, **kwargs)
+        await asyncio.sleep(1)
+        return held
+
+    monkeypatch.setattr(
+        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(stuck)
+    )
+    provider = _provider(sqlite_url, statement_timeout_seconds=0.2)
+    try:
+        with pytest.raises(Timeout):
+            await provider.set_subject_state("k", "v1:after:1")
+    finally:
+        await provider.aclose()
+
+
+def test_one_provider_serves_writers_from_two_event_loops(tmp_path: Path) -> None:
+    """A lock binds to the loop that first waits on it: the turn is per loop."""
+    url = f"sqlite+aiosqlite:///{tmp_path / 'loops.db'}"
+    asyncio.run(_create_table(url))
+    provider = _provider(url)
+
+    async def burst(tag: str) -> None:
+        await asyncio.gather(
+            *(provider.set_subject_state(f"{tag}", f"v1:after:{i}") for i in range(10))
+        )
+        assert await provider.get(tag) == "v1:after:9"
+
+    try:
+        asyncio.run(burst("first"))
+        asyncio.run(burst("second"))  # the second loop meets the first one's lock
+    finally:
+        asyncio.run(provider.aclose())
+
+
+async def test_a_forked_child_does_not_inherit_a_held_turn(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A turn held by the parent at ``fork`` stays held in the child for ever:
+    a new process id starts the store with free turns."""
+    release, entered = asyncio.Event(), asyncio.Event()
+    original = DatabaseAtomicStoreProvider._write_if_higher
+    calls = 0
+
+    async def hold_the_first(*args: Any, **kwargs: Any) -> str | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()  # the turn is held, SQLite's lock is not
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(hold_the_first)
+    )
+    provider = _provider(sqlite_url, statement_timeout_seconds=30)
+    parent = asyncio.ensure_future(provider.set_subject_state("k", "v1:after:1"))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        child_pid = os.getpid() + 1
+        monkeypatch.setattr(os, "getpid", lambda: child_pid)
+        answer = await asyncio.wait_for(
+            provider.set_subject_state("k", "v1:after:2"), 3
+        )
+        assert answer == "v1:after:2"
+    finally:
+        release.set()
+        await parent
+        await provider.aclose()
+
+
+async def test_writers_queued_behind_a_foreign_lock_fail_near_the_deadline(
+    sqlite_url: str,
+) -> None:
+    """Another connection holds SQLite's write lock: the writer holding the turn
+    waits on it and the queue behind it must not wait one deadline after the
+    other (8 writers, 0.5 s deadline: about 0.5 s; one deadline after the other
+    would take 4 s)."""
+    path = sqlite_url.split(":///", 1)[1]
+    foreign = sqlite3.connect(path, isolation_level=None)
+    foreign.execute("BEGIN IMMEDIATE")
+    provider = _provider(sqlite_url, statement_timeout_seconds=0.5)
+    try:
+        started = time.monotonic()
+        results = await asyncio.gather(
+            *(provider.set(f"k{i}", "v") for i in range(8)), return_exceptions=True
+        )
+        elapsed = time.monotonic() - started
+        assert [type(r) for r in results] == [Timeout] * 8, results
+        assert elapsed < 2.0, (
+            f"the queue failed one deadline after the other: {elapsed}"
+        )
+        foreign.rollback()
+        await provider.set("after", "v")  # the turn was released, not leaked
+        assert await provider.get("after") == "v"
+    finally:
+        foreign.close()
+        await provider.aclose()
+
+
+async def test_a_waiter_that_keeps_waiting_keeps_its_place_in_the_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The order of the queue, on ``_write_turn`` alone: no SQL and no clock.
+    The turns end when the test sets their gate and a waiter's look at its
+    acquire happens when the test says so. A holds the turn, B, C, D queue; A
+    ends, B takes the turn, then C looks (a turn ended, so it keeps waiting):
+    when B ends the turn must go to C. A waiter that cancelled its acquire at
+    the look and asked again would rejoin behind D."""
+    names = "ABCD"
+    entered = {n: asyncio.Event() for n in names}  # in the turn
+    queued = {n: asyncio.Event() for n in names}  # waiting for it
+    look_now = {n: asyncio.Event() for n in names}
+    looked = {n: asyncio.Event() for n in names}
+    gates = {n: asyncio.Event() for n in names}  # the turn may end
+    order: list[str] = []
+    real_wait = asyncio.wait
+
+    async def look_when_told(
+        fs: set[asyncio.Future[Any]], *, timeout: float
+    ) -> tuple[set[asyncio.Future[Any]], set[asyncio.Future[Any]]]:
+        task = asyncio.current_task()
+        assert task is not None
+        who = task.get_name()
+        queued[who].set()
+        told = asyncio.ensure_future(look_now[who].wait())
+        try:
+            await real_wait({*fs, told}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            told.cancel()
+        look_now[who].clear()
+        done = {f for f in fs if f.done()}
+        looked[who].set()
+        return done, fs - done
+
+    monkeypatch.setattr(
+        store_module,
+        "asyncio",
+        types.SimpleNamespace(**{**vars(asyncio), "wait": look_when_told}),
+    )
+    provider = _provider("sqlite+aiosqlite:///unused.db")
+    sqlite_dialect = _Dialect("sqlite")
+
+    async def writer(who: str) -> None:
+        async with provider._write_turn("set", sqlite_dialect, writes=True):
+            order.append(who)
+            entered[who].set()
+            await gates[who].wait()
+
+    async def settle() -> None:
+        for _ in range(20):  # loop steps, not time
+            await asyncio.sleep(0)
+
+    tasks = {n: asyncio.create_task(writer(n), name=n) for n in "A"}
+    try:
+        await entered["A"].wait()
+        for who in "BCD":
+            tasks[who] = asyncio.create_task(writer(who), name=who)
+            await queued[who].wait()
+            await settle()
+        gates["A"].set()
+        await entered["B"].wait()
+        look_now["C"].set()
+        await looked["C"].wait()
+        await settle()
+        gates["B"].set()
+        await settle()
+        assert order == ["A", "B", "C"], order
+    finally:
+        for gate in gates.values():
+            gate.set()
+        await asyncio.wait_for(  # a hang guard for a failing run, not a budget
+            asyncio.gather(*tasks.values(), return_exceptions=True), 30
+        )
+    assert order == list("ABCD")
+
+
+@pytest.mark.parametrize("steps", [0, 1, 2, 3])
+async def test_a_waiter_cancelled_right_after_the_holder_releases_hands_the_turn_on(
+    steps: int,
+) -> None:
+    """The holder releases and the queued waiter is cancelled ``steps`` loop
+    steps later: the lock was already granted to its acquire (a step from
+    done), and nobody would release it. The next writer must get the turn and
+    the lock ends free."""
+    provider = _provider(
+        "sqlite+aiosqlite:///unused.db", statement_timeout_seconds=3600
+    )
+    sqlite_dialect = _Dialect("sqlite")
+    holding, hold = asyncio.Event(), asyncio.Event()
+
+    async def holder() -> None:
+        async with provider._write_turn("set", sqlite_dialect, writes=True):
+            holding.set()
+            await hold.wait()
+
+    async def writer() -> str:
+        async with provider._write_turn("set", sqlite_dialect, writes=True):
+            return "wrote"
+
+    first = asyncio.create_task(holder())
+    await holding.wait()
+    waiter = asyncio.create_task(writer())
+    for _ in range(3):  # the waiter's acquire is queued behind the holder
+        await asyncio.sleep(0)
+    assert not waiter.done()
+    hold.set()
+    await first
+    for _ in range(steps):
+        await asyncio.sleep(0)
+    waiter.cancel()
+    await asyncio.gather(waiter, return_exceptions=True)
+    # The guard only bounds a failing run, where the turn was never handed on.
+    assert await asyncio.wait_for(writer(), 5) == "wrote"
+    assert not provider._turn_lock().locked()
+
+
+def test_a_closed_event_loop_is_not_kept_by_the_turn(tmp_path: Path) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'leak.db'}"
+    asyncio.run(_create_table(url))
+    provider = _provider(url)
+    loops: list[weakref.ref[asyncio.AbstractEventLoop]] = []
+
+    async def contended() -> None:
+        loops.append(weakref.ref(asyncio.get_running_loop()))
+        await asyncio.gather(*(provider.set(f"k{i}", "v") for i in range(5)))
+
+    try:
+        for _ in range(4):
+            asyncio.run(contended())
+        gc.collect()
+        assert sum(ref() is not None for ref in loops) <= 1
+    finally:
+        asyncio.run(provider.aclose())
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("database is locked", Timeout),
+        ("disk I/O error", Unavailable),
+    ],
+)
+def test_a_locked_database_is_a_timeout_and_another_sqlite_error_is_not(
+    message: str, expected: type[Exception]
+) -> None:
+    """SQLite's busy handler giving up is the wait for the write lock running
+    out; any other operational error stays ``Unavailable``."""
+    provider = _provider("sqlite+aiosqlite:///unused.db")
+    error = sa_exc.OperationalError("INSERT", {}, sqlite3.OperationalError(message))
+    assert type(provider._failure("set", error)) is expected
+
+
+async def _peak_concurrency(
+    url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    calls: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]],
+    *,
+    only: str,
+) -> int:
+    """The most statements of one kind (``SELECT`` or a write) in flight at once."""
+    original = AsyncConnection.execute
+    in_flight = peak = 0
+
+    async def watched(
+        self: AsyncConnection, statement: Any, *args: Any, **kw: Any
+    ) -> Any:
+        nonlocal in_flight, peak
+        mine = str(statement).lstrip().split(None, 1)[0].upper() == only
+        if mine:
+            in_flight += 1
+            peak = max(peak, in_flight)
+        try:
+            await asyncio.sleep(0.02)
+            return await original(self, statement, *args, **kw)
+        finally:
+            if mine:
+                in_flight -= 1
+
+    monkeypatch.setattr(AsyncConnection, "execute", watched)
+    provider = _provider(url)
+    try:
+        await asyncio.gather(*(call(provider) for call in calls))
+    finally:
+        await provider.aclose()
+    return peak
+
+
+async def test_sqlite_runs_one_writer_at_a_time_but_reads_together(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sets: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]] = [
+        partial(_set_one, f"k{i}") for i in range(8)
+    ]
+    states: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]] = [
+        partial(_state_one, f"s{i}") for i in range(8)
+    ]
+    gets: list[Callable[[DatabaseAtomicStoreProvider], Awaitable[object]]] = [
+        partial(_get_one, f"k{i}") for i in range(8)
+    ]
+    assert await _peak_concurrency(sqlite_url, monkeypatch, sets, only="INSERT") == 1
+    assert await _peak_concurrency(sqlite_url, monkeypatch, states, only="UPDATE") == 1
+    assert await _peak_concurrency(sqlite_url, monkeypatch, gets, only="SELECT") > 1
+
+
+async def _set_one(key: str, provider: DatabaseAtomicStoreProvider) -> None:
+    await provider.set(key, "v")
+
+
+async def _state_one(key: str, provider: DatabaseAtomicStoreProvider) -> str:
+    return await provider.set_subject_state(key, "v1:after:1")
+
+
+async def _get_one(key: str, provider: DatabaseAtomicStoreProvider) -> str | None:
+    return await provider.get(key)
 
 
 # ------------------------------------------------------------------- the purge
