@@ -7,7 +7,12 @@ from httpx import AsyncClient
 from sandloom.sdk.testing import as_user
 
 
-async def test_enroll_answers_202_and_starts_the_saga(client: AsyncClient) -> None:
+async def test_enroll_answers_202_and_starts_the_saga(
+    real_uow_client: AsyncClient,
+) -> None:
+    # Real request units: the saga's status is read in its own unit, which sees
+    # the instance only once the enrolling request has committed.
+    client = real_uow_client
     _, headers = as_user()
     resp = await client.post(
         "/api/v1/enrollments",
