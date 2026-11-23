@@ -39,7 +39,12 @@ subagent): pass no actor on tm calls.
   (`cat > f <<EOF`, `python3 - <<EOF`), a `;` / `&&` chain or pipe that
   includes `git`, `git -C`, `cd … &&`, `source`, a `for` loop. So:
   - change code with Edit (one Edit per place) and create files with Write,
-    never with a heredoc or a Python replace script;
+    never with a heredoc;
+  - scripts first for a repeated edit (a rename across files, a move, an
+    import rewrite, the same change in many places): Write a rerunnable
+    script to the absolute `$TMPDIR` path (`echo $TMPDIR`), run it with
+    `python3 -I <that path> <args>` in one plain call, check `git diff
+    --stat`, and hand-edit only what the script cannot do;
   - `git` alone in its call: `git status --short`, `git diff --stat`,
     `git log --oneline -3`;
   - logs and scratch files go to `$TMPDIR` (`> "$TMPDIR/<alias>-gate.log"`),
@@ -55,10 +60,20 @@ subagent): pass no actor on tm calls.
   back "no verdict": issue it again alone, once.
 
 ## Checks
-- Run the tests of what you touched plus every test that references the
-  changed symbols (`grep -rln '<symbol>' src tests`). Never
-  `sandloom test --full`: the orchestrator runs it once per wave. Never a
-  serial `pytest -q`.
+- **Write first, check at the end.** Write the whole task before running any
+  test: no pytest between edits, WIP commits without tests are fine. Every
+  tool call re-sends your whole context, so a test run per step is what made
+  tasks slow. When the task is written: ONE pytest call over the tests of
+  what you touched plus every test that references the changed symbols
+  (`grep -rln '<symbol>' src tests`), fix and rerun only the failures, then
+  the static gates once (below). One extra run mid-way is allowed only when
+  you are stuck on behaviour you cannot judge by reading.
+- Name your key tests in the `checks` part of your report and the checklist
+  (`key: <test ids>`): the reviewer and CI start from them.
+- Never `sandloom test --full`: the orchestrator runs it once per wave. Never
+  a pytest without test paths. A hook (`.claude/hooks/implementer_tests.py`)
+  refuses both; a whole-suite run you truly need takes `SANDLOOM_RUN_OK=1`
+  in the command and a reason in your report.
 - After every Edit / Write a hook formats the file and reports, in the same
   turn, the NEW ruff findings of a `.py`, the new prose-lint hits of a `.md`
   and broken JSON. Fix them in your next edit; do not run ruff or the prose
