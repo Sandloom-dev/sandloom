@@ -39,7 +39,9 @@ The six beginner names. Everything else in `sandloom.sdk.testing` is advanced.
 addopts = ["-p", "sandloom.sdk.testing.plugin"]
 ```
 
-The plugin loads `.env.test` before anything imports the framework, provides
+The plugin loads `.env.test` before anything uses the framework's settings and
+never reads the developer's `.env`
+([what a test run reads](../modules/testing.md#what-a-test-run-reads)). It provides
 every fixture below, records `published(...)` events and resolves
 `Contract(...)` through the test application. Activate this plugin or the
 framework's own harness plugin, not both. A module inside the framework tree
@@ -68,9 +70,11 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   `sandloom test` sets it for the drift step. The framework checkout names
   `sandloom_standard.main`; the bare command works from the repository root. An app
   from `sandloom new` names its root in `.env`. The pytest suites never read that
-  key. Their root comes from the root `conftest.py` or the plugin's
-  `sandloom_composition_root` ini key. `sandloom migrate` outside `sandloom test`
-  needs the variable.
+  file. Their root is `SANDLOOM_COMPOSITION_ROOT` from the shell or `.env.test`,
+  where `sandloom new` writes it too. Else it is the plugin's
+  `sandloom_composition_root` ini key, else `sandloom.main`. The framework suite
+  takes it from its root `conftest.py`. `sandloom migrate` outside
+  `sandloom test` needs the variable.
 - **Random order.** Every test step runs in a seeded random order (the
   files, then the tests inside each file); the seed is printed. Replay it
   with `sandloom test --seed <seed>` or `pytest --sandloom-shuffle=<seed>` (the plugin
@@ -95,6 +99,11 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   it with `--databases 256`: `docker run -d -p 6379:6379 redis:7 --databases 256`.
   `deploy/compose/test.yml` does the same, and 256 covers 15 workers. Several
   parallel runs on one server need more, such as 512.
+- **A test server that does not answer** stops the run before the first test.
+  One `SANDLOOM-R014` line names the server: "cannot reach the cache backend at
+  127.0.0.1:6380 (connection refused)". `uv run sandloom dev up` starts it.
+  After `dev up --services external` nothing does, so start the server the line
+  names.
 
 ## Which fixture
 
@@ -134,9 +143,11 @@ async def test_requires_auth(client) -> None:
 
 - **The token.** `as_user` mints a real access token carrying `sub`,
   `token_type`, `tenant_id`, the signed allowlist `tenant_ids`, `email` and
-  `email_verified` (plus `iat`, `nbf`, `exp`, `jti`). `user_id` and
-  `tenant_id` default to random UUIDs; pass `None` for `email` or
-  `email_verified` to omit it. A security-risk route needs a recent
+  `email_verified` (plus `iat`, `nbf`, `exp`, `jti`). `user_id` defaults to a
+  random UUID, and so does `tenant_id`, except under `TENANCY_MODE=single`: there
+  it is `SINGLE_TENANT_ID`, the only tenant such an app accepts
+  ([single-tenant app](../modules/testing.md#a-single-tenant-app)). Pass `None`
+  for `email` or `email_verified` to omit it. A security-risk route needs a recent
   `auth_time`: pass it as a claim (`as_user(auth_time=int(time.time()))`).
 - **Extra claims** are keywords: `as_user(roles=["admin"])`.
   `tenant=False` mints a token without a tenant.

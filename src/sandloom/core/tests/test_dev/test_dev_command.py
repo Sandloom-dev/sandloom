@@ -1259,7 +1259,9 @@ def test_connection_failures_become_one_line() -> None:
     line = errors.connection_failure(psycopg2.OperationalError(_REFUSED))
     assert line == (
         "error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused). "
-        "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
+        "Start the dev services: uv run sandloom dev up (with --services external "
+        "it starts nothing: start PostgreSQL at 127.0.0.1:5432 yourself)   "
+        "[SANDLOOM-R014]"
     )
     # A capability driver's mapped error, raised from its client's: the kernel
     # names the capability and no client (the real client's errors: the
@@ -1391,7 +1393,9 @@ def test_migrate_prints_the_same_one_line(
     err = capsys.readouterr().err.strip().splitlines()
     assert err == [
         "error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused). "
-        "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
+        "Start the dev services: uv run sandloom dev up (with --services external "
+        "it starts nothing: start PostgreSQL at 127.0.0.1:5432 yourself)   "
+        "[SANDLOOM-R014]"
     ]
 
 
@@ -1436,7 +1440,9 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
     errors_ = [ln for ln in errors_ if "[WARNING]" not in ln]
     assert errors_ == [
         "error: cannot reach PostgreSQL at 127.0.0.1:1 (connection refused). "
-        "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
+        "Start the dev services: uv run sandloom dev up (with --services external "
+        "it starts nothing: start PostgreSQL at 127.0.0.1:1 yourself)   "
+        "[SANDLOOM-R014]"
     ]
     for loud in (
         run("--debug", "outbox", "list-dead"),

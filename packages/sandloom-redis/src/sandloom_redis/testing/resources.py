@@ -121,6 +121,16 @@ def redis_errors() -> tuple[type[Exception], ...]:
     return (OSError,) if redis is None else (redis.RedisError, OSError)
 
 
+def unreachable_errors() -> tuple[type[Exception], ...]:
+    """What a Redis that does not answer raises: a refused or lost connection, a
+    timeout (a refused login is a connection error of the client too). Never a
+    ``ResponseError``: the server answered, and what it said is its own error."""
+    redis = _redis()
+    if redis is None:
+        return (OSError,)
+    return (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, OSError)
+
+
 def _connect_redis(url: str) -> Any:
     redis = _redis()
     if redis is None:
@@ -404,4 +414,5 @@ __all__ = [
     "redis_errors",
     "release_redis",
     "scan_redis",
+    "unreachable_errors",
 ]

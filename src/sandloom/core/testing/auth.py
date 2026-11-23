@@ -89,6 +89,19 @@ def mint_test_token(
     )
 
 
+def default_tenant_id() -> uuid.UUID:
+    """The tenant a minted token carries when the test names none: the
+    canonical ``SINGLE_TENANT_ID`` under ``TENANCY_MODE=single`` (any other
+    tenant is a 403 ``tenant_mismatch`` there), else a fresh one."""
+    from sandloom.core.config.settings import settings  # noqa: PLC0415 - cold: settings snapshot - the pytest plugin imports this module before .env.test is loaded
+
+    if settings.tenancy_mode == "single":
+        if settings.single_tenant_id is None:
+            raise RuntimeError("TENANCY_MODE=single requires SINGLE_TENANT_ID")
+        return uuid.UUID(str(settings.single_tenant_id))
+    return uuid.uuid4()
+
+
 def email_of(user_id: uuid.UUID) -> str:
     """The deterministic ``email`` claim minted for a test user."""
     return f"{user_id.hex[:12]}@example.com"
@@ -105,8 +118,10 @@ def make_user_headers(
 ) -> tuple[uuid.UUID, Headers]:
     """Return ``(user_id, headers)`` with a freshly minted access token.
 
-    * ``user_id`` / ``tenant_id`` default to random UUIDs; the token carries
-      ``tenant_id`` and the signed ``tenant_ids`` allowlist ``[tenant_id]``.
+    * ``user_id`` defaults to a random UUID and ``tenant_id`` to a random one
+      too, or to ``SINGLE_TENANT_ID`` under ``TENANCY_MODE=single``
+      (:func:`default_tenant_id`); the token carries ``tenant_id`` and the
+      signed ``tenant_ids`` allowlist ``[tenant_id]``.
       ``tenant=False`` mints a tenant-less token.
     * ``email`` defaults to :func:`email_of` and ``email_verified`` to
       ``True`` (like identity-minted tokens); pass ``None`` to omit either.
@@ -120,7 +135,7 @@ def make_user_headers(
     uid = user_id or uuid.uuid4()
     data: dict[str, Any] = {"sub": str(uid), "token_type": "access"}
     if tenant:
-        tid = tenant_id or uuid.uuid4()
+        tid = tenant_id or default_tenant_id()
         data["tenant_id"] = str(tid)
         data["tenant_ids"] = [str(tid)]
     if email is not None:
@@ -142,6 +157,7 @@ def make_user_headers(
 
 __all__ = [
     "Headers",
+    "default_tenant_id",
     "email_of",
     "make_user_headers",
     "mint_test_token",

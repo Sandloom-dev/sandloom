@@ -98,6 +98,25 @@ def test_a_legacy_bare_path_marker_is_still_ours(
     assert not ownership.same_owner("run-a", "x:run-a")
 
 
+def test_a_slot_run_claims_the_database_migrate_new_stamped_without_a_slot(
+    scratch_db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``migrate new`` creates the test database before any run slot is held
+    (owner ``<machine>:<checkout>``); the first plain ``pytest`` is slot 1
+    (``…#1``) of the same checkout and must not be refused its own database."""
+    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
+    ownership.claim_database(scratch_db, owner="abcdef123456:/work/app2")
+    ownership._claimed.clear()
+    ownership.claim_database(scratch_db, owner="abcdef123456:/work/app2#1")
+    assert _marker(scratch_db) == "abcdef123456:/work/app2#1"
+    ownership._claimed.clear()
+    with pytest.raises(ownership.TestResourceOwnershipError):
+        ownership.claim_database(scratch_db, owner="abcdef123456:/work/app3#1")
+    with pytest.raises(ownership.TestResourceOwnershipError):
+        ownership.claim_database(scratch_db, owner="abcdef123456:/work/app2#2")
+    assert _marker(scratch_db) == "abcdef123456:/work/app2#1"
+
+
 def test_an_unmarked_database_is_claimed_then_refused_to_others(
     scratch_db: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

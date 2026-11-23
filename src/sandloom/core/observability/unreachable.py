@@ -61,7 +61,10 @@ _UNREACHABLE = {
 _ADDRESS = re.compile(
     r"""(?:\(\s*['"]?(?P<h1>[\w.:-]+?)['"]?\s*,\s*(?P<p1>\d+)\s*\))"""
     r"""|(?:(?:host|server at|at)\s+"?(?P<h2>[\w.-]+)"?.*?port\s+(?P<p2>\d+))"""
-    r"""|(?:(?P<h3>\d+\.\d+\.\d+\.\d+|localhost|\[[0-9a-f:]+\]):(?P<p3>\d+))""",
+    r"""|(?:(?P<h3>\d+\.\d+\.\d+\.\d+|localhost|\[[0-9a-f:]+\]):(?P<p3>\d+))"""
+    # A server named by URL (a harness message: ``redis://cache.internal:6379``);
+    # never ``user:1234@host``, whose "port" would be a password.
+    r"""|(?:[a-z][a-z0-9+.-]*://(?P<h4>[\w.-]+):(?P<p4>\d+)(?![\d@]))""",
     re.IGNORECASE,
 )
 
@@ -182,8 +185,18 @@ def _address(chain: list[BaseException]) -> str | None:
     for item in chain:
         match = _ADDRESS.search(str(item))
         if match:
-            host = match.group("h1") or match.group("h2") or match.group("h3")
-            port = match.group("p1") or match.group("p2") or match.group("p3")
+            host = (
+                match.group("h1")
+                or match.group("h2")
+                or match.group("h3")
+                or match.group("h4")
+            )
+            port = (
+                match.group("p1")
+                or match.group("p2")
+                or match.group("p3")
+                or match.group("p4")
+            )
             return f"{host}:{port}"
     return None
 
@@ -225,9 +238,12 @@ def connection_failure(exc: BaseException) -> str | None:
         )
     if reason not in _UNREACHABLE:
         return None
+    # `dev up --services external` starts nothing: the server to start is the
+    # one the line names.
     return (
         f"error: cannot reach {service}{at} ({reason}). Start the dev services: "
-        f"uv run sandloom dev up   [{CODE}]"
+        f"uv run sandloom dev up (with --services external it starts nothing: "
+        f"start {service}{at} yourself)   [{CODE}]"
     )
 
 

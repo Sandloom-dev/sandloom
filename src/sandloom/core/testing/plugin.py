@@ -16,10 +16,13 @@ framework must never change the behaviour of an unrelated test suite (nor of
 the framework's own).
 
 Ordering: ``sandloom.core.config.settings`` snapshots the environment when first
-imported,
-so ``.env.test`` is loaded in :func:`pytest_load_initial_conftests` — before any
-conftest or test module can import the framework. This module (and the
-``sandloom.core.testing`` package) imports nothing that reads settings.
+USED (importing it reads nothing), so ``.env.test`` is loaded in
+:func:`pytest_load_initial_conftests` — before any conftest or test module can use
+the framework's settings. This module (and the ``sandloom.core.testing`` package)
+reads no settings. The run's environment is the shell, ``.env.test``,
+``.env.test.local`` and ``SANDLOOM_TEST_*`` and nothing else: the same hook makes
+the settings skip the developer's ``.env``
+(:func:`sandloom.core.testing.env.ignore_dotenv`).
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from sandloom.core.auth import claims_view as _claims_view
+from sandloom.core.testing.env import ignore_dotenv
 from sandloom.core.testing.families import client_installed, require_for_installed
 from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixtures
     COMPOSITION_ROOT_INI,
@@ -137,6 +141,8 @@ def pytest_load_initial_conftests(
     except SlotsExhausted as exc:
         raise pytest.UsageError(str(exc)) from None
     load_test_env(starts, warn_if_late=True)
+    # Shell, .env.test, .env.test.local, SANDLOOM_TEST_*: never the dev `.env`.
+    ignore_dotenv()
 
 
 @pytest.hookimpl(trylast=True)

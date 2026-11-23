@@ -38,8 +38,10 @@ paths like ``/workspace/repo``, hence the machine id. A marker written before
 the machine id existed (the bare checkout path) is still this checkout's own.
 A test run started by ``sandloom test`` or the pytest plugin on a checkout
 ``sandloom dev up`` prepared holds a slot (:mod:`sandloom.core.testing.slots`)
-whose owner ends in ``#<slot>``. CI runners start from fresh containers, so
-their resources are always unmarked and simply claimed.
+whose owner ends in ``#<slot>``; a resource the same checkout marked without a
+slot (``sandloom migrate new`` creates the checkout's test database before any
+run holds one) is that run's own too (:func:`same_owner`). CI runners start
+from fresh containers, so their resources are always unmarked and simply claimed.
 
 Imports nothing from the framework (safe before the settings snapshot).
 """
@@ -48,6 +50,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import time
 import warnings
 from collections.abc import Mapping
@@ -89,14 +92,44 @@ def current_owner(
     return f"{machine_id(env)}:{checkout_root(cwd)}"
 
 
+#: ``<machine id>:<checkout root>#<slot>``: the owner of a test-run slot
+#: (:func:`slot_owner`); the part before ``#`` is the checkout's slot-less owner.
+_SLOT_OWNER = re.compile(r"(?P<checkout>[^#:]+:.+)#(?P<slot>[0-9]+)")
+
+
+def slot_owner(machine: str, checkout: Path, number: int) -> str:
+    """The owner of slot ``number`` of ``checkout`` on ``machine``
+    (:mod:`sandloom.core.testing.slots`)."""
+    return f"{machine}:{checkout}#{number}"
+
+
+def slotless_owner(owner: str) -> str:
+    """The checkout's own owner of a slot's ``owner``
+    (``<machine id>:<checkout>#2`` is ``<machine id>:<checkout>``); any other
+    owner, an explicit ``SANDLOOM_TEST_OWNER`` included, is returned as it is."""
+    match = _SLOT_OWNER.fullmatch(owner)
+    return match["checkout"] if match else owner
+
+
 def same_owner(holder: str | None, owner: str) -> bool:
-    """``holder`` is ``owner``, or the legacy form of it: a marker written
-    before owners carried the machine id (the bare checkout path)."""
+    """``holder`` is ``owner``, or a form of it the same checkout wrote:
+
+    * the checkout's slot-less owner, for an owner that is a slot's
+      (``sandloom migrate new`` creates the checkout's test database before
+      any run holds a slot, so it is marked ``<machine id>:<checkout>``): the
+      run that takes the slot takes the database. The other way round never
+      holds: a slot-less run does not take a database a slot's run marked;
+    * the legacy form: a marker written before owners carried the machine id
+      (the bare checkout path).
+    """
     if holder is None:
         return False
     if holder == owner:
         return True
-    _, sep, path = owner.partition(":")
+    checkout_owner = slotless_owner(owner)
+    if holder == checkout_owner:
+        return True
+    _, sep, path = checkout_owner.partition(":")
     return bool(sep) and holder == path and Path(holder).is_absolute()
 
 
@@ -351,6 +384,8 @@ __all__ = [
     "current_owner",
     "record_claim",
     "same_owner",
+    "slot_owner",
+    "slotless_owner",
     "sqlite_file_owner",
     "stamp_sqlite_file",
     "takeover_requested",
