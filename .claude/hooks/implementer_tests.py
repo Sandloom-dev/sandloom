@@ -22,6 +22,7 @@ import os
 import re
 import shlex
 import sys
+from typing import Any
 
 AGENT = "sandloom-implementer"
 ESCAPE = "SANDLOOM_RUN_OK=1"
@@ -96,7 +97,7 @@ def _pytest_selects(args: list[str]) -> bool:
     return False
 
 
-def decide(call: dict) -> str | None:
+def decide(call: dict[str, Any]) -> str | None:
     if (call.get("agent_type") or "") != AGENT:
         return None
     tool_input = call.get("tool_input")
