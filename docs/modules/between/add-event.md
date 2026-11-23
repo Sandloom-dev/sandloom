@@ -38,9 +38,10 @@ sandloom add event notes NoteArchived --field note_id:UUID --field reason:str   
   `NoteArchived` in `notes` gives `notes.note.archived.v1`.
 - Without `--field`, the event gets `<first word>_id: UUID` (here
   `note_id`). A `tenant_id: UUID` field is added too, and a consumer binds
-  the tenant from it. In an app that sets `TENANCY_MODE=single` no
-  `tenant_id` is added: the event carries the fields you name, and a
-  `--field tenant_id:UUID` is still written as given.
+  the tenant from it. For an app without tenants pass `--no-tenant`: no
+  `tenant_id` is added, the event carries the fields you name, and a
+  `--field tenant_id:UUID` is still written as given. The flag is the
+  developer's choice; the generator reads no setting.
 - `--field name:type` takes `str`, `int`, `float`, `bool`, `UUID`,
   `datetime`, `date` or `Decimal`. Repeat it for each field. A `--field` list
   replaces the default `note_id`.

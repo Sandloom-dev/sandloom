@@ -80,8 +80,8 @@ The generator writes a producer class for you: `sandloom add event <module>
 
 A `tenant_id` field is a choice, not a rule. An event without one is legal: the
 event itself binds no tenant (`tenant=None` says the same for an event that has
-the field). The generator adds `tenant_id` to the event unless the app sets
-`TENANCY_MODE=single`, where it writes only the fields you name.
+the field). The generator adds `tenant_id` to the event unless you pass
+`--no-tenant` (an app without tenants), which writes only the fields you name.
 
 ### What an event field may be
 

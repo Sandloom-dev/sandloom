@@ -55,6 +55,7 @@ import decimal
 import importlib
 import inspect
 import json
+import re
 import sys
 import types
 import typing
@@ -1183,6 +1184,12 @@ def plan(
     return out
 
 
+#: A declared event channel (``sandloom.sdk._decl.events._CHANNEL``, which the
+#: kernel may not import; ``test_event_channel_patterns_agree`` pins the copy).
+#: An exported schema is ``<channel>.json``.
+_EVENT_CHANNEL = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+\.v[1-9][0-9]*$")
+
+
 def _orphan_event_schemas(
     shared_dir: Path, planned: Collection[Path], exporting: Collection[str]
 ) -> list[Generated]:
@@ -1195,7 +1202,9 @@ def _orphan_event_schemas(
     Only the full channel set of a module in ``exporting`` is known, so the
     schema of a module this process did not compose (a ``SANDLOOM_MODULES``
     subset, an optional module that did not load, a module deleted whole) is
-    never an orphan. A plan of named modules never calls this."""
+    never an orphan. A file whose name is not a channel (any other JSON kept
+    in ``events/``) is never one either. A plan of named modules never calls
+    this."""
     events = shared_dir / "events"
     if not events.is_dir():
         return []
@@ -1205,10 +1214,12 @@ def _orphan_event_schemas(
             "",
             "SANDLOOM-T005",
             remove=True,
-            reason=f"{path.name.split('.', 1)[0]} no longer declares this channel",
+            reason=f"{path.stem.split('.', 1)[0]} no longer declares this channel",
         )
         for path in sorted(events.glob("*.json"))
-        if path not in planned and path.name.split(".", 1)[0] in exporting
+        if path not in planned
+        and _EVENT_CHANNEL.fullmatch(path.stem)
+        and path.stem.split(".", 1)[0] in exporting
     ]
 
 

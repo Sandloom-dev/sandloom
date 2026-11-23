@@ -284,7 +284,7 @@ def test_add_event_appends_and_refuses_an_unparsable_file(tmp_path: Path) -> Non
 
 
 # --------------------------------------------------------------------------- #
-# The scaffold follows the app's tenancy (TENANCY_MODE)
+# --no-tenant: the scaffold is tenant-scoped unless the developer says otherwise
 # --------------------------------------------------------------------------- #
 
 _SINGLE_TENANT = (
@@ -292,70 +292,83 @@ _SINGLE_TENANT = (
 )
 
 
-def _single_tenant_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An app that declares no tenants: ``TENANCY_MODE=single`` in its ``.env``
-    (and ``.env.test``, which its own tests read)."""
-    monkeypatch.delenv("TENANCY_MODE", raising=False)
-    monkeypatch.delenv("SINGLE_TENANT_ID", raising=False)
-    root = _app(tmp_path, everything=False)
+def _cli(root: Path, *argv: str) -> list[Path]:
+    """``sandloom add <argv>`` as the command line reads it, without the
+    ``sandloom generate`` that follows (``add.main`` runs that)."""
+    return add._run(add._parser().parse_args(["--root", str(root), *argv]))[0]
+
+
+def _says_single_everywhere(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A machine that says ``TENANCY_MODE=single``: the process environment and
+    the app's ``.env`` / ``.env.test`` (the scaffold must read none of them)."""
+    monkeypatch.setenv("TENANCY_MODE", "single")
+    monkeypatch.setenv("SINGLE_TENANT_ID", "00000000-0000-0000-0000-000000000001")
     for name in (".env", ".env.test"):
         env = root / name
         text = env.read_text(encoding="utf-8").rstrip("\n")
         env.write_text(f"{text}\n{_SINGLE_TENANT}", encoding="utf-8")
-    return root
 
 
-def test_app_tenancy_mode_is_read_from_the_apps_own_settings(
+def _files(package: Path) -> dict[str, str]:
+    return {
+        str(p.relative_to(package)): p.read_text(encoding="utf-8")
+        for p in sorted(package.rglob("*.py"))
+    }
+
+
+def test_the_scaffold_ignores_a_machine_that_says_single_tenant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Without booting the app: the process environment, then ``.env``, then
-    ``SECRETS_DIR``; ``multi`` (the setting's default) where none names it."""
+    """The review repro: a gitignored ``.env`` (or the process environment) with
+    ``TENANCY_MODE=single`` must not turn the scaffold of an app that is
+    multi-tenant in production into a table without row-level security."""
     monkeypatch.delenv("TENANCY_MODE", raising=False)
-    monkeypatch.delenv("SECRETS_DIR", raising=False)
-    assert add.app_tenancy_mode(tmp_path) == "multi"  # no .env at all
-    (tmp_path / ".env").write_text("DEBUG=1\n", encoding="utf-8")
-    assert add.app_tenancy_mode(tmp_path) == "multi"
-    (tmp_path / ".env").write_text("TENANCY_MODE=single\n", encoding="utf-8")
-    assert add.app_tenancy_mode(tmp_path) == "single"
-    monkeypatch.setenv("TENANCY_MODE", "multi")  # the environment wins over .env
-    assert add.app_tenancy_mode(tmp_path) == "multi"
-    monkeypatch.delenv("TENANCY_MODE")
-    (tmp_path / ".env").unlink()
-    secrets = tmp_path / "secrets"
-    secrets.mkdir()
-    (secrets / "TENANCY_MODE").write_text("single\n", encoding="utf-8")
-    monkeypatch.setenv("SECRETS_DIR", str(secrets))
-    assert add.app_tenancy_mode(tmp_path) == "single"
+    monkeypatch.delenv("SINGLE_TENANT_ID", raising=False)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    reference = _app(plain, everything=False)
+    _cli(reference, "module", "board")
+    _cli(reference, "event", "notes", "NoteShared")
+    says = tmp_path / "says"
+    says.mkdir()
+    root = _app(says, everything=False)
+    _says_single_everywhere(root, monkeypatch)
+    assert add.layout(root).tenant_scoped
+    _cli(root, "module", "board")
+    _cli(root, "event", "notes", "NoteShared")
+    package = root / "probe" / "modules"
+    assert _files(package / "board") == _files(
+        reference / "probe" / "modules" / "board"
+    )
+    assert "class BoardItem(TenantScoped, Base):" in (
+        package / "board" / "models" / "item.py"
+    ).read_text(encoding="utf-8")
+    shared = (package / "notes" / "events.py").read_text(encoding="utf-8")
+    assert "    note_id: UUID\n    tenant_id: UUID\n" in shared
+    assert shared == (
+        reference / "probe" / "modules" / "notes" / "events.py"
+    ).read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    ("where", "text"),
-    [(".env", r"from \.env\)"), ("environ", "from the process environment")],
-)
-def test_app_tenancy_mode_refuses_a_value_settings_would_refuse(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, where: str, text: str
-) -> None:
-    """``none`` is not a mode (there is no tenant-less mode: ``single`` is the
-    app without tenants); the refusal names where the value came from."""
-    monkeypatch.delenv("TENANCY_MODE", raising=False)
-    if where == ".env":
-        (tmp_path / ".env").write_text("TENANCY_MODE=none\n", encoding="utf-8")
-    else:
-        monkeypatch.setenv("TENANCY_MODE", "none")
-    with pytest.raises(
-        add.GeneratorError, match=rf"'none' \({text}.*expected multi or single"
-    ):
-        add.app_tenancy_mode(tmp_path)
-
-
-def test_add_module_in_an_app_without_tenants_scaffolds_a_plain_table(
+def test_the_sample_module_of_a_new_app_is_tenant_scoped_on_any_machine(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``TENANCY_MODE=single``: no ``TenantScoped``, no ``tenant_id`` column or
-    index, no row-level security, no tenant in the event or its publish, and a
-    test that does not mint a tenant."""
-    root = _single_tenant_app(tmp_path, monkeypatch)
-    created = add.add_module("board", add.layout(root))
+    """``sandloom new`` (the wizard) scaffolds its starter module through the
+    same generator: it never follows the environment either."""
+    monkeypatch.setenv("TENANCY_MODE", "single")
+    monkeypatch.setenv("SINGLE_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+    root = _app(tmp_path, everything=False)
+    files = _files(root / "probe" / "modules" / "notes")
+    assert "class NotesItem(TenantScoped, Base):" in files["models/item.py"]
+    assert "tenant_id" in files["events.py"]
+
+
+def test_add_module_with_no_tenant_scaffolds_a_plain_table(tmp_path: Path) -> None:
+    """``--no-tenant``: no ``TenantScoped``, no ``tenant_id`` column or index, no
+    row-level security, no tenant in the event or its publish, and a test that
+    does not mint a tenant."""
+    root = _app(tmp_path, everything=False)
+    created = _cli(root, "module", "board", "--no-tenant")
     package = root / "probe" / "modules" / "board"
     for path in created:
         if path.suffix == ".py":
@@ -375,62 +388,58 @@ def test_add_module_in_an_app_without_tenants_scaffolds_a_plain_table(
     assert "tenant_id" not in test
 
 
-def test_add_module_in_a_multi_tenant_app_is_the_tenant_scoped_scaffold(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_add_module_by_default_is_the_tenant_scoped_scaffold(
+    tmp_path: Path,
 ) -> None:
-    """The default, and ``TENANCY_MODE=multi`` named explicitly: unchanged."""
-    monkeypatch.delenv("TENANCY_MODE", raising=False)
-    monkeypatch.delenv("SINGLE_TENANT_ID", raising=False)
     root = _app(tmp_path, everything=False)
-    add.add_module("board", add.layout(root))
-    default = {
-        p.name: p.read_text(encoding="utf-8")
-        for p in (root / "probe" / "modules" / "board").rglob("*.py")
-    }
-    assert "class BoardItem(TenantScoped, Base):" in default["item.py"]
-    assert "tenant_id" in default["events.py"] and "enable_tenant_rls" in "".join(
-        default.values()
-    )
-    explicit = tmp_path / "explicit"
-    explicit.mkdir()
-    monkeypatch.setenv("TENANCY_MODE", "multi")
-    other = _app(explicit, everything=False)
-    add.add_module("board", add.layout(other))
-    assert default == {
-        p.name: p.read_text(encoding="utf-8")
-        for p in (other / "probe" / "modules" / "board").rglob("*.py")
-    }
+    _cli(root, "module", "board")
+    files = _files(root / "probe" / "modules" / "board")
+    assert "class BoardItem(TenantScoped, Base):" in files["models/item.py"]
+    assert "tenant_id" in files["events.py"]
+    assert "enable_tenant_rls" in "".join(files.values())
 
 
-def test_add_event_in_an_app_without_tenants_adds_no_tenant_id(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_add_event_with_no_tenant_adds_no_tenant_id(tmp_path: Path) -> None:
     """The default field list is the entity id alone; a ``tenant_id`` you name
     yourself is still written (a tenant-less event is legal, so is one that
     carries a tenant)."""
-    root = _single_tenant_app(tmp_path, monkeypatch)
-    where = add.layout(root)
+    root = _app(tmp_path, everything=False)
     events = root / "probe" / "modules" / "notes" / "events.py"
-    add.add_event("notes", "NoteShared", where, [])
+    _cli(root, "event", "notes", "NoteShared", "--no-tenant")
     text = events.read_text(encoding="utf-8")
     assert 'class NoteShared(Event, channel="notes.note.shared.v1"):' in text
     assert "    note_id: UUID\n\n" in text + "\n"
     shared = text.split("class NoteShared", 1)[1]
     assert "tenant_id" not in shared
-    add.add_event("notes", "NoteTagged", where, ["note_id:UUID", "tenant_id:UUID"])
+    _cli(
+        root,
+        "event",
+        "notes",
+        "NoteTagged",
+        "--no-tenant",
+        "--field",
+        "note_id:UUID",
+        "--field",
+        "tenant_id:UUID",
+    )
     tagged = events.read_text(encoding="utf-8").split("class NoteTagged", 1)[1]
     assert "    note_id: UUID\n    tenant_id: UUID\n" in tagged
     ast.parse(events.read_text(encoding="utf-8"))
 
 
-def test_add_event_in_a_multi_tenant_app_still_adds_tenant_id(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("TENANCY_MODE", raising=False)
+def test_add_event_by_default_adds_tenant_id(tmp_path: Path) -> None:
     root = _app(tmp_path, everything=False)
-    where = add.layout(root)
-    add.add_event("notes", "NoteShared", where, [])
-    add.add_event("notes", "NoteTagged", where, ["note_id:UUID", "tenant_id:UUID"])
+    _cli(root, "event", "notes", "NoteShared")
+    _cli(
+        root,
+        "event",
+        "notes",
+        "NoteTagged",
+        "--field",
+        "note_id:UUID",
+        "--field",
+        "tenant_id:UUID",
+    )
     text = (root / "probe" / "modules" / "notes" / "events.py").read_text()
     shared = text.split("class NoteShared", 1)[1].split("class NoteTagged", 1)[0]
     assert "    note_id: UUID\n    tenant_id: UUID\n" in shared
@@ -438,17 +447,32 @@ def test_add_event_in_a_multi_tenant_app_still_adds_tenant_id(
     assert text.split("class NoteTagged", 1)[1].count("tenant_id") == 1
 
 
-def test_sandloom_add_in_an_app_without_tenants_generates_and_checks_clean(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_generator_that_has_no_tenant_flag_is_unaffected_by_it(
+    tmp_path: Path,
 ) -> None:
-    """The whole path in a child process, as ``sandloom add`` runs it: a module,
-    a tenant-less event, ``generate``, then ``generate --check`` agrees."""
-    root = _single_tenant_app(tmp_path, monkeypatch)
-    where = add.layout(root)
-    add.add_module("board", where)
-    add.add_event("board", "ItemArchived", where, [])
-    code, output = add.run_generate(root, *add.draft_options(add.own_modules(root)))
-    assert code == 0, output
+    """``--no-tenant`` belongs to ``module`` and ``event`` only: ``projection``
+    keys its rows by tenant either way, and ``sandloom add task`` has no such
+    flag to read."""
+    root = _app(tmp_path, everything=False)
+    _cli(root, "module", "board", "--no-tenant")
+    _cli(root, "projection", "board", "view")
+    assert "tenant_id" in "".join(_files(root / "probe" / "modules" / "board").values())
+    with pytest.raises(SystemExit):
+        _cli(root, "task", "board", "tidy", "--no-tenant")
+
+
+def test_sandloom_add_with_no_tenant_generates_and_checks_clean(
+    tmp_path: Path,
+) -> None:
+    """The whole path, as ``sandloom add`` runs it (``main`` runs ``sandloom
+    generate`` in a child): a plain module, a tenant-less event, then
+    ``generate --check`` agrees."""
+    root = _app(tmp_path, everything=False)
+    assert add.main(["--root", str(root), "module", "board", "--no-tenant"]) == 0
+    assert (
+        add.main(["--root", str(root), "event", "board", "ItemArchived", "--no-tenant"])
+        == 0
+    )
     exported = root / "probe" / "shared" / "events" / "board.item.archived.v1.json"
     schema = json.loads(exported.read_text(encoding="utf-8"))
     assert list(schema["properties"]) == ["item_id"]
@@ -1281,6 +1305,38 @@ def test_only_a_schema_of_a_composed_module_can_be_an_orphan(tmp_path: Path) -> 
     code, output = add.run_generate(root)
     assert code == 0, output
     assert not renamed.exists() and other.is_file()
+
+
+def test_a_json_file_that_is_no_channel_is_never_an_orphan(tmp_path: Path) -> None:
+    """Only ``<channel>.json`` is a schema ``generate`` wrote: another JSON a
+    team keeps in ``shared/events`` (named for a composed module or not) is
+    neither deleted nor reported stale."""
+    root = _provider_app(tmp_path)
+    schemas = root / "probe" / "shared" / "events"
+    kept = [
+        schemas / "notes.json",
+        schemas / "notes.draft.json",
+        schemas / "notes.note.archived.json",  # no version segment
+        schemas / "notes.note.arch-ived.v1.json",  # not a channel's characters
+        schemas / "notes-note-archived.v1.json",
+        schemas / "readme.json",
+    ]
+    for path in kept:
+        path.write_text("{}\n", encoding="utf-8")
+    code, output = add.run_generate(root, "--check")
+    assert code == 0, output
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    assert all(path.is_file() for path in kept)
+
+
+def test_event_channel_patterns_agree() -> None:
+    """The orphan filter keeps its own copy of the channel pattern (the kernel
+    does not import the SDK): pinned to the declaration's."""
+    from sandloom.core.cli import generated
+    from sandloom.sdk._decl import events
+
+    assert generated._EVENT_CHANNEL.pattern == events._CHANNEL.pattern
 
 
 def test_a_run_composing_a_subset_of_the_modules_leaves_the_others_schemas(

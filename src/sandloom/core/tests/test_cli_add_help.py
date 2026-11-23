@@ -89,8 +89,20 @@ def test_every_type_the_help_lists_is_accepted_and_one_it_omits_is_refused() -> 
         add.parse_fields(["value:decimal128"])
 
 
-def test_the_event_help_states_the_tenant_default_and_the_single_tenant_exception() -> (
-    None
-):
-    text = _subparsers(add._parser()).choices["event"].format_help()
-    assert "tenant_id" in text and "TENANCY_MODE=single" in text
+@pytest.mark.parametrize("generator", ["module", "event"])
+def test_no_tenant_is_a_flag_of_module_and_event_with_its_own_help(
+    generator: str,
+) -> None:
+    child = _subparsers(add._parser()).choices[generator]
+    flag = next(a for a in child._actions if a.option_strings == ["--no-tenant"])
+    assert "without tenants" in (flag.help or "")
+    assert "TENANCY_MODE" not in child.format_help()
+    assert flag.default is False
+    for other in ("contract", "consumer", "saga", "projection", "task"):
+        text = _subparsers(add._parser()).choices[other].format_help()
+        assert "--no-tenant" not in text
+
+
+def test_the_event_help_states_the_tenant_default_and_the_flag_that_drops_it() -> None:
+    text = " ".join(_subparsers(add._parser()).choices["event"].format_help().split())
+    assert "also gets tenant_id: UUID, unless --no-tenant" in text

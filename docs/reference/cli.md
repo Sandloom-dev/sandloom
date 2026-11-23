@@ -79,8 +79,8 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 | `sandloom new … --yes` (alias `--no-input`) | Ask nothing: the flags and the defaults decide, and the app name is required. The output ends with the "Next steps" block. Scripts and coding agents pass it. |
 | `sandloom new … --setup [--admin-email <e>]` | Also run the setup. With `--with admin` and `--admin-email`, the last step creates the administrator; without a terminal it prints a set-password link (`admin create --invite`). CI refuses `--setup`: CI provides its own services. |
 | `sandloom new … --plain` | No colour, no redrawn lines and typed answers, for screen readers and logs. `NO_COLOR` and `FORCE_COLOR` work too. |
-| `sandloom add module <name>` | Creates a module under the app's `modules` package and declares `<MODULE>_DEFAULT_PAGE_SIZE` in `settings.py`. The example table is `TenantScoped` with row-level security, unless the app sets `TENANCY_MODE=single` ([the scaffold follows the app's tenancy](#the-scaffold-follows-the-apps-tenancy)). |
-| `sandloom add event <module> <name> [--field NAME:TYPE ...]` | A typed `Event` in the module's `events.py`; its channel is `<module>.<entity>.<verb>.v1`, taken from the class name. `--field` repeats, once per payload field, and `TYPE` is one of `str`, `int`, `float`, `bool`, `UUID`, `datetime`, `date`, `Decimal`; any other type is refused. Without `--field` the event carries `<entity>_id: UUID` and `tenant_id: UUID`: a `--field` list replaces `<entity>_id`, and `tenant_id` is added to it unless you name it. With `TENANCY_MODE=single` no `tenant_id` is added. |
+| `sandloom add module <name> [--no-tenant]` | Creates a module under the app's `modules` package and declares `<MODULE>_DEFAULT_PAGE_SIZE` in `settings.py`. The example table is `TenantScoped` with row-level security; `--no-tenant`, for an app without tenants, writes a plain table ([the scaffold is tenant-scoped](#the-scaffold-is-tenant-scoped)). |
+| `sandloom add event <module> <name> [--field NAME:TYPE ...] [--no-tenant]` | A typed `Event` in the module's `events.py`; its channel is `<module>.<entity>.<verb>.v1`, taken from the class name. `--field` repeats, once per payload field, and `TYPE` is one of `str`, `int`, `float`, `bool`, `UUID`, `datetime`, `date`, `Decimal`; any other type is refused. Without `--field` the event carries `<entity>_id: UUID` and `tenant_id: UUID`: a `--field` list replaces `<entity>_id`, and `tenant_id` is added to it unless you name it. With `--no-tenant` no `tenant_id` is added. |
 | `sandloom add consumer <module> <channel> [--field NAME:TYPE ...]` | A view of another module's event and an `@on` consumer of its channel. `--field` is as for `add event`; without it the view takes the producer's own fields, read from its class or its exported schema. |
 | `sandloom add contract <module> <name>` | A `@contract` class and its DTO in the module's `schemas.py`; the stub and the DTO copy are generated. |
 | `sandloom add contract-use <module> <contract>` | Declares `consumes=[ContractRequirement("<contract>")]` in the module's `define_module` and writes the stub (and the DTO copies it names) from the importable provider at once. |
@@ -109,26 +109,25 @@ generator has a how-to: [Add a module](../modules/create.md),
 `sandloom add --help` lists the generators and `sandloom add <generator> --help`
 says what each argument is.
 
-### The scaffold follows the app's tenancy
+### The scaffold is tenant-scoped
 
-`add module` and `add event` read the app's `TENANCY_MODE` without booting it. They
-look in the process environment, then `.env`, then `SECRETS_DIR`, as the app does.
-Where none names it the mode is `multi`, the setting's default. Any other value is
-refused, and the message names where it came from.
+`add module` and `add event` always scaffold tenant-scoped, and read no setting.
+A gitignored `.env` is per machine. A scaffold that followed it would write a
+table without row-level security into an app that is multi-tenant in
+production. `--no-tenant` is the explicit choice for an app without tenants.
 
-| `TENANCY_MODE` | `add module` | `add event` |
+| | `add module` | `add event` |
 |---|---|---|
-| `multi` (default) | The example table is `TenantScoped`: a `tenant_id` column, its index and row-level security in the baseline migration. The event, the service and the tests carry the tenant. | Adds `tenant_id: UUID` to the fields. |
-| `single` | A plain table (`Base`): no `tenant_id`, no row-level security, and tests that use `as_user(tenant=False)`. | Adds no `tenant_id`: the default is `<entity>_id` alone, and a `--field tenant_id:UUID` you name is written as given. |
+| default | The example table is `TenantScoped`: a `tenant_id` column, its index and row-level security in the baseline migration. The event, the service and the tests carry the tenant. | Adds `tenant_id: UUID` to the fields. |
+| `--no-tenant` | A plain table (`Base`): no `tenant_id`, no row-level security, and tests that use `as_user(tenant=False)`. | Adds no `tenant_id`: the default is `<entity>_id` alone, and a `--field tenant_id:UUID` you name is written as given. |
 
-`single` is the mode for an app without tenants. It binds one canonical tenant
-(`SINGLE_TENANT_ID`) and still filters a `TenantScoped` model you add yourself. Set
-it in `.env` and `.env.test` before `add module`. The setting decides, not the
-installed batteries: an app with no tenancy module that keeps the default `multi`
-gets the `TenantScoped` scaffold. `add projection` does not change, because a
-projection row always carries `tenant_id`. `sandloom new` writes its sample
-module before the app has a mode, so that module stays `TenantScoped` and its
-tests fail under `single`: adapt or delete it.
+A tenant-less module or event is for an app without tenants. In that app
+(`TENANCY_MODE=single`) one canonical tenant, `SINGLE_TENANT_ID`, is bound and
+still filters a `TenantScoped` model you add yourself. A wrong default costs an extra `tenant_id`. A wrong
+`--no-tenant` in a multi-tenant app costs the isolation, so pass it only where the
+app has no tenants. `add projection` has no flag, because a projection row always
+carries `tenant_id`. The sample module `sandloom new` writes is `TenantScoped`; in
+an app without tenants its tests fail: adapt or delete it.
 
 ## Tests and gates
 

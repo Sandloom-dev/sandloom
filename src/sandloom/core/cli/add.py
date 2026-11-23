@@ -26,11 +26,12 @@ Rules every generator keeps:
   that does not parse; any other existing target is written as ``*.new``;
 - the code uses only the beginner tier of ``sandloom.sdk`` (SANDLOOM-T009); an
   advanced name carries ``# sandloom: advanced <reason>``;
-- ``module`` and ``event`` follow the app's ``TENANCY_MODE``, read from the
-  environment and ``.env`` without booting the app: ``multi`` (the default)
-  scaffolds a ``TenantScoped`` table and ``tenant_id`` on the event, ``single``
-  a plain table and no ``tenant_id`` (``add projection`` always keys its rows
-  by tenant).
+- ``module`` and ``event`` scaffold tenant-scoped (a ``TenantScoped`` table,
+  ``tenant_id`` on the event); ``--no-tenant`` drops both, for an app without
+  tenants. The choice is the developer's, never read from the environment or
+  ``.env`` (a gitignored per-machine file would scaffold a table without
+  row-level security into an app that is multi-tenant in production);
+  ``add projection`` always keys its rows by tenant.
 
 Every generator is run into a fresh app by the framework's tests and the
 result must pass ``sandloom check`` and the app's own tests.
@@ -48,7 +49,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import sandloom.core.cli.scaffold_deploy as _deploy
 import sandloom.core.cli.skills as _skills
@@ -64,8 +65,6 @@ from sandloom.core.cli.scaffold_wiring import (
     project_root,
     wire_module,
 )
-from sandloom.core.config.module_settings import SourceSnapshot
-from sandloom.core.config.settings import Settings, effective_secrets_dir
 from sandloom.core.descriptors.derived_capabilities import defines_periodic
 from sandloom.core.tasks.cron import parse_cron
 
@@ -102,17 +101,10 @@ class Layout:
     shared_dir: Path | None
     shared_package: str | None
     source_root: Path
-    #: The app's ``TENANCY_MODE``. ``single`` binds one canonical tenant, so the
-    #: app declares no tenants: a module's example table is a plain one and an
-    #: event carries no ``tenant_id``. ``multi`` (the default) scaffolds both
-    #: tenant-scoped.
-    tenancy_mode: Literal["multi", "single"] = "multi"
-
-    @property
-    def tenant_scoped(self) -> bool:
-        """Whether a generated table is ``TenantScoped`` and a generated event
-        carries ``tenant_id`` (the app's ``TENANCY_MODE`` is ``multi``)."""
-        return self.tenancy_mode == "multi"
+    #: Whether a generated table is ``TenantScoped`` and a generated event
+    #: carries ``tenant_id``. The default; ``--no-tenant`` (an app without
+    #: tenants) turns it off. Never read from the app's settings.
+    tenant_scoped: bool = True
 
     def module_dir(self, module: str) -> Path:
         return self.modules_dir / module
@@ -138,8 +130,9 @@ class Layout:
         return not self.modules_package and (self.source_root / "sandloom").is_dir()
 
 
-def layout(root: Path) -> Layout:
-    """The layout of the project at ``root`` (its ``architecture_rules.yml``)."""
+def layout(root: Path, *, tenant_scoped: bool = True) -> Layout:
+    """The layout of the project at ``root`` (its ``architecture_rules.yml``);
+    ``tenant_scoped=False`` is ``--no-tenant``."""
     try:
         rules = load_rules(root / "architecture_rules.yml")
     except ManifestError as exc:
@@ -153,29 +146,7 @@ def layout(root: Path) -> Layout:
         shared_dir=rules.shared_dir,
         shared_package=rules.shared_dto_package,
         source_root=rules.source_root,
-        tenancy_mode=app_tenancy_mode(root),
-    )
-
-
-def app_tenancy_mode(root: Path) -> Literal["multi", "single"]:
-    """The app's ``TENANCY_MODE``, read without booting it: the process
-    environment, then ``<root>/.env``, then ``SECRETS_DIR`` (the order
-    ``Settings`` reads them in); ``multi`` where none sets it. A value
-    ``Settings`` would refuse is refused here too, naming where it came from."""
-    value, origin = SourceSnapshot(
-        env_file=root / ".env", secrets_dir=effective_secrets_dir(Settings)
-    ).get("TENANCY_MODE")
-    if value is None:
-        return "multi"
-    if value == "multi":
-        return "multi"
-    if value == "single":
-        return "single"
-    source = {"env": "the process environment", "dotenv": ".env"}.get(
-        origin or "", "SECRETS_DIR"
-    )
-    raise GeneratorError(
-        f"TENANCY_MODE={value!r} (from {source}): expected multi or single"
+        tenant_scoped=tenant_scoped,
     )
 
 
@@ -261,9 +232,9 @@ def _call(head: str, args: str) -> str:
 def _module_files(
     name: str, *, with_settings: bool, tenant_scoped: bool = True
 ) -> dict[str, str]:
-    """The files of a new module. ``tenant_scoped`` (the app's ``TENANCY_MODE``
-    is ``multi``): the example table is ``TenantScoped``, its event carries the
-    tenant and its tests prove the isolation; else all of that is left out."""
+    """The files of a new module. ``tenant_scoped`` (the default): the example
+    table is ``TenantScoped``, its event carries the tenant and its tests prove
+    the isolation; ``--no-tenant`` leaves all of that out."""
     cls = camel(name)
     item = f"{cls}Item"
     files: dict[str, str] = {}
@@ -272,7 +243,7 @@ def _module_files(
     item_doc = (
         "``TenantScoped``: rows belong to the bound tenant and are filtered by it."
         if tenant_scoped
-        else "A plain table: this app declares no tenants (``TENANCY_MODE=single``)."
+        else "A plain table (``--no-tenant``): for an app without tenants."
     )
     event_tenant = "    tenant_id: UUID\n" if tenant_scoped else ""
     publish_tenant = ", tenant_id=item.tenant_id" if tenant_scoped else ""
@@ -774,8 +745,9 @@ def add_event(module: str, name: str, where: Layout, fields: list[str]) -> list[
     """``sandloom add event <m> <Name>``: append a producer class to ``events.py``.
 
     The event carries ``tenant_id: UUID`` (bound as the consumer's tenant) unless
-    the app's ``TENANCY_MODE`` is ``single``: there a tenant-less event is legal,
-    and a ``--field tenant_id:UUID`` is still written as given."""
+    ``where`` is not tenant-scoped (``--no-tenant``, an app without tenants):
+    there a tenant-less event is legal, and a ``--field tenant_id:UUID`` is
+    still written as given."""
     directory = _require_module(where, module)
     if not _CLASS.fullmatch(name):
         raise GeneratorError(f"the event name must be CamelCase: {name!r}")
@@ -1238,11 +1210,10 @@ def add_consumer(
         "",
     ]
     lines += [f"    {n}: {a}" for n, a in view_fields]
-    bound = ", with the event's tenant bound" if where.tenant_scoped else ""
     block = (
         "\n".join(lines)
         + f"\n\n\n@on({cls})\nasync def {handler}(event: {cls}) -> None:\n"
-        + f'    """Runs once per event (durable){bound}."""\n'
+        + '    """Runs once per event (durable), with the event\'s tenant bound."""\n'
     )
     imports = sorted(
         {imp for _, a in view_fields if (imp := FIELD_TYPES.get(a, ("", None))[1])}
@@ -1842,6 +1813,13 @@ def _import_requirement(source: str, tree: ast.Module, name: str, line: str) -> 
 # --------------------------------------------------------------------------- #
 
 
+_NO_TENANT_HELP = (
+    "for an app without tenants: no TenantScoped table (a plain table, no "
+    "row-level security) and no tenant_id on the event. Without it the "
+    "scaffold is always tenant-scoped (no setting is read)"
+)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sandloom add",
@@ -1863,6 +1841,7 @@ def _parser() -> argparse.ArgumentParser:
         "a migration and tests",
     )
     module.add_argument("module", help="the new module's name (snake_case)")
+    module.add_argument("--no-tenant", action="store_true", help=_NO_TENANT_HELP)
     event = generator(
         "event",
         "append an event class to the module's events.py, with its channel "
@@ -1879,8 +1858,9 @@ def _parser() -> argparse.ArgumentParser:
         metavar="NAME:TYPE",
         help=f"a payload field, as name:type with type one of {types}; repeat "
         "it for each field (default: one <entity>_id: UUID field; the event "
-        "also gets tenant_id: UUID, unless the app declares TENANCY_MODE=single)",
+        "also gets tenant_id: UUID, unless --no-tenant)",
     )
+    event.add_argument("--no-tenant", action="store_true", help=_NO_TENANT_HELP)
     contract = generator(
         "contract",
         "a @contract provider in the module's contracts.py and its DTO in schemas.py",
@@ -2032,7 +2012,10 @@ def add_stack(root: Path) -> int:
 
 
 def _run(args: argparse.Namespace) -> tuple[list[Path], str | None]:
-    where = layout(args.root)
+    where = layout(
+        args.root,
+        tenant_scoped=not (args.what in ("module", "event") and args.no_tenant),
+    )
     if args.what == "skills":
         agents = _skills.choose_agents(
             args.root,
@@ -2116,7 +2099,6 @@ __all__ = [
     "add_saga",
     "add_skills",
     "add_task",
-    "app_tenancy_mode",
     "draft_options",
     "event_channel",
     "layout",
