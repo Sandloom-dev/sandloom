@@ -15,6 +15,7 @@ always win because we only set a default when the variable is absent.
 
 from __future__ import annotations
 
+import enum
 import os
 import sys
 from pathlib import Path
@@ -37,6 +38,7 @@ from pydantic import BaseModel  # noqa: E402
 from pydantic.fields import FieldInfo  # noqa: E402
 from pydantic_core import PydanticUndefined  # noqa: E402
 
+from sandloom.core import worker  # noqa: E402
 from sandloom.core.config import module_settings, tiers  # noqa: E402
 from sandloom.core.config.settings import Settings  # noqa: E402
 from sandloom.core.descriptors.module_names import installed_modules  # noqa: E402
@@ -171,10 +173,60 @@ _CATEGORIES: dict[str, str] = {
     "LOG_FORMAT": "Observability",
 }
 
+# A setting the table above does not name is placed by the longest prefix of its
+# name here. A setting no entry places stays under "Other", which the test of
+# this generator (``tests/docs/test_config_reference.py``) keeps empty.
+_PREFIX_CATEGORIES: dict[str, str] = {
+    "SANDLOOM_": "Core & Modules",
+    "SHUTDOWN_": "Lifecycle",
+    "BEAT_": "Lifecycle",
+    "HEALTH_": "Lifecycle",
+    "MIGRATION_": "Migrations",
+    "SAGA_": "Sagas",
+    "EVENT_": "Eventing & Outbox",
+    "OUTBOX_": "Eventing & Outbox",
+    "PROJECTION_": "Eventing & Outbox",
+    "RPC_": "Service Registry & RPC",
+    "SERVICE_": "Service Registry & RPC",
+    "CONTRACT_DB_": "Database",
+    "CONTRACT_": "Service Registry & RPC",
+    "DATABASE_": "Database",
+    "DB_": "Database",
+    "PLANNER_": "Database",
+    "NOTIFIER_": "Notifications",
+    "JWT_": "Security & JWT",
+    "AUTH_": "Security & JWT",
+    "PASSWORD_HASH_": "Security & JWT",
+    "INTERNAL_": "Security & JWT",
+    "METRICS_TOKEN": "Security & JWT",
+    "RATE_LIMIT_": "Security & JWT",
+    "MAX_SESSION_DAYS": "Security & JWT",
+    "TENANT_": "Multi-Tenancy",
+    "OTEL_": "Observability",
+    "BILLING_": "Billing",
+    "ADMIN_CONSOLE_": "Admin Console",
+}
+
+
+def _category(alias: str) -> str:
+    """The section of ``alias``: the curated table, else its longest prefix."""
+    if alias in _CATEGORIES:
+        return _CATEGORIES[alias]
+    best = max(
+        (prefix for prefix in _PREFIX_CATEGORIES if alias.startswith(prefix)),
+        key=len,
+        default=None,
+    )
+    return _PREFIX_CATEGORIES[best] if best is not None else "Other"
+
+
 _CATEGORY_ORDER = [
     "Core & Modules",
     "Infrastructure",
+    "Database",
+    "Migrations",
     "Eventing & Outbox",
+    "Sagas",
     "Service Registry & RPC",
     "Authorization",
     "Security & JWT",
@@ -184,10 +236,27 @@ _CATEGORY_ORDER = [
     "Notifications",
     "SSO",
     "Frontend & CORS",
+    "Admin Console",
     "Observability",
     "Lifecycle",
     "Other",
 ]
+
+#: Variables the worker process reads from its own environment, outside
+#: ``Settings`` (so no model field lists them): ``(name, default, description)``.
+_PROCESS_VARIABLES: tuple[tuple[str, str, str], ...] = (
+    (
+        worker.WORKER_CONCURRENCY_ENV,
+        f"the CPU quota, at most {worker.MAX_DEFAULT_WORKER_CONCURRENCY}",
+        "Worker processes of `sandloom worker` (the `--concurrency` option "
+        "overrides it). A positive integer; anything else refuses to start.",
+    ),
+    (
+        worker.TASKQUEUE_INSTANCE_ENV,
+        "`default`",
+        "The task queue instance of INFRA the worker runs.",
+    ),
+)
 
 
 def _type_label(annotation: object) -> str:
@@ -195,8 +264,11 @@ def _type_label(annotation: object) -> str:
     text = str(annotation)
     text = text.replace("typing.", "").replace("sandloom.core.config.settings.", "")
     text = text.replace("pydantic.types.", "")
-    # Collapse the common Optional spelling.
-    text = text.replace(" | None", " | None")
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        # ``<enum 'Environment'>`` says nothing: list the accepted values.
+        return "`" + " | ".join(repr(member.value) for member in annotation) + "`"
+    if text.startswith("Optional[") and text.endswith("]"):
+        text = f"{text[len('Optional[') : -1]} | None"
     if text.startswith("<class '") and text.endswith("'>"):
         text = text[len("<class '") : -len("'>")]
     return f"`{text}`"
@@ -238,15 +310,13 @@ def render_pages() -> dict[str, str]:
     }
     for name, field in Settings.model_fields.items():
         alias = field.alias or name.upper()
-        category = _CATEGORIES.get(alias, "Other")
-        buckets.setdefault(category, []).append((alias, field))
+        buckets.setdefault(_category(alias), []).append((alias, field))
     # The settings the bundled modules declare (ADR-0015) are read from their
     # models, not from ``Settings``.
     for model in _MODULE_SETTINGS:
         for name, field in model.model_fields.items():
             alias = field.alias or name.upper()
-            category = _CATEGORIES.get(alias, "Other")
-            buckets.setdefault(category, []).append((alias, field))
+            buckets.setdefault(_category(alias), []).append((alias, field))
 
     lines: list[str] = []
     lines.append("---")
@@ -277,8 +347,8 @@ def render_pages() -> dict[str, str]:
     lines.append(
         '!!! note "Configuration tiers"\n'
         "    Each setting is **semantic** (changes a guarantee; its value is chosen "
-        "per profile), **ops** (capacity / operations) or **migration** "
-        "(transitional, with a removal version). The per-profile table of the "
+        "per profile) or **ops** (capacity / operations); there is no transitional "
+        "tier. The per-profile table of the "
         "semantic settings and the active-override reporting are in "
         "[Configuration Tiers](configuration-tiers.md)."
     )
@@ -298,6 +368,19 @@ def render_pages() -> dict[str, str]:
                 f"| {_default_label(field)} | {_description(field)} |"
             )
         lines.append("")
+
+    lines.append("## Worker process variables")
+    lines.append("")
+    lines.append(
+        "Read by the worker process from its own environment, not by `Settings`: "
+        "`sandloom config dump` does not show them."
+    )
+    lines.append("")
+    lines.append("| Env var | Default | Description |")
+    lines.append("| --- | --- | --- |")
+    for name, default, description in _PROCESS_VARIABLES:
+        lines.append(f"| `{name}` | {default} | {description} |")
+    lines.append("")
 
     lines.append("---")
     lines.append("")

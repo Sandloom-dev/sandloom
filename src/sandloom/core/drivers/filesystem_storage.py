@@ -49,7 +49,11 @@ class Storage:
         # Defaults come from settings so `Storage()` keeps its historic
         # behavior; explicit kwargs let the infra layer build named instances
         # (e.g. a separate "exports" object store) without touching globals.
-        self.type = storage_type if storage_type is not None else settings.storage_type
+        self.type = (
+            storage_type
+            if storage_type is not None
+            else (settings.storage_type or "local")
+        )
         self.path = path if path is not None else settings.storage_path
         self.max_upload_size_bytes = (
             max_upload_size_bytes

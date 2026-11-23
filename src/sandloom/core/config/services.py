@@ -11,13 +11,15 @@ class ServicesConfig(BaseModel):
     """Object storage, request-size caps, API docs and notifications."""
 
     # Storage
-    storage_type: Literal["local", "s3", "gcs", "yc"] = Field(
-        default="local",
+    storage_type: Literal["local", "s3", "gcs", "yc"] | None = Field(
+        default=None,
         alias="STORAGE_TYPE",
         description=(
-            "Default storage driver selector; local files ship ready to use, "
-            "while other selections require a matching installed and configured "
-            "driver."
+            "Default storage driver selector. Unset, the driver the app's "
+            "composition or INFRA selects stands, else local files, which ship "
+            "ready to use; set, it replaces the composition's choice (with a "
+            "warning) and other selections require a matching installed and "
+            "configured driver."
         ),
     )
     storage_path: str = Field(
@@ -58,11 +60,13 @@ class ServicesConfig(BaseModel):
     # Notifications: default "log" delivers by structured log (zero-dependency,
     # safe everywhere); "smtp" sends email through the options of
     # INFRA.notification.default.
-    notifier_backend: Literal["log", "smtp"] = Field(
-        default="log",
+    notifier_backend: Literal["log", "smtp"] | None = Field(
+        default=None,
         alias="NOTIFIER_BACKEND",
         description=(
-            "Default notifier driver: log records delivery metadata without "
+            "Default notifier driver. Unset, the driver the app's composition or "
+            "INFRA selects stands, else log; set, it replaces the composition's "
+            "choice (with a warning). log records delivery metadata without "
             "message contents; smtp sends email with the options of "
             "INFRA.notification.default."
         ),

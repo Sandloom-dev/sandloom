@@ -1855,6 +1855,25 @@ naming it is refused, the requirement when the module loads.
         "docs/adr/0016-kernel-ports-and-driver-packages.md",
     ),
     _entry(
+        "SANDLOOM-B042",
+        "unknown-driver-option",
+        "boot",
+        "an INFRA instance carries an option its driver does not accept",
+        "fix the option name the refusal lists (the accepted keys are named, "
+        "with the nearest one), or remove it",
+        """
+Every key of an INFRA instance except driver is passed to the driver as an
+option, and each driver declares the options it accepts. A key it does not
+declare (urll for url, bukcet for bucket) is refused at startup instead of
+being ignored, because an ignored option leaves the driver on its default (a
+cache on localhost, a bucket nobody named). The refusal names the instance, the
+driver, every unknown key, the accepted keys and, for a near miss, the key you
+probably meant. A value of the wrong type or a missing required option is a
+different refusal and reads as the driver's own options error.
+""",
+        "docs/infrastructure/configure.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -2699,6 +2718,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "DriverLoadError": "SANDLOOM-B022",
     "ExperimentalCapabilityRefused": "SANDLOOM-B023",
     "KernelOnlyCapabilityRefused": "SANDLOOM-B041",
+    "UnknownDriverOptionError": "SANDLOOM-B042",
     "IncompatibleSqlDialect": "SANDLOOM-B025",
     "InvalidDbapiAdapter": "SANDLOOM-B025",
     "RowSecurityUnavailable": "SANDLOOM-B026",
