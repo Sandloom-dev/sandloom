@@ -237,7 +237,7 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
     planned = {
         p.path.resolve().relative_to(root).as_posix(): p.content
         for p in generated
-        if p.path.resolve().is_relative_to(root)
+        if not p.remove and p.path.resolve().is_relative_to(root)
     }
     route_documents = {
         value["module"]: value["routes"]

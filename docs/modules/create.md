@@ -116,6 +116,14 @@ The generator also writes `schemas.py` (pydantic request and response
 models), `models/__init__.py` (imports every `models/*.py`),
 `migrations/env.py` and `migrations/script.py.mako`.
 
+The files above are the default: always tenant-scoped. For an app without
+tenants, run `sandloom add module <name> --no-tenant`: the table is a plain
+`Base` with no `tenant_id` column, and the baseline migration enables no
+row-level security. The event and `publish()` carry no tenant, and tests call
+`as_user(tenant=False)`. The generator reads no setting, so a table never loses
+its row-level security because of one machine's configuration. See
+[the scaffold is tenant-scoped](../reference/cli.md#the-scaffold-is-tenant-scoped).
+
 ### 3. Replace the example with your domain
 
 1. Rename or replace `BoardItem` in `models/`. Add one file per table;

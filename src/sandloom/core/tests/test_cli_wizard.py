@@ -634,6 +634,16 @@ def test_the_framework_flags_are_hidden_from_help_but_work() -> None:
     assert args.framework_source == "path" and str(args.framework_path) == "/r"
 
 
+def test_new_help_points_a_framework_contributor_to_the_contributing_docs() -> None:
+    """The flags stay hidden (the test above) but ``--help`` says they exist and
+    where they are documented, at a url the docs site really serves."""
+    text = " ".join(wizard.parser().format_help().split())
+    assert "Working on the framework itself?" in text
+    assert f"{wizard.DOCS_URL}contributing/setup/" in text
+    page = Path(__file__).resolve().parents[4] / "docs" / "contributing" / "setup.md"
+    assert "--framework-source" in page.read_text(encoding="utf-8")
+
+
 def test_after_a_setup_the_summary_uses_the_port_dev_up_chose(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
