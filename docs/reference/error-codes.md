@@ -2221,7 +2221,10 @@ option is written: __table_args__, a column of mapped_column or Column, a
 Table mapped imperatively, a mixin, or the base table of an inheritance
 hierarchy (every table of the mapper is read). A constraint or a column added
 to the table of a TenantScoped model afterwards is refused when it is attached.
-The value is matched as text, in any case: "replace" counts. The other
+The value is matched as text, in any case: "replace" counts. The check reads
+the spelling and not the option, so sqlite_on_conflict_not_null="REPLACE",
+which swaps a NULL for the column default and deletes nothing, is refused too.
+The other
 conflict resolutions (IGNORE, FAIL, ABORT, ROLLBACK) do not delete a row and
 are not refused here; tenant_upsert still refuses a table that declares any
 of them (SANDLOOM-R018).
