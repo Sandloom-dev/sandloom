@@ -29,6 +29,7 @@ from __future__ import annotations
 import functools
 import itertools
 import re
+import threading
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
@@ -973,6 +974,147 @@ def test_the_keys_the_joined_errors_ask_for_are_not_refused(
             )
 
     _in_order(review_first, review, employees)
+
+
+# A single-table subclass shares the table of its parent: it is no joined subclass and
+# must not overwrite what the joined subclass above it recorded (the review's round 3).
+
+#: How long a definition may take before it counts as hung.
+_HANG_SECONDS = 15
+
+
+def _defined_without_hanging(define: Define) -> None:
+    """``define`` runs in a thread that is given ``_HANG_SECONDS``: a loop at import
+    fails the test where it would otherwise stop the suite."""
+    base, suffix = _fresh()
+    failures: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            define(base, suffix)
+        except BaseException as error:  # noqa: BLE001 - handed to the test thread
+            failures.append(error)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(_HANG_SECONDS)
+    assert not thread.is_alive(), "the definition of the models does not end"
+    if failures:
+        raise failures[0]
+
+
+def _joined_then_single_table(base: Any, t: str) -> None:
+    """``Emp`` (tenant) <- ``Mgr`` joined <- ``Senior`` single-table on ``Mgr``."""
+    emp = _employee(base, t)
+
+    class Mgr(emp):
+        __tablename__ = f"tgap_m_{t}"
+        __mapper_args__ = {"polymorphic_identity": "mgr"}
+
+        id: Mapped[int] = mapped_column(ForeignKey(f"tgap_e_{t}.id"), primary_key=True)
+
+    class Senior(Mgr):
+        __mapper_args__ = {"polymorphic_identity": "senior"}
+
+
+def _tenant_car_then_single_table(base: Any, t: str) -> None:
+    """``Vehicle`` (no tenant) <- ``Car`` (tenant, joined) <- ``Sports`` single-table
+    on ``Car``."""
+    car = _tenant_car(_vehicle(base, t), t)
+
+    class Sports(car):
+        __mapper_args__ = {"polymorphic_identity": "sports"}
+
+
+SINGLE_TABLE_UNDER_JOINED: dict[str, Define] = {
+    "a tenant base, a joined subclass, a single-table subclass of it": (
+        _joined_then_single_table
+    ),
+    "a base without a tenant, a tenant joined subclass, a single-table subclass": (
+        _tenant_car_then_single_table
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "define", SINGLE_TABLE_UNDER_JOINED.values(), ids=SINGLE_TABLE_UNDER_JOINED
+)
+def test_a_single_table_subclass_of_a_joined_subclass_keeps_the_inherit_key(
+    define: Define,
+) -> None:
+    _defined_without_hanging(define)
+
+
+def test_a_single_table_subclass_records_no_inheritance_of_its_own() -> None:
+    """The table of ``Senior`` is the table of ``Mgr``: ``Mgr`` stays what it was, a
+    table that inherits the base, and no table inherits itself."""
+    base, suffix = _fresh()
+    _joined_then_single_table(base, suffix)
+    registered = {
+        table.name: (inherited.name if inherited is not None else None)
+        for table in base.metadata.tables.values()
+        for inherited in [tenant_module._inherited_tables.get(table)]
+    }
+    assert registered == {
+        f"tgap_e_{suffix}": None,
+        f"tgap_m_{suffix}": f"tgap_e_{suffix}",
+    }
+
+
+def test_the_search_for_an_inherited_table_ends_on_a_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata = MetaData()
+    first = Table("tgap_cycle_a", metadata, Column("id", Integer, primary_key=True))
+    second = Table("tgap_cycle_b", metadata, Column("id", Integer, primary_key=True))
+    other = Table("tgap_cycle_c", metadata, Column("id", Integer, primary_key=True))
+    monkeypatch.setitem(tenant_module._inherited_tables, first, second)
+    monkeypatch.setitem(tenant_module._inherited_tables, second, first)
+    answers: list[bool] = []
+    thread = threading.Thread(
+        target=lambda: answers.append(tenant_module._inherits_from(first, other)),
+        daemon=True,
+    )
+    thread.start()
+    thread.join(_HANG_SECONDS)
+    assert not thread.is_alive(), "the search does not end"
+    assert answers == [False]
+
+
+def _manager_with_a_second_primary_key_column_to_the_base(base: Any, t: str) -> None:
+    """``Mgr`` has primary key ``(id, boss_id)`` and both columns reference ``Emp.id``:
+    only ``id`` is the inherit condition, so ``boss_id`` may name any employee."""
+    metadata = MetaData()
+    emp = Table(
+        f"tgap_e_{t}",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("tenant_id", Uuid, nullable=False),
+        UniqueConstraint("tenant_id", "id"),
+    )
+    mgr = Table(
+        f"tgap_m_{t}",
+        metadata,
+        Column("id", Integer, ForeignKey(emp.c.id), primary_key=True),
+        Column("boss_id", Integer, ForeignKey(emp.c.id), primary_key=True),
+    )
+
+    class Emp(TenantScoped):
+        pass
+
+    class Mgr(Emp):
+        pass
+
+    reg = registry()
+    reg.map_imperatively(Emp, emp)
+    reg.map_imperatively(Mgr, mgr, inherits=Emp, inherit_condition=emp.c.id == mgr.c.id)
+
+
+def test_a_second_key_on_the_primary_key_to_the_base_is_refused() -> None:
+    """The exemption is the inherit condition and no other key of the primary key."""
+    error = _refused(_manager_with_a_second_primary_key_column_to_the_base)
+    assert error.sandloom_code == "SANDLOOM-R020"
+    assert re.search(r"tgap_m_\d+\(boss_id\) -> tgap_e_\d+\(id\)", str(error))
 
 
 # A TenantScoped subclass of a model that is no tenant model: the base table holds no

@@ -2262,8 +2262,10 @@ give it a tenant column and pair it yourself.
 A joined subclass table (a TenantScoped subclass with a table of its own)
 holds no tenant column: it joins the row of its base table. It is a tenant
 table all the same. The one key it may have without tenant_id is the inherit
-key, its primary key to the primary key of the table it inherits from. Any other
-key from it, or to it, is refused: declare the key on the base table, and point
+key, the one whose columns are exactly the inherit condition of the mapper: its
+primary key to the primary key of the table it inherits from. Any other key
+from it (a second key from a primary key column to the base included), or to
+it, is refused: declare the key on the base table, and point
 a key to a joined subclass at the base table. The reverse shape, a TenantScoped
 model that inherits a model that is not TenantScoped, keeps the tenant column
 on the subclass table: its base table has none, and the error names the

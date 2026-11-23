@@ -84,6 +84,7 @@ from sqlalchemy.sql.selectable import (
     Values,
 )
 from sqlalchemy.sql.type_api import TypeEngine
+from sqlalchemy.sql.util import criterion_as_pairs
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
@@ -250,7 +251,15 @@ _tenant_homes: weakref.WeakKeyDictionary[Table, Table] = weakref.WeakKeyDictiona
 
 #: A joined subclass table and the table it inherits from: the pair its inherit key
 #: joins, the one key between tenant tables that needs no tenant column.
+#: A single-table subclass shares its parent's table and records nothing.
 _inherited_tables: weakref.WeakKeyDictionary[Table, Table] = weakref.WeakKeyDictionary()
+
+#: The column pairs ``(child column, parent column)`` of the inherit condition of a
+#: joined subclass table: the one foreign key that needs no tenant column is the
+#: one whose pairs are exactly these.
+_inherit_pairs: weakref.WeakKeyDictionary[Table, frozenset[tuple[str, str]]] = (
+    weakref.WeakKeyDictionary()
+)
 
 #: The TenantScoped tables by lower-cased name (the guard matches tables by name,
 #: never by identity: a name may be two ``Table`` objects).
@@ -385,6 +394,29 @@ def _mapped_tenant_column(
     return column, ""
 
 
+def _inherit_condition_pairs(
+    mapper: Mapper[Any], child: Table, parent: Table
+) -> frozenset[tuple[str, str]]:
+    """The ``(child column, parent column)`` pairs of the inherit condition of the
+    joined subclass ``mapper``, empty unless every pair is a primary key column of
+    ``child`` and the matching primary key column of ``parent``."""
+    condition = mapper.inherit_condition
+    if condition is None:
+        return frozenset()
+    pairs = {
+        (column.name, referred.name)
+        for referred, column in criterion_as_pairs(
+            condition, consider_as_foreign_keys=set(child.c)
+        )
+        if column.table is child and referred.table is parent
+    }
+    child_keys = {column.name for column in child.primary_key}
+    parent_keys = {column.name for column in parent.primary_key}
+    if any(c not in child_keys or p not in parent_keys for c, p in pairs):
+        return frozenset()
+    return frozenset(pairs)
+
+
 def _note_tenant_tables(mapper: Mapper[Any], tables: Sequence[Table]) -> None:
     """Record ``tables`` as the tables of a TenantScoped mapper: each with the name
     of the tenant column it holds, a joined subclass table with its base table and
@@ -397,8 +429,14 @@ def _note_tenant_tables(mapper: Mapper[Any], tables: Sequence[Table]) -> None:
             names.add(column.name)
         elif column is not None:
             _tenant_homes[table] = column.table
-        if isinstance(inherited, Table) and table is mapper.local_table:
+        if (
+            isinstance(inherited, Table)
+            and table is mapper.local_table
+            and not mapper.single
+            and inherited is not table
+        ):
             _inherited_tables[table] = inherited
+            _inherit_pairs[table] = _inherit_condition_pairs(mapper, table, inherited)
         _known_tenant_tables[table] = frozenset(names)
         _tenant_tables_named.setdefault(table.name.lower(), weakref.WeakSet()).add(
             table
@@ -442,24 +480,33 @@ def _keeps_the_tenant(
 
 def _is_inherit_key(constraint: ForeignKeyConstraint, child: Table) -> bool:
     """``constraint`` is the key a joined subclass table ``child`` has on the table
-    it inherits from: its primary key to the primary key of that table. The row it
-    joins is the one the same flush wrote, so it is the one foreign key between
-    tenant tables that needs no tenant column."""
+    it inherits from: its primary key to the primary key of that table, the very
+    column pairs of the mapper's inherit condition. The row it joins is the one the
+    same flush wrote, so it is the one foreign key between tenant tables that needs
+    no tenant column."""
     inherited = _inherited_tables.get(child)
     if inherited is None:
         return False
-    return _referred(constraint)[0] == inherited.name.lower() and {
-        element.parent.name for element in constraint.elements
-    } <= {column.name for column in child.primary_key}
+    pairs = {
+        (element.parent.name, element.target_fullname.split(".")[-1])
+        for element in constraint.elements
+    }
+    return (
+        _referred(constraint)[0] == inherited.name.lower()
+        and bool(pairs)
+        and pairs == _inherit_pairs.get(child)
+    )
 
 
 def _inherits_from(table: Table, ancestor: Table) -> bool:
     """``table`` is the table of a mapper that inherits ``ancestor``, directly or
     through other mappers."""
+    seen: set[Table] = set()
     current = _inherited_tables.get(table)
-    while current is not None:
+    while current is not None and current not in seen:
         if current is ancestor:
             return True
+        seen.add(current)
         current = _inherited_tables.get(current)
     return False
 

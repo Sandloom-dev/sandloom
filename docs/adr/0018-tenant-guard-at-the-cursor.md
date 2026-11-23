@@ -285,8 +285,10 @@ exists. The check is an allowlist built on one column: the tenant column of a mo
   insert locks and probes a parent row of another tenant. Every foreign key of every table of a
   tenant mapper whose referred table is a tenant table must pair the tenant column of both: the
   table of a joined subclass is a tenant table without a tenant column of its own, so no key on it
-  or to it can pair one. The only exception is the inherit key of a joined subclass, its primary key
-  to the table it inherits from: the row it joins is the one the same flush wrote. A key from a
+  or to it can pair one. The only exception is the inherit key of a joined subclass, the key whose
+  columns are exactly the mapper's inherit condition (its primary key to the primary key of the table
+  it inherits from): the row it joins is the one the same flush wrote. A single-table subclass shares
+  its parent's table and adds no such key. A key from a
   subclass is declared on the base table, and a key to a subclass targets the base table,
   `emp(tenant_id, id)`; the error says so. The reverse shape, a tenant model that inherits a model
   that is no tenant model, keeps the column on the subclass table: the base table has none, and

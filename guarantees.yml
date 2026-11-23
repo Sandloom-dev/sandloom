@@ -589,8 +589,8 @@ guarantees:
     name, the schema ignored, as the guard matches them, and the tenant column is the one named tenant_id or
     the one the attribute tenant_id maps, so a column the database calls org_id is covered and named in the
     fix; a joined-inheritance subclass table is a tenant table without a tenant column, so no key on it or to
-    it can pair the tenant, and only its inherit key, its primary key to the table it inherits from, is
-    exempt; a key of the subclass is declared on its base table and a key to the subclass targets the base
+    it can pair the tenant, and only its inherit key, the key whose columns are exactly the inherit condition
+    (its primary key to the primary key of the table it inherits from), is exempt; a key of the subclass is declared on its base table and a key to the subclass targets the base
     table, which the error says; a foreign key to a table that is not a tenant table, and a table that is not
     a tenant table pointing at a tenant table, are not refused). SANDLOOM-R021, a tenant column that is not
     one plain mapped Column of exactly SQLAlchemy's Uuid. The attribute tenant_id of the mapper must be a
@@ -631,6 +631,10 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_to_the_subclass_table_names_the_base_table_it_must_target
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_keys_the_joined_errors_ask_for_are_not_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_subclass_of_a_base_without_a_tenant_keeps_its_inherit_key
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_single_table_subclass_of_a_joined_subclass_keeps_the_inherit_key
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_single_table_subclass_records_no_inheritance_of_its_own
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_search_for_an_inherited_table_ends_on_a_cycle
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_second_key_on_the_primary_key_to_the_base_is_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_to_a_base_table_without_a_tenant_names_the_subclass_table
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_on_a_base_table_without_a_tenant_names_the_subclass_table
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_schema_and_the_case_of_a_table_name_survive_into_the_fix
