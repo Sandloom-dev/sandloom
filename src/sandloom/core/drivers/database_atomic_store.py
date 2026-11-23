@@ -60,7 +60,6 @@ import hashlib
 import logging
 import os
 import time
-import weakref
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, ClassVar
 
@@ -298,12 +297,11 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         #: it, so a registry that only logs the refusal never serves from it.
         self._refusal: str | None = None
         self._purge_task: asyncio.Task[None] | None = None
-        #: The turn of a SQLite writer (see ``_write_turn``): one lock per
-        #: running event loop (a lock binds to the loop that first waits on it),
-        #: dropped in a forked child (a lock the parent held would stay locked).
-        self._turn_locks: weakref.WeakKeyDictionary[
-            asyncio.AbstractEventLoop, asyncio.Lock
-        ] = weakref.WeakKeyDictionary()
+        #: The turn of a SQLite writer (see ``_write_turn``): the lock of the
+        #: running event loop (a lock binds to the loop that first waits on it;
+        #: one slot, so a closed loop is not kept past the next loop), dropped in
+        #: a forked child (a lock the parent held would stay locked).
+        self._turn_slot: tuple[asyncio.AbstractEventLoop, asyncio.Lock] | None = None
         self._turn_pid = os.getpid()
         #: Turns that ended without an error: the queue's sign of life.
         self._turns_served = 0
@@ -410,29 +408,44 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         """The turn lock of the running loop (a forked child starts with none)."""
         pid = os.getpid()
         if pid != self._turn_pid:
-            self._turn_locks = weakref.WeakKeyDictionary()
-            self._turn_pid = pid
+            self._turn_slot, self._turn_pid = None, pid
         loop = asyncio.get_running_loop()
-        lock = self._turn_locks.get(loop)
-        if lock is None:
-            lock = self._turn_locks[loop] = asyncio.Lock()
-        return lock
+        if self._turn_slot is None or self._turn_slot[0] is not loop:
+            self._turn_slot = (loop, asyncio.Lock())
+        return self._turn_slot[1]
 
     async def _take_turn(self, operation: str, lock: asyncio.Lock) -> None:
-        """Wait for the turn, at most ``statement_timeout_seconds`` without a
-        turn ending well in between: a queue that moves keeps its waiters, a
-        queue stuck behind a lock this store does not hold (another process, a
-        second store on the file) fails them near the deadline, not one
-        deadline after another."""
-        while True:
-            seen = self._turns_served
-            try:
-                async with asyncio.timeout(self._opts.statement_timeout_seconds):
-                    await lock.acquire()
-                return
-            except TimeoutError as exc:
+        """Wait for the turn in the lock's FIFO queue. The waiter keeps ONE
+        pending acquire and looks at it every ``statement_timeout_seconds``
+        (cancelling and asking again would rejoin at the back of the queue).
+        It gives up with ``Timeout`` when no turn ended without an error in that
+        time: a queue that moves keeps its waiters, a queue stuck behind a lock
+        this store does not hold fails them near the deadline, not one deadline
+        after another. A moving queue has no fixed bound; each turn ends within
+        its own deadline, so a waiter with k writers ahead waits at most k
+        deadlines."""
+        acquire = asyncio.ensure_future(lock.acquire())
+        try:
+            while True:
+                seen = self._turns_served
+                done, _ = await asyncio.wait(
+                    {acquire}, timeout=self._opts.statement_timeout_seconds
+                )
+                if done:
+                    return
                 if self._turns_served == seen:
-                    raise self._failure(operation, exc) from None
+                    raise self._failure(operation, TimeoutError())
+        except BaseException:
+            acquire.cancel()
+            # A turn granted at the instant of giving up is handed on.
+            acquire.add_done_callback(
+                lambda task: (
+                    lock.release()
+                    if not task.cancelled() and task.exception() is None
+                    else None
+                )
+            )
+            raise
 
     @contextlib.asynccontextmanager
     async def _write_turn(

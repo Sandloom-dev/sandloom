@@ -11,10 +11,12 @@ database is SQLite.
 from __future__ import annotations
 
 import asyncio
+import gc
 import os
 import sqlite3
 import time
 import uuid
+import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import partial
 from pathlib import Path
@@ -23,6 +25,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import Table, text
+from sqlalchemy import exc as sa_exc
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
@@ -466,7 +469,8 @@ async def test_writers_queued_behind_a_foreign_lock_fail_near_the_deadline(
 ) -> None:
     """Another connection holds SQLite's write lock: the writer holding the turn
     waits on it and the queue behind it must not wait one deadline after the
-    other (4 writers, 0.5 s deadline: about 0.5 s, never 4 x busy timeout)."""
+    other (8 writers, 0.5 s deadline: about 0.5 s; one deadline after the other
+    would take 4 s)."""
     path = sqlite_url.split(":///", 1)[1]
     foreign = sqlite3.connect(path, isolation_level=None)
     foreign.execute("BEGIN IMMEDIATE")
@@ -474,11 +478,11 @@ async def test_writers_queued_behind_a_foreign_lock_fail_near_the_deadline(
     try:
         started = time.monotonic()
         results = await asyncio.gather(
-            *(provider.set(f"k{i}", "v") for i in range(4)), return_exceptions=True
+            *(provider.set(f"k{i}", "v") for i in range(8)), return_exceptions=True
         )
         elapsed = time.monotonic() - started
-        assert [type(r) for r in results] == [Timeout] * 4, results
-        assert elapsed < 3.0, (
+        assert [type(r) for r in results] == [Timeout] * 8, results
+        assert elapsed < 2.0, (
             f"the queue failed one deadline after the other: {elapsed}"
         )
         foreign.rollback()
@@ -487,6 +491,78 @@ async def test_writers_queued_behind_a_foreign_lock_fail_near_the_deadline(
     finally:
         foreign.close()
         await provider.aclose()
+
+
+async def test_a_waiter_that_keeps_waiting_keeps_its_place_in_the_queue(
+    sqlite_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Writers A-F start together, G arrives while they queue; each turn takes
+    0.1 s and the wait is looked at every 0.25 s. A waiter that gave up its
+    acquire at that look and asked again would rejoin behind G."""
+    order: list[str] = []
+    original = DatabaseAtomicStoreProvider._write_if_higher
+
+    async def recording(
+        conn: Any, dialect: Any, key: str, *args: Any, **kwargs: Any
+    ) -> str | None:
+        order.append(key)
+        held = await original(conn, dialect, key, *args, **kwargs)
+        await asyncio.sleep(0.1)
+        return held
+
+    monkeypatch.setattr(
+        DatabaseAtomicStoreProvider, "_write_if_higher", staticmethod(recording)
+    )
+    provider = _provider(sqlite_url, statement_timeout_seconds=0.25)
+
+    async def late() -> str:
+        await asyncio.sleep(0.12)
+        return await provider.set_subject_state("G", "v1:after:1")
+
+    try:
+        await asyncio.gather(
+            *(provider.set_subject_state(key, "v1:after:1") for key in "ABCDEF"),
+            late(),
+        )
+        assert order == list("ABCDEFG")
+    finally:
+        await provider.aclose()
+
+
+def test_a_closed_event_loop_is_not_kept_by_the_turn(tmp_path: Path) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'leak.db'}"
+    asyncio.run(_create_table(url))
+    provider = _provider(url)
+    loops: list[weakref.ref[asyncio.AbstractEventLoop]] = []
+
+    async def contended() -> None:
+        loops.append(weakref.ref(asyncio.get_running_loop()))
+        await asyncio.gather(*(provider.set(f"k{i}", "v") for i in range(5)))
+
+    try:
+        for _ in range(4):
+            asyncio.run(contended())
+        gc.collect()
+        assert sum(ref() is not None for ref in loops) <= 1
+    finally:
+        asyncio.run(provider.aclose())
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("database is locked", Timeout),
+        ("disk I/O error", Unavailable),
+    ],
+)
+def test_a_locked_database_is_a_timeout_and_another_sqlite_error_is_not(
+    message: str, expected: type[Exception]
+) -> None:
+    """SQLite's busy handler giving up is the wait for the write lock running
+    out; any other operational error stays ``Unavailable``."""
+    provider = _provider("sqlite+aiosqlite:///unused.db")
+    error = sa_exc.OperationalError("INSERT", {}, sqlite3.OperationalError(message))
+    assert type(provider._failure("set", error)) is expected
 
 
 async def _peak_concurrency(
