@@ -15,8 +15,7 @@ modules_package: tasklist.modules
 source_root: .
 
 # The framework's ENFORCED public API for business modules: sandloom.sdk (Public
-# API 1.0), and the sandloom.core modules it supersedes until the 1.0 migration
-# completes.
+# API 1.0). No sandloom.core module is listed: `sandloom check` refuses one.
 public_api:
   - sandloom.sdk
   - sandloom.sdk.app
@@ -36,12 +35,6 @@ public_api:
   - sandloom.sdk.testing
   - sandloom.sdk.tooling
   - sandloom.sdk.web
-  - sandloom.core.di
-  - sandloom.core.facade
-  - sandloom.core.module_api
-  - sandloom.core.descriptors
-  - sandloom.core.orm
-  - sandloom.core.projections
 # Further framework packages a module may import.
 shared_api:
   - sandloom.shared

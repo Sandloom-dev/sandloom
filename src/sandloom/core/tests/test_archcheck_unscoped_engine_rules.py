@@ -541,7 +541,7 @@ def _app(tmp_path: Path, files: dict[str, str]) -> Path:
     manifest.write_text(
         "modules_path: acme/modules\n"
         "modules_package: acme.modules\n"
-        "public_api:\n  - sandloom.core.di\n"
+        "public_api:\n  - sandloom.sdk\n"
     )
     return manifest
 

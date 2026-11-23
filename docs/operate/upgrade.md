@@ -186,6 +186,32 @@ infrastructure registry from the settings and asks the driver's host. It needs t
 `DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
 
+## Upgrading an application: no `sandloom.core` in `public_api`
+
+A business module imports `sandloom.sdk` and nothing of `sandloom.core`. The
+`public_api` list of `architecture_rules.yml` names the framework modules a module may
+import, and it no longer accepts a kernel module. `sandloom check` refuses a file that lists
+one, before it scans any module, with
+[SANDLOOM-C038](../reference/error-codes.md#sandloom-c038) and exit code 2. There is no
+warning phase and no alias. An application scaffolded before this release lists six
+kernel modules, `sandloom.core.di` first; the examples listed fewer.
+
+| Before | After |
+| --- | --- |
+| `public_api` lists `sandloom.core.di` (or any other `sandloom.core.*` module) | Delete the line. The refusal names every entry to delete |
+| `public_api` lists `sandloom` or `sandloom.core` | Delete the line. The import check matches an entry by prefix, so either one would still let a module import the kernel, and both are refused too |
+| `public_api` lists `sandloom.core.testing` or `sandloom.core.contract_testing` | Delete the line. A module's tests keep both through `test_api`, whose default is unchanged |
+| `public_api` left out, or empty | Nothing to do: the default is the `sandloom.sdk` modules |
+| A module or a test imports `sandloom.core.*` | `sandloom check` reports it (`framework-imports`, and SANDLOOM-C013 for a test). Move each import to its `sandloom.sdk` home: [the table of Public API 1.0](upgrade-1.0.md#imports-move-to-sandloomsdk) |
+
+Delete the entries first: with them in place the check cannot run and reports no import.
+Then run `uv run sandloom check` and fix the imports it reports. A file-scoped `allowlist`
+entry that names a `sandloom.core` import is a separate exception. Remove it once the
+import moves.
+
+The repository's `public_api_baseline.json` no longer records the six kernel modules: they
+are not public API.
+
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 
 Four answers of `TenantScope` have a stable `code`, and two of them new

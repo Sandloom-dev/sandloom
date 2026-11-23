@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from sandloom.core import error_codes
 from sandloom.core.archcheck import RULES, load_rules, run_checks
 from sandloom.core.archcheck.analyzers import (
     dynamic_imports,
@@ -30,13 +31,20 @@ from sandloom.core.archcheck.analyzers import (
     parse_file,
     parse_imports,
 )
-from sandloom.core.archcheck.manifest import DEFAULT_TEST_API
+from sandloom.core.archcheck.manifest import (
+    CORE_IN_PUBLIC_API_CODE,
+    DEFAULT_PUBLIC_API,
+    DEFAULT_TEST_API,
+    ManifestError,
+)
 from sandloom.core.archcheck.runner import (
     API10_RULES,
     PENDING_RULES,
     driver_import_violations,
     iter_module_test_files,
 )
+from sandloom.core.cli.check import main as check_main
+from sandloom.core.cli.project import generate_project
 
 BACKEND = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "_fixtures"
@@ -215,7 +223,7 @@ def test_kernel_handles_rule_runs_in_sandloom_check(tmp_path: Path) -> None:
     manifest.write_text(
         "modules_path: src/acme/modules\n"
         "modules_package: acme.modules\n"
-        "public_api:\n  - sandloom.core.di\n"
+        "public_api:\n  - sandloom.sdk\n"
     )
     violations = run_checks(load_rules(manifest), only=["kernel-handles"])
     assert [v.rule for v in violations] == ["kernel-handles"]
@@ -252,7 +260,7 @@ def _app_with_module_test(tmp_path: Path, body: str, allowlist: str = "[]") -> P
     manifest.write_text(
         "modules_path: acme/modules\n"
         "modules_package: acme.modules\n"
-        "public_api:\n  - sandloom.core.di\n"
+        "public_api:\n  - sandloom.sdk\n"
         f"allowlist: {allowlist}\n"
     )
     return manifest
@@ -318,7 +326,7 @@ def test_test_imports_is_a_whitelist() -> None:
     hits = module_test_import_hits(
         ACME / "tests" / "test_leaks.py.txt",
         own_package="acme.modules.orders",
-        allowed=("sandloom.core.di", "sandloom.shared", *DEFAULT_TEST_API),
+        allowed=("sandloom.sdk", "sandloom.shared", *DEFAULT_TEST_API),
         namespaces=(
             "sandloom",
             "acme.modules",
@@ -448,3 +456,178 @@ def test_a_module_cannot_reach_the_kit_through_the_parent_package(
     module = tmp_path / "services.py"
     module.write_text(source)
     assert find_legacy_infra_imports(module)
+
+
+def test_the_repository_and_every_example_list_no_kernel_module() -> None:
+    """``public_api`` is ``sandloom.sdk`` in the repository's own manifest and in
+    each example's: ``load_rules`` refuses a kernel entry (SANDLOOM-C038), and a
+    refused file fails here before the example's CI job does."""
+    manifests = [
+        BACKEND / "architecture_rules.yml",
+        *sorted((BACKEND / "examples").glob("*/architecture_rules.yml")),
+    ]
+    assert {m.parent.name for m in manifests[1:]} >= {
+        "academy",
+        "helpdesk",
+        "linkly",
+        "oidc-identity",
+        "projecthub",
+        "tutorial",
+    }
+    for manifest in manifests:
+        assert "sandloom.sdk" in load_rules(manifest).public_api, manifest
+
+
+# --- SANDLOOM-C038: a ``public_api`` that lists the kernel is refused ---------
+#
+# A business module imports ``sandloom.sdk`` and nothing of ``sandloom.core``. The
+# manifest's ``public_api`` names what a module may import, so an entry that would
+# let a module import the kernel (a ``sandloom.core`` module, ``sandloom.core``
+# itself, or ``sandloom``, which the prefix match of the import check lets cover
+# it) fails ``load_rules`` and with it ``sandloom check``: no warning phase.
+
+#: What the scaffold of an earlier release listed (and the repository did).
+FORMER_KERNEL_ENTRIES = (
+    "sandloom.core.di",
+    "sandloom.core.facade",
+    "sandloom.core.module_api",
+    "sandloom.core.descriptors",
+    "sandloom.core.orm",
+    "sandloom.core.projections",
+)
+
+
+def _public_api_manifest(tmp_path: Path, entries: list[str] | None) -> Path:
+    """A manifest over one module; ``entries`` None leaves ``public_api`` out."""
+    (tmp_path / "app" / "modules" / "m").mkdir(parents=True)
+    (tmp_path / "app" / "modules" / "m" / "__init__.py").write_text("")
+    text = "modules_path: app/modules\n"
+    if entries is not None:
+        text += "public_api:\n" + "".join(f"  - {e}\n" for e in entries)
+    manifest = tmp_path / "architecture_rules.yml"
+    manifest.write_text(text)
+    return manifest
+
+
+def test_the_refusal_code_is_catalogued_as_a_check() -> None:
+    entry = error_codes.get(CORE_IN_PUBLIC_API_CODE)
+    assert entry.kind == "check"
+    assert "docs/operate/upgrade.md" in entry.fix
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        *FORMER_KERNEL_ENTRIES,
+        "sandloom.core",  # the package itself
+        "sandloom",  # covers sandloom.core by prefix
+        "sandloom.core.testing",  # a test surface is not module API either
+        "sandloom.core.*",  # a glob is still a sandloom.core entry
+    ],
+)
+def test_a_public_api_listing_the_kernel_is_refused(tmp_path: Path, entry: str) -> None:
+    manifest = _public_api_manifest(tmp_path, ["sandloom.sdk", entry])
+    with pytest.raises(ManifestError) as raised:
+        load_rules(manifest)
+    message = str(raised.value)
+    assert CORE_IN_PUBLIC_API_CODE in message
+    assert f"delete {entry} from `public_api`" in message
+    assert "docs/operate/upgrade.md" in message
+    assert str(manifest) in message
+
+
+def test_the_refusal_names_every_entry_to_delete(tmp_path: Path) -> None:
+    manifest = _public_api_manifest(
+        tmp_path,
+        ["sandloom.core.orm", "sandloom.sdk", "sandloom.core.di", "sandloom.shared"],
+    )
+    with pytest.raises(ManifestError) as raised:
+        load_rules(manifest)
+    assert "delete sandloom.core.di, sandloom.core.orm from `public_api`" in str(
+        raised.value
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "sandloom.sdk",
+        "sandloom.sdk.testing.fixtures",
+        "sandloom.shared",  # shared_api's default, not the kernel
+        "sandloom.corelib",  # a sibling name that only starts like the kernel
+        "sandloom_core",
+        "app.modules",
+    ],
+)
+def test_an_entry_that_does_not_cover_the_kernel_loads(
+    tmp_path: Path, entry: str
+) -> None:
+    rules = load_rules(_public_api_manifest(tmp_path, [entry]))
+    assert rules.public_api == {entry}
+
+
+def test_a_manifest_without_public_api_takes_the_sdk_default(tmp_path: Path) -> None:
+    for entries in (None, []):
+        rules = load_rules(_public_api_manifest(tmp_path / str(entries), entries))
+        assert rules.public_api == set(DEFAULT_PUBLIC_API)
+    assert all(e.startswith("sandloom.sdk") for e in DEFAULT_PUBLIC_API)
+    assert "sandloom.sdk" in DEFAULT_PUBLIC_API
+
+
+def test_the_default_is_the_public_api_of_the_repository_and_the_scaffold(
+    tmp_path: Path,
+) -> None:
+    """One list, three places: a drift here is a module that passes
+    ``sandloom check`` in one tree and fails it in another."""
+    assert load_rules(BACKEND / "architecture_rules.yml").public_api == set(
+        DEFAULT_PUBLIC_API
+    )
+    generate_project("probe", tmp_path)
+    scaffold = load_rules(tmp_path / "probe" / "architecture_rules.yml")
+    assert scaffold.public_api == set(DEFAULT_PUBLIC_API)
+
+
+def test_sandloom_check_refuses_the_manifest_with_exit_code_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The refusal comes before the scan: a module that would be a violation
+    does not turn it into exit code 1."""
+    generate_project("probe", tmp_path, sample_module="gadgets")
+    rules = tmp_path / "probe" / "architecture_rules.yml"
+    leak = tmp_path / "probe" / "probe" / "modules" / "gadgets" / "leak.py"
+    leak.write_text("async def f(db):\n    await db.rollback()\n")
+    assert check_main(["--rules", str(rules)]) == 1  # the leak alone is a violation
+    capsys.readouterr()
+
+    rules.write_text(
+        rules.read_text().replace(
+            "public_api:\n",
+            "public_api:\n  - sandloom.core.di\n  - sandloom.core.orm\n",
+        )
+    )
+    assert check_main(["--rules", str(rules)]) == 2
+    err = capsys.readouterr().err
+    assert CORE_IN_PUBLIC_API_CODE in err
+    assert "delete sandloom.core.di, sandloom.core.orm from `public_api`" in err
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "from sandloom.core.di import db_session\n",
+        "from sandloom.core.module_api import define_module\n",
+        "import sandloom.core.orm\n",
+        "from sandloom.core.projections import Projection\n",
+    ],
+)
+def test_a_module_importing_the_kernel_fails_sandloom_check_in_a_fresh_app(
+    tmp_path: Path, line: str
+) -> None:
+    generate_project("probe", tmp_path, sample_module="gadgets")
+    rules = load_rules(tmp_path / "probe" / "architecture_rules.yml")
+    assert run_checks(rules, only=["framework-imports"]) == []
+    leak = tmp_path / "probe" / "probe" / "modules" / "gadgets" / "leak.py"
+    leak.write_text(line)
+    found = run_checks(rules, only=["framework-imports"])
+    assert [v.rule for v in found] == ["framework-imports"]
+    assert "non_public_api" in found[0].detail

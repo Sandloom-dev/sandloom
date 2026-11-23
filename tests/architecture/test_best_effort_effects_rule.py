@@ -100,7 +100,7 @@ def test_rule_runs_in_sandloom_check(tmp_path: Path) -> None:
     manifest.write_text(
         "modules_path: src/acme/modules\n"
         "modules_package: acme.modules\n"
-        "public_api:\n  - sandloom.core.di\n"
+        "public_api:\n  - sandloom.sdk\n"
     )
     violations = run_checks(load_rules(manifest), only=["best-effort-effects"])
     assert [v.rule for v in violations] == ["best-effort-effects"]

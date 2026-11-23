@@ -322,7 +322,7 @@ async def test_operator_lock_does_not_block_concurrent_ordinary_credit_spend(
 ):
     import asyncio
 
-    from sandloom.core.di import db_session
+    from sandloom.sdk.data import open_uow  # sandloom: advanced the test's own unit
     from sandloom_billing.services.billing_service import BillingService
 
     customer = BillingCustomer(user_id=uuid.uuid4())
@@ -366,7 +366,7 @@ async def test_operator_lock_does_not_block_concurrent_ordinary_credit_spend(
         await asyncio.wait_for(locked.wait(), 3)
 
         async def ordinary_spend():
-            async with db_session() as db:
+            async with open_uow() as db:
                 current = await db.get(BillingCustomer, cid)
                 return await BillingService.spend_credits(
                     current, 10, "ordinary-spend", db, reason="Usage"

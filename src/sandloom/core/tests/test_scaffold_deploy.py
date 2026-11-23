@@ -55,8 +55,8 @@ _MODULES = {
         'register = define_module(__name__, version="0.1.0")\n'
     ),
     "probeord/api.py": (
-        "from sandloom.core.descriptors.contract_refs import ContractRef\n"
-        "from sandloom.sdk import Contract, CurrentUser, module_router\n\n"
+        "from sandloom.sdk import Contract, CurrentUser, module_router\n"
+        "from sandloom.sdk.contracts import ContractRef\n\n"
         "router = module_router()\n"
         'lookup = Contract(ContractRef("probecat.lookup.v1"))\n\n\n'
         '@router.get("/ping")\n'

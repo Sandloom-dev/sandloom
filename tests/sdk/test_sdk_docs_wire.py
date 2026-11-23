@@ -37,7 +37,7 @@ def test_an_app_shared_package_is_read_too(
     (app / "shared" / "contracts" / "__init__.py").write_text("")
     (app / "shared" / "contracts" / "notes_count_v1.py").write_text(
         "from typing import Protocol\n"
-        "from sandloom.core.descriptors.contract_refs import ContractRef\n\n\n"
+        "from sandloom.sdk.contracts import ContractRef\n\n\n"
         "class NotesCountV1(Protocol):\n"
         "    async def count(self) -> int:\n"
         '        """How many notes the tenant has."""\n\n\n'
