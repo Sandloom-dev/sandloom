@@ -326,16 +326,27 @@ def _flat_selection(settings: Any, capability: str) -> str | None:
     return str(value) if value is not None else None
 
 
+def _infra_driver(raw: object, capability: str) -> str | None:
+    """The driver ``INFRA`` names for ``capability``'s ``default`` instance."""
+    spec = raw.get(capability) if isinstance(raw, Mapping) else None
+    chosen = spec.get(DEFAULT_INSTANCE) if isinstance(spec, Mapping) else None
+    driver = chosen.get("driver") if isinstance(chosen, Mapping) else None
+    return str(driver) if driver else None
+
+
 def _default_driver(config: InfraConfig, settings: Any, capability: str) -> str:
     """The driver of ``capability``'s ``default`` instance before ``INFRA``: an
     explicit flat setting, else what the composition selected, else the
     kernel's fallback. A flat setting that replaces the composition's own
-    choice says so (it dropped that choice's options before, silently)."""
+    choice says so (it dropped that choice's options before, silently), unless
+    ``INFRA`` names the driver too: then the flat setting is ignored and
+    :func:`_warn_flat_shadowed_by_infra` says that."""
     flat = _flat_selection(settings, capability)
     existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
     if flat is None:
         return existing.driver if existing is not None else _KERNEL_FALLBACK[capability]
-    if existing is not None and existing.driver != flat:
+    infra_driver = _infra_driver(getattr(settings, "infra", None), capability)
+    if existing is not None and existing.driver != flat and infra_driver is None:
         name = _FLAT_SELECTORS[capability][0]
         _warn_once(
             f"{name}={flat} replaces the {capability}.default driver the app "
@@ -350,9 +361,7 @@ def _warn_flat_shadowed_by_infra(settings: Any, raw: Mapping[str, Any]) -> None:
     ignored: say so, once."""
     for capability, (name, _) in _FLAT_SELECTORS.items():
         flat = _flat_selection(settings, capability)
-        spec = raw.get(capability)
-        chosen = spec.get(DEFAULT_INSTANCE) if isinstance(spec, Mapping) else None
-        driver = chosen.get("driver") if isinstance(chosen, Mapping) else None
+        driver = _infra_driver(raw, capability)
         if flat is not None and driver and driver != flat:
             _warn_once(
                 f"INFRA.{capability}.default selects {driver}; {name}={flat} is "
@@ -389,7 +398,7 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
     # kept), else ``local`` and ``log``; the options of ``smtp`` (host, port,
     # credentials, ``use_tls``) come from INFRA.notification.
     store_driver = _default_driver(synthesized, settings, "objectstore")
-    if store_driver != "s3":
+    if store_driver == "local":
         objectstore_options["path"] = settings.storage_path
     _select(synthesized, "objectstore", store_driver, objectstore_options)
     _select(

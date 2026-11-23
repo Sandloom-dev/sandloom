@@ -749,8 +749,9 @@ class Settings(
 
     @model_validator(mode="after")
     def _storage_requirements(self) -> Settings:
-        # ``s3``: the driver validates its options (INFRA.objectstore.default).
-        if self.storage_type in (None, "local") and not self.storage_path:
+        # ``s3`` and an unset selector: the driver validates its own options
+        # (INFRA.objectstore.default; the local driver checks ``path``).
+        if self.storage_type == "local" and not self.storage_path:
             raise ValueError("STORAGE_PATH is required when STORAGE_TYPE=local")
         return self
 

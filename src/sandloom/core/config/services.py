@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ServicesConfig(BaseModel):
     """Object storage, request-size caps, API docs and notifications."""
+
+    @field_validator("storage_type", "notifier_backend", mode="before")
+    @classmethod
+    def _empty_selector_is_unset(cls, value: object) -> object:
+        """``STORAGE_TYPE=`` / ``NOTIFIER_BACKEND=`` (what a compose file's
+        ``${NOTIFIER_BACKEND:-}`` passes when the operator sets nothing) means
+        unset: the app's own driver choice stands."""
+        return None if value == "" else value
 
     # Storage
     storage_type: Literal["local", "s3", "gcs", "yc"] | None = Field(

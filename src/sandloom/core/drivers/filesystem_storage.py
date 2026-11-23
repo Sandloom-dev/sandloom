@@ -61,6 +61,11 @@ class Storage:
             else settings.max_upload_size_bytes
         )
         if self.type == "local":
+            if not self.path:
+                raise ValueError(
+                    "STORAGE_PATH is required for the local object store "
+                    "(INFRA.objectstore.<name>.path or STORAGE_PATH)"
+                )
             os.makedirs(self.path, exist_ok=True)
 
     def _resolve(self, filename: str) -> str:

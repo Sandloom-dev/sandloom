@@ -175,7 +175,7 @@ _CATEGORIES: dict[str, str] = {
 
 # A setting the table above does not name is placed by the longest prefix of its
 # name here. A setting no entry places stays under "Other", which the test of
-# this generator (``tests/docs/test_config_reference.py``) keeps empty.
+# this generator (``tests/architecture/test_config_reference_page.py``) keeps empty.
 _PREFIX_CATEGORIES: dict[str, str] = {
     "SANDLOOM_": "Core & Modules",
     "SHUTDOWN_": "Lifecycle",

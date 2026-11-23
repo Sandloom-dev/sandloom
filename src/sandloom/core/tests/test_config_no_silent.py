@@ -21,6 +21,7 @@ from sandloom.core.cli import config as config_cli
 from sandloom.core.cli import doctor
 from sandloom.core.config.settings import Settings, settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
+from sandloom.core.drivers.filesystem_storage import Storage
 from sandloom.core.error_codes import code_for_exception
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
@@ -139,6 +140,82 @@ def test_a_warning_is_written_once_per_process(
         load_infra_config(settings)
         load_infra_config(settings)
     assert caplog.text.count("STORAGE_TYPE=local replaces") == 1
+
+
+@pytest.mark.usefixtures("app_selection")
+def test_infra_naming_the_driver_gets_one_warning_not_two(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(settings, "notifier_backend", "log")
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"notification": {"default": {"driver": "smtp", "host": "other"}}},
+        raising=False,
+    )
+    with caplog.at_level(logging.WARNING, logger="sandloom.infra"):
+        load_infra_config(settings)
+    assert "NOTIFIER_BACKEND=log is ignored" in caplog.text
+    assert "replaces" not in caplog.text
+
+
+@pytest.mark.parametrize("name", ["STORAGE_TYPE", "NOTIFIER_BACKEND"])
+def test_an_empty_selector_is_unset(name: str) -> None:
+    """What a compose file's ``${NAME:-}`` passes when the operator sets nothing."""
+    loaded = Settings(_env_file=None, **{name: ""}, **_BASE)  # type: ignore[call-arg]
+    field = {"STORAGE_TYPE": "storage_type", "NOTIFIER_BACKEND": "notifier_backend"}
+    assert getattr(loaded, field[name]) is None
+
+
+def test_an_empty_selector_keeps_the_composition_s_driver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_module, "_PIN", None)
+    monkeypatch.setattr(config_module, "_APP", None)
+    monkeypatch.setattr(config_module, "_WARNED", set())
+    use_default_infra(_S3_AND_SMTP)
+    loaded = Settings(  # type: ignore[call-arg]
+        _env_file=None, STORAGE_TYPE="", NOTIFIER_BACKEND="", **_BASE
+    )
+    monkeypatch.setattr(loaded, "infra", {}, raising=False)
+    cfg = load_infra_config(loaded)
+    assert cfg["objectstore"][DEFAULT_INSTANCE].driver == "s3"
+    assert cfg["notification"][DEFAULT_INSTANCE].options["host"] == "h"
+
+
+def test_a_wrong_selector_value_is_still_refused() -> None:
+    with pytest.raises(ValueError, match="NOTIFIER_BACKEND"):
+        Settings(_env_file=None, NOTIFIER_BACKEND="nope", **_BASE)  # type: ignore[call-arg]
+
+
+@pytest.mark.usefixtures("app_selection")
+def test_a_plugin_store_gets_no_path_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    use_default_infra({"objectstore": {"default": {"driver": "gcs"}}})
+    cfg = load_infra_config(settings)
+    assert "path" not in cfg["objectstore"][DEFAULT_INSTANCE].options
+
+
+@pytest.mark.usefixtures("app_selection")
+def test_the_local_store_gets_the_path_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    use_default_infra({"database": {"default": {"driver": "sqlalchemy"}}})
+    cfg = load_infra_config(settings)
+    assert cfg["objectstore"][DEFAULT_INSTANCE].options["path"] == (
+        settings.storage_path
+    )
+
+
+def test_an_empty_storage_path_is_accepted_by_settings_and_refused_by_the_driver() -> (
+    None
+):
+    Settings(  # type: ignore[call-arg]
+        _env_file=None, STORAGE_TYPE="", STORAGE_PATH="", **_BASE
+    )
+    with pytest.raises(ValueError, match="STORAGE_PATH is required"):
+        Storage(storage_type="local", path="")
 
 
 # ------------------------------------------------- misspelled settings ----
