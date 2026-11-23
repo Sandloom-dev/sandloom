@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
+import sandloom.core.config.settings as _settings
 from sandloom.core.auth import claims_view as _claims_view
 from sandloom.core.claims import (
     ENVELOPE_KEYS,
@@ -93,12 +94,11 @@ def default_tenant_id() -> uuid.UUID:
     """The tenant a minted token carries when the test names none: the
     canonical ``SINGLE_TENANT_ID`` under ``TENANCY_MODE=single`` (any other
     tenant is a 403 ``tenant_mismatch`` there), else a fresh one."""
-    from sandloom.core.config.settings import settings  # noqa: PLC0415 - cold: settings snapshot - the pytest plugin imports this module before .env.test is loaded
-
-    if settings.tenancy_mode == "single":
-        if settings.single_tenant_id is None:
+    process = _settings.settings
+    if process.tenancy_mode == "single":
+        if process.single_tenant_id is None:
             raise RuntimeError("TENANCY_MODE=single requires SINGLE_TENANT_ID")
-        return uuid.UUID(str(settings.single_tenant_id))
+        return uuid.UUID(str(process.single_tenant_id))
     return uuid.uuid4()
 
 

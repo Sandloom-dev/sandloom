@@ -8,13 +8,13 @@ wraps the same loader and reports a missing file as a usage error.
 
 from __future__ import annotations
 
-import sys
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+import sandloom.core.config.settings as _settings
 from sandloom.core.testing.connections import apply_test_pool_profile
 from sandloom.core.testing.workers import apply_test_overrides, apply_worker_env
 
@@ -43,14 +43,10 @@ def dev_up_hint(starts: Iterable[Path]) -> str | None:
 
 def settings_read() -> bool:
     """Whether the process settings were loaded already (their environment
-    snapshot taken). The module is not imported for the answer, and importing
-    it is not reading it: the plugins import it (the kernel's imports reach it),
-    the first attribute access loads it."""
-    module = sys.modules.get("sandloom.core.config.settings")
-    if module is None:
-        return False
-    loaded: Callable[[], bool] = module.settings_loaded
-    return loaded()
+    snapshot taken). Importing the settings module is not reading it: the
+    plugins import it (the kernel's imports reach it), the first attribute
+    access loads it."""
+    return _settings.settings_loaded()
 
 
 def ignore_dotenv() -> None:
@@ -61,9 +57,7 @@ def ignore_dotenv() -> None:
     it. A test run is composed of the shell, ``.env.test``, ``.env.test.local``
     and ``SANDLOOM_TEST_*`` only: the pytest plugin calls this right after
     :func:`load_test_env`, before anything loads the settings. Idempotent."""
-    from sandloom.core.config.settings import Settings  # noqa: PLC0415 - cold: settings snapshot - the pytest plugin imports this module before .env.test is loaded
-
-    Settings.model_config["env_file"] = None
+    _settings.Settings.model_config["env_file"] = None
 
 
 class MissingTestEnvError(RuntimeError):
