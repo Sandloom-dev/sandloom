@@ -362,7 +362,13 @@ guarantees:
     MissingTenantError with none. ORM statements over tenant models, flush writes whose default is a custom
     @compiles element that reads no table, and statements that name no tenant table stay allowed. The test
     harness's schema reset, ensure_model_schema and fixtures that build tenant tables run inside
-    unscoped(). Not covered, by design - Connection.exec_driver_sql (no compiled statement), a text()
+    unscoped(). Not covered, by design - Connection.exec_driver_sql (no compiled statement), a
+    before_cursor_execute listener registered with retval=True on the engine, a connection or the Engine
+    class (it runs after the cursor check has read the compiled statement and replaces the SQL text or
+    the parameters the driver receives), a dialect listener (do_execute, do_executemany,
+    do_execute_no_params) that runs the cursor itself and returns True (SQLAlchemy then skips the dialect
+    method that holds the cursor check, write admission and the tenant_rls setting sync with it); both
+    reach a tenant table as exec_driver_sql does, see ADR-0018 decision 8, a text()
     sent straight to session.execute (the caller's), SQL the database builds from text no scan can read
     (PostgreSQL dynamic SQL such as query_to_xml with a concatenated name, table_to_xml(oid::regclass) and
     DO $$ EXECUTE $$, and a view, function or trigger over a tenant table; row-level security holds
@@ -413,6 +419,13 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_untracked_closure_holding_a_raw_tenant_subquery_is_refused
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_an_untracked_lambda_statement_gets_no_memoized_verdict
   - src/sandloom/core/tests/test_tenant_guard_cursor.py::test_a_tracked_lambda_statement_keeps_its_memoized_verdict
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_listener_that_only_observes_leaves_the_guard_whole
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_retval_listener_that_replaces_the_sql_reaches_another_tenants_rows
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_retval_listener_that_replaces_the_parameters_reaches_another_tenants_rows
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_dialect_listener_that_runs_the_cursor_reads_another_tenants_rows
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_do_executemany_listener_that_runs_the_cursor_writes_another_tenants_rows
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_exec_driver_sql_has_the_same_reach_as_the_rewriting_listener
+  - src/sandloom/core/tests/test_tenant_guard_cursor_listener.py::test_a_before_execute_listener_that_replaces_the_statement_is_refused
 - id: G-TENANT-26
   statement: A flush write is an allowlist - the plain Core INSERT, UPDATE or DELETE the persistence layer
     builds, reading no tenant table, over the Table object (by identity, not by name) of a mapper the
@@ -490,15 +503,18 @@ guarantees:
     on a tenant table outside unscoped(). It takes plain Python rows and builds the statement itself - a row
     key resolved through mapper.column_attrs to its Column, a value that is a SQL expression, text() or
     literal_column() refused, the tenant column never a row key (its value is the bound tenant, bound with
-    the column's own type), the conflict target a unique key that includes the tenant column (a DEFERRABLE
+    the column's own type, which a TenantScoped model must declare as exactly SQLAlchemy's Uuid, so no type
+    processes it, see G-TENANT-28), the conflict target a unique key that includes the tenant column (a DEFERRABLE
     key is no candidate; a row of another tenant is never the conflicting row, so the update never touches
     it), SET col = excluded.col for the listed columns other than the tenant and the primary key, WHERE the
     tenant column = the bound tenant, no RETURNING, CTE or caller expression - and a model in an
     inheritance hierarchy, a model whose tenant column is not named tenant_id in the database, a model with
     no unique key that includes the tenant column, a model with a column that is not exactly Column, a
-    model with a <dialect>_on_conflict* option on a column, a constraint or an index (SQLite's
-    sqlite_on_conflict* is the one that exists, and its REPLACE deletes the row that holds the key,
-    whichever tenant owns it) and a call whose statement would read a tenant table (a
+    model that declares a <dialect>_on_conflict* option, of any value, on a column, a constraint or an index
+    (SQLite's sqlite_on_conflict* is the one that exists; its REPLACE deletes the row that holds the key,
+    whichever tenant owns it, and is refused when the model is defined as well, see G-TENANT-28; the helper
+    reads the options the model declares, never the live database schema, so a table built another way is
+    not read) and a call whose statement would read a tenant table (a
     column default, onupdate or type bind_expression that selects from one) are refused with
     SANDLOOM-R018 before anything is sent or flushed. The cursor admits a conflict insert on a tenant
     table only when it carries the helper's private marker AND has exactly that shape, read from the
@@ -516,13 +532,13 @@ guarantees:
     table and writes only the upserted table. The marker alone admits nothing, counts only at the cursor (the marked statement run
     through session.execute stays refused) and is removed when the call ends, so a captured statement
     cannot be run again. Every other conflict insert on a tenant table, DO NOTHING included, stays refused
-    outside unscoped(). Not covered, by design - every other key and every foreign key acts as on a plain
-    insert, so a primary key or another unique key that another tenant holds fails with the database's
-    integrity error, which shows that the key exists, and a foreign key to a tenant table locks the row it
-    references, which may be another tenant's. PostgreSQL runs its uniqueness and foreign key checks
-    outside row-level security, so a policy hides neither the key nor the row. Use keys that are not
-    reused across tenants and composite foreign keys (tenant_id, parent_id), which refuse a parent of
-    another tenant. An instance the session already holds keeps its old values until it is refreshed.
+    outside unscoped(). Not covered, by design - every other key acts as on a plain insert, so a primary key
+    or another unique key that another tenant holds fails with the database's integrity error, which shows
+    that the key exists. PostgreSQL runs its uniqueness checks outside row-level security, so a policy
+    hides nothing. Use keys that are not reused across tenants. (A foreign key from a tenant table to
+    another tenant table that does not pair the tenant on both sides is not a case the helper meets, the
+    model is refused when it is defined, G-TENANT-28.) An instance the session already holds keeps its old values until it
+    is refreshed.
   sources:
   - docs/modules/database/multi-tenancy.md
   - docs/adr/0018-tenant-guard-at-the-cursor.md
@@ -546,7 +562,8 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_conflict_insert_the_caller_builds_stays_refused
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_refused_statement_does_not_decide_for_the_next_one
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_table_with_a_conflict_resolution_of_its_own_is_refused
-  - src/sandloom/core/tests/test_tenant_upsert.py::test_sqlite_replace_never_deletes_the_row_of_another_tenant
+  - src/sandloom/core/tests/test_tenant_upsert.py::test_a_conflict_clause_of_the_tables_own_never_decides_for_the_helper
+  - src/sandloom/core/tests/test_tenant_upsert.py::test_a_clause_added_after_the_definition_is_refused_by_the_helper
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_column_that_is_not_exactly_a_column_is_refused
   - src/sandloom/core/tests/test_tenant_upsert.py::test_the_statement_is_built_for_the_database_of_the_mapper
   - src/sandloom/core/tests/test_tenant_upsert.py::test_the_candidate_keys_are_named_by_attribute
@@ -557,8 +574,84 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_statement_that_reads_nothing_is_not_refused
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_refused_read_leaves_the_pending_changes_of_the_session_pending
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_unique_key_without_the_tenant_acts_as_on_a_plain_insert
-  - src/sandloom/core/tests/test_tenant_upsert.py::test_a_foreign_key_without_the_tenant_acts_as_on_a_plain_insert
   - src/sandloom/core/tests/test_tenant_upsert.py::test_a_composite_foreign_key_refuses_the_parent_of_another_tenant
+- id: G-TENANT-28
+  statement: A TenantScoped model whose plain INSERT would reach another tenant through the database, where
+    the cursor guard sees only values and filters of the bound tenant, is refused when it is defined, with
+    UnsafeTenantModelError (an UnsafeTenantOperationError) and a SANDLOOM code, before any table or row exists.
+    SANDLOOM-R019, a REPLACE conflict clause (SQLite's ON CONFLICT REPLACE on a primary key, a unique
+    constraint or a column, any case, deletes the row that holds the key whichever tenant owns it; IGNORE,
+    ABORT, FAIL and ROLLBACK delete nothing and stay allowed). SANDLOOM-R020, a foreign key between tenant
+    tables that does not pair tenant_id on both sides (the database accepts, locks and probes a parent
+    row of another tenant, PostgreSQL outside row-level security; the key must pair the tenant columns,
+    (tenant_id, col) -> parent(tenant_id, id), and the error names it, tables spelled as declared, schema and
+    case included; whichever of the two models is defined second is refused, tables match by lower-cased
+    name, the schema ignored, as the guard matches them, and the tenant column is the one named tenant_id or
+    the one the attribute tenant_id maps, so a column the database calls org_id is covered and named in the
+    fix; a joined-inheritance subclass table is a tenant table without a tenant column, so no key on it or to
+    it can pair the tenant, and only its inherit key, the key whose columns are exactly the inherit condition
+    (its primary key to the primary key of the table it inherits from), is exempt; a key of the subclass is declared on its base table and a key to the subclass targets the base
+    table, which the error says; a foreign key to a table that is not a tenant table, and a table that is not
+    a tenant table pointing at a tenant table, are not refused). SANDLOOM-R021, a tenant column that is not
+    one plain mapped Column of exactly SQLAlchemy's Uuid. The attribute tenant_id of the mapper must be a
+    mapped column over exactly one Column of a table of the mapper with the default comparator, and no
+    table of the mapper may have another column called tenant_id (a synonym, a hybrid_property, an
+    expression, a comparator of its own and a subclass that does not map the column are refused for
+    their shape, because the guard and the foreign-key check would read a column other than the one a
+    statement binds), and the type must be exactly Uuid (its postgresql spelling UUID included, every
+    dialect variant of it too) - a TypeDecorator, a UserDefinedType, a subclass or a type_coerce of the
+    attribute can store a tenant other than the one the guard bound; this is what tenant_upsert (G-TENANT-27)
+    relies on when it binds the tenant with the column's own type. The check reads every table the mapper of a
+    TenantScoped class maps, whatever declared it - __table_args__, a column keyword, mapped_column or Column,
+    a mixin or declared_attr, declarative or imperative mapping, joined inheritance, one Table under two
+    models - and a constraint or column attached to such a table afterwards is refused as it is attached, so
+    a rejected constraint stays on that Table object and the process is not meant to go on with it. Not
+    covered, by design - what the model does not declare, such as a table built by hand or by a migration with a
+    clause or a key the model leaves out, a unique key that leaves the tenant out (G-TENANT-27's own not
+    covered), a foreign key to a table that is not a tenant table, and a clause other than REPLACE that
+    changes a row. The check runs once per mapper at definition, never on a statement, and costs the
+    keys of the new mapper plus the keys that point at it, not the models defined so far.
+  sources:
+  - docs/modules/database/multi-tenancy.md
+  - docs/adr/0018-tenant-guard-at-the-cursor.md
+  tests:
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_replace_clause_is_refused_when_the_model_is_defined
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_replace_clause_added_to_the_table_afterwards_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_clause_that_never_deletes_a_row_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_composite_natural_key_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_that_leaves_the_tenant_out_is_refused_when_defined
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_error_names_the_composite_key_that_replaces_the_foreign_key
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_added_to_the_table_afterwards_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_composite_key_the_error_asks_for_is_not_refused_in_either_order
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_to_a_table_without_a_tenant_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_from_a_table_without_a_tenant_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_joined_inheritance_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_on_or_to_a_joined_subclass_table_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_on_the_subclass_table_names_the_base_table_it_belongs_on
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_to_the_subclass_table_names_the_base_table_it_must_target
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_keys_the_joined_errors_ask_for_are_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_subclass_of_a_base_without_a_tenant_keeps_its_inherit_key
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_single_table_subclass_of_a_joined_subclass_keeps_the_inherit_key
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_single_table_subclass_records_no_inheritance_of_its_own
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_search_for_an_inherited_table_ends_on_a_cycle
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_second_key_on_the_primary_key_to_the_base_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_to_a_base_table_without_a_tenant_names_the_subclass_table
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_on_a_base_table_without_a_tenant_names_the_subclass_table
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_schema_and_the_case_of_a_table_name_survive_into_the_fix
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_definition_costs_its_own_keys_and_the_keys_that_point_at_it
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_over_a_renamed_tenant_column_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_composite_key_over_a_renamed_tenant_column_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_added_afterwards_over_a_renamed_tenant_column_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_renamed_tenant_column_replaced_on_the_table_afterwards_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_type_that_processes_the_value_is_refused_when_defined
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_that_is_not_one_plain_mapped_column_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_plain_mapped_tenant_column_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_plain_uuid_spellings_are_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_replaced_on_the_table_afterwards_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_replace_deletes_the_row_of_another_owner_on_a_plain_table
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_without_the_tenant_takes_the_parent_of_another_owner
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_composite_key_holds_under_the_guard
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_type_that_processes_the_value_rewrites_the_tenant
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees
@@ -9125,7 +9218,7 @@ issued:
   G-SDK: 5
   G-SENS: 7
   G-TASK: 5
-  G-TENANT: 27
+  G-TENANT: 28
   G-UNIT: 3
   G-UOW: 9
   G-WINDOW: 3
@@ -9889,6 +9982,10 @@ adr_sections:
     - G-TENANT-24
     "6. The one conflict insert: `tenant_upsert`":
     - G-TENANT-27
+    "7. What the database does with a plain insert":
+    - G-TENANT-28
+    "8. A listener that acts at the cursor after the rule read the statement is a seam, named and not refused":
+    - G-TENANT-25
     "Consequences": informational
     "Measured cost of the guard": informational
     "Out of scope": informational

@@ -10,7 +10,8 @@ title: "ADR-0018: The tenant guard at the cursor"
 - **Date:** 2026-11-21
 - **Origin:** three red-team rounds of the tenant guard, the last with 29 open bypasses
 - **Implemented by:** the tm task `tenant-guard-read-paths` (PR #342, two fix rounds after review);
-  decision 6 by `tenant-upsert-helper`
+  decision 6 by `tenant-upsert-helper`; decision 7 by `tenant-orm-insert-gaps`; decision 8 by
+  `tenant-guard-cursor-listener`
 
 ## Context
 
@@ -197,18 +198,23 @@ itself:
 
 - A row key is an attribute of the model, resolved through `mapper.column_attrs` to its Column. A
   value that is a SQL expression, `text()` or `literal_column()` is refused. The tenant column is
-  never a row key: its value is the bound tenant, bound with the column's own type, so a
-  `TypeDecorator` on it runs on the insert and on the update alike. A model whose tenant column is
+  never a row key: its value is the bound tenant, bound with the column's own type. A tenant column
+  whose type processes the value (a `TypeDecorator`) is refused when the model is defined (decision 7),
+  so no type rewrites the tenant on the insert or on the update. A model whose tenant column is
   not named `tenant_id` in the database (`mapped_column("org_id")`), a model in an inheritance
   hierarchy, a model without a unique key that includes the tenant column, a model with a column that
-  is not exactly `Column`, a model with a `<dialect>_on_conflict*` option on a column, a constraint
-  or an index (SQLite's `sqlite_on_conflict*` is the one that exists: its `REPLACE` deletes the row
-  that holds the key before `ON CONFLICT` is asked, whichever tenant owns it) and a call whose statement would read a tenant table (a column default, `onupdate`
-  or type `bind_expression` that selects from one) are refused with `SANDLOOM-R018`, before anything
-  is sent and before the session is flushed.
+  is not exactly `Column`, a model that declares a `<dialect>_on_conflict*` option, of any value, on a
+  column, a constraint or an index (SQLite's `sqlite_on_conflict*` is the one that exists: its
+  `REPLACE` deletes the row that holds the key before `ON CONFLICT` is asked, whichever tenant owns
+  it, and is refused when the model is defined as well, decision 7) and a call whose statement would
+  read a tenant table (a column default, `onupdate` or type `bind_expression` that selects from one)
+  are refused with `SANDLOOM-R018`, before anything is sent and before the session is flushed. The
+  options read are the ones the model declares, never the live database schema: a table built by hand
+  or by a migration with a clause the model leaves out is not read.
 - The conflict target is a unique key of the table that includes the tenant column. A row of another
   tenant is never the row that conflicts, so the update never touches it. That is the whole claim:
-  every other key and every foreign key acts as on a plain insert (see the Consequences). A
+  every other key acts as on a plain insert (see the Consequences), and a foreign key that leaves
+  the tenant out never reaches the helper, because decision 7 refuses the model. A
   `DEFERRABLE` key is no candidate, because PostgreSQL cannot use it as the arbiter of `DO UPDATE`.
 - `DO UPDATE SET <column> = excluded.<column>` for the listed columns, which are columns of the table
   other than the tenant column and the primary key, and `WHERE <tenant column> = <the bound tenant>`.
@@ -261,6 +267,133 @@ on every parameter set:
 The mark counts only at the cursor. The same statement handed to `session.execute` is the conflict
 insert it always was, and the ORM guard refuses it.
 
+### 7. What the database does with a plain insert
+
+The cursor guard sees the values and the filters of a statement. It cannot see what the database
+does with an `INSERT` whose every value belongs to the bound tenant. Three declarations of a model
+make the database reach another tenant's row on such an insert, so the model is refused when it is
+defined, with `UnsafeTenantModelError` (an `UnsafeTenantOperationError`), before any table or row
+exists. The check is an allowlist built on one column: the tenant column of a model is the one
+`Column` its attribute `tenant_id` maps, and every refusal reads from it.
+
+- `SANDLOOM-R019`, a `REPLACE` conflict clause. SQLite's `ON CONFLICT REPLACE` on a primary key, a
+  unique constraint or a column deletes the row that holds the key, whichever tenant owns it, before
+  any other check runs. `IGNORE`, `ABORT`, `FAIL` and `ROLLBACK` delete nothing and stay allowed, and
+  so does a composite key that includes the tenant column;
+- `SANDLOOM-R020`, a foreign key from a tenant table to another tenant table that does not pair
+  `tenant_id` on both sides. PostgreSQL checks a foreign key outside row-level security, so the
+  insert locks and probes a parent row of another tenant. Every foreign key of every table of a
+  tenant mapper whose referred table is a tenant table must pair the tenant column of both: the
+  table of a joined subclass is a tenant table without a tenant column of its own, so no key on it
+  or to it can pair one. The only exception is the inherit key of a joined subclass, the key whose
+  columns are exactly the mapper's inherit condition (its primary key to the primary key of the table
+  it inherits from): the row it joins is the one the same flush wrote. A single-table subclass shares
+  its parent's table and adds no such key. A key from a
+  subclass is declared on the base table, and a key to a subclass targets the base table,
+  `emp(tenant_id, id)`; the error says so. The reverse shape, a tenant model that inherits a model
+  that is no tenant model, keeps the column on the subclass table: the base table has none, and
+  the error names the subclass table instead. The error names the key that replaces the refused one,
+  `(tenant_id, col)` to `parent(tenant_id, id)` (tables spelled as declared, schema and case
+  included), which needs a unique key on `(tenant_id, id)` of the parent;
+- `SANDLOOM-R021`, a tenant column that is not one plain mapped `Column` of exactly SQLAlchemy's
+  `Uuid`. The attribute `tenant_id` of the mapper must be a `ColumnProperty` over exactly one
+  `Column` of a table of the mapper, with the default comparator, and no table of the mapper may
+  have another column called `tenant_id` (the cursor guard finds a column by name). A `synonym`, a
+  `hybrid_property`, a `column_property` over an expression, a concrete subclass that does not map
+  the column and a comparator of its own are refused for their shape: the guard, R020 and R021 would
+  read a column other than the one a statement binds. The column's type must be exactly `Uuid` (its
+  PostgreSQL spelling `UUID` and every dialect variant of it included): a `TypeDecorator`, a
+  `UserDefinedType` or a subclass can store a tenant other than the one the guard bound. This also
+  closes the case decision 6 relied on: `tenant_upsert` binds the tenant with the column's own type.
+
+The check reads every table that the mapper of a `TenantScoped` class maps, whatever declared it:
+`__table_args__` or a column keyword, `mapped_column` or `Column`, a mixin or `declared_attr`,
+declarative or imperative mapping, joined inheritance, one `Table` under two models. It runs once
+per mapper, at `after_mapper_constructed`, so a model defined after its foreign key target is
+checked when the second of the two is defined. Tables match by lower-cased name with the schema
+ignored, as the guard matches them. A constraint or a column attached to such a table afterwards
+is refused as it is attached (`after_parent_attach`). The refusal comes after the constraint is on
+the `Table`, so a process that caught it is not meant to go on with that object.
+
+Not refused, because the model declares nothing the guard can see: a foreign key to a table
+without a tenant column, and a table that is no tenant table (an association table, say) that points
+at a tenant table. The second is a limit by the owner's decision. Not covered, by design: a table
+built by hand or by a migration with a clause or a key that the model does not declare, a unique key
+that leaves the tenant out (the helper's own limit, decision 6), and a clause other than `REPLACE`
+that changes a row. The cost is bounded by the keys the new mapper touches, not by the models
+defined so far: tenant tables are indexed by name, and a foreign key to a table not defined yet
+waits in an index by the table it names until that table is defined, so a mapper costs its own
+foreign keys plus the ones that point at it, and a set lookup per attached constraint or column.
+2000 chained models define in 1.71 s with the check and 1.60 s without it; a scan of every tenant
+table per mapper, the first version, added 22.9 s at 2000. No statement pays it.
+
+**Upgrade:** a model with a plain foreign key to another tenant table makes the key composite and
+adds `UniqueConstraint("tenant_id", "id")` to the parent, in a migration for an existing table.
+A joined subclass moves its foreign keys to the base table, and a key to a subclass targets the
+base. A model with `sqlite_on_conflict="REPLACE"` drops it or uses a composite key. A model that
+maps `tenant_id` through a synonym, a hybrid or an expression maps the column itself. A tenant
+column type other than `Uuid` moves its conversion to a column that is not the tenant.
+
+### 8. A listener that acts at the cursor after the rule read the statement is a seam, named and not refused
+
+The cursor rule reads the compiled statement of the execution context, inside `dialect.do_execute`
+(and `do_executemany`, `do_execute_no_params`). Two kinds of listener run before that call.
+
+- **A `before_cursor_execute` listener registered with `retval=True`**, on the engine, on a
+  connection or on the `Engine` class. It returns the SQL text and the parameters the driver
+  receives, and the rule has read the ones it compiled. A listener that sends the read of a tenant
+  table without its `WHERE` clause, or one that binds another tenant where the guard checked the
+  bound one, reaches the rows of that tenant.
+- **A dialect listener** (`do_execute`, `do_executemany`, `do_execute_no_params`) that runs the
+  cursor itself and returns `True`. SQLAlchemy runs these before the dialect method and skips the
+  method when one returns `True` (`Connection._execute_context`). The cursor hook is that method,
+  so none of its checks runs for the statement: the tenant rule, the data-modifying CTE check,
+  write admission (SANDLOOM-R007), the owner check (SANDLOOM-R013) and the money rule
+  (SANDLOOM-B014). `tenant_rls` wraps the same method, so the setting sync is skipped as well.
+  Row-level security still filters, by the setting an earlier statement of the transaction set,
+  or by none. It holds only when that setting is the bound tenant.
+
+`test_tenant_guard_cursor_listener.py` shows each on SQLite and on PostgreSQL: the rewrite from the
+three sites, and a Core read and a Core `executemany` insert that a dialect listener sends to the
+cursor.
+
+G-TENANT-25 lists them as not covered, beside `Connection.exec_driver_sql`. Both reach a tenant table
+as it does, with a statement the tenant rule has not read. A dialect listener also skips the other
+checks of the hook, which `exec_driver_sql` does not. They are not the same case for module code.
+`unsafe-tenant-sql` (SANDLOOM-C015) and `portable-sql` (SANDLOOM-C031) flag `exec_driver_sql` in a
+module. No static check flags `event.listen` on these events, and the listener runs in the process
+that runs the module code. A rule that refuses it in a module needs its own error code and is not
+part of this decision. A `before_execute` listener with `retval=True` is not part of the seam. It
+replaces the clause before it is compiled, so the rule reads the replacement, which no ORM guard
+approved, and refuses it. A test pins that too.
+
+No refusal is added. Two designs were measured or built:
+
+- **Refuse at startup.** A scan of `engine.dispatch.before_cursor_execute` takes 0.46 µs once, for two
+  listeners, and no statement pays for it. It sees only the engine's list as it stands at the scan,
+  so a later `event.listen`, a listener of one connection and a dialect listener escape it. It tells
+  a `retval=True` listener from another by SQLAlchemy's private wrapper,
+  `ConnectionEvents._listen.<locals>.wrap_before_cursor_execute`, which only a listener without
+  `retval` carries. It would also refuse a listener that appends a comment to the SQL and reaches
+  nothing. Its call site is `install_write_admission` or `enforce_configuration`, not
+  `sandloom.core.tenant`.
+- **Compare at the cursor.** The rule can test `statement is not context.statement` in
+  `dialect.do_execute`. A microbenchmark of that test in a wrapper (`timeit`, 5 million calls, best of
+  5, Python 3.12 on a laptop, not the cachegrind stand) measures 52.7 ns for the call without it and
+  65.1 ns with it: 12.4 ns a statement. It sees a replaced SQL text and no replaced parameter. A run
+  with the test added failed the text case of the new tests and passed the parameter case. It sees
+  nothing of a dialect listener, because the hook does not run. It would also refuse every
+  `insertmanyvalues` batch: SQLAlchemy sends the batch's own rewritten statement (`sub_stmt`) to
+  the `before_cursor_execute` listeners and to `do_execute` (`Connection._exec_insertmany_context`),
+  so the test would have to tell SQLAlchemy's rewrite from a listener's.
+
+None of them closes the seam, and the second puts a cost on every statement for a reach that
+`exec_driver_sql` already gives. Closing it would take a read of the final statement and the final
+parameters at the cursor, and a refusal of a dialect listener that takes a statement over: a
+per-statement cost to measure on the cachegrind stand below and a decision of the owner. Row-level
+security is the boundary for it, as for the other seams, and for a dialect listener only when its
+setting is already the bound tenant.
+
 ## Consequences
 
 - Every compiled statement that names a tenant table, and that the ORM guard did not approve
@@ -292,22 +425,29 @@ insert it always was, and the ORM guard refuses it.
   dictionary write to each loaded instance.
 - `tenant_upsert` returns nothing and refreshes no instance the session already holds: an instance of
   an upserted row keeps its old values until it is refreshed. It flushes the session's pending changes
-  first. The rows go to the driver as the parameter sets of one `executemany`, and a driver that
-  runs the command once per set (asyncpg) updates the row the first of two equal keys inserted
-  with the values of the second, rather than the database refusing the batch; a batch that names
-  one key twice is the caller's to avoid. **Upgrade:**
+  first. The rows go to the driver as the parameter sets of one `executemany`. A driver that
+  runs the command once per set (asyncpg, aiosqlite) updates the row the first of two equal keys
+  inserted with the values of the second. A driver that batches the sets into one multi-row
+  statement (psycopg2) hands PostgreSQL the same key twice in one `ON CONFLICT DO UPDATE`, which
+  it refuses. A batch that names one key twice is the caller's to avoid. **Upgrade:**
   a module that ran `conflict_insert` on a tenant model inside `unscoped()` to upsert for one tenant
   moves to `tenant_upsert`, which needs a unique key that includes `tenant_id`; a model whose only
   key leaves the tenant out keeps `unscoped()` or gets such a key in a migration.
-- The helper hides no key and no row that another tenant holds beyond the conflict target; the
-  database answers as for a plain insert. A primary key (`id` alone) or another unique key that
-  another tenant owns makes the insert fail on that key, not on the conflict target, with the
-  database's integrity error, which shows that the key exists. A foreign key to a tenant table locks
-  the row it references, and the row may be another tenant's. Use keys that are not reused across
-  tenants, as for the stamp above, and make a foreign key composite, `(tenant_id, parent_id)`.
+- The helper hides no key that another tenant holds beyond the conflict target; the database
+  answers as for a plain insert. A primary key (`id` alone) or another unique key that another
+  tenant owns makes the insert fail on that key, not on the conflict target, with the database's
+  integrity error, which shows that the key exists. PostgreSQL runs that check outside row-level
+  security. Use keys that are not reused across tenants, as for the stamp above. A foreign key to a
+  tenant table is no such case: it must be composite, `(tenant_id, parent_id)`, and a model that
+  does not pair the tenant on both sides is refused when it is defined (decision 7).
 - Some seams stay with the caller or with the database, in the order they are named:
   - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;
+  - a `before_cursor_execute` listener registered with `retval=True` (on the engine, a connection
+    or the `Engine` class), which runs after the cursor rule read the compiled statement and can
+    replace the SQL text or the parameters the driver receives, and a dialect listener
+    (`do_execute`, `do_executemany`, `do_execute_no_params`) that runs the cursor itself and
+    returns `True`, after which the rule does not run at all (decision 8);
   - a `text()` passed straight to `session.execute`, which the ORM guard approves as the caller's:
     `scoped()`, the `unsafe-tenant-sql` check and row-level security hold it;
   - a column load of a stamped instance when no tenant is bound: the instance was read under a

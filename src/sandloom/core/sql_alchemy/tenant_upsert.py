@@ -52,6 +52,7 @@ from sandloom.core.tenant import (
     _tenant_upsert_shape,
     _tenant_upsert_where,
     _unseal_tenant_upsert,
+    declared_conflict_options,
     has_plain_columns,
 )
 from sandloom.core.tenant_context import current_tenant_id
@@ -105,38 +106,21 @@ def _mapper_of(model: Any) -> tuple[Mapper[Any], Table]:
             "subclass renders its own SQL, which the tenant guard cannot vouch for "
             "in an upsert); declare its columns with mapped_column / Column"
         )
-    replacing = _conflict_clauses(table)
+    # Read again at every call, whatever the model's definition-time check saw: an
+    # option written to ``dialect_kwargs`` after the model was defined, or any
+    # other conflict resolution (IGNORE and the like), is refused here. The live
+    # schema is never read: a table created with the clause outside the model is
+    # not seen (SANDLOOM-R018).
+    replacing = declared_conflict_options(table)
     if replacing:
         raise TenantUpsertError(
             f"{table.name} declares a conflict resolution of its own "
-            f"({', '.join(replacing)}): SQLite's REPLACE deletes the row that "
+            f"({', '.join(replacing)}): such a conflict is resolved before ON "
+            "CONFLICT DO UPDATE is asked, and SQLite's REPLACE deletes the row that "
             "conflicts and inserts the new one, whichever tenant owns it. Remove the "
             "sqlite_on_conflict* option, or write the rows through the ORM"
         )
     return mapper, table
-
-
-def _conflict_clauses(table: Table) -> list[str]:
-    """The ``<dialect>_on_conflict*`` options a column, a constraint or an index of
-    ``table`` carries, whichever database names them (SQLite's
-    ``Column(..., sqlite_on_conflict_unique="REPLACE")`` and
-    ``UniqueConstraint(..., sqlite_on_conflict="REPLACE")`` are the ones there
-    are): such a conflict is resolved before ``ON CONFLICT DO UPDATE`` sees it,
-    and ``REPLACE`` deletes the row of ANY tenant that holds the key."""
-    owners: list[tuple[str, Any]] = [
-        *((f"column {column.name}", column) for column in table.columns),
-        *(
-            (f"constraint {constraint.name or type(constraint).__name__}", constraint)
-            for constraint in table.constraints
-        ),
-        *((f"index {index.name}", index) for index in table.indexes),
-    ]
-    return [
-        f"{label}: {option}"
-        for label, owner in owners
-        for option in owner.dialect_kwargs
-        if option.partition("_")[2].startswith("on_conflict")
-    ]
 
 
 def _column_of(mapper: Mapper[Any], table: Table, key: Any, what: str) -> Column[Any]:

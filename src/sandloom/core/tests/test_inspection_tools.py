@@ -835,6 +835,20 @@ def test_route_process_uses_resolved_snapshot_not_empty_manifest(
     assert any(s["label"] == "Validate intent release rule" for s in result["steps"])
 
 
+def test_a_file_generate_removes_is_not_listed_as_a_wire_document(
+    project: SimpleNamespace,
+) -> None:
+    """``sandloom generate`` plans the removal of an event schema no module
+    declares any more; the index lists what is written, never what is deleted."""
+    gone = "app/shared/events/stats.gone.v1.json"
+    project.planned.append(
+        Generated(project.root / gone, "", "SANDLOOM-T005", remove=True)
+    )
+    document = collect.collect(project.app, project.rules, project.planned)
+    assert gone not in document["wire_documents"]
+    assert "app/shared/events/stats.changed.v1.json" in document["wire_documents"]
+
+
 def test_declared_impact_preserves_direct_interface_witnesses(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:

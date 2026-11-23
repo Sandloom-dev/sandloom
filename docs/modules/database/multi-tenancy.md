@@ -188,19 +188,12 @@ whose `code` the tenant has already stored keeps its `id` and gets the new
   else, `WHERE` the row's `tenant_id` is the bound tenant. It returns nothing,
   and an instance the session holds keeps its old values until it is refreshed.
 
-Every other key and every foreign key acts as on a plain insert, so the helper
-does not hide another tenant's data from them:
-
-- Another tenant's row can hold your primary key or another unique key. The
-  insert then raises the database's integrity error, which shows that the key
-  exists. Do not reuse a key across tenants. Generate primary keys with
-  `new_id()` and put `tenant_id` into every unique key.
-- A foreign key to a tenant table locks the row it references and may point at
-  a row of another tenant. Make it composite, `(tenant_id, parent_id)`, against
-  a unique key of the parent that includes `tenant_id`.
-
-PostgreSQL runs its uniqueness and foreign key checks outside row-level
-security, so a policy hides neither case. Only the keys cover them.
+Every other key acts as on a plain insert. The helper does not hide another
+tenant's data from it. Another tenant's row can hold your primary key or another
+unique key. The insert then raises the database's integrity error. That error
+shows the key exists, and PostgreSQL runs the check outside row-level security.
+Do not reuse a key across tenants. Generate primary keys with `new_id()`. Put
+`tenant_id` into every unique key.
 
 Before it sends anything, it refuses
 ([SANDLOOM-R018](../../reference/error-codes.md#sandloom-r018)) a model:
@@ -209,9 +202,12 @@ Before it sends anything, it refuses
 - in an inheritance hierarchy;
 - whose tenant column is not named `tenant_id` in the database;
 - with a column that is not exactly `sqlalchemy.Column`;
-- with a `<dialect>_on_conflict*` option on a column, a constraint or an index.
-  SQLite's `sqlite_on_conflict*` is the one that exists. Its `REPLACE` deletes
-  the row that holds the key, whichever tenant owns it.
+- that declares a `<dialect>_on_conflict*` option, whatever its value, on a
+  column, or on a constraint or index of the table. SQLite's
+  `sqlite_on_conflict*` is the one that exists. Its clause resolves the conflict
+  before `ON CONFLICT DO UPDATE` is asked. The helper reads the declared options
+  only. A schema built another way is not read, such as a hand-written
+  migration with a clause the model does not declare.
 
 It also refuses a call whose statement would read a tenant table. Such a read
 comes from a default, `onupdate` or type `bind_expression` of a column the rows
@@ -225,6 +221,60 @@ builder. It runs the statement only when its SQL is the rebuild's, text for
 text, and the bound tenant is in every row
 ([ADR-0018](../../adr/0018-tenant-guard-at-the-cursor.md), decision 6). Any
 other conflict insert on a tenant table stays refused.
+
+## What the database does with a plain insert
+
+The cursor guard keeps a statement's tenant values and filters inside the bound
+tenant. It cannot see what the database does with an insert whose every value is
+the bound tenant's. Three model shapes let such an insert reach another tenant.
+A `TenantScoped` model that declares one is refused when it is defined, before
+any table or row exists.
+
+The check covers every table a `TenantScoped` class maps, whatever the form:
+
+- `__table_args__` or a column keyword;
+- `mapped_column` or `Column`;
+- a mixin;
+- joined inheritance;
+- imperative mapping;
+- one `Table` that two models share.
+
+A constraint or column added to the table later is refused as it is attached.
+
+- **A `REPLACE` conflict clause**
+  ([SANDLOOM-R019](../../reference/error-codes.md#sandloom-r019)). SQLite's
+  `ON CONFLICT REPLACE` on a key deletes the row that holds the key. It does so
+  whichever tenant owns the row, so an insert of one tenant can delete a row of
+  another. The other clauses delete no row and stay allowed. Put `tenant_id`
+  into the key and drop the clause.
+- **A foreign key to another tenant table that does not pair `tenant_id` on
+  both sides**
+  ([SANDLOOM-R020](../../reference/error-codes.md#sandloom-r020)). The database
+  checks the key against a parent row of another tenant and locks that row.
+  PostgreSQL runs the check outside row-level security. No policy hides it.
+  Make the key composite: `(tenant_id, parent_id)` to
+  `parent(tenant_id, id)`. The parent needs
+  `UniqueConstraint("tenant_id", "id")`. Whichever model is defined second is
+  the one refused. A foreign key to a table without `tenant_id` is not refused.
+  A shared list of countries is an example.
+  The table of a joined subclass has no `tenant_id` of its own. No key on it or
+  to it can pair the tenant. Only its inherit key is allowed: its primary key
+  to the table it inherits from. Declare any other key of a subclass on the
+  base table. Point a key to a subclass at the base table: `emp(tenant_id, id)`.
+- **A tenant column that is not one plain mapped column of the plain type**
+  ([SANDLOOM-R021](../../reference/error-codes.md#sandloom-r021)). The
+  attribute `tenant_id` must map exactly one `Column` of the model's own tables
+  with the default comparator. The guard and the foreign-key check find the
+  column through that attribute. A `synonym` or a `hybrid_property` is
+  refused. So is an expression, or a subclass that leaves the column out. So is
+  a second column called `tenant_id` that the attribute does not map.
+  A `TypeDecorator` can store a tenant other than the one the guard bound.
+  The type must be exactly SQLAlchemy's `Uuid` or its PostgreSQL spelling
+  `UUID`, with their defaults. Other `Uuid` settings pass the check, and the
+  database may still not compare them: `Uuid(native_uuid=False)` fails scoped
+  reads on PostgreSQL, and `Uuid(as_uuid=False)` fails on SQLite.
+
+Each error names the change. `sandloom explain` gives the long form.
 
 ## Deliberate cross-tenant access
 
@@ -342,11 +392,28 @@ with.
 
 Cases the check does not see.
 
+<!-- lookup -->
 - A `nesting=True` CTE below the top level is not in the compiled list, and
   PostgreSQL itself refuses a data-modifying statement there.
 - A raw reference to a tenant table hidden inside a statement the ORM guard
   approved, which the ORM walk cannot see.
 - `Connection.exec_driver_sql` sends a string with no compiled statement.
+- A listener that acts at the cursor runs after the check has read the statement
+  ([ADR-0018](../../adr/0018-tenant-guard-at-the-cursor.md), decision 8). A
+  `before_cursor_execute` listener registered with `retval=True` replaces the
+  SQL text or the parameters the driver receives. It can sit on the engine or on
+  a connection, and a listener on the `Engine` class does the same. A dialect listener (`do_execute`,
+  `do_executemany`, `do_execute_no_params`) that runs the cursor itself and
+  returns `True` makes SQLAlchemy skip the method that holds the check. Then
+  none of that method's checks runs for the statement. The tenant rule and the
+  Row-Level Security setting sync are among them. Both reach a tenant table as
+  `exec_driver_sql` does. No static check flags `event.listen` on these events in a module, so
+  review such a registration like raw SQL.
+  [Row-Level Security](#postgresql-row-level-security-optional) is the
+  boundary. For a dialect listener it holds only when the setting is already the
+  bound tenant. A `before_execute` listener with `retval=True` is not part of
+  this. It replaces the clause before it compiles, and the check refuses the
+  replacement.
 - SQL the database builds from text no scan can read. That covers PostgreSQL
   dynamic SQL. One case is `query_to_xml('select ... ' || name, ...)` with a
   concatenated name. Another is `table_to_xml(oid::regclass)`. A third is a
@@ -543,6 +610,9 @@ mistakes, not against malicious Python or SQL inside its process.
 | [SANDLOOM-C037](../../reference/error-codes.md#sandloom-c037) | a module that builds an engine or a pool, or opens a driver connection, around the framework's engine and its cursor check |
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | no tenant bound where one is required (`400`) |
 | [SANDLOOM-R018](../../reference/error-codes.md#sandloom-r018) | a `tenant_upsert` call or model that cannot stay inside the bound tenant |
+| [SANDLOOM-R019](../../reference/error-codes.md#sandloom-r019) | a `TenantScoped` model with a `REPLACE` conflict clause, defined (SQLite deletes the row that holds the key, whichever tenant owns it) |
+| [SANDLOOM-R020](../../reference/error-codes.md#sandloom-r020) | a foreign key between `TenantScoped` tables that does not pair `tenant_id` on both sides, a joined subclass table included |
+| [SANDLOOM-R021](../../reference/error-codes.md#sandloom-r021) | a `TenantScoped` tenant column that is not one plain mapped `Column`, or whose type processes the value |
 | [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026) | `tenant_rls` or the system channel on a database without row security |
 
 ??? note "Guarantees, precisely"
@@ -555,6 +625,10 @@ mistakes, not against malicious Python or SQL inside its process.
     - `tenant_upsert` is the one conflict insert the cursor admits on a tenant
       table, for the bound tenant and the exact statement it builds
       (G-TENANT-27).
+    - A model whose plain insert would reach another tenant through the
+      database is refused when it is defined (G-TENANT-28, ADR-0018 decision
+      7). Three cases: a `REPLACE` clause, a foreign key that skips
+      `tenant_id` on one side, a tenant column that is not a plain mapped `Uuid`.
     - A missing tenant is `400 tenant_required`, also when the error
       reaches the request boundary (G-TENANT-12).
     - RLS policies are fail-closed, forced and without bypass; the role checks

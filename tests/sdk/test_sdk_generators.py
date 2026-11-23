@@ -8,6 +8,7 @@ and the beginner-tier pin, and every one of the app's own tests passes.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.util
 import json
@@ -280,6 +281,203 @@ def test_add_event_appends_and_refuses_an_unparsable_file(tmp_path: Path) -> Non
         add.add_event("notes", "note_shared", where, [])
     with pytest.raises(add.GeneratorError, match="name:type"):
         add.parse_fields(["bad:object"])
+
+
+# --------------------------------------------------------------------------- #
+# --no-tenant: the scaffold is tenant-scoped unless the developer says otherwise
+# --------------------------------------------------------------------------- #
+
+_SINGLE_TENANT = (
+    "TENANCY_MODE=single\nSINGLE_TENANT_ID=00000000-0000-0000-0000-000000000001\n"
+)
+
+
+def _cli(root: Path, *argv: str) -> list[Path]:
+    """``sandloom add <argv>`` as the command line reads it, without the
+    ``sandloom generate`` that follows (``add.main`` runs that)."""
+    return add._run(add._parser().parse_args(["--root", str(root), *argv]))[0]
+
+
+def _says_single_everywhere(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A machine that says ``TENANCY_MODE=single``: the process environment and
+    the app's ``.env`` / ``.env.test`` (the scaffold must read none of them)."""
+    monkeypatch.setenv("TENANCY_MODE", "single")
+    monkeypatch.setenv("SINGLE_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+    for name in (".env", ".env.test"):
+        env = root / name
+        text = env.read_text(encoding="utf-8").rstrip("\n")
+        env.write_text(f"{text}\n{_SINGLE_TENANT}", encoding="utf-8")
+
+
+def _files(package: Path) -> dict[str, str]:
+    return {
+        str(p.relative_to(package)): p.read_text(encoding="utf-8")
+        for p in sorted(package.rglob("*.py"))
+    }
+
+
+def test_the_scaffold_ignores_a_machine_that_says_single_tenant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review repro: a gitignored ``.env`` (or the process environment) with
+    ``TENANCY_MODE=single`` must not turn the scaffold of an app that is
+    multi-tenant in production into a table without row-level security."""
+    monkeypatch.delenv("TENANCY_MODE", raising=False)
+    monkeypatch.delenv("SINGLE_TENANT_ID", raising=False)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    reference = _app(plain, everything=False)
+    _cli(reference, "module", "board")
+    _cli(reference, "event", "notes", "NoteShared")
+    says = tmp_path / "says"
+    says.mkdir()
+    root = _app(says, everything=False)
+    _says_single_everywhere(root, monkeypatch)
+    assert add.layout(root).tenant_scoped
+    _cli(root, "module", "board")
+    _cli(root, "event", "notes", "NoteShared")
+    package = root / "probe" / "modules"
+    assert _files(package / "board") == _files(
+        reference / "probe" / "modules" / "board"
+    )
+    assert "class BoardItem(TenantScoped, Base):" in (
+        package / "board" / "models" / "item.py"
+    ).read_text(encoding="utf-8")
+    shared = (package / "notes" / "events.py").read_text(encoding="utf-8")
+    assert "    note_id: UUID\n    tenant_id: UUID\n" in shared
+    assert shared == (
+        reference / "probe" / "modules" / "notes" / "events.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_the_sample_module_of_a_new_app_is_tenant_scoped_on_any_machine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``sandloom new`` (the wizard) scaffolds its starter module through the
+    same generator: it never follows the environment either."""
+    monkeypatch.setenv("TENANCY_MODE", "single")
+    monkeypatch.setenv("SINGLE_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+    root = _app(tmp_path, everything=False)
+    files = _files(root / "probe" / "modules" / "notes")
+    assert "class NotesItem(TenantScoped, Base):" in files["models/item.py"]
+    assert "tenant_id" in files["events.py"]
+
+
+def test_add_module_with_no_tenant_scaffolds_a_plain_table(tmp_path: Path) -> None:
+    """``--no-tenant``: no ``TenantScoped``, no ``tenant_id`` column or index, no
+    row-level security, no tenant in the event or its publish, and a test that
+    does not mint a tenant."""
+    root = _app(tmp_path, everything=False)
+    created = _cli(root, "module", "board", "--no-tenant")
+    package = root / "probe" / "modules" / "board"
+    for path in created:
+        if path.suffix == ".py":
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    model = (package / "models" / "item.py").read_text(encoding="utf-8")
+    assert "class BoardItem(Base):" in model
+    assert "TenantScoped" not in model and "tenant_id" not in model
+    (baseline,) = (package / "migrations" / "versions").glob("*.py")
+    migration = baseline.read_text(encoding="utf-8")
+    assert "tenant" not in migration and "rls" not in migration.lower()
+    assert 'server_default=sa.text("clock_timestamp()")' in migration
+    for name in ("events.py", "services.py", "api.py"):
+        assert "tenant" not in (package / name).read_text(encoding="utf-8"), name
+    test = (package / "tests" / "test_board.py").read_text(encoding="utf-8")
+    assert "as_user(tenant=False)" in test and "foreign" not in test
+    assert "async def test_list_items_is_capped(" in test
+    assert "tenant_id" not in test
+
+
+def test_add_module_by_default_is_the_tenant_scoped_scaffold(
+    tmp_path: Path,
+) -> None:
+    root = _app(tmp_path, everything=False)
+    _cli(root, "module", "board")
+    files = _files(root / "probe" / "modules" / "board")
+    assert "class BoardItem(TenantScoped, Base):" in files["models/item.py"]
+    assert "tenant_id" in files["events.py"]
+    assert "enable_tenant_rls" in "".join(files.values())
+
+
+def test_add_event_with_no_tenant_adds_no_tenant_id(tmp_path: Path) -> None:
+    """The default field list is the entity id alone; a ``tenant_id`` you name
+    yourself is still written (a tenant-less event is legal, so is one that
+    carries a tenant)."""
+    root = _app(tmp_path, everything=False)
+    events = root / "probe" / "modules" / "notes" / "events.py"
+    _cli(root, "event", "notes", "NoteShared", "--no-tenant")
+    text = events.read_text(encoding="utf-8")
+    assert 'class NoteShared(Event, channel="notes.note.shared.v1"):' in text
+    assert "    note_id: UUID\n\n" in text + "\n"
+    shared = text.split("class NoteShared", 1)[1]
+    assert "tenant_id" not in shared
+    _cli(
+        root,
+        "event",
+        "notes",
+        "NoteTagged",
+        "--no-tenant",
+        "--field",
+        "note_id:UUID",
+        "--field",
+        "tenant_id:UUID",
+    )
+    tagged = events.read_text(encoding="utf-8").split("class NoteTagged", 1)[1]
+    assert "    note_id: UUID\n    tenant_id: UUID\n" in tagged
+    ast.parse(events.read_text(encoding="utf-8"))
+
+
+def test_add_event_by_default_adds_tenant_id(tmp_path: Path) -> None:
+    root = _app(tmp_path, everything=False)
+    _cli(root, "event", "notes", "NoteShared")
+    _cli(
+        root,
+        "event",
+        "notes",
+        "NoteTagged",
+        "--field",
+        "note_id:UUID",
+        "--field",
+        "tenant_id:UUID",
+    )
+    text = (root / "probe" / "modules" / "notes" / "events.py").read_text()
+    shared = text.split("class NoteShared", 1)[1].split("class NoteTagged", 1)[0]
+    assert "    note_id: UUID\n    tenant_id: UUID\n" in shared
+    # Named by the author: not added twice.
+    assert text.split("class NoteTagged", 1)[1].count("tenant_id") == 1
+
+
+def test_a_generator_that_has_no_tenant_flag_is_unaffected_by_it(
+    tmp_path: Path,
+) -> None:
+    """``--no-tenant`` belongs to ``module`` and ``event`` only: ``projection``
+    keys its rows by tenant either way, and ``sandloom add task`` has no such
+    flag to read."""
+    root = _app(tmp_path, everything=False)
+    _cli(root, "module", "board", "--no-tenant")
+    _cli(root, "projection", "board", "view")
+    assert "tenant_id" in "".join(_files(root / "probe" / "modules" / "board").values())
+    with pytest.raises(SystemExit):
+        _cli(root, "task", "board", "tidy", "--no-tenant")
+
+
+def test_sandloom_add_with_no_tenant_generates_and_checks_clean(
+    tmp_path: Path,
+) -> None:
+    """The whole path, as ``sandloom add`` runs it (``main`` runs ``sandloom
+    generate`` in a child): a plain module, a tenant-less event, then
+    ``generate --check`` agrees."""
+    root = _app(tmp_path, everything=False)
+    assert add.main(["--root", str(root), "module", "board", "--no-tenant"]) == 0
+    assert (
+        add.main(["--root", str(root), "event", "board", "ItemArchived", "--no-tenant"])
+        == 0
+    )
+    exported = root / "probe" / "shared" / "events" / "board.item.archived.v1.json"
+    schema = json.loads(exported.read_text(encoding="utf-8"))
+    assert list(schema["properties"]) == ["item_id"]
+    code, output = add.run_generate(root, "--check")
+    assert code == 0, output
 
 
 def test_add_consumer_takes_the_producer_schema_or_marks_unverified(
@@ -1042,6 +1240,134 @@ def test_a_released_event_stays_protected_when_its_snapshot_file_is_gone(
     _edit(root / "probe" / "modules" / "notes" / "events.py", "    reason: str\n", "")
     code, output = add.run_generate(root)
     assert code == 1 and "SANDLOOM-T005" in output, output
+
+
+def _drop_note_archived(root: Path) -> None:
+    """Remove the ``NoteArchived`` class ``_provider_app`` appended last."""
+    events = root / "probe" / "modules" / "notes" / "events.py"
+    text = events.read_text(encoding="utf-8")
+    kept = text.split("\n\nclass NoteArchived", 1)[0]
+    assert kept != text
+    events.write_text(kept.rstrip("\n") + "\n", encoding="utf-8")
+
+
+def test_generate_removes_the_schema_of_an_event_no_module_declares_any_more(
+    tmp_path: Path,
+) -> None:
+    root = _provider_app(tmp_path)
+    schemas = root / "probe" / "shared" / "events"
+    gone = schemas / "notes.note.archived.v1.json"
+    kept = schemas / "notes.item.created.v1.json"
+    assert gone.is_file() and kept.is_file()
+    _drop_note_archived(root)
+    code, output = add.run_generate(root, "--check")
+    assert code == 1, output
+    assert "notes.note.archived.v1.json" in output and "orphan" in output, output
+    assert "notes.item.created.v1.json" not in output, output
+    assert gone.is_file()  # --check never writes
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    assert "removed" in output and "notes.note.archived.v1.json" in output, output
+    assert not gone.exists() and kept.is_file()
+    code, output = add.run_generate(root, "--check")
+    assert code == 0, output
+
+
+def test_generate_of_named_modules_leaves_an_event_schema_it_did_not_plan(
+    tmp_path: Path,
+) -> None:
+    """A subset run plans only the named modules' files, so it cannot tell
+    another module's schema from an orphan: only a whole run removes."""
+    root = _provider_app(tmp_path)
+    _drop_note_archived(root)
+    gone = root / "probe" / "shared" / "events" / "notes.note.archived.v1.json"
+    code, output = add.run_generate(root, "stats")
+    assert code == 0, output
+    assert gone.is_file()
+    code, output = add.run_generate(root, "--check")
+    assert code == 1 and "orphan" in output, output
+
+
+def test_only_a_schema_of_a_composed_module_can_be_an_orphan(tmp_path: Path) -> None:
+    """``notes`` is composed, so a channel it no longer declares is an orphan;
+    ``billing`` is not, so nothing says its file is not still wanted."""
+    root = _provider_app(tmp_path)
+    schemas = root / "probe" / "shared" / "events"
+    other = schemas / "billing.invoice.paid.v1.json"
+    other.write_text("{}\n", encoding="utf-8")
+    code, output = add.run_generate(root, "--check")
+    assert code == 0, output
+    renamed = schemas / "notes.note.renamed.v1.json"
+    renamed.write_text("{}\n", encoding="utf-8")
+    code, output = add.run_generate(root, "--check")
+    assert code == 1 and "notes.note.renamed.v1.json" in output, output
+    assert "billing" not in output, output
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    assert not renamed.exists() and other.is_file()
+
+
+def test_a_json_file_that_is_no_channel_is_never_an_orphan(tmp_path: Path) -> None:
+    """Only ``<channel>.json`` is a schema ``generate`` wrote: another JSON a
+    team keeps in ``shared/events`` (named for a composed module or not) is
+    neither deleted nor reported stale."""
+    root = _provider_app(tmp_path)
+    schemas = root / "probe" / "shared" / "events"
+    kept = [
+        schemas / "notes.json",
+        schemas / "notes.draft.json",
+        schemas / "notes.note.archived.json",  # no version segment
+        schemas / "notes.note.arch-ived.v1.json",  # not a channel's characters
+        schemas / "notes-note-archived.v1.json",
+        schemas / "readme.json",
+    ]
+    for path in kept:
+        path.write_text("{}\n", encoding="utf-8")
+    code, output = add.run_generate(root, "--check")
+    assert code == 0, output
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    assert all(path.is_file() for path in kept)
+
+
+def test_event_channel_patterns_agree() -> None:
+    """The orphan filter keeps its own copy of the channel pattern (the kernel
+    does not import the SDK): pinned to the declaration's."""
+    from sandloom.core.cli import generated
+    from sandloom.sdk._decl import events
+
+    assert generated._EVENT_CHANNEL.pattern == events._CHANNEL.pattern
+
+
+def test_a_run_composing_a_subset_of_the_modules_leaves_the_others_schemas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``SANDLOOM_MODULES`` makes a process load fewer modules: the schemas of
+    the ones it did not load are not orphans (``--check`` shows none)."""
+    root = _provider_app(tmp_path)
+    monkeypatch.setenv("SANDLOOM_MODULES", json.dumps(["probe.modules.stats"]))
+    _, output = add.run_generate(root, "--check")
+    assert "generated files" in output, output  # it ran: stale or up to date
+    assert "orphan" not in output and "notes.note.archived" not in output, output
+    assert (
+        root / "probe" / "shared" / "events" / "notes.note.archived.v1.json"
+    ).is_file()
+
+
+def test_a_released_event_that_is_dropped_loses_its_mark_and_its_schema_file(
+    tmp_path: Path,
+) -> None:
+    """The release marks let a name go (ADR-0017: it loses its mark), so the
+    exported file goes with it, like the module snapshot's entry."""
+    root = _provider_app(tmp_path)
+    assert add.run_generate(root, "--release")[0] == 0
+    _drop_note_archived(root)
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    released = _snapshot(root, "notes", "module.snapshot.json")["released"]
+    assert "notes.note.archived.v1" not in released
+    gone = root / "probe" / "shared" / "events" / "notes.note.archived.v1.json"
+    assert not gone.exists()
 
 
 def test_draft_writes_a_named_entry_as_a_draft_in_a_fresh_file(

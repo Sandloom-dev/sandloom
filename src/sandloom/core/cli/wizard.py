@@ -234,6 +234,8 @@ def parser() -> argparse.ArgumentParser:
         prog="sandloom new",
         description="Scaffold a standalone Sandloom application. At a terminal "
         "it asks what the flags leave open; scripts and agents pass --yes.",
+        epilog="Working on the framework itself? A few flags not listed here choose "
+        f"where the app's sandloom comes from: see {DOCS_URL}contributing/setup/",
     )
     p.add_argument(
         "app",
