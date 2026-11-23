@@ -2159,8 +2159,7 @@ guarantees:
   rests_on:
   - capability: eventbus
     operations: [dead_letter]
-  statement: A handler raising PoisonEventError (public in sandloom.core.di) is dead-lettered at once, even
-    on a dead_letter=False consumer.
+  statement: 'A handler raising PoisonEventError (exported by sandloom.sdk.events) is dead-lettered at once, even on a dead_letter=False consumer.'
   sources:
   - docs/modules/index.md#What a module may import
   tests:
@@ -5007,9 +5006,7 @@ guarantees:
   rules:
   - module-boundaries
 - id: G-MODULE-02
-  statement: A business module may import from the kernel ONLY the public_api whitelist (sandloom.core.di,
-    facade, module_api, descriptors, orm, projections) plus sandloom.shared.* and its own package; any other
-    sandloom.core.* import (settings, drivers, _internal, …) is a framework-imports violation.
+  statement: 'A business module may import from the kernel nothing: `public_api` lists `sandloom.sdk` modules only (an entry that covers the kernel is refused by every command that reads the manifest, SANDLOOM-C038), plus `sandloom.shared.*` and its own package; any `sandloom.core.*` import is a framework-imports violation.'
   sources:
   - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
@@ -5020,18 +5017,15 @@ guarantees:
   rules:
   - framework-imports
 - id: G-MODULE-03
-  statement: The underscore submodules of the public packages (sandloom.core.module_api._*, sandloom.core.facade._*)
-    are forbidden to business modules via architecture_rules.yml forbidden_patterns; modules import the
-    package itself.
+  statement: 'The private layers of `sandloom.sdk` (`sandloom.sdk._*`, `sandloom.sdk.*._*`) are forbidden to business modules: `load_rules` merges these patterns into `forbidden_patterns` whatever the manifest says, so the prefix match of the `sandloom.sdk` default of `public_api` does not admit `sandloom.sdk._prim` or `sandloom.sdk._decl`; modules import the public `sandloom.sdk` modules.'
   sources:
   - docs/modules/index.md#What a module may import
   tests:
   - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
+  - tests/architecture/test_archcheck_library.py::test_a_manifest_naming_no_patterns_still_refuses_the_sdk_private_layers
+  - tests/architecture/test_archcheck_library.py::test_the_default_patterns_are_kept_when_the_manifest_names_its_own
   rules:
   - framework-imports
-  gap: no test proves a module importing sandloom.core.module_api._service_registry or sandloom.core.facade._state
-    is flagged (only that the tree is clean)
-  gap_size: S
 - id: G-MODULE-04
   statement: 'Module code cannot reach kernel handles: .event_bus, .infra, .service_registry, request.app.state.core
     (incl. reflective getattr spellings) are rejected; only the public verbs (publish_event, register_event_consumer,
@@ -7145,8 +7139,7 @@ capabilities:
   rules:
   - tenant-scoped-models
 - id: C-EVENT-01
-  statement: publish_event_versions dual-publishes one event on several channel versions (.v1 + .v2) through
-    the outbox, re-exported from sandloom.core.di, so a channel can be rolled without starving live readers.
+  statement: 'publish_event_versions dual-publishes one event on several channel versions (.v1 + .v2) through the outbox, exported by sandloom.sdk.events, so a channel can be rolled without starving live readers.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
@@ -7228,9 +7221,7 @@ capabilities:
   - tests/integration/with_batteries/test_asymmetric_jwt_identity_issuer.py::test_identity_declares_itself_the_token_issuer
   - tests/split_conformance/test_split_conformance.py::test_identity_issues_asymmetric_tokens
 - id: C-AUTH-04
-  statement: 'Emergency stop: block_user / unblock_user from sandloom.core.di plus identity''s platform-admin
-    block / unblock / status / revoke-sessions endpoints (Idempotency-Key, audited, operator cannot block
-    themself); the `sandloom security` incident CLI is area F.'
+  statement: 'Emergency stop: block_user / unblock_user from sandloom.sdk.security plus identity''s platform-admin block / unblock / status / revoke-sessions endpoints (Idempotency-Key, audited, operator cannot block themself); the `sandloom security` incident CLI is area F.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
