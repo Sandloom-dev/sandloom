@@ -1,0 +1,6 @@
+### Security
+
+- **The tenant guard's limit at the cursor is named: an engine `before_cursor_execute` listener with `retval=True` can rewrite the statement after the guard read it** (tenant-guard-cursor-listener).
+  The cursor rule reads the compiled statement of the execution context. SQLAlchemy runs the `before_cursor_execute` listeners after that and before the driver call, so a listener registered with `retval=True` can send other SQL text or other parameters than the ones the guard checked, and reach another tenant's rows. Its reach is that of `Connection.exec_driver_sql`, which the guard has no compiled statement for. G-TENANT-25 now lists it under "Not covered" and ADR-0018 records it as decision 8; row-level security is the boundary for it. A `before_execute` listener with `retval=True` is not part of it: it replaces the clause before it compiles, and the guard refuses the replacement.
+  No refusal is added, and no code changes. A startup scan of the listeners costs nothing per statement but misses a listener registered later and tells a `retval=True` listener apart by a private SQLAlchemy name. A per-statement comparison of the SQL text costs 12.4 ns a statement in a microbenchmark and does not see replaced parameters. The numbers are in ADR-0018 decision 8.
+  Docs: [ADR-0018, decision 8](docs/adr/0018-tenant-guard-at-the-cursor.md) (G-TENANT-25).
