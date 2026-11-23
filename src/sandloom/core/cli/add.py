@@ -25,7 +25,12 @@ Rules every generator keeps:
   ``contract`` / ``consumer``) only APPEND to their file, refusing a file
   that does not parse; any other existing target is written as ``*.new``;
 - the code uses only the beginner tier of ``sandloom.sdk`` (SANDLOOM-T009); an
-  advanced name carries ``# sandloom: advanced <reason>``.
+  advanced name carries ``# sandloom: advanced <reason>``;
+- ``module`` and ``event`` follow the app's ``TENANCY_MODE``, read from the
+  environment and ``.env`` without booting the app: ``multi`` (the default)
+  scaffolds a ``TenantScoped`` table and ``tenant_id`` on the event, ``single``
+  a plain table and no ``tenant_id`` (``add projection`` always keys its rows
+  by tenant).
 
 Every generator is run into a fresh app by the framework's tests and the
 result must pass ``sandloom check`` and the app's own tests.
@@ -43,7 +48,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import sandloom.core.cli.scaffold_deploy as _deploy
 import sandloom.core.cli.skills as _skills
@@ -59,6 +64,8 @@ from sandloom.core.cli.scaffold_wiring import (
     project_root,
     wire_module,
 )
+from sandloom.core.config.module_settings import SourceSnapshot
+from sandloom.core.config.settings import Settings, effective_secrets_dir
 from sandloom.core.descriptors.derived_capabilities import defines_periodic
 from sandloom.core.tasks.cron import parse_cron
 
@@ -95,6 +102,17 @@ class Layout:
     shared_dir: Path | None
     shared_package: str | None
     source_root: Path
+    #: The app's ``TENANCY_MODE``. ``single`` binds one canonical tenant, so the
+    #: app declares no tenants: a module's example table is a plain one and an
+    #: event carries no ``tenant_id``. ``multi`` (the default) scaffolds both
+    #: tenant-scoped.
+    tenancy_mode: Literal["multi", "single"] = "multi"
+
+    @property
+    def tenant_scoped(self) -> bool:
+        """Whether a generated table is ``TenantScoped`` and a generated event
+        carries ``tenant_id`` (the app's ``TENANCY_MODE`` is ``multi``)."""
+        return self.tenancy_mode == "multi"
 
     def module_dir(self, module: str) -> Path:
         return self.modules_dir / module
@@ -135,6 +153,27 @@ def layout(root: Path) -> Layout:
         shared_dir=rules.shared_dir,
         shared_package=rules.shared_dto_package,
         source_root=rules.source_root,
+        tenancy_mode=app_tenancy_mode(root),
+    )
+
+
+def app_tenancy_mode(root: Path) -> Literal["multi", "single"]:
+    """The app's ``TENANCY_MODE``, read without booting it: the process
+    environment, then ``<root>/.env``, then ``SECRETS_DIR`` (the order
+    ``Settings`` reads them in); ``multi`` where none sets it. A value
+    ``Settings`` would refuse is refused here too, naming where it came from."""
+    value, origin = SourceSnapshot(
+        env_file=root / ".env", secrets_dir=effective_secrets_dir(Settings)
+    ).get("TENANCY_MODE")
+    if value is None:
+        return "multi"
+    if value == "multi" or value == "single":
+        return value
+    source = {"env": "the process environment", "dotenv": ".env"}.get(
+        origin or "", "SECRETS_DIR"
+    )
+    raise GeneratorError(
+        f"TENANCY_MODE={value!r} (from {source}): expected multi or single"
     )
 
 
@@ -217,10 +256,39 @@ def _call(head: str, args: str) -> str:
     return f"{head}(\n{lines}{indent})"
 
 
-def _module_files(name: str, *, with_settings: bool) -> dict[str, str]:
+def _module_files(
+    name: str, *, with_settings: bool, tenant_scoped: bool = True
+) -> dict[str, str]:
+    """The files of a new module. ``tenant_scoped`` (the app's ``TENANCY_MODE``
+    is ``multi``): the example table is ``TenantScoped``, its event carries the
+    tenant and its tests prove the isolation; else all of that is left out."""
     cls = camel(name)
     item = f"{cls}Item"
     files: dict[str, str] = {}
+    scoped_import = "TenantScoped, " if tenant_scoped else ""
+    item_bases = "TenantScoped, Base" if tenant_scoped else "Base"
+    item_doc = (
+        "``TenantScoped``: rows belong to the bound tenant and are filtered by it."
+        if tenant_scoped
+        else "A plain table: this app declares no tenants (``TENANCY_MODE=single``)."
+    )
+    event_tenant = "    tenant_id: UUID\n" if tenant_scoped else ""
+    publish_tenant = ", tenant_id=item.tenant_id" if tenant_scoped else ""
+    list_doc = (
+        "The newest items first: ``created_at`` (the database clock), then the\n"
+        "    UUIDv7 ``id`` (creation order) for rows stamped in the same microsecond."
+        + (
+            "\n    ``TenantScoped`` keeps them to the bound tenant."
+            if tenant_scoped
+            else ""
+        )
+    )
+    router_doc = " and binds the tenant" if tenant_scoped else ""
+    owner_of_items = "the tenant's items" if tenant_scoped else "the items"
+    test_user = (
+        "as_user(tenant_id=uuid4())" if tenant_scoped else "as_user(tenant=False)"
+    )
+    uuid_import = "from uuid import uuid4\n" if tenant_scoped else ""
     settings_import = ""
     settings_argument = ""
     settings_reader = ""
@@ -291,11 +359,11 @@ import uuid
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sandloom.sdk import Base, CreatedAt, TenantScoped, new_id
+from sandloom.sdk import Base, CreatedAt, {scoped_import}new_id
 
 
-class {item}(TenantScoped, Base):
-    """``TenantScoped``: rows belong to the bound tenant and are filtered by it."""
+class {item}({item_bases}):
+    """{item_doc}"""
 
     __tablename__ = "{name}_items"
 
@@ -333,8 +401,7 @@ from sandloom.sdk import Event
 
 class ItemCreated(Event, channel="{name}.item.created.v1"):
     item_id: UUID
-    tenant_id: UUID
-'''
+{event_tenant}'''
     files[
         "services.py"
     ] = f'''"""The {name} use cases. ``db()`` is the session of the running unit."""
@@ -354,7 +421,7 @@ async def create_item(body: ItemIn, *, owner_id: UUID) -> ItemOut:
     item = {item}(title=body.title, owner_id=owner_id)
     db().add(item)
     await db().flush()
-    await ItemCreated(item_id=item.id, tenant_id=item.tenant_id).publish()
+    await ItemCreated(item_id=item.id{publish_tenant}).publish()
     return ItemOut.model_validate(item)
 
 
@@ -364,9 +431,7 @@ async def get_item(item_id: UUID) -> ItemOut | None:
 
 
 async def list_items(*, limit: int) -> list[ItemOut]:
-    """The newest items first: ``created_at`` (the database clock), then the
-    UUIDv7 ``id`` (creation order) for rows stamped in the same microsecond.
-    ``TenantScoped`` keeps them to the bound tenant."""
+    """{list_doc}"""
     newest = {item}.created_at.desc()
     tie = {item}.id.desc()
     query = sa.select({item}).order_by(newest, tie).limit(limit)
@@ -375,7 +440,7 @@ async def list_items(*, limit: int) -> list[ItemOut]:
 '''
     files["api.py"] = f'''"""Routes of the {name} module: ``/api/v1/{name}/...``.
 
-``module_router()`` authenticates every route and binds the tenant.
+``module_router()`` authenticates every route{router_doc}.
 """
 
 from typing import Annotated
@@ -400,7 +465,7 @@ async def create_item(body: ItemIn, user: CurrentUser) -> ItemOut:
 async def list_items(
     user: CurrentUser, {limit_parameter}
 ) -> list[ItemOut]:
-    """A page of the tenant's items: ``le=`` caps what one request may load."""
+    """A page of {owner_of_items}: ``le=`` caps what one request may load."""
 {resolve_limit}    return await services.list_items(limit=limit)
 
 
@@ -420,7 +485,9 @@ from sandloom.sdk.migrations import run_module_migrations  # sandloom: advanced 
 run_module_migrations(__file__)
 '''
     files["migrations/script.py.mako"] = _MAKO
-    files[f"migrations/versions/0001_{name}_baseline.py"] = _baseline(name)
+    files[f"migrations/versions/0001_{name}_baseline.py"] = _baseline(
+        name, tenant_scoped=tenant_scoped
+    )
     files["tests/__init__.py"] = ""
     files["tests/test_migrations.py"] = f'''\
 """The chain at head builds the schema the models declare.
@@ -460,6 +527,13 @@ def test_migrations_match_models() -> None:
         f'{items}, params={{"limit": 2}}, headers=headers',
     )
     foreign = _call("    foreign = await client.get", f"{items}, headers=other")
+    list_test = "test_list_items_is_capped"
+    other_user = ""
+    foreign_check = ""
+    if tenant_scoped:
+        list_test += "_and_tenant_scoped"
+        other_user = "    _, other = as_user(tenant_id=uuid4())\n"
+        foreign_check = f"{foreign}\n    assert foreign.json() == []\n"
     over_cap = _call(
         "    over_cap = await client.get",
         f'{items}, params={{"limit": 101}}, headers=headers',
@@ -469,15 +543,14 @@ def test_migrations_match_models() -> None:
     ] = f'''"""Tests of the {name} module (sandloom.sdk.testing fixtures)."""
 
 from typing import Any
-from uuid import uuid4
-
+{uuid_import}
 from sandloom.sdk.testing import as_user, published
 
 from ..events import ItemCreated
 
 
 async def test_create_and_read_an_item(client: Any) -> None:
-    _, headers = as_user(tenant_id=uuid4())
+    _, headers = {test_user}
 {create}
     assert created.status_code == 201, created.text
     assert len(published(ItemCreated)) == 1
@@ -487,10 +560,9 @@ async def test_create_and_read_an_item(client: Any) -> None:
     assert fetched.json()["title"] == "first"
 
 
-async def test_list_items_is_capped_and_tenant_scoped(client: Any) -> None:
-    _, headers = as_user(tenant_id=uuid4())
-    _, other = as_user(tenant_id=uuid4())
-    for title in ("a", "b", "c"):
+async def {list_test}(client: Any) -> None:
+    _, headers = {test_user}
+{other_user}    for title in ("a", "b", "c"):
 {add_one}
         assert created.status_code == 201, created.text
 {listed}
@@ -499,9 +571,7 @@ async def test_list_items_is_capped_and_tenant_scoped(client: Any) -> None:
     assert [item["title"] for item in listed.json()] == ["c", "b", "a"]
 {page}
     assert len(page.json()) == 2
-{foreign}
-    assert foreign.json() == []
-{over_cap}
+{foreign_check}{over_cap}
     assert over_cap.status_code == 422
 
 
@@ -557,9 +627,32 @@ def _rls_block(table: str, *, system_access: bool = False) -> tuple[str, str]:
     )
 
 
-def _baseline(name: str) -> str:
+def _baseline(name: str, *, tenant_scoped: bool = True) -> str:
     table = f"{name}_items"
-    up_rls, down_rls = _rls_block(table)
+    rls_import = f"{_RLS_IMPORT}\n\n" if tenant_scoped else ""
+    tenant_column = (
+        '        sa.Column("tenant_id", sa.Uuid(), nullable=False),\n'
+        if tenant_scoped
+        else ""
+    )
+    tenant_index = (
+        f'    op.create_index(op.f("ix_{table}_tenant_id"), "{table}", ["tenant_id"])\n'
+        if tenant_scoped
+        else ""
+    )
+    drop_tenant_index = (
+        f'    op.drop_index(op.f("ix_{table}_tenant_id"), table_name="{table}")\n'
+        if tenant_scoped
+        else ""
+    )
+    up_tail = down_head = ""
+    if tenant_scoped:
+        up_rls, down_rls = _rls_block(table)
+        up_tail = (
+            "    # The runner sets sandloom_tenant_rls from the target database's "
+            f"INFRA config.\n{up_rls}"
+        )
+        down_head = down_rls
     return f'''"""{name} baseline: the example table (rendered by `sandloom add module`)
 
 Revision ID: 0001_{name}
@@ -573,9 +666,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-{_RLS_IMPORT}
-
-revision: str = "0001_{name}"
+{rls_import}revision: str = "0001_{name}"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -584,8 +675,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "{table}",
-        sa.Column("tenant_id", sa.Uuid(), nullable=False),
-        sa.Column("id", sa.Uuid(), nullable=False),
+{tenant_column}        sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("owner_id", sa.Uuid(), nullable=False),
         sa.Column(
@@ -596,15 +686,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_{table}_tenant_id"), "{table}", ["tenant_id"])
-    op.create_index(op.f("ix_{table}_owner_id"), "{table}", ["owner_id"])
-    # The runner sets sandloom_tenant_rls from the target database's INFRA config.
-{up_rls}
+{tenant_index}    op.create_index(op.f("ix_{table}_owner_id"), "{table}", ["owner_id"])
+{up_tail}
 
 def downgrade() -> None:
-{down_rls}    op.drop_index(op.f("ix_{table}_owner_id"), table_name="{table}")
-    op.drop_index(op.f("ix_{table}_tenant_id"), table_name="{table}")
-    op.drop_table("{table}")
+{down_head}    op.drop_index(op.f("ix_{table}_owner_id"), table_name="{table}")
+{drop_tenant_index}    op.drop_table("{table}")
 '''
 
 
@@ -623,7 +710,9 @@ def add_module(name: str, where: Layout, *, with_settings: bool = True) -> list[
     target = where.module_dir(name)
     if target.exists():
         raise GeneratorError(f"{target} already exists")
-    files = _module_files(name, with_settings=with_settings)
+    files = _module_files(
+        name, with_settings=with_settings, tenant_scoped=where.tenant_scoped
+    )
     if where.framework_tree:
         files["tests/conftest.py"] = FRAMEWORK_TREE_CONFTEST
     if not contract_inherited(target.parent):
@@ -680,14 +769,18 @@ def event_channel(module: str, name: str) -> str:
 
 
 def add_event(module: str, name: str, where: Layout, fields: list[str]) -> list[Path]:
-    """``sandloom add event <m> <Name>``: append a producer class to ``events.py``."""
+    """``sandloom add event <m> <Name>``: append a producer class to ``events.py``.
+
+    The event carries ``tenant_id: UUID`` (bound as the consumer's tenant) unless
+    the app's ``TENANCY_MODE`` is ``single``: there a tenant-less event is legal,
+    and a ``--field tenant_id:UUID`` is still written as given."""
     directory = _require_module(where, module)
     if not _CLASS.fullmatch(name):
         raise GeneratorError(f"the event name must be CamelCase: {name!r}")
     parsed = parse_fields(fields) or [
         (f"{_snake(name).split('_')[0]}_id", "UUID", "from uuid import UUID"),
     ]
-    if not any(f[0] == "tenant_id" for f in parsed):
+    if where.tenant_scoped and not any(f[0] == "tenant_id" for f in parsed):
         parsed.append(("tenant_id", "UUID", "from uuid import UUID"))
     channel = event_channel(module, name)
     path = directory / "events.py"
@@ -1143,10 +1236,11 @@ def add_consumer(
         "",
     ]
     lines += [f"    {n}: {a}" for n, a in view_fields]
+    bound = ", with the event's tenant bound" if where.tenant_scoped else ""
     block = (
         "\n".join(lines)
         + f"\n\n\n@on({cls})\nasync def {handler}(event: {cls}) -> None:\n"
-        + '    """Runs once per event (durable), with the event\'s tenant bound."""\n'
+        + f'    """Runs once per event (durable){bound}."""\n'
     )
     imports = sorted(
         {imp for _, a in view_fields if (imp := FIELD_TYPES.get(a, ("", None))[1])}
@@ -1748,36 +1842,98 @@ def _import_requirement(source: str, tree: ast.Module, name: str, line: str) -> 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="sandloom add", description=__doc__.split("\n\n")[0]
+        prog="sandloom add",
+        description="Generators that write Sandloom code into the app. Each one "
+        "creates or appends files inside a module package, then runs `sandloom "
+        "generate` so the generated files are current. Run it from the project "
+        "root, or pass --root.",
     )
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="project root")
     sub = parser.add_subparsers(dest="what", required=True)
-    sub.add_parser("module").add_argument("module")
-    event = sub.add_parser("event")
-    event.add_argument("module")
-    event.add_argument("name")
-    event.add_argument("--field", action="append", default=[])
-    contract = sub.add_parser("contract")
-    contract.add_argument("module")
-    contract.add_argument("name")
-    use = sub.add_parser(
+
+    def generator(name: str, summary: str) -> argparse.ArgumentParser:
+        return sub.add_parser(name, help=summary, description=summary)
+
+    types = ", ".join(FIELD_TYPES)
+    module = generator(
+        "module",
+        "a module under the app's modules package: a model, a route, an event, "
+        "a migration and tests",
+    )
+    module.add_argument("module", help="the new module's name (snake_case)")
+    event = generator(
+        "event",
+        "append an event class to the module's events.py, with its channel "
+        "<module>.<entity>.<verb>.v1 taken from the name",
+    )
+    event.add_argument("module", help="the module that owns the event")
+    event.add_argument(
+        "name", help="the event class name, CamelCase (e.g. NoteArchived)"
+    )
+    event.add_argument(
+        "--field",
+        action="append",
+        default=[],
+        metavar="NAME:TYPE",
+        help=f"a payload field, as name:type with type one of {types}; repeat "
+        "it for each field (default: one <entity>_id: UUID field; the event "
+        "also gets tenant_id: UUID, unless the app declares TENANCY_MODE=single)",
+    )
+    contract = generator(
+        "contract",
+        "a @contract provider in the module's contracts.py and its DTO in schemas.py",
+    )
+    contract.add_argument("module", help="the module that provides the contract")
+    contract.add_argument(
+        "name",
+        help="the contract's name (snake_case): the contract is <module>.<name>.v1",
+    )
+    use = generator(
         "contract-use",
-        help="declare that a module consumes a contract and write its stub "
+        "declare that a module consumes a contract and write its stub "
         "before the module's code imports it",
     )
-    use.add_argument("module")
+    use.add_argument("module", help="the module that consumes the contract")
     use.add_argument("contract", help="a versioned name, e.g. tenancy.membership.v1")
-    consumer = sub.add_parser("consumer")
-    consumer.add_argument("module")
-    consumer.add_argument("channel")
-    consumer.add_argument("--field", action="append", default=[])
-    for kind in ("saga", "projection"):
-        p = sub.add_parser(kind)
-        p.add_argument("module")
-        p.add_argument("name")
-    task = sub.add_parser("task")
-    task.add_argument("module")
-    task.add_argument("name")
+    consumer = generator(
+        "consumer",
+        "append a view of another module's event and an @on handler to the "
+        "module's consumers.py",
+    )
+    consumer.add_argument("module", help="the module that consumes the event")
+    consumer.add_argument(
+        "channel",
+        help="the versioned channel to consume, e.g. notes.note.created.v1",
+    )
+    consumer.add_argument(
+        "--field",
+        action="append",
+        default=[],
+        metavar="NAME:TYPE",
+        help=f"a field of the view, as name:type with type one of {types}; "
+        "repeat it for each field (default: the producer's own fields, read "
+        "from its class or its exported schema)",
+    )
+    saga = generator(
+        "saga", "a saga with a typed command step, a stand-in contract and tests"
+    )
+    saga.add_argument("module", help="the module that owns the saga")
+    saga.add_argument("name", help="the saga's name (snake_case)")
+    projection = generator(
+        "projection",
+        "a projection of the module's <name>.saved and <name>.deleted events, "
+        "its row model and the migration that creates its table (the rows "
+        "always carry tenant_id)",
+    )
+    projection.add_argument("module", help="the module that owns the projection")
+    projection.add_argument("name", help="the projection's name (snake_case)")
+    task = generator(
+        "task",
+        "an idempotent background task in the module's tasks.py, or with "
+        "--periodic a task on a beat schedule",
+    )
+    task.add_argument("module", help="the module that owns the task")
+    task.add_argument("name", help="the task's function name (snake_case)")
     task.add_argument(
         "--periodic",
         default=None,
@@ -1958,6 +2114,7 @@ __all__ = [
     "add_saga",
     "add_skills",
     "add_task",
+    "app_tenancy_mode",
     "draft_options",
     "event_channel",
     "layout",

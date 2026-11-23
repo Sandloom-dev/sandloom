@@ -116,6 +116,15 @@ The generator also writes `schemas.py` (pydantic request and response
 models), `models/__init__.py` (imports every `models/*.py`),
 `migrations/env.py` and `migrations/script.py.mako`.
 
+The files above are what an app with `TENANCY_MODE=multi` (the default) gets.
+In an app that sets `TENANCY_MODE=single`, the generator leaves the tenant out.
+The table is a plain `Base` with no `tenant_id` column, and the baseline
+migration enables no row-level security. The event and `publish()` carry no
+tenant, and tests call `as_user(tenant=False)`. Set the mode in `.env` and
+`.env.test` before you run `sandloom add module`: the generator reads it from
+those files and does not boot the app. See
+[the scaffold follows the app's tenancy](../reference/cli.md#the-scaffold-follows-the-apps-tenancy).
+
 ### 3. Replace the example with your domain
 
 1. Rename or replace `BoardItem` in `models/`. Add one file per table;

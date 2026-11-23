@@ -97,8 +97,11 @@ class Generated:
     content: str
     code: str
     problems: list[str] = field(default_factory=list)
-    #: a file to delete (an orphan consumer copy, ADR-0013 decision 2)
+    #: a file to delete (an orphan consumer copy, ADR-0013 decision 2; an exported
+    #: event schema its composed module no longer declares)
     remove: bool = False
+    #: why ``remove`` deletes it, as ``sandloom generate`` and ``--check`` say it
+    reason: str = "no longer consumed"
 
     @property
     def current(self) -> str | None:
@@ -1125,12 +1128,14 @@ def plan(
     shared_packages = _shared_packages(facade, shared_package)
     out = _stem_collisions(facade, shared_dir)
     wanted = _consumed_union(manifest, source_root) if consumed_only else None
+    exporting: set[str] = set()
     for entry in manifest.modules:
         if not is_l1(entry.name) or not _selected(entry, modules):
             continue
         directory = _module_dir(entry.name)
         if directory is None:
             continue
+        exporting.add(module_name(entry.name))
         owned = _owned(directory, source_root)
         doc = module_surface(entry)
         _record_settings(
@@ -1174,7 +1179,37 @@ def plan(
             )
     if modules is None and shared_dir is not None:
         out += _declared_files(app, shared_dir)
+        out += _orphan_event_schemas(shared_dir, {item.path for item in out}, exporting)
     return out
+
+
+def _orphan_event_schemas(
+    shared_dir: Path, planned: Collection[Path], exporting: Collection[str]
+) -> list[Generated]:
+    """The exported event schemas a composed module no longer produces (an
+    event removed or renamed): ``<shared>/events/<channel>.json`` that the plan
+    does not write, for a channel whose first segment names a module in
+    ``exporting``. ``sandloom generate`` deletes them and ``--check`` reports
+    them stale, as an orphan consumer copy is.
+
+    Only the full channel set of a module in ``exporting`` is known, so the
+    schema of a module this process did not compose (a ``SANDLOOM_MODULES``
+    subset, an optional module that did not load, a module deleted whole) is
+    never an orphan. A plan of named modules never calls this."""
+    events = shared_dir / "events"
+    if not events.is_dir():
+        return []
+    return [
+        Generated(
+            path,
+            "",
+            "SANDLOOM-T005",
+            remove=True,
+            reason=f"{path.name.split('.', 1)[0]} no longer declares this channel",
+        )
+        for path in sorted(events.glob("*.json"))
+        if path not in planned and path.name.split(".", 1)[0] in exporting
+    ]
 
 
 def _drafted(drafts: Collection[str], module: str, names: Iterable[str]) -> set[str]:
@@ -1334,7 +1369,7 @@ def _report_broken(broken: list[Generated], root: Path | None) -> None:
 
 def _why_stale(item: Generated) -> str:
     if item.remove:
-        return "(orphan: no longer consumed)"
+        return f"(orphan: {item.reason})"
     state = "missing" if item.current is None else "differs"
     return f"({state}){_consumer_copies.explain_diff(item.current, item.content)}"
 
@@ -1376,7 +1411,7 @@ def apply(
     for item in stale:
         if item.remove:
             item.path.unlink()
-            print(f"removed {_shown(item.path, root)} (no longer consumed)")
+            print(f"removed {_shown(item.path, root)} ({item.reason})")
         else:
             _write(item, shared_dir)
             print(f"wrote {_shown(item.path, root)}")

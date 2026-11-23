@@ -78,6 +78,11 @@ await ItemCreated(item_id=item.id, tenant_id=item.tenant_id).publish()
 The generator writes a producer class for you: `sandloom add event <module>
 <name>`. See [Add an event](add-event.md).
 
+A `tenant_id` field is a choice, not a rule. An event without one is legal: the
+event itself binds no tenant (`tenant=None` says the same for an event that has
+the field). The generator adds `tenant_id` to the event unless the app sets
+`TENANCY_MODE=single`, where it writes only the fields you name.
+
 ### What an event field may be
 
 An event payload is plain data that every reader, old or new, decodes the
@@ -335,6 +340,24 @@ await publish_event_versions({
 
 `sandloom streams consumers` shows the live readers per channel version. See
 [Change an event's payload](event-versioning.md).
+
+### Removing an event
+
+Delete the class from `events.py`, or rename it, and run `sandloom generate`.
+The event leaves `module.snapshot.json`, and its exported schema,
+`<shared>/events/<channel>.json`, is removed too when the module that owns the
+channel no longer declares it. `generate` prints `removed <path>`.
+`sandloom generate --check` lists the file as stale (an orphan), so
+`sandloom test` fails until the file is gone. A released event is no
+exception: a name that is gone loses its mark
+([ADR-0017](../../adr/0017-released-marks.md)) and its file with it.
+
+Only a module that the process composed can orphan a schema, because only then
+is its whole set of channels known. The schema of a module that is not composed
+stays. That covers a subset chosen with `SANDLOOM_MODULES`, an optional module
+that did not load and a module you deleted whole: delete those files by hand.
+`sandloom generate <module>` plans only the named modules' files and removes
+none.
 
 ### The bus
 
