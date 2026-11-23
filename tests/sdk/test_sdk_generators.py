@@ -363,6 +363,54 @@ def test_the_sample_module_of_a_new_app_is_tenant_scoped_on_any_machine(
     assert "tenant_id" in files["events.py"]
 
 
+def _generated_app_tenant(test_source: str) -> Any:
+    """The ``_app_tenant`` helper of a generated test file, compiled alone."""
+    tree = ast.parse(test_source)
+    (helper,) = (
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_app_tenant"
+    )
+    namespace: dict[str, Any] = {"Any": Any, "UUID": uuid.UUID, "uuid4": uuid.uuid4}
+    exec(  # noqa: S102 - the generator's own output, a pure function
+        compile(ast.Module([helper], type_ignores=[]), "<generated>", "exec"),
+        namespace,
+    )
+    return namespace["_app_tenant"]
+
+
+def test_the_tenant_scoped_tests_bind_the_tenant_the_apps_mode_expects(
+    tmp_path: Path,
+) -> None:
+    """The sample module's tests pass in an app run with ``TENANCY_MODE=single``
+    (the one canonical tenant; any other is 403 ``tenant_mismatch``) as in a
+    multi-tenant one, from one scaffold that reads no setting. The helper picks
+    the tenant at run time, from the app's own settings; both tests use it, and
+    the isolation test asserts the 403 where there is one tenant."""
+    from types import SimpleNamespace
+
+    root = _app(tmp_path, everything=False)
+    source = (
+        root / "probe" / "modules" / "notes" / "tests" / "test_notes.py"
+    ).read_text(encoding="utf-8")
+    app_tenant = _generated_app_tenant(source)
+    canonical = "00000000-0000-0000-0000-000000000001"
+    single = SimpleNamespace(
+        settings=SimpleNamespace(tenancy_mode="single", single_tenant_id=canonical)
+    )
+    assert app_tenant(single) == uuid.UUID(canonical)
+    assert app_tenant(single) == app_tenant(single)
+    multi = SimpleNamespace(
+        settings=SimpleNamespace(tenancy_mode="multi", single_tenant_id=None)
+    )
+    assert isinstance(app_tenant(multi), uuid.UUID)
+    assert app_tenant(multi) != app_tenant(multi)
+    assert source.count("as_user(tenant_id=_app_tenant(sandloom_core))") == 2
+    assert source.count("as_user(tenant_id=uuid4())") == 1  # the other tenant
+    assert 'assert foreign.json()["code"] == "tenant_mismatch"' in source
+    assert "foreign.json() == []" in source
+
+
 def test_add_module_with_no_tenant_scaffolds_a_plain_table(tmp_path: Path) -> None:
     """``--no-tenant``: no ``TenantScoped``, no ``tenant_id`` column or index, no
     row-level security, no tenant in the event or its publish, and a test that
@@ -386,6 +434,7 @@ def test_add_module_with_no_tenant_scaffolds_a_plain_table(tmp_path: Path) -> No
     assert "as_user(tenant=False)" in test and "foreign" not in test
     assert "async def test_list_items_is_capped(" in test
     assert "tenant_id" not in test
+    assert "_app_tenant" not in test and "sandloom_core" not in test
 
 
 def test_add_module_by_default_is_the_tenant_scoped_scaffold(
@@ -759,11 +808,14 @@ def test_a_fully_generated_app_passes_the_static_gates(tmp_path: Path) -> None:
 
 @pytest.mark.slow
 @pytest.mark.integration
+@pytest.mark.parametrize("tenancy_mode", ["multi", "single"])
 def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
-    tmp_path: Path,
+    tmp_path: Path, tenancy_mode: str
 ) -> None:
     """Migrations apply on a fresh database and every test of the app passes
-    (H1 landed: ``db()`` and model E are the kernel's; no failure allowed).
+    (H1 landed: ``db()`` and model E are the kernel's; no failure allowed),
+    in an app run with ``TENANCY_MODE=multi`` and ``TENANCY_MODE=single``: the
+    sample module's tests bind the tenant the app's mode expects.
     The name is kept for the ledger (C-GEN-06)."""
     import psycopg2
     from sqlalchemy.engine import make_url
@@ -813,6 +865,9 @@ def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
         }
         env[OWNER_ENV] = current_owner()
         env.update(redis_free_infra_env())
+        env["TENANCY_MODE"] = tenancy_mode
+        if tenancy_mode == "single":
+            env["SINGLE_TENANT_ID"] = "00000000-0000-0000-0000-000000000001"
         migrate_env = {
             **env,
             "PYTHONPATH": str(root),

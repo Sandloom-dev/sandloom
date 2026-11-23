@@ -126,8 +126,14 @@ A tenant-less module or event is for an app without tenants. In that app
 still filters a `TenantScoped` model you add yourself. A wrong default costs an extra `tenant_id`. A wrong
 `--no-tenant` in a multi-tenant app costs the isolation, so pass it only where the
 app has no tenants. `add projection` has no flag, because a projection row always
-carries `tenant_id`. The sample module `sandloom new` writes is `TenantScoped`; in
-an app without tenants its tests fail: adapt or delete it.
+carries `tenant_id`.
+
+The tenant-scoped tests (`add module` and the sample module `sandloom new` writes)
+pass under both modes without reading the setting when they are written. Each test
+asks the app's own settings which tenant to bind: a fresh one under
+`TENANCY_MODE=multi`, `SINGLE_TENANT_ID` under `single`. In `single` the
+isolation test asserts the `403` `tenant_mismatch` that a token naming another
+tenant gets, where in `multi` it asserts an empty list.
 
 ## Tests and gates
 
