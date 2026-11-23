@@ -2,66 +2,64 @@
 
 ``ProjectService`` owns the entity, bumps ``version`` and publishes the
 typed ``ProjectCreated`` / ``ProjectUpdated`` events inside the request's
-unit (transactional outbox). The read side other modules call is the
-``projects.read.v1`` contract (``contracts.py``).
+unit (transactional outbox). ``db()`` is that unit's session. The read side
+other modules call is the ``projects.read.v1`` contract (``contracts.py``).
 """
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from sandloom.sdk import db
 
 from ..events import ProjectCreated, ProjectUpdated
 from ..models import Project
-from ..schemas import ProjectCreateIn, ProjectUpdateIn
+from ..schemas import ProjectCreateIn, ProjectState, ProjectUpdateIn
 
 
-def snapshot(project: Project) -> dict[str, Any]:
+def snapshot(project: Project) -> ProjectState:
     """A cross-module-safe view of a project (no ORM leaks past the contract)."""
-    return {
-        "project_id": str(project.id),
-        "tenant_id": str(project.tenant_id),
-        "name": project.name,
-        "status": project.status,
-        "version": project.version,
-    }
+    return ProjectState(
+        project_id=project.id,
+        tenant_id=project.tenant_id,
+        name=project.name,
+        status=project.status,
+        version=project.version,
+    )
 
 
 class ProjectService:
     """Write side: owns Project state and emits versioned domain events."""
 
     @classmethod
-    async def create(cls, data: ProjectCreateIn, db: AsyncSession) -> Project:
+    async def create(cls, data: ProjectCreateIn) -> Project:
         project = Project(name=data.name, status="active")
-        db.add(project)
-        await db.flush()
-        await db.refresh(project)  # load server-side created_at/updated_at
-        await ProjectCreated.model_validate(snapshot(project)).publish()
+        db().add(project)
+        await db().flush()
+        await db().refresh(project)  # load server-side created_at/updated_at
+        await ProjectCreated(**snapshot(project).model_dump()).publish()
         return project
 
     @classmethod
-    async def update(
-        cls, project_id: UUID, data: ProjectUpdateIn, db: AsyncSession
-    ) -> Project:
-        project = await cls._get_or_404(project_id, db)
+    async def update(cls, project_id: UUID, data: ProjectUpdateIn) -> Project:
+        project = await cls._get_or_404(project_id)
         if data.name is not None:
             project.name = data.name
         if data.status is not None:
             project.status = data.status
         project.version += 1
-        await db.flush()
-        await db.refresh(project)  # load server-side updated_at
-        await ProjectUpdated.model_validate(snapshot(project)).publish()
+        await db().flush()
+        await db().refresh(project)  # load server-side updated_at
+        await ProjectUpdated(**snapshot(project).model_dump()).publish()
         return project
 
     @classmethod
-    async def _get_or_404(cls, project_id: UUID, db: AsyncSession) -> Project:
+    async def _get_or_404(cls, project_id: UUID) -> Project:
         project = (
-            await db.execute(select(Project).where(Project.id == project_id))
+            await db().execute(select(Project).where(Project.id == project_id))
         ).scalar_one_or_none()
         if project is None:
             raise HTTPException(

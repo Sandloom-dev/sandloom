@@ -1,7 +1,7 @@
 """Rebuild ``project_task_query_index`` from the source modules' read contracts.
 
 The projection is a cache: this reconstructs it WITHOUT touching the source
-modules' private tables — it reads through ``projects.read.v1`` / ``tasks.read.v1``
+modules' private tables — it reads through ``projects.read.v2`` / ``tasks.read.v1``
 and applies rows through the SAME version-guarded snapshot + upsert path the
 live consumers use, so a rebuild and steady-state delivery converge (a rebuild
 never rolls a row that live delivery has already advanced past) — and it
@@ -10,7 +10,7 @@ refreshes the project fields of existing task rows from the project snapshot.
 Run it as a one-off job once the source services are up (it reads them over
 their read contracts / ``SERVICE_BINDINGS``), not in the migrate one-shot.
 The read contracts are called through their generated stubs
-(``Contract(PROJECTS_READ_V1)``, ``Contract(TASKS_READ_V1)``).
+(``Contract(PROJECTS_READ_V2)``, ``Contract(TASKS_READ_V1)``).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from uuid import UUID
 
 from sqlalchemy import distinct, select
 
-from projecthub.shared.contracts.projects_read_v1 import PROJECTS_READ_V1
+from projecthub.shared.contracts.projects_read_v2 import PROJECTS_READ_V2
 from projecthub.shared.contracts.tasks_read_v1 import TASKS_READ_V1
 from sandloom.sdk import Contract
 from sandloom.sdk.data import (
@@ -43,7 +43,7 @@ from .consumers import (
 )
 from .models import ProjectTaskQueryIndex
 
-projects = Contract(PROJECTS_READ_V1)
+projects = Contract(PROJECTS_READ_V2)
 tasks = Contract(TASKS_READ_V1)
 
 
@@ -64,21 +64,20 @@ class TaskboardRebuilder:
             #    re-fan their CURRENT values over existing task rows — this is
             #    what repairs a row left with stale project fields.
             for project in project_rows:
-                project_id = UUID(project["project_id"])
                 await upsert_project_snapshot(
                     session,
-                    project_id=project_id,
+                    project_id=project.project_id,
                     tenant_id=tenant_id,
-                    name=project["name"],
-                    status=project["status"],
-                    version=int(project["version"]),
+                    name=project.name,
+                    status=project.status,
+                    version=project.version,
                 )
                 snapshot = await lock_project_snapshot(
-                    session, project_id=project_id, tenant_id=tenant_id
+                    session, project_id=project.project_id, tenant_id=tenant_id
                 )
                 await refresh_task_rows(
                     session,
-                    project_id=project_id,
+                    project_id=project.project_id,
                     name=snapshot.name,
                     status=snapshot.status,
                     version=snapshot.version,
@@ -168,15 +167,13 @@ class TaskboardRebuilder:
             await upsert_project_snapshot(
                 session,
                 project_id=UUID(raw),
-                tenant_id=UUID(project["tenant_id"]),
-                name=project["name"],
-                status=project["status"],
-                version=int(project["version"]),
+                tenant_id=project.tenant_id,
+                name=project.name,
+                status=project.status,
+                version=project.version,
             )
             snapshot = await lock_project_snapshot(
-                session,
-                project_id=UUID(raw),
-                tenant_id=UUID(project["tenant_id"]),
+                session, project_id=UUID(raw), tenant_id=project.tenant_id
             )
             rows = await refresh_task_rows(
                 session,

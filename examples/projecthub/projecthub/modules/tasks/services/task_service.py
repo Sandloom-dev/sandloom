@@ -1,9 +1,9 @@
 """Task business logic (the write side).
 
 ``TaskService`` owns the entity, bumps ``version`` and publishes the typed
-``TaskCreated`` / ``TaskUpdated`` events inside the request's unit. The
-taskboard rebuilder reads through the ``tasks.read.v1`` contract
-(``contracts.py``).
+``TaskCreated`` / ``TaskUpdated`` events inside the request's unit (``db()``
+is its session). The taskboard rebuilder reads through the ``tasks.read.v1``
+contract (``contracts.py``).
 """
 
 from __future__ import annotations
@@ -13,7 +13,8 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from sandloom.sdk import db
 
 from ..events import TaskCreated, TaskUpdated
 from ..models import Task
@@ -36,35 +37,35 @@ class TaskService:
     """Write side: owns Task state and emits versioned domain events."""
 
     @classmethod
-    async def create(cls, data: TaskCreateIn, db: AsyncSession) -> Task:
+    async def create(cls, data: TaskCreateIn) -> Task:
         task = Task(
             project_id=data.project_id,
             title=data.title,
             status="active",
         )
-        db.add(task)
-        await db.flush()
-        await db.refresh(task)  # load server-side created_at/updated_at
+        db().add(task)
+        await db().flush()
+        await db().refresh(task)  # load server-side created_at/updated_at
         await TaskCreated.model_validate(snapshot(task)).publish()
         return task
 
     @classmethod
-    async def update(cls, task_id: UUID, data: TaskUpdateIn, db: AsyncSession) -> Task:
-        task = await cls._get_or_404(task_id, db)
+    async def update(cls, task_id: UUID, data: TaskUpdateIn) -> Task:
+        task = await cls._get_or_404(task_id)
         if data.title is not None:
             task.title = data.title
         if data.status is not None:
             task.status = data.status
         task.version += 1
-        await db.flush()
-        await db.refresh(task)  # load server-side updated_at
+        await db().flush()
+        await db().refresh(task)  # load server-side updated_at
         await TaskUpdated.model_validate(snapshot(task)).publish()
         return task
 
     @classmethod
-    async def _get_or_404(cls, task_id: UUID, db: AsyncSession) -> Task:
+    async def _get_or_404(cls, task_id: UUID) -> Task:
         task = (
-            await db.execute(select(Task).where(Task.id == task_id))
+            await db().execute(select(Task).where(Task.id == task_id))
         ).scalar_one_or_none()
         if task is None:
             raise HTTPException(

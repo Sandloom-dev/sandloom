@@ -8,7 +8,7 @@
       "path": "/api/v1/enrollments",
       "policy": {
         "effect": "write",
-        "idempotency": "explicit durable, fail-closed",
+        "idempotency": "automatic S",
         "session": "live, re-check before commit",
         "write_store": "default"
       }

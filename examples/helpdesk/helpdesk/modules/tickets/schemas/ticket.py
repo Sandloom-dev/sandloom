@@ -18,10 +18,12 @@ class TicketStatusIn(BaseModel):
 
 
 class TicketOut(BaseModel):
+    """``tenant_id`` is the organization the ticket belongs to."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    organization_id: UUID
+    tenant_id: UUID
     created_by: UUID
     subject: str
     body: str

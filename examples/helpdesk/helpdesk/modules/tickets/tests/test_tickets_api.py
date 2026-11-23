@@ -28,7 +28,7 @@ class TestTickets:
         )
         assert created.status_code == 201, created.text
         body = created.json()
-        assert body["organization_id"] == str(org_id)
+        assert body["tenant_id"] == str(org_id)
         assert body["status"] == "open"
         assert body["priority"] == "high"
 
@@ -110,10 +110,11 @@ class TestTickets:
             json={"subject": "dup-safe"},
             headers=key_headers,
         )
-        # Same key -> original response replayed, not a second ticket.
+        # Same key -> the status is replayed (empty body), not a second ticket.
         assert second.status_code == 201
-        assert second.json()["id"] == first.json()["id"]
         assert second.headers.get("Idempotent-Replay") == "true"
+        listed = await client.get(f"/api/v1/orgs/{org_id}/tickets", headers=headers)
+        assert [t["id"] for t in listed.json()] == [first.json()["id"]]
 
     async def test_export_requires_subscription(
         self, client: AsyncClient, member_org

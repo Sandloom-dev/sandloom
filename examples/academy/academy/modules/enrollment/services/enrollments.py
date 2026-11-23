@@ -1,10 +1,11 @@
-"""Enrollment rows: create, the saga's local steps, reads."""
+"""Enrollment rows: create, the saga's local steps, reads (``db()`` is the unit)."""
 
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from sandloom.sdk import db
 
 from ..models import EnrollmentEnrollment
 
@@ -19,20 +20,18 @@ class AlreadyEnrolled(Exception):
 class Enrollments:
     @classmethod
     async def create(
-        cls, db: AsyncSession, student_id: UUID, course_id: UUID, price: int
+        cls, student_id: UUID, course_id: UUID, price: int
     ) -> EnrollmentEnrollment:
         row = EnrollmentEnrollment(
             student_id=student_id, course_id=course_id, price=price, status="pending"
         )
-        db.add(row)
-        await db.flush()
+        db().add(row)
+        await db().flush()
         return row
 
     @classmethod
-    async def get_or_404(
-        cls, db: AsyncSession, enrollment_id: UUID
-    ) -> EnrollmentEnrollment:
-        row = await db.get(EnrollmentEnrollment, enrollment_id)
+    async def get_or_404(cls, enrollment_id: UUID) -> EnrollmentEnrollment:
+        row = await db().get(EnrollmentEnrollment, enrollment_id)
         if row is None:
             raise HTTPException(
                 status.HTTP_404_NOT_FOUND, detail="Enrollment not found"
@@ -40,11 +39,9 @@ class Enrollments:
         return row
 
     @classmethod
-    async def _locked(
-        cls, db: AsyncSession, enrollment_id: UUID
-    ) -> EnrollmentEnrollment:
+    async def _locked(cls, enrollment_id: UUID) -> EnrollmentEnrollment:
         row = (
-            await db.execute(
+            await db().execute(
                 select(EnrollmentEnrollment)
                 .where(EnrollmentEnrollment.id == enrollment_id)
                 .with_for_update()
@@ -53,13 +50,13 @@ class Enrollments:
         return row
 
     @classmethod
-    async def reserve(cls, db: AsyncSession, enrollment_id: UUID) -> str:
+    async def reserve(cls, enrollment_id: UUID) -> str:
         """pending -> reserved; refused when the student already holds a seat."""
-        row = await cls._locked(db, enrollment_id)
+        row = await cls._locked(enrollment_id)
         if row.status == "reserved":
             return row.status
         taken = (
-            await db.execute(
+            await db().execute(
                 select(EnrollmentEnrollment.id).where(
                     EnrollmentEnrollment.student_id == row.student_id,
                     EnrollmentEnrollment.course_id == row.course_id,
@@ -74,13 +71,13 @@ class Enrollments:
         return row.status
 
     @classmethod
-    async def cancel(cls, db: AsyncSession, enrollment_id: UUID) -> str:
-        row = await cls._locked(db, enrollment_id)
+    async def cancel(cls, enrollment_id: UUID) -> str:
+        row = await cls._locked(enrollment_id)
         row.status = "cancelled"
         return row.status
 
     @classmethod
-    async def activate(cls, db: AsyncSession, enrollment_id: UUID) -> str:
-        row = await cls._locked(db, enrollment_id)
+    async def activate(cls, enrollment_id: UUID) -> str:
+        row = await cls._locked(enrollment_id)
         row.status = "active"
         return row.status

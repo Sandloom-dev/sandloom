@@ -17,10 +17,10 @@ ASGI app (`helpdesk/asgi.py`) loads the installed modules (by name: `identity`,
 ```
 helpdesk/modules/tickets/
   __init__.py      register = define_module(__name__, setup=_setup, consumes=[...])
-  api/tickets.py   router = module_router(prefix="/api/v1/orgs"); user: CurrentUser
+  api/tickets.py   router = module_router(prefix="/api/v1/orgs", tenant="none"); OrgRole gates
   events.py        TicketCreated, TicketStatusChanged (Event producers)
-  models/          Ticket(Base)
-  services/        TicketService: membership check, .publish(), record_audit(...)
+  models/          Ticket(TenantScoped, Base): the organization is the tenant
+  services/        TicketService: db(), bind_tenant, .publish(), record_audit(...)
   tests/           as_user, published(TicketCreated), seeded organizations
 ```
 
@@ -30,17 +30,24 @@ helpdesk/modules/tickets/
 - **Authentication**: `module_router()` authenticates every route; the
   handlers take `user: CurrentUser`.
 - **Sync contract**: organization membership is checked through
-  `tenancy.membership.v1`, never by importing tenancy. Tenancy is an L2
-  provider without a generated stub yet, so the route resolves it with
-  `get_core` and the module states the optional requirement in `consumes`.
+  `tenancy.membership.v1`, never by importing tenancy: each route is gated by
+  `require(OrgRole("member", org_param="organization_id"))` (`"admin"` for the
+  status change) from the generated stub `helpdesk.shared.contracts`.
+- **Tenant = organization**: `Ticket` is `TenantScoped`, so its `tenant_id` is
+  the organization id (the ticket JSON carries it as `tenant_id`) and the table
+  has row-level security. The organization comes from the path, not the token,
+  so the router binds no tenant (`tenant="none"`) and the service binds the
+  path's organization with `bind_tenant` after the route's gate has checked
+  the caller's membership.
 - **Billing gate**: `GET /orgs/{organization_id}/tickets/export` is gated by
   the **organization's** subscription,
   `require(Subscribed(of=Account.org(param="organization_id")))`; a personal
   subscription does not open an organization's export (402).
 - **RBAC**: only `admin`/`owner` may change a ticket's status; status changes
   publish `TicketStatusChanged` and record an audit entry.
-- **Idempotency**: `create` takes `idempotency_guard(scope="tickets")`, so a
-  repeated `Idempotency-Key` replays the original response.
+- **Idempotency**: derived, no declaration: a repeated `Idempotency-Key` on
+  `create` replays the stored status (empty body, `Idempotent-Replay: true`)
+  and creates no second ticket.
 - Module code imports only the beginner names of `sandloom.sdk`; an advanced name
   carries `# sandloom: advanced <reason>` on its import line (SANDLOOM-T009).
 

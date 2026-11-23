@@ -17,6 +17,21 @@ class ProjectUpdateIn(BaseModel):
     status: str | None = Field(default=None, min_length=1, max_length=32)
 
 
+class ProjectState(BaseModel):
+    """A project's state as the ``projects.read.v1`` contract returns it.
+
+    Callers receive a copy of this class (``sandloom generate`` writes it into
+    ``projecthub.shared.contracts``), so a caller reads ``project.name``
+    instead of ``project.get("name", "")``.
+    """
+
+    project_id: UUID
+    tenant_id: UUID
+    name: str
+    status: str
+    version: int
+
+
 class ProjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -20,7 +20,8 @@ from projecthub.modules.taskboard.consumers import (
     on_task_upserted,
 )
 from projecthub.modules.taskboard.services import TaskboardQueryService
-from projecthub.shared.contracts.projects_read_v1 import PROJECTS_READ_V1
+from projecthub.shared.contracts.projects_dto import ProjectState
+from projecthub.shared.contracts.projects_read_v2 import PROJECTS_READ_V2
 from projecthub.shared.contracts.tasks_read_v1 import TASKS_READ_V1
 
 # ``db_engine`` (sandloom.sdk.testing plugin) builds the schema including the core
@@ -40,12 +41,12 @@ from sandloom.sdk.testing import (  # sandloom: advanced skip a race where write
 
 
 class _StubProjectsRead:
-    """Stands in for the ``projects.read.v1`` contract."""
+    """Stands in for the ``projects.read.v2`` contract."""
 
-    def __init__(self, projects: dict[str, dict]) -> None:
+    def __init__(self, projects: dict[str, ProjectState]) -> None:
         self._projects = projects
 
-    async def get(self, project_id: uuid.UUID) -> dict | None:
+    async def get(self, project_id: uuid.UUID) -> ProjectState | None:
         return self._projects.get(str(project_id))
 
 
@@ -69,13 +70,13 @@ async def callbacks(db_engine: AsyncEngine):
 
     project_id = uuid.uuid4()
     projects = {
-        str(project_id): {
-            "project_id": str(project_id),
-            "tenant_id": "",  # filled by the test
-            "name": "Dev Platform",
-            "status": "active",
-            "version": 1,
-        }
+        str(project_id): ProjectState(
+            project_id=project_id,
+            tenant_id=uuid.uuid4(),  # the seeding reads only name/status/version
+            name="Dev Platform",
+            status="active",
+            version=1,
+        )
     }
     task_cb = make_consumer_callback(
         ProjectionConsumerDescriptor(
@@ -99,7 +100,7 @@ async def callbacks(db_engine: AsyncEngine):
         "default",
         opener,
     )
-    with fake_contract(PROJECTS_READ_V1, _StubProjectsRead(projects)):
+    with fake_contract(PROJECTS_READ_V2, _StubProjectsRead(projects)):
         yield task_cb, project_cb, sessionmaker, project_id
 
 
@@ -174,6 +175,12 @@ def _project_payload(project_id: uuid.UUID, tenant_id: uuid.UUID, version: int) 
     }
 
 
+def _project_state(
+    project_id: uuid.UUID, tenant_id: uuid.UUID, version: int
+) -> ProjectState:
+    return ProjectState.model_validate(_project_payload(project_id, tenant_id, version))
+
+
 def _task_payload(task_id, tenant_id, project_id, version: int = 1) -> dict:  # noqa: ANN001
     return {
         "task_id": str(task_id),
@@ -220,7 +227,7 @@ async def test_project_update_racing_a_task_insert_is_not_lost(
         on_project = on_project_updated
 
         class _RacingProjectsRead:
-            async def get(self, _pid: uuid.UUID) -> dict:
+            async def get(self, _pid: uuid.UUID) -> ProjectState:
                 # The project v2 event is applied AND committed while the task
                 # handler is between its RPC read and its insert.
                 async with opener("default") as session:
@@ -232,9 +239,9 @@ async def test_project_update_racing_a_task_insert_is_not_lost(
                             _project_payload(project_id, tenant_id, 2),
                         ),
                     )
-                return _project_payload(project_id, tenant_id, 1)  # stale read
+                return _project_state(project_id, tenant_id, 1)  # stale read
 
-        with fake_contract(PROJECTS_READ_V1, _RacingProjectsRead()):
+        with fake_contract(PROJECTS_READ_V2, _RacingProjectsRead()):
             async with opener("default") as session:
                 await on_task_upserted(
                     session,
@@ -263,7 +270,7 @@ async def test_project_update_waits_for_an_uncommitted_task_insert(
     tenant_id, project_id, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     with bind_tenant(tenant_id):  # what bind_tenant_from does
         projects = _StubProjectsRead(
-            {str(project_id): _project_payload(project_id, tenant_id, 1)}
+            {str(project_id): _project_state(project_id, tenant_id, 1)}
         )
         on_project = on_project_updated
 
@@ -282,7 +289,7 @@ async def test_project_update_waits_for_an_uncommitted_task_insert(
         task_session = sessionmaker()
         project_task: asyncio.Task[None] | None = None
         try:
-            with fake_contract(PROJECTS_READ_V1, projects):
+            with fake_contract(PROJECTS_READ_V2, projects):
                 await on_task_upserted(
                     task_session,
                     _envelope(
@@ -345,15 +352,15 @@ async def test_rebuild_refreshes_stale_project_fields(
     monkeypatch.setattr(rebuilder_mod, "open_uow", _open_uow)
 
     class _Read:
-        async def list_for_tenant(self, _tenant: uuid.UUID) -> list[dict]:
-            return [_project_payload(project_id, tenant_id, 3)]
+        async def list_for_tenant(self, _tenant: uuid.UUID) -> list[ProjectState]:
+            return [_project_state(project_id, tenant_id, 3)]
 
     class _Tasks:
         async def list_for_tenant(self, _tenant: uuid.UUID) -> list[dict]:
             return [_task_payload(task_id, tenant_id, project_id, version=1)]
 
     with (
-        fake_contract(PROJECTS_READ_V1, _Read()),
+        fake_contract(PROJECTS_READ_V2, _Read()),
         fake_contract(TASKS_READ_V1, _Tasks()),
     ):
         result = await TaskboardRebuilder().rebuild_tenant(tenant_id)

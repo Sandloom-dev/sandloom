@@ -53,11 +53,3 @@ forbidden_patterns:
 # Justified, file-scoped exceptions: {file: <glob relative to this file>,
 # imports: [<glob>, ...]}. Keep it empty — every entry is a hole.
 allowlist: []
-
-tenant_scope_exempt:
-  - table: tickets_tickets
-    reason: >-
-      predates TenantScoped: every ticket query filters on organization_id
-      and is authorized per request through tenancy.membership.v1 (the
-      caller's role in that organisation). Converting it to TenantScoped +
-      RLS is a tracked follow-up.
