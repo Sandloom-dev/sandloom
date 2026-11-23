@@ -104,7 +104,8 @@ stays committed and the caller compensates. `operation_key` is mandatory and is
 the idempotency key — a retry returns the original balance; reusing the key for
 a different amount is `409`; insufficient balance or no billing customer is
 `402` (nothing written). Granting is not part of any contract: credits are
-minted only by billing (paid checkout webhooks).
+minted only by billing (paid checkout webhooks). In development you send that
+webhook yourself: [Get credits in development](#get-credits-in-development).
 
 The command dedupe scope includes `tenant_type` and `tenant_id`: two customers
 may independently use the same operation key. Invalid credit-operation values
@@ -281,6 +282,144 @@ after checking authorization and expiry.
   redelivered.
 - Outgoing Stripe requests pin `Stripe-Version: 2025-03-31.basil`; both the
   legacy and basil webhook payload shapes are read.
+
+## Get credits in development
+
+There is no grant command: credits are minted only by a paid
+`checkout.session.completed` webhook. Outside `prod` the default PSP is
+`FakeStripeClient`, which issues fake checkout sessions and accepts only
+webhooks signed with `STRIPE_WEBHOOK_SECRET`. So you buy a pack on the fake PSP
+and send the webhook the real Stripe would send, signed with
+`sandloom_billing.psp.sign_stripe_payload`. Billing then grants the credits the
+normal way: intent gate, `billing_credit_grants` row, ledger entry,
+`billing.credits.added.v1`. The recipe was run against a fresh `sandloom new`
+app with `--with identity,billing`.
+
+Set up once:
+
+1. **A credit pack in the catalog.** Billing ships no catalog; insert a
+   one-time product and a price with `credits` (`amount` is in minor units).
+   `psql "${DATABASE_URL/+asyncpg/}"` connects with the app's database url.
+
+   ```sql
+   INSERT INTO billing_products (name, type, is_active) VALUES ('100 credits', 'one_time', true);
+   INSERT INTO billing_prices (product_id, amount, currency, credits)
+   VALUES (currval(pg_get_serial_sequence('billing_products', 'id')), 1000, 'usd', 100);
+   ```
+
+   `GET /api/v1/billing/plans` lists it with the `price_id`.
+2. **A signing secret.** Add `STRIPE_WEBHOOK_SECRET=whsec_dev_local_only` (any
+   non-empty string) to `.env` and restart the app. Without it every webhook is
+   `400`, also on the fake PSP.
+3. **The reconciler running.** Checkout answers `503` until a reconciler run
+   has completed in the last 15 minutes (see [HTTP API](#http-api)). Start
+   `uv run sandloom worker` and `uv run sandloom beat`, then wait for the first
+   beat, up to 5 minutes. On macOS set `"worker_pool": "solo"` in the
+   `taskqueue` instance of `INFRA`
+   ([the worker and beat](../background/tasks.md#the-worker-and-beat)).
+4. **An access token** of the user who buys (register, verify and log in:
+   [Identity](identity.md)).
+
+Then, with `TOKEN` the access token and the app on port 8000:
+
+```bash
+# before
+curl -s localhost:8000/api/v1/billing/credits -H "Authorization: Bearer $TOKEN"
+# {"balance":0,"debt":0,"in_debt":false}
+
+# 1. a checkout session on the fake PSP; the url ends in the session id
+curl -s -X POST localhost:8000/api/v1/billing/checkout-session \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: dev-credits-1" \
+  -H "Content-Type: application/json" -d '{"price_id": 1}'
+# {"url":"https://checkout.stripe.local/c/cs_fake_f01823293dbe4fb2"}
+```
+
+The webhook must name the PSP customer, billing's customer id and the intent
+that authorized the session. Billing keeps all three, keyed by the session id:
+
+```sql
+SELECT c.stripe_customer_id, c.id AS customer_id, i.id AS intent_id
+FROM billing_operation_intents i JOIN billing_customers c ON c.id = i.customer_id
+WHERE i.psp_session_id = 'cs_fake_f01823293dbe4fb2';
+```
+
+Send the signed `checkout.session.completed`. Save this script as
+`grant_credits.py`. It runs in the app's environment, which has billing's
+package:
+
+<!-- code-ok: D4 a dev-only helper script, run against a fresh app (the recipe above) -->
+```python
+import json
+import os
+import sys
+import urllib.request
+import uuid
+
+from sandloom_billing.psp import sign_stripe_payload
+
+# The catalog price you bought (billing_prices) and the ids of the lookup query.
+PRICE_ID, AMOUNT, CURRENCY = 1, 1000, "usd"
+session_id, psp_customer, customer_id, intent_id = sys.argv[1:5]
+
+event = {
+    "id": f"evt_dev_{uuid.uuid4().hex}",
+    "type": "checkout.session.completed",
+    "data": {
+        "object": {
+            "id": session_id,
+            "mode": "payment",
+            "payment_status": "paid",
+            "customer": psp_customer,
+            "payment_intent": f"pi_dev_{uuid.uuid4().hex}",
+            "amount_total": AMOUNT,
+            "currency": CURRENCY,
+            "metadata": {
+                "customer_id": customer_id,
+                "price_id": str(PRICE_ID),
+                "sandloom_intent_id": intent_id,
+            },
+        }
+    },
+}
+body = json.dumps(event).encode()
+request = urllib.request.Request(
+    os.environ.get("BASE_URL", "http://127.0.0.1:8000")
+    + "/api/v1/billing/webhooks/stripe",
+    data=body,
+    headers={
+        "Content-Type": "application/json",
+        "Stripe-Signature": sign_stripe_payload(
+            body, os.environ["STRIPE_WEBHOOK_SECRET"]
+        ),
+    },
+)
+with urllib.request.urlopen(request) as response:
+    print(response.status, response.read().decode())
+```
+
+Run it with the three ids of the query, then read the balance again:
+
+```bash
+STRIPE_WEBHOOK_SECRET=whsec_dev_local_only uv run python grant_credits.py \
+  cs_fake_f01823293dbe4fb2 cus_fake_0bfa679a1412436e \
+  2391cb4d-9391-4c38-99cf-411b3d4778fb be610dda-a7d1-4f1d-9629-5e22b16df7c1
+# 200 {"status":"processed"}
+
+# after
+curl -s localhost:8000/api/v1/billing/credits -H "Authorization: Bearer $TOKEN"
+# {"balance":100,"debt":0,"in_debt":false}
+```
+
+Each purchase needs its own checkout session, so use a new `Idempotency-Key`.
+The grant is keyed by the session, and a replayed webhook answers
+`{"status": "duplicate"}`. Three payloads are refused:
+
+- an `amount_total` or `currency` other than the price's;
+- a customer id that is not the session's customer;
+- an intent that is not `issued` for that session.
+
+Each answers `200 {"status": "failed"}` and grants nothing. The reason is in
+`billing_stripe_events.note`.
 
 ## Read and PSP behavior
 
