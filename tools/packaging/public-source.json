@@ -1283,6 +1283,7 @@
         "packages/sandloom-redis/tests/test_redis_subject_record.py",
         "packages/sandloom-redis/tests/test_redis_periodic_slots.py",
         "packages/sandloom-redis/tests/test_redis_options_from_settings.py",
+        "packages/sandloom-redis/tests/test_redis_ownership_out_of_range.py",
         "packages/sandloom-redis/tests/test_redis_shared_cache_warning.py",
         "packages/sandloom-redis/tests/test_redis_atomic_store.py",
         "packages/sandloom-redis/tests/test_redis_atomic_store_first_use.py",
