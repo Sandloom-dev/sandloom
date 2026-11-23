@@ -7,6 +7,7 @@ decryption, and key rotation.
 
 import asyncio
 import time
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -29,6 +30,7 @@ from sandloom_identity.services.twofa_service import (
     _decrypt_secret,
     _encrypt_secret,
 )
+from sandloom_identity.tests.utils.totp import enable_2fa
 
 PASSWORD = "TestPassword123!"
 
@@ -46,18 +48,8 @@ def _code_for_step(secret: str, step: int) -> str:
 async def _enabled_user(test_db, make_user, email="2fa@example.com"):
     user = await make_user(email)
     init = await TwoFAService.init_2fa(user, test_db, current_password=PASSWORD)
-    now_step = int(time.time()) // 30
-    # Use the previous step so "now" stays available for the test body. The
-    # clock is held at that step while enabling: the password check is slow
-    # (argon2, slower under coverage), and a step boundary crossed meanwhile
-    # would put the previous step's code out of the window ("Invalid OTP").
-    with patch.object(twofa_mod.time, "time", return_value=now_step * 30 + 1.0):
-        await TwoFAService.enable_2fa(
-            user,
-            _code_for_step(init.secret, now_step - 1),
-            test_db,
-            current_password=PASSWORD,
-        )
+    # The previous step's code, the clock held at one timestamp (see the helper).
+    await enable_2fa(user, init.secret, test_db, current_password=PASSWORD)
     await test_db.commit()
     return user, init
 
@@ -381,3 +373,58 @@ class TestSecretCrypto:
             stored = base64.urlsafe_b64encode(sha.encrypt(b"OLD")).decode()
             with pytest.raises(TwoFASecretDecryptionError):
                 _decrypt_secret(stored)
+
+
+# (clock when the test computes the code, clock the service reads when it
+# verifies): a 30 s step boundary lies between the two.
+_CROSSES_A_STEP = [(89.999, 90.001), (89.999, 119.0), (60.0, 150.0)]
+
+
+class TestEnableAcrossAStepBoundary:
+    """The 2FA test helper survives a step boundary crossed while enabling."""
+
+    @staticmethod
+    def _clock(value: float) -> Any:
+        """The service's view of the wall clock, held at ``value``."""
+        return patch.object(twofa_mod, "time", SimpleNamespace(time=lambda: value))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("read_at", "verify_at"), _CROSSES_A_STEP)
+    async def test_inline_previous_step_code_is_refused_after_a_boundary(
+        self, test_db, make_user, read_at: float, verify_at: float
+    ) -> None:
+        """The scenario is real: the code made from ``read_at`` is out of the
+        window at ``verify_at`` (what the old helpers hit once in a while)."""
+        user = await make_user("boundary-old@example.com")
+        init = await TwoFAService.init_2fa(user, test_db, current_password=PASSWORD)
+        step = int(read_at) // 30 - 1
+        with self._clock(verify_at):
+            with pytest.raises(HTTPException) as exc:
+                await TwoFAService.enable_2fa(
+                    user,
+                    _code_for_step(init.secret, step),
+                    test_db,
+                    current_password=PASSWORD,
+                )
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("read_at", "verify_at"), _CROSSES_A_STEP)
+    async def test_helper_enables_across_a_boundary(
+        self, test_db, make_user, read_at: float, verify_at: float
+    ) -> None:
+        user = await make_user("boundary-new@example.com")
+        init = await TwoFAService.init_2fa(user, test_db, current_password=PASSWORD)
+        with self._clock(verify_at):
+            step = await enable_2fa(
+                user, init.secret, test_db, current_password=PASSWORD, now=read_at
+            )
+        assert step == int(read_at) // 30 - 1
+        row = (
+            await test_db.execute(
+                select(TwoFASecret).where(TwoFASecret.user_id == user.id)
+            )
+        ).scalar_one()
+        assert row.is_enabled is True
+        # The held clock is gone: the service reads the real one again.
+        assert twofa_mod.time is time

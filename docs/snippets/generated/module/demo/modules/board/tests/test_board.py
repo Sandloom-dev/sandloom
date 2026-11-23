@@ -1,15 +1,24 @@
 """Tests of the board module (sandloom.sdk.testing fixtures)."""
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sandloom.sdk.testing import as_user, published
 
 from ..events import ItemCreated
 
 
-async def test_create_and_read_an_item(client: Any) -> None:
-    _, headers = as_user(tenant_id=uuid4())
+def _app_tenant(core: Any) -> UUID:
+    """The tenant this app's mode expects: SINGLE_TENANT_ID when
+    TENANCY_MODE=single, else a fresh tenant."""
+    settings = core.settings
+    if settings.tenancy_mode == "single":
+        return UUID(str(settings.single_tenant_id))
+    return uuid4()
+
+
+async def test_create_and_read_an_item(client: Any, sandloom_core: Any) -> None:
+    _, headers = as_user(tenant_id=_app_tenant(sandloom_core))
     created = await client.post(
         "/api/v1/board/items", json={"title": "first"}, headers=headers
     )
@@ -21,8 +30,10 @@ async def test_create_and_read_an_item(client: Any) -> None:
     assert fetched.json()["title"] == "first"
 
 
-async def test_list_items_is_capped_and_tenant_scoped(client: Any) -> None:
-    _, headers = as_user(tenant_id=uuid4())
+async def test_list_items_is_capped_and_tenant_scoped(
+    client: Any, sandloom_core: Any
+) -> None:
+    _, headers = as_user(tenant_id=_app_tenant(sandloom_core))
     _, other = as_user(tenant_id=uuid4())
     for title in ("a", "b", "c"):
         created = await client.post(
@@ -36,7 +47,12 @@ async def test_list_items_is_capped_and_tenant_scoped(client: Any) -> None:
     page = await client.get("/api/v1/board/items", params={"limit": 2}, headers=headers)
     assert len(page.json()) == 2
     foreign = await client.get("/api/v1/board/items", headers=other)
-    assert foreign.json() == []
+    if sandloom_core.settings.tenancy_mode == "single":
+        # One canonical tenant: a token naming another one is refused.
+        assert foreign.status_code == 403
+        assert foreign.json()["code"] == "tenant_mismatch"
+    else:
+        assert foreign.json() == []
     over_cap = await client.get(
         "/api/v1/board/items", params={"limit": 101}, headers=headers
     )

@@ -23,6 +23,7 @@ from sandloom_identity.schemas.sso import MFAChallengeOut
 from sandloom_identity.services import sso_service as sso_mod
 from sandloom_identity.services.sso_service import PURPOSE_LINK, SSOService
 from sandloom_identity.services.twofa_service import TwoFAService
+from sandloom_identity.tests.utils.totp import enable_2fa
 
 
 class FakeOAuthClient:
@@ -361,15 +362,8 @@ class TestSecondFactor:
         init = await TwoFAService.init_2fa(
             user, test_db, current_password="TestPassword123!"
         )
-        import time
-
-        step = int(time.time()) // 30 - 1
-        totp = pyotp.TOTP(init.secret)
-        await TwoFAService.enable_2fa(
-            user,
-            totp.at(step * 30),
-            test_db,
-            current_password="TestPassword123!",
+        await enable_2fa(
+            user, init.secret, test_db, current_password="TestPassword123!"
         )
         test_db.add(
             ExternalIdentity(

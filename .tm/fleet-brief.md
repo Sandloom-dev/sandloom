@@ -56,9 +56,11 @@ Remove your containers before `task_done`.
   task depends on, or find its bug, write on its task: `active_claims` with
   `covering: <path>` names it, `reflection_add` with that `task` leaves the
   note, its first line standing on its own.
-- **Checkpoints.** `task_checkpoint` after your first green test, before a
-  long check, and before you stop: what is done (commit), what is next, what
-  is still red. A compacted context or the next agent resumes from it.
+- **Checkpoints.** `task_checkpoint` when the code is written (WIP commit),
+  before the long checks, and before you stop: what is done (commit), what is
+  next, what is still red, and a `read:` line of the `file:line` ranges that
+  matter, so whoever resumes does not re-read to orient. A compacted context
+  or the next agent resumes from it.
 - **Checks at the handover.** Your first `task_done` may be refused once with
   a `{"kind": "checks", ...}` deliverable in the reason: call `task_done`
   again with the same arguments plus that deliverable, unchanged, editing

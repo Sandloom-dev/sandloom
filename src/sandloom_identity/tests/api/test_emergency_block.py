@@ -27,6 +27,7 @@ from sandloom_identity.models.external_identity import ExternalIdentity, Provide
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.models.user import User
 from sandloom_identity.services.twofa_service import TwoFAService
+from sandloom_identity.tests.utils.totp import enable_2fa
 
 from .test_sso_hardening import idp  # noqa: F401 - fixture reuse
 
@@ -155,10 +156,7 @@ async def test_blocked_user_cannot_complete_sso_or_sso_2fa(
     # SSO + second factor: the challenge is issued, its completion refused.
     user = await make_user("sso2fablock@example.com")
     init = await TwoFAService.init_2fa(user, test_db, current_password=PASSWORD)
-    step = int(time.time()) // 30 - 1
-    await TwoFAService.enable_2fa(
-        user, pyotp.TOTP(init.secret).at(step * 30), test_db, current_password=PASSWORD
-    )
+    await enable_2fa(user, init.secret, test_db, current_password=PASSWORD)
     test_db.add(
         ExternalIdentity(user_id=user.id, provider=Provider.GOOGLE, external_id="g-b2")
     )
@@ -191,10 +189,7 @@ async def test_blocked_user_cannot_login_with_password_2fa(
 ) -> None:
     user = await make_user("pw2fablock@example.com")
     init = await TwoFAService.init_2fa(user, test_db, current_password=PASSWORD)
-    step = int(time.time()) // 30 - 1
-    await TwoFAService.enable_2fa(
-        user, pyotp.TOTP(init.secret).at(step * 30), test_db, current_password=PASSWORD
-    )
+    await enable_2fa(user, init.secret, test_db, current_password=PASSWORD)
     await test_db.commit()
     await block_user(user.id, reason="leak")
     resp = await async_client.post(
