@@ -21,11 +21,13 @@ builder writes from the same parts. So:
 * the tenant is compared by its exact type on every path (the upsert, the flush,
   the cursor): a ``uuid.UUID`` subclass that only reads as the bound tenant is
   refused, a driver's honest subclass is replaced by the plain value;
-* a ``sqlite_on_conflict*`` option and a column that is not exactly ``Column``
-  are refused before a flush;
-* what the helper does not claim: a unique key or a foreign key that leaves the
-  tenant out acts as on a plain insert, and a composite key does what the docs
-  advise.
+* a ``sqlite_on_conflict*`` option (declared, never read off the live schema) and
+  a column that is not exactly ``Column`` are refused before a flush;
+* what the helper does not claim: a unique key that leaves the tenant out acts as
+  on a plain insert, and a composite foreign key does what the docs advise (a
+  foreign key without the tenant, a ``REPLACE`` clause and a tenant column type
+  that processes the value are refused when the model is defined, SANDLOOM-R019 to
+  R021: ``test_tenant_orm_insert_gaps.py``).
 
 Tenant A owns ``tups_items`` row 1 and tenant B row 2, both under the key
 ``shared``.
@@ -104,6 +106,7 @@ from sandloom.core.sql_alchemy import tenant_upsert as helper_mod
 from sandloom.core.sql_alchemy.portable import UnsupportedSqlForm, conflict_insert_for
 from sandloom.core.sql_alchemy.tenant_upsert import TenantUpsertError, tenant_upsert
 from sandloom.core.sql_alchemy.write_admission import install_write_admission
+from sandloom.core.tenant import UnsafeTenantModelError
 from sandloom.core.testing import reload_test_env
 
 A_ITEM_ID = 1
@@ -221,25 +224,18 @@ class _Car(TenantScoped, _Vehicle):
     __mapper_args__ = {"polymorphic_identity": "car"}
 
 
-class _HexUuid(TypeDecorator[uuid.UUID]):
-    """Stores a UUID as ``t-<hex>``: the value in the database is not the value a
-    parameter holds, so a bind that skipped the column's type would not match."""
-
-    impl = Text
-    cache_ok = True
-
-    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
-        return None if value is None else "t-" + value.hex
-
-    def process_result_value(self, value: Any, dialect: Any) -> uuid.UUID | None:
-        return None if value is None else uuid.UUID(value[2:])
-
-
 class _Hexed(TenantScoped, _Base):
+    """A tenant column stored as ``CHAR(32)`` hex (SQLAlchemy's own ``Uuid`` with
+    ``native_uuid=False``; a ``TypeDecorator`` is refused on a tenant column,
+    SANDLOOM-R021): the value in the database is not the value a parameter holds,
+    so a bind that skipped the column's type would not match."""
+
     __tablename__ = "tups_hexed"
     __table_args__ = (UniqueConstraint("tenant_id", "key"),)
 
-    tenant_id: Mapped[uuid.UUID] = mapped_column(_HexUuid(), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(native_uuid=False), nullable=False
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text)
@@ -303,17 +299,6 @@ class _PgParent(TenantScoped, _PgBase):
     name: Mapped[str] = mapped_column(Text)
 
 
-class _PgPlainChild(TenantScoped, _PgBase):
-    """A foreign key that leaves the tenant out: acts as on a plain insert."""
-
-    __tablename__ = "tups_plain_children"
-    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    key: Mapped[str] = mapped_column(Text)
-    parent_id: Mapped[int] = mapped_column(ForeignKey("tups_parents.id"))
-
-
 class _PgTenantChild(TenantScoped, _PgBase):
     """The composite foreign key ``(tenant_id, parent_id)`` the docs recommend."""
 
@@ -331,13 +316,15 @@ class _PgTenantChild(TenantScoped, _PgBase):
     parent_id: Mapped[int] = mapped_column(Integer)
 
 
-class _ReplacingPk(TenantScoped, _Base):
-    """A1: SQLite resolves a conflict on the GLOBAL primary key by deleting the row
-    of any tenant that holds it, before ``ON CONFLICT DO UPDATE`` is asked."""
+class _ResolvingPk(TenantScoped, _Base):
+    """A conflict clause of the table's own on the GLOBAL primary key (``IGNORE``:
+    a ``REPLACE`` one is refused when the model is defined, SANDLOOM-R019, and has
+    its tests in ``test_tenant_orm_insert_gaps.py``). The helper refuses any
+    ``on_conflict`` option, whatever its value, before it sends a statement."""
 
-    __tablename__ = "tups_replacing_pk"
+    __tablename__ = "tups_resolving_pk"
     __table_args__ = (
-        PrimaryKeyConstraint("id", sqlite_on_conflict="REPLACE"),
+        PrimaryKeyConstraint("id", sqlite_on_conflict="IGNORE"),
         UniqueConstraint("tenant_id", "key"),
     )
 
@@ -346,11 +333,11 @@ class _ReplacingPk(TenantScoped, _Base):
     name: Mapped[str] = mapped_column(Text)
 
 
-class _ReplacingUnique(TenantScoped, _Base):
-    __tablename__ = "tups_replacing_unique"
+class _ResolvingUnique(TenantScoped, _Base):
+    __tablename__ = "tups_resolving_unique"
     __table_args__ = (
         UniqueConstraint("tenant_id", "key"),
-        UniqueConstraint("email", sqlite_on_conflict="REPLACE"),
+        UniqueConstraint("email", sqlite_on_conflict="IGNORE"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -358,14 +345,14 @@ class _ReplacingUnique(TenantScoped, _Base):
     email: Mapped[str] = mapped_column(Text)
 
 
-class _ReplacingColumn(TenantScoped, _Base):
-    __tablename__ = "tups_replacing_column"
+class _ResolvingColumn(TenantScoped, _Base):
+    __tablename__ = "tups_resolving_column"
     __table_args__ = (UniqueConstraint("tenant_id", "key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(Text)
     email: Mapped[str] = mapped_column(
-        Text, unique=True, sqlite_on_conflict_unique="REPLACE"
+        Text, unique=True, sqlite_on_conflict_unique="IGNORE"
     )
 
 
@@ -770,8 +757,8 @@ async def test_the_tenant_value_is_bound_with_the_tenant_columns_own_type(
     # stored through the column's type (the update matched the row the insert
     # wrote: one row for A, whose name the second call refreshed)
     assert [tuple(row) for row in raw] == [
-        ("t-" + env.a.hex, "two"),
-        ("t-" + env.b.hex, "b"),
+        (env.a.hex, "two"),
+        (env.b.hex, "b"),
     ]
 
 
@@ -2134,19 +2121,19 @@ async def test_a_driver_class_of_the_bound_tenant_is_not_refused(env: _Env) -> N
     ("model", "row", "update", "named"),
     [
         (
-            _ReplacingPk,
+            _ResolvingPk,
             {"id": 1, "key": "k", "name": "n"},
             ["name"],
             "constraint PrimaryKeyConstraint: sqlite_on_conflict",
         ),
         (
-            _ReplacingUnique,
+            _ResolvingUnique,
             {"id": 1, "key": "k", "email": "e"},
             ["email"],
             "constraint UniqueConstraint: sqlite_on_conflict",
         ),
         (
-            _ReplacingColumn,
+            _ResolvingColumn,
             {"id": 1, "key": "k", "email": "e"},
             ["email"],
             "column email: sqlite_on_conflict_unique",
@@ -2162,25 +2149,50 @@ async def test_a_table_with_a_conflict_resolution_of_its_own_is_refused(
 
 
 @pytest.mark.asyncio
-async def test_sqlite_replace_never_deletes_the_row_of_another_tenant(
+async def test_a_conflict_clause_of_the_tables_own_never_decides_for_the_helper(
     env: _Env,
 ) -> None:
-    """A1: under ``PRIMARY KEY (id) ON CONFLICT REPLACE`` SQLite deletes the row that
-    holds the key, whoever owns it, before ``ON CONFLICT DO UPDATE`` is asked."""
+    """A1: a clause on the global primary key resolves the conflict before ``ON
+    CONFLICT DO UPDATE`` is asked, whoever owns the row that holds the key: the
+    helper refuses before it sends, and the row of the other tenant is as it was."""
     async with env.maker() as session:
         with unscoped():
-            session.add(_ReplacingPk(id=1, tenant_id=env.b, key="k", name="b-name"))
+            session.add(_ResolvingPk(id=1, tenant_id=env.b, key="k", name="b-name"))
             await session.commit()
     with pytest.raises(TenantUpsertError, match="sqlite_on_conflict"):
         await _upsert(
             env,
             env.a,
-            _ReplacingPk,
+            _ResolvingPk,
             [{"id": 1, "key": "k2", "name": "pwned"}],
             update=["name"],
         )
-    rows = await _read(env, _ReplacingPk.id, _ReplacingPk.tenant_id, _ReplacingPk.name)
+    rows = await _read(env, _ResolvingPk.id, _ResolvingPk.tenant_id, _ResolvingPk.name)
     assert rows == [(1, env.b, "b-name")]
+
+
+@pytest.mark.asyncio
+async def test_a_clause_added_after_the_definition_is_refused_by_the_helper() -> None:
+    """The definition check ran before the constraint existed: the attach listener
+    refuses it (SANDLOOM-R019), and the helper reads the declared options of the
+    table as they are when it is called, so a process that carried on still has no
+    statement sent."""
+
+    class _LateBase(DeclarativeBase):
+        pass
+
+    class _Late(TenantScoped, _LateBase):
+        __tablename__ = "tups_late"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        email: Mapped[str] = mapped_column(Text)
+
+    table = _Late.__table__
+    assert isinstance(table, Table)
+    with pytest.raises(UnsafeTenantModelError):
+        table.append_constraint(UniqueConstraint("email", sqlite_on_conflict="REPLACE"))
+    error = await _refused(_Late, [{"id": 1, "email": "e"}], update=["email"])
+    assert "constraint UniqueConstraint: sqlite_on_conflict" in str(error)
 
 
 @pytest.mark.asyncio
@@ -2358,32 +2370,13 @@ async def _child_upsert(
 
 
 @pytest.mark.asyncio
-async def test_a_foreign_key_without_the_tenant_acts_as_on_a_plain_insert(
-    pg_tables: async_sessionmaker[AsyncSession],
-) -> None:
-    """RT-A2: the helper keeps another tenant's row from being the conflicting row,
-    nothing more. A foreign key that leaves the tenant out accepts the parent of
-    another tenant, and a parent that does not exist is the database's error: the
-    docs advise the composite key of the next test."""
-    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
-    await _parent_of(pg_tables, tenant_b, 7)
-    await _child_upsert(pg_tables, tenant_a, _PgPlainChild, 7)
-    async with pg_tables() as session:
-        with unscoped():
-            result = await session.execute(
-                select(_PgPlainChild.tenant_id, _PgPlainChild.parent_id)
-            )
-            assert [tuple(row) for row in result.all()] == [(tenant_a, 7)]
-    with pytest.raises(IntegrityError):
-        await _child_upsert(pg_tables, tenant_a, _PgPlainChild, 99)
-
-
-@pytest.mark.asyncio
 async def test_a_composite_foreign_key_refuses_the_parent_of_another_tenant(
     pg_tables: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The advice of the docs holds: with ``(tenant_id, parent_id)`` the parent of
-    another tenant is no parent, and the tenant's own one is."""
+    """A foreign key that leaves the tenant out is refused when the model is defined
+    (SANDLOOM-R020, ``test_tenant_orm_insert_gaps.py``); the composite key its error
+    advises holds: with ``(tenant_id, parent_id)`` the parent of another tenant is
+    no parent, and the tenant's own one is."""
     tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
     await _parent_of(pg_tables, tenant_b, 7)
     with pytest.raises(IntegrityError):

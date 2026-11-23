@@ -197,18 +197,23 @@ itself:
 
 - A row key is an attribute of the model, resolved through `mapper.column_attrs` to its Column. A
   value that is a SQL expression, `text()` or `literal_column()` is refused. The tenant column is
-  never a row key: its value is the bound tenant, bound with the column's own type, so a
-  `TypeDecorator` on it runs on the insert and on the update alike. A model whose tenant column is
+  never a row key: its value is the bound tenant, bound with the column's own type. A tenant column
+  whose type processes the value (a `TypeDecorator`) is refused when the model is defined (decision 7),
+  so no type rewrites the tenant on the insert or on the update. A model whose tenant column is
   not named `tenant_id` in the database (`mapped_column("org_id")`), a model in an inheritance
   hierarchy, a model without a unique key that includes the tenant column, a model with a column that
-  is not exactly `Column`, a model with a `<dialect>_on_conflict*` option on a column, a constraint
-  or an index (SQLite's `sqlite_on_conflict*` is the one that exists: its `REPLACE` deletes the row
-  that holds the key before `ON CONFLICT` is asked, whichever tenant owns it) and a call whose statement would read a tenant table (a column default, `onupdate`
-  or type `bind_expression` that selects from one) are refused with `SANDLOOM-R018`, before anything
-  is sent and before the session is flushed.
+  is not exactly `Column`, a model that declares a `<dialect>_on_conflict*` option, of any value, on a
+  column, a constraint or an index (SQLite's `sqlite_on_conflict*` is the one that exists: its
+  `REPLACE` deletes the row that holds the key before `ON CONFLICT` is asked, whichever tenant owns
+  it, and is refused when the model is defined as well, decision 7) and a call whose statement would
+  read a tenant table (a column default, `onupdate` or type `bind_expression` that selects from one)
+  are refused with `SANDLOOM-R018`, before anything is sent and before the session is flushed. The
+  options read are the ones the model declares, never the live database schema: a table built by hand
+  or by a migration with a clause the model leaves out is not read.
 - The conflict target is a unique key of the table that includes the tenant column. A row of another
   tenant is never the row that conflicts, so the update never touches it. That is the whole claim:
-  every other key and every foreign key acts as on a plain insert (see the Consequences). A
+  every other key acts as on a plain insert (see the Consequences), and a foreign key that leaves
+  the tenant out never reaches the helper, because decision 7 refuses the model. A
   `DEFERRABLE` key is no candidate, because PostgreSQL cannot use it as the arbiter of `DO UPDATE`.
 - `DO UPDATE SET <column> = excluded.<column>` for the listed columns, which are columns of the table
   other than the tenant column and the primary key, and `WHERE <tenant column> = <the bound tenant>`.
@@ -261,6 +266,51 @@ on every parameter set:
 The mark counts only at the cursor. The same statement handed to `session.execute` is the conflict
 insert it always was, and the ORM guard refuses it.
 
+### 7. What the database does with a plain insert
+
+The cursor guard sees the values and the filters of a statement. It cannot see what the database
+does with an `INSERT` whose every value belongs to the bound tenant. Three declarations of a model
+make the database reach another tenant's row on such an insert, so the model is refused when it is
+defined, with `UnsafeTenantModelError` (an `UnsafeTenantOperationError`), before any table or row
+exists:
+
+- `SANDLOOM-R019`, a `REPLACE` conflict clause. SQLite's `ON CONFLICT REPLACE` on a primary key, a
+  unique constraint or a column deletes the row that holds the key, whichever tenant owns it, before
+  any other check runs. `IGNORE`, `ABORT`, `FAIL` and `ROLLBACK` delete nothing and stay allowed, and
+  so does a composite key that includes the tenant column;
+- `SANDLOOM-R020`, a foreign key from a tenant table to another tenant table that leaves
+  `tenant_id` out. PostgreSQL checks a foreign key outside row-level security, so the insert locks
+  and probes a parent row of another tenant. The error names the key that replaces it,
+  `(tenant_id, col)` to `parent(tenant_id, id)`, which needs a unique key on `(tenant_id, id)` of the
+  parent;
+- `SANDLOOM-R021`, a tenant column whose type is not exactly SQLAlchemy's `Uuid` (its PostgreSQL
+  spelling `UUID` and every dialect variant of it included). A `TypeDecorator`, a `UserDefinedType`, a
+  subclass or a `type_coerce` of the attribute can store a tenant other than the one the guard bound.
+  This also closes the case decision 6 relied on: `tenant_upsert` binds the tenant with the column's
+  own type.
+
+The check reads every table that the mapper of a `TenantScoped` class maps, whatever declared it:
+`__table_args__` or a column keyword, `mapped_column` or `Column`, a mixin or `declared_attr`,
+declarative or imperative mapping, joined inheritance, one `Table` under two models. It runs once
+per mapper, at `after_mapper_constructed`, so a model defined after its foreign key target is
+checked when the second of the two is defined. Tables match by lower-cased name with the schema
+ignored, as the guard matches them. A constraint or a column attached to such a table afterwards
+is refused as it is attached (`after_parent_attach`). The refusal comes after the constraint is on
+the `Table`, so a process that caught it is not meant to go on with that object.
+
+Not refused, because the model declares nothing the guard cannot hold: a foreign key to a table
+without `tenant_id`, a table without `tenant_id` that points at a tenant table, and the key of a
+joined-inheritance subclass table, which carries no tenant column of its own. Not covered, by design:
+a table built by hand or by a migration with a clause or a key that the model does not declare, a
+unique key that leaves the tenant out (the helper's own limit, decision 6), and a clause other than
+`REPLACE` that changes a row. The cost is one pass over the tables of a model when it is defined
+and a set lookup per attached constraint or column. No statement pays it.
+
+**Upgrade:** a model with a plain foreign key to another tenant table makes the key composite and
+adds `UniqueConstraint("tenant_id", "id")` to the parent, in a migration for an existing table.
+A model with `sqlite_on_conflict="REPLACE"` drops it or uses a composite key. A tenant column type
+other than `Uuid` moves its conversion to a column that is not the tenant.
+
 ## Consequences
 
 - Every compiled statement that names a tenant table, and that the ORM guard did not approve
@@ -292,19 +342,21 @@ insert it always was, and the ORM guard refuses it.
   dictionary write to each loaded instance.
 - `tenant_upsert` returns nothing and refreshes no instance the session already holds: an instance of
   an upserted row keeps its old values until it is refreshed. It flushes the session's pending changes
-  first. The rows go to the driver as the parameter sets of one `executemany`, and a driver that
-  runs the command once per set (asyncpg) updates the row the first of two equal keys inserted
-  with the values of the second, rather than the database refusing the batch; a batch that names
-  one key twice is the caller's to avoid. **Upgrade:**
+  first. The rows go to the driver as the parameter sets of one `executemany`. A driver that
+  runs the command once per set (asyncpg, aiosqlite) updates the row the first of two equal keys
+  inserted with the values of the second. A driver that batches the sets into one multi-row
+  statement (psycopg2) hands PostgreSQL the same key twice in one `ON CONFLICT DO UPDATE`, which
+  it refuses. A batch that names one key twice is the caller's to avoid. **Upgrade:**
   a module that ran `conflict_insert` on a tenant model inside `unscoped()` to upsert for one tenant
   moves to `tenant_upsert`, which needs a unique key that includes `tenant_id`; a model whose only
   key leaves the tenant out keeps `unscoped()` or gets such a key in a migration.
-- The helper hides no key and no row that another tenant holds beyond the conflict target; the
-  database answers as for a plain insert. A primary key (`id` alone) or another unique key that
-  another tenant owns makes the insert fail on that key, not on the conflict target, with the
-  database's integrity error, which shows that the key exists. A foreign key to a tenant table locks
-  the row it references, and the row may be another tenant's. Use keys that are not reused across
-  tenants, as for the stamp above, and make a foreign key composite, `(tenant_id, parent_id)`.
+- The helper hides no key that another tenant holds beyond the conflict target; the database
+  answers as for a plain insert. A primary key (`id` alone) or another unique key that another
+  tenant owns makes the insert fail on that key, not on the conflict target, with the database's
+  integrity error, which shows that the key exists. PostgreSQL runs that check outside row-level
+  security. Use keys that are not reused across tenants, as for the stamp above. A foreign key to a
+  tenant table is no such case: it must be composite, `(tenant_id, parent_id)`, and a model that
+  leaves the tenant out is refused when it is defined (decision 7).
 - Some seams stay with the caller or with the database, in the order they are named:
   - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;

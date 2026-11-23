@@ -120,31 +120,38 @@ async def tenant_upsert(
     The row conflicts on a unique key that includes the tenant column: the
     table's only one, else the one ``conflict_on=[...]`` names (the tenant column
     may be left out). A row of another tenant is never the conflicting row, so it
-    is never updated or chosen by the tenant-inclusive key. Every other key and
-    every foreign key acts as on a plain insert: a primary key or another unique
-    key that a row of another tenant holds is the database's integrity error,
-    which shows that the key exists, and a foreign key locks the row it
-    references, which may be a parent of another tenant. PostgreSQL runs both
-    checks outside row-level security, so a policy hides neither. The helper does
-    not check either: applying the advice is the caller's, so make a foreign key
-    to a tenant table composite, ``(tenant_id, parent_id)``, and do not reuse a
-    key across tenants. What the helper does refuse, with ``ValueError``
-    (SANDLOOM-R018) before anything is sent: a model without such a unique key, a
-    model in an inheritance hierarchy, one whose tenant column is not named
-    ``tenant_id``, one with a column that is not exactly ``sqlalchemy.Column`` or
-    a ``<dialect>_on_conflict*`` option, one whose statement would read a tenant
-    table (a column default or type ``bind_expression`` that selects from one),
-    and a row or an ``update`` / ``conflict_on`` column outside the rules above.
-    A database without ``ON CONFLICT``, or whose statement the tenant guard cannot
-    read, refuses (SANDLOOM-R015).
+    is never updated or chosen by the tenant-inclusive key. Every other key acts
+    as on a plain insert: a primary key or another unique key that a row of
+    another tenant holds is the database's integrity error, which shows that the
+    key exists (PostgreSQL runs that check outside row-level security, so a
+    policy hides it), so do not reuse a key across tenants. A foreign key from a
+    tenant table to another tenant table must be composite,
+    ``(tenant_id, parent_id)``: a model that leaves the tenant out is refused when
+    it is defined (SANDLOOM-R020), as are a ``REPLACE`` conflict clause
+    (SANDLOOM-R019) and a tenant column type that processes the value
+    (SANDLOOM-R021). What the helper refuses, with ``ValueError`` (SANDLOOM-R018)
+    before anything is sent: a model without such a unique key, a model in an
+    inheritance hierarchy, one whose tenant column is not named ``tenant_id``, one
+    with a column that is not exactly ``sqlalchemy.Column``, one that declares a
+    ``<dialect>_on_conflict*`` option of any value on a column, constraint or
+    index (the declared options are read: a database schema built another way is
+    not), one whose statement would read a tenant table (a column default or type
+    ``bind_expression`` that selects from one), and a row or an ``update`` /
+    ``conflict_on`` column outside the rules above. A database without ``ON
+    CONFLICT``, or whose statement the tenant guard cannot read, refuses
+    (SANDLOOM-R015).
 
     Pending changes of ``session`` (default: :func:`db`) are flushed first, and
     the call returns nothing. Instances of the upserted rows that the session
     already holds keep their old values until refreshed. The rows go to the
-    driver as the parameter sets of one ``executemany``, which runs the command
-    once per set, so a row that repeats the key of an earlier row of the batch
-    updates that row in turn instead of the database refusing the batch. A batch
-    that names one key twice is the caller's to avoid.
+    driver as the parameter sets of one ``executemany``. A driver that runs the
+    command once per set (asyncpg, aiosqlite) updates the row an earlier row of
+    the batch inserted when a later row repeats its key; a driver that batches
+    the sets into one multi-row statement (psycopg2) hands PostgreSQL the same
+    key twice in one ``ON CONFLICT DO UPDATE``, which it refuses (cardinality
+    violation: the command cannot affect a row a second time). A batch that
+    names one key twice therefore ends differently per driver: the caller's to
+    avoid.
     """
     await _tenant_upsert(
         model,

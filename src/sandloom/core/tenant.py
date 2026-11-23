@@ -35,7 +35,9 @@ from contextvars import ContextVar
 from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 from sqlalchemy import (
+    UUID,
     Column,
+    ForeignKeyConstraint,
     PrimaryKeyConstraint,
     UniqueConstraint,
     Uuid,
@@ -57,6 +59,7 @@ from sqlalchemy.orm import (
 from sqlalchemy.orm.exc import UnmappedColumnError
 from sqlalchemy.orm.strategy_options import Load
 from sqlalchemy.orm.util import LoaderCriteriaOption
+from sqlalchemy.schema import Constraint, SchemaItem
 from sqlalchemy.sql import operators, visitors
 from sqlalchemy.sql.base import DialectKWArgs, Executable
 from sqlalchemy.sql.compiler import Compiled, SQLCompiler
@@ -79,6 +82,7 @@ from sqlalchemy.sql.selectable import (
     TableClause,
     Values,
 )
+from sqlalchemy.sql.type_api import TypeEngine
 
 from sandloom.core import error_codes
 from sandloom.core.tenant_context import (
@@ -193,13 +197,298 @@ def _invalidate_guard_caches() -> None:
     _mapper_names_cache.clear()
 
 
+# --------------------------------------------------------------------------- #
+# Definition-time refusals: what the DATABASE does with a plain INSERT
+# --------------------------------------------------------------------------- #
+# The cursor guard keeps a statement inside the bound tenant. It cannot see what
+# the database does with an INSERT whose every value is the bound tenant's: a
+# conflict clause that deletes the row holding a key (SQLite ``ON CONFLICT
+# REPLACE``), a foreign key that locks and probes a parent row of another tenant,
+# a column type that rewrites the tenant as it is bound. A model that declares
+# one is refused when it is defined (ADR-0018, decision 7): the mapper check
+# covers every table of a TenantScoped mapper, the attach listeners a constraint
+# or a column added to such a table afterwards.
+
+
+class UnsafeTenantModelError(UnsafeTenantOperationError):
+    """A ``TenantScoped`` model, or a table it maps, declares what the tenant
+    guard cannot keep inside one tenant: SANDLOOM-R019 (a ``REPLACE`` conflict
+    clause), SANDLOOM-R020 (a foreign key to another tenant table that leaves out
+    ``tenant_id``), SANDLOOM-R021 (a tenant column type that processes the
+    value). Raised when the model is defined, before any row exists."""
+
+    sandloom_code: str
+
+    def __init__(self, code: str, message: str) -> None:
+        self.sandloom_code = code
+        super().__init__(f"{message}. {error_codes.fix_line(code)}")
+
+
+_REPLACE = re.compile(r"\bREPLACE\b", re.IGNORECASE)
+
+#: The exact types a tenant column may have: SQLAlchemy's own ``Uuid`` (``UUID``
+#: is its PostgreSQL spelling). The guard binds a plain ``uuid.UUID``; any other
+#: class (a ``TypeDecorator``, a ``UserDefinedType``, a subclass) may process it.
+_PLAIN_TENANT_TYPES: tuple[type, ...] = (Uuid, UUID)
+
+#: Tables of every TenantScoped mapper, held weakly. The attach listeners ask it
+#: for each constraint and column of every table the process defines, so it is a
+#: plain set lookup that no new mapper invalidates.
+_known_tenant_tables: weakref.WeakSet[Table] = weakref.WeakSet()
+
+
+def _conflict_owners(table: Table) -> Iterator[tuple[str, DialectKWArgs]]:
+    for column in table.columns:
+        yield f"column {column.name}", column
+    for constraint in table.constraints:
+        yield f"constraint {constraint.name or type(constraint).__name__}", constraint
+    for index in table.indexes:
+        yield f"index {index.name}", index
+
+
+def _conflict_options(
+    owners: Iterable[tuple[str, DialectKWArgs]],
+) -> Iterator[tuple[str, str, object]]:
+    """Every ``<dialect>_on_conflict*`` option of ``owners``, as ``(owner, option,
+    value)``: SQLite's ``sqlite_on_conflict`` (primary key and unique
+    constraints) and ``sqlite_on_conflict_primary_key`` / ``_unique`` /
+    ``_not_null`` (columns) are the ones there are."""
+    for label, owner in owners:
+        for option in owner.dialect_kwargs:
+            if option.partition("_")[2].startswith("on_conflict"):
+                yield label, option, owner.dialect_kwargs[option]
+
+
+def declared_conflict_options(table: Table) -> list[str]:
+    """The ``<dialect>_on_conflict*`` options a column, a constraint or an index
+    of ``table`` declares, as ``"<owner>: <option>"``, whatever their value: such a
+    conflict is resolved before ``ON CONFLICT DO UPDATE`` sees it."""
+    return [
+        f"{label}: {option}"
+        for label, option, _ in _conflict_options(_conflict_owners(table))
+    ]
+
+
+def _replace_clauses(owners: Iterable[tuple[str, DialectKWArgs]]) -> list[str]:
+    """The ``on_conflict`` options of ``owners`` whose value is, or contains, the
+    word ``REPLACE`` (any case): SQLite renders the value as text after ``ON
+    CONFLICT``, so the spelling is the author's."""
+    return [
+        f"{label}: {option}={value}"
+        for label, option, value in _conflict_options(owners)
+        if _REPLACE.search(str(value))
+    ]
+
+
+def _plain_tenant_type(column_type: TypeEngine[Any]) -> bool:
+    """``column_type`` is exactly SQLAlchemy's ``Uuid`` and so is every dialect
+    variant of it (``Uuid().with_variant(Hex(), "sqlite")`` rewrites the tenant on
+    SQLite only)."""
+    return type(column_type) in _PLAIN_TENANT_TYPES and all(
+        _plain_tenant_type(variant) for variant in column_type._variant_mapping.values()
+    )
+
+
+def _describe(column: ColumnElement[Any]) -> str:
+    if isinstance(column, Column) and column.table is not None:
+        return f"{column.table.name}.{column.name}"
+    return f"the {_TENANT_COLUMN} attribute ({type(column).__name__} expression)"
+
+
+def _tenant_type_problems(mapper: Mapper[Any], tables: Sequence[Table]) -> list[str]:
+    """The tenant columns of ``mapper`` whose type is not plain: the column named
+    ``tenant_id`` of each of its tables (the guard finds it by name) and whatever
+    the attribute ``tenant_id`` maps (the criterion binds through it, so a
+    ``column_property`` over ``type_coerce`` counts)."""
+    columns: dict[int, ColumnElement[Any]] = {}
+    for table in tables:
+        column = _tenant_column(table)
+        if column is not None:
+            columns[id(column)] = column
+    attribute = mapper.columns.get(_TENANT_COLUMN)
+    if attribute is not None:
+        columns[id(attribute)] = attribute
+    return [
+        f"{_describe(column)} has type {column.type!r}"
+        for column in columns.values()
+        if not _plain_tenant_type(column.type)
+    ]
+
+
+def _referred(constraint: ForeignKeyConstraint) -> tuple[str, list[str]]:
+    """The lower-cased name of the table ``constraint`` references and the keys of
+    its referred columns, read from the specs (``"schema.table.column"``): a
+    foreign key to a table not defined yet names it all the same, and the guard
+    matches tables by name."""
+    specs = [element.target_fullname.split(".") for element in constraint.elements]
+    return specs[0][-2].lower(), [spec[-1] for spec in specs]
+
+
+def _tenant_tables_by_name() -> dict[str, list[Table]]:
+    """The TenantScoped tables that carry a ``tenant_id`` column, by lower-cased
+    name (a name may be two ``Table`` objects: the guard never trusts identity)."""
+    by_name: dict[str, list[Table]] = {}
+    for table in _known_tenant_tables:
+        if _tenant_column(table) is not None:
+            by_name.setdefault(table.name.lower(), []).append(table)
+    return by_name
+
+
+def _keeps_the_tenant(constraint: ForeignKeyConstraint, parent: Table) -> bool:
+    """``constraint`` pairs the tenant column of its own table with the tenant
+    column of ``parent``: a row can only reference a parent of its own tenant."""
+    parent_tenant = _tenant_column(parent)
+    return any(
+        element.parent.name == _TENANT_COLUMN
+        and parent.c.get(element.target_fullname.split(".")[-1]) is parent_tenant
+        for element in constraint.elements
+    )
+
+
+def _foreign_key_problems(
+    table: Table,
+    constraints: Iterable[ForeignKeyConstraint],
+    parents: Mapping[str, Sequence[Table]],
+) -> list[str]:
+    """The ``constraints`` of ``table`` that reference a TenantScoped table (one
+    with a ``tenant_id`` column, ``table`` itself included) and leave the tenant
+    column out of the key, each with the composite key that replaces it."""
+    problems = []
+    for constraint in constraints:
+        parent_name, targets = _referred(constraint)
+        candidates = parents.get(parent_name, ())
+        if candidates and not all(_keeps_the_tenant(constraint, p) for p in candidates):
+            local = [element.parent.name for element in constraint.elements]
+            columns = ", ".join(local)
+            referred = ", ".join(targets)
+            problems.append(
+                f"{table.name}({columns}) -> {parent_name}({referred}) must be the "
+                f"composite key (tenant_id, {columns}) -> {parent_name}(tenant_id, "
+                f"{referred}): ForeignKeyConstraint({['tenant_id', *local]}, "
+                f"{[f'{parent_name}.{c}' for c in ('tenant_id', *targets)]}), with "
+                f"UniqueConstraint('tenant_id', {', '.join(map(repr, targets))}) on "
+                f"{parent_name}"
+            )
+    return problems
+
+
+def _foreign_key_problems_for(new: Iterable[Table]) -> list[str]:
+    """Every foreign key between TenantScoped tables that involves one of the
+    ``new`` ones, as child or as parent: whichever of the two is defined second
+    runs the check, so the order of the model files decides nothing."""
+    parents = _tenant_tables_by_name()
+    fresh = set(new)
+    fresh_names = {table.name.lower() for table in fresh}
+    problems: list[str] = []
+    for tables in parents.values():
+        for table in tables:
+            problems.extend(
+                _foreign_key_problems(
+                    table,
+                    [
+                        constraint
+                        for constraint in table.foreign_key_constraints
+                        if table in fresh or _referred(constraint)[0] in fresh_names
+                    ],
+                    parents,
+                )
+            )
+    return sorted(set(problems))
+
+
+def _refuse_replace(subject: str, clauses: Sequence[str]) -> None:
+    if clauses:
+        raise UnsafeTenantModelError(
+            "SANDLOOM-R019",
+            f"{subject} declares a REPLACE conflict clause ({', '.join(clauses)}): "
+            "SQLite's ON CONFLICT REPLACE deletes the row that holds the key "
+            "whichever tenant owns it, so a plain INSERT of one tenant would delete "
+            "a row of another",
+        )
+
+
+def _refuse_foreign_keys(problems: Sequence[str]) -> None:
+    if problems:
+        raise UnsafeTenantModelError(
+            "SANDLOOM-R020",
+            "a foreign key between TenantScoped tables leaves out tenant_id, so a "
+            "plain INSERT of one tenant may reference, lock and probe a parent row "
+            "of another: " + "; ".join(problems),
+        )
+
+
+def _refuse_tenant_type(subject: str, problems: Sequence[str]) -> None:
+    if problems:
+        raise UnsafeTenantModelError(
+            "SANDLOOM-R021",
+            f"{subject}: {', '.join(problems)}; the tenant column of a TenantScoped "
+            "model must be exactly SQLAlchemy's Uuid, because a type that processes "
+            "the value (a TypeDecorator, a UserDefinedType, a variant of one) can "
+            "write a tenant other than the one the guard bound",
+        )
+
+
+def _refuse_unsafe_tenant_model(mapper: Mapper[Any]) -> None:
+    """Refuse a TenantScoped mapper whose tables declare a REPLACE conflict
+    clause, a foreign key to a TenantScoped table without ``tenant_id``, or a
+    tenant column of a type that processes the value."""
+    tables = [table for table in mapper.tables if isinstance(table, Table)]
+    model = mapper.class_.__name__
+    _refuse_tenant_type(model, _tenant_type_problems(mapper, tables))
+    _refuse_replace(
+        model,
+        [
+            f"{table.name} {clause}"
+            for table in tables
+            for clause in _replace_clauses(_conflict_owners(table))
+        ],
+    )
+    _refuse_foreign_keys(_foreign_key_problems_for(tables))
+
+
+@event.listens_for(Constraint, "after_parent_attach", propagate=True)
+def _refuse_unsafe_constraint(constraint: Constraint, parent: SchemaItem) -> None:
+    """A constraint added to the table of a TenantScoped model after the model was
+    defined (``Model.__table__.append_constraint(...)``): the mapper check ran
+    before it existed. The constraint stays on the ``Table`` object the error is
+    raised for; the process is not meant to go on with it."""
+    if not isinstance(parent, Table) or parent not in _known_tenant_tables:
+        return
+    label = f"constraint {constraint.name or type(constraint).__name__}"
+    _refuse_replace(parent.name, _replace_clauses([(label, constraint)]))
+    if isinstance(constraint, ForeignKeyConstraint):
+        _refuse_foreign_keys(
+            _foreign_key_problems(parent, [constraint], _tenant_tables_by_name())
+        )
+
+
+@event.listens_for(Column, "after_parent_attach", propagate=True)
+def _refuse_unsafe_column(column: Column[Any], parent: SchemaItem) -> None:
+    """A column added to the table of a TenantScoped model after the model was
+    defined: a ``REPLACE`` option of its own, or a ``tenant_id`` of another type."""
+    if not isinstance(parent, Table) or parent not in _known_tenant_tables:
+        return
+    _refuse_replace(parent.name, _replace_clauses([(f"column {column.name}", column)]))
+    if column.name == _TENANT_COLUMN and not _plain_tenant_type(column.type):
+        _refuse_tenant_type(
+            parent.name, [f"{_describe(column)} has type {column.type!r}"]
+        )
+
+
 @event.listens_for(Mapper, "after_mapper_constructed")
 def _note_tenant_mapper(mapper: Mapper[Any], class_: type) -> None:
     """A new TenantScoped mapper (declarative or imperative) changes the table
-    set the guard matches by: drop the memoized sets and verdicts."""
+    set the guard matches by: drop the memoized sets and verdicts. It is then
+    refused when its tables declare what the guard cannot keep inside a tenant
+    (SANDLOOM-R019..R021). The mapper stays registered either way: a refused
+    model's table is still a tenant table."""
     if _is_tenant_class(class_):
         _tenant_mappers.add(mapper)
+        _known_tenant_tables.update(
+            table for table in mapper.tables if isinstance(table, Table)
+        )
         _invalidate_guard_caches()
+        _refuse_unsafe_tenant_model(mapper)
 
 
 def _tenant_tables() -> frozenset[Any]:
