@@ -2145,7 +2145,8 @@ of an inheritance hierarchy, maps its tenant attribute to a column not named
 tenant_id, has a column that is not exactly sqlalchemy.Column, declares a
 conflict resolution of its own (a <dialect>_on_conflict* option on a column, a
 constraint or an index: SQLite's sqlite_on_conflict* is the one that exists, and
-its REPLACE deletes the row that holds the key, whichever tenant owns it), or
+its REPLACE deletes the row that holds the key, whichever tenant owns it; a
+REPLACE clause is also refused when the model is defined, SANDLOOM-R019), or
 has no unique key that includes the tenant column (several: name one with
 conflict_on=[...]; a DEFERRABLE key is no candidate, PostgreSQL cannot use it
 as the arbiter); a statement that would read a tenant table (a column default,
@@ -2162,13 +2163,20 @@ The tenant is never a value of a row: it is the bound tenant, bound with the
 tenant column's own type. The conflict target includes the tenant column, so a
 row of another tenant is never the one that conflicts, and the update is
 `SET column = excluded.column WHERE tenant_id = <bound tenant>` for the listed
-columns only. Every other key and every foreign key acts as on a plain insert:
-a primary key or another unique key that another tenant's row holds is the
-database's integrity error (it shows that the key exists), and a foreign key
-locks the row it references and may reference a parent of another tenant.
-PostgreSQL runs both checks outside row-level security, so a policy hides
-neither. Make a foreign key to a tenant table composite, (tenant_id,
-parent_id), and do not reuse a key across tenants.
+columns only. Every other unique key acts as on a plain insert: a primary key
+or another unique key that another tenant's row holds is the database's
+integrity error (it shows that the key exists). PostgreSQL runs that check
+outside row-level security, so a policy does not hide it: do not reuse a key
+across tenants. A foreign key from a tenant table to another tenant table must
+pair tenant_id on both sides, (tenant_id, parent_id) -> parent(tenant_id, id):
+a model that declares one without it is refused when it is defined
+(SANDLOOM-R020).
+
+The conflict check reads the options the model's table declares, never the live
+schema: a SQLite table that was created with PRIMARY KEY ... ON CONFLICT REPLACE
+outside the model (a migration, hand-written DDL) while the model declares none
+is not seen, and its REPLACE deletes the row of any tenant. Keep a REPLACE
+clause out of the schema of a tenant table.
 
 Outside unscoped(), the cursor guard admits a conflict insert on a tenant table
 only for the statement tenant_upsert marked and built, and only when its SQL is,
@@ -2176,6 +2184,155 @@ text for text, the one the kernel's builder writes from the parts of that
 statement and the bound tenant is the value of every row; any other one stays
 refused with UnsafeTenantOperationError (ADR-0018, decision 6). Inside
 unscoped() the guard does not apply: that is the trusted system path.
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
+    _entry(
+        "SANDLOOM-R019",
+        "tenant-model-replace",
+        "runtime",
+        "a TenantScoped model's table declares a REPLACE conflict clause",
+        "remove the REPLACE clause (sqlite_on_conflict, "
+        "sqlite_on_conflict_primary_key, sqlite_on_conflict_unique) from the "
+        "table's primary key and unique keys, and resolve a duplicate in code or "
+        "with tenant_upsert",
+        """
+SQLite's ON CONFLICT REPLACE on a primary key or a unique key
+(sqlite_on_conflict="REPLACE" on a PrimaryKeyConstraint or UniqueConstraint,
+sqlite_on_conflict_primary_key or sqlite_on_conflict_unique on a column)
+resolves a uniqueness conflict by deleting every row that holds the key and
+inserting the new one. The key belongs to the whole table, so the row deleted
+may be another tenant's: the database does it, and the INSERT the guard sees
+carries only the bound tenant's own values, so neither the tenant guard nor a
+row-level security policy can stop it.
+
+A model that maps such a table is refused when it is defined, wherever the
+option is written: __table_args__, a column of mapped_column or Column, a
+Table mapped imperatively, a mixin, or the base table of an inheritance
+hierarchy (every table of the mapper is read). A constraint or a column added
+to the table of a TenantScoped model afterwards is refused when it is attached.
+The value is matched as text, in any case: "replace" counts. The check reads
+the spelling and not the option, so sqlite_on_conflict_not_null="REPLACE",
+which swaps a NULL for the column default and deletes nothing, is refused too.
+The other
+conflict resolutions (IGNORE, FAIL, ABORT, ROLLBACK) do not delete a row and
+are not refused here; tenant_upsert still refuses a table that declares any
+of them (SANDLOOM-R018).
+
+Only the declared options are read. A table created with the clause outside
+the model (a migration, hand-written DDL) or an option set on a table after
+its model was defined, by writing to dialect_kwargs, is not seen; the live
+schema is never inspected. Keep a REPLACE clause out of the schema of a tenant
+table.
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
+    _entry(
+        "SANDLOOM-R020",
+        "tenant-model-foreign-key",
+        "runtime",
+        "a foreign key between TenantScoped tables does not pair tenant_id on "
+        "both sides",
+        "declare it as the composite key (tenant_id, <column>) -> "
+        "parent(tenant_id, <referred column>): ForeignKeyConstraint(['tenant_id', "
+        "'<column>'], ['parent.tenant_id', 'parent.id']), with "
+        "UniqueConstraint('tenant_id', 'id') on the parent; for a joined "
+        "subclass declare the key on its base table, and point a key to a joined "
+        "subclass at the base table",
+        """
+A foreign key from a TenantScoped table to another TenantScoped table (the
+same table included) that does not pair tenant_id on both sides lets a row of
+one tenant reference a parent row of another: the database checks the
+reference outside row-level security, takes a KEY SHARE lock on the parent row,
+and answers with an integrity error exactly when the parent is missing. A
+tenant can so probe, and lock, the rows of another tenant, and an ORM insert
+of its own rows is enough.
+
+Such a model is refused when it is defined; the table that is defined second
+runs the check, so the order of the model files decides nothing, and a foreign
+key added to a TenantScoped table afterwards is refused when it is attached.
+Both tables must carry a tenant column, the column named tenant_id or the one
+the attribute tenant_id maps (mapped_column("org_id")), and the fix names the
+columns the models use and the tables as declared, schema included. A reference
+to a table that is not TenantScoped is no reference to a row of a tenant and is
+not refused. A foreign key declared on a table that is not TenantScoped (an
+association table, say) that points at a tenant table is not read either:
+give it a tenant column and pair it yourself.
+
+A joined subclass table (a TenantScoped subclass with a table of its own)
+holds no tenant column: it joins the row of its base table. It is a tenant
+table all the same. The one key it may have without tenant_id is the inherit
+key, the one whose columns are exactly the inherit condition of the mapper: its
+primary key to the primary key of the table it inherits from. Any other key
+from it (a second key from a primary key column to the base included), or to
+it, is refused: declare the key on the base table, and point
+a key to a joined subclass at the base table. The reverse shape, a TenantScoped
+model that inherits a model that is not TenantScoped, keeps the tenant column
+on the subclass table: its base table has none, and the error names the
+subclass table.
+
+The key must pair the tenant column of the child with the tenant column of the
+parent:
+
+    class Child(TenantScoped, Base):
+        __tablename__ = "children"
+        __table_args__ = (
+            ForeignKeyConstraint(
+                ["tenant_id", "parent_id"],
+                ["parents.tenant_id", "parents.id"],
+            ),
+        )
+
+    class Parent(TenantScoped, Base):
+        __tablename__ = "parents"
+        __table_args__ = (UniqueConstraint("tenant_id", "id"),)
+
+The database then refuses a parent of another tenant as a missing parent, and
+the parent's unique key (tenant_id, id) is what the key points at. A schema
+that already has the single-column key needs a migration that adds the unique
+key and swaps the constraint.
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
+    _entry(
+        "SANDLOOM-R021",
+        "tenant-model-tenant-type",
+        "runtime",
+        "a TenantScoped model's tenant column is not one plain mapped Column of the "
+        "plain Uuid type",
+        "map the attribute tenant_id to one Column of the model's own tables, "
+        "with no synonym, hybrid_property, expression or comparator of its own, "
+        "and declare it as SQLAlchemy's Uuid, the type the TenantScoped mixin "
+        "gives it: drop the TypeDecorator, UserDefinedType or variant",
+        """
+The tenant guard finds the tenant column by the attribute tenant_id of the
+model, binds a plain uuid.UUID to it, checks it, and trusts that the database
+stores it. Two things are refused when the model is defined, and so is a
+tenant_id column added to its table afterwards.
+
+The shape. The attribute tenant_id of a TenantScoped model must be a mapped
+column over exactly one Column of a table the model maps, with the default
+comparator, and no table of the model may have another column called tenant_id
+(the cursor guard finds a column by name). A synonym, a hybrid_property or a
+plain descriptor named tenant_id, a column_property over an expression
+(a function of the column, type_coerce), a comparator of its own, and a concrete
+subclass that does not map the column all leave the guard, the foreign-key
+check (SANDLOOM-R020) and the type check reading a column other than the one a
+statement binds, so the model is refused for the shape.
+
+The type. The tenant column, in any of the tables of the model, must be exactly
+sqlalchemy.Uuid (or its PostgreSQL spelling sqlalchemy.UUID), and so must every
+dialect variant of it. A TypeDecorator, a UserDefinedType, a subclass of Uuid or
+a variant of one (Uuid().with_variant(Mine(), "sqlite")) runs its own code on
+the value as it is bound, in process_bind_param or bind_expression, so it can
+write a tenant other than the bound one in a statement that the guard has
+already admitted, and rewrite the criterion that filters a read. This covers
+tenant_upsert, which binds the tenant with the column's own type.
+
+Use the defaults: Uuid() and UUID() store a uuid.UUID natively on PostgreSQL
+and as CHAR(32) on SQLite. Other settings of Uuid pass the check, and the
+database may still not compare them: Uuid(native_uuid=False) fails scoped
+reads on PostgreSQL, and Uuid(as_uuid=False) fails on SQLite.
 """,
         docs="docs/modules/database/multi-tenancy.md",
     ),

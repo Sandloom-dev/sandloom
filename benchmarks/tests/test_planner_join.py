@@ -21,7 +21,13 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from pydantic import BaseModel
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    ForeignKeyConstraint,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from test_s5_secure_read import (  # noqa: F401 - fixtures
     ROLE,
@@ -47,6 +53,8 @@ BOTH = pytest.mark.parametrize("s5", ["plan", "planopt"], indirect=True)
 
 class JParent(TenantScoped, Base):
     __tablename__ = "bench_join_parents"
+    # the target of the child's composite key (SANDLOOM-R020)
+    __table_args__ = (UniqueConstraint("tenant_id", "id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -55,12 +63,17 @@ class JParent(TenantScoped, Base):
 
 class JChild(TenantScoped, Base):
     __tablename__ = "bench_join_children"
-    __table_args__ = (UniqueConstraint("parent_id", "code"),)
+    __table_args__ = (
+        UniqueConstraint("parent_id", "code"),
+        # a key between tenant tables pairs the tenant on both sides (SANDLOOM-R020)
+        ForeignKeyConstraint(
+            ["tenant_id", "parent_id"],
+            ["bench_join_parents.tenant_id", "bench_join_parents.id"],
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    parent_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("bench_join_parents.id"), nullable=False
-    )
+    parent_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     # NOT a FK: a join on it must be refused
@@ -89,7 +102,11 @@ DDL = [
     "DROP TABLE IF EXISTS bench_join_parents CASCADE",
     """CREATE TABLE bench_join_parents (
         id BIGINT PRIMARY KEY, tenant_id UUID NOT NULL,
-        name VARCHAR(64) NOT NULL, active BOOLEAN NOT NULL)""",
+        name VARCHAR(64) NOT NULL, active BOOLEAN NOT NULL,
+        UNIQUE (tenant_id, id))""",
+    # The stand's table keeps the plain key a schema built before SANDLOOM-R020 has:
+    # row 13 below is the inconsistent row such a schema can hold, and the join must
+    # hide it. The model has to declare the composite key to be defined at all.
     """CREATE TABLE bench_join_children (
         id BIGINT PRIMARY KEY, tenant_id UUID NOT NULL,
         parent_id BIGINT NOT NULL REFERENCES bench_join_parents(id),
@@ -123,7 +140,9 @@ async def _get(sandloom_core: Any, tenant: Any, **key: Any) -> Any:
 
 
 @BOTH
-async def test_plan_has_a_tenant_predicate_on_every_table(jn: S5, sandloom_core: Any) -> None:
+async def test_plan_has_a_tenant_predicate_on_every_table(
+    jn: S5, sandloom_core: Any
+) -> None:
     plan = plan_for(sandloom_core.runtime_view(), role_in_active)
     want = "optimized" if jn.variant == "planopt" else "general"
     assert plan.executor == want, plan.reason
@@ -141,11 +160,15 @@ async def test_plan_has_a_tenant_predicate_on_every_table(jn: S5, sandloom_core:
 
 
 @BOTH
-async def test_rows_by_tenant_activity_and_joined_tenant(jn: S5, sandloom_core: Any) -> None:
+async def test_rows_by_tenant_activity_and_joined_tenant(
+    jn: S5, sandloom_core: Any
+) -> None:
     assert await _get(sandloom_core, A, parent_id=1, code="x") == RoleOut(
         role="admin", parent_name="pa"
     )
-    assert await _get(sandloom_core, A, parent_id=2, code="x") is None  # inactive parent
+    assert (
+        await _get(sandloom_core, A, parent_id=2, code="x") is None
+    )  # inactive parent
     assert await _get(sandloom_core, A, parent_id=3, code="x") is None  # B's child
     assert await _get(sandloom_core, B, parent_id=1, code="x") is None  # A's child
     # A's child, B's parent: hidden by the predicate/RLS on the JOINED table
@@ -209,17 +232,23 @@ async def test_not_plannable_falls_back_to_the_orm(
     if jn.variant == "planopt":
         assert "not a plain column" in plan.reason
     with bind_tenant(A):
-        got = await execute_one(sandloom_core.runtime_view(), op, {"parent_id": 1, "code": "x"})
+        got = await execute_one(
+            sandloom_core.runtime_view(), op, {"parent_id": 1, "code": "x"}
+        )
     assert got == _Computed(role="admin", shout="ADMIN")
 
 
 @BOTH
-async def test_guessing_declarations_fail_at_planning(jn: S5, sandloom_core: Any) -> None:
+async def test_guessing_declarations_fail_at_planning(
+    jn: S5, sandloom_core: Any
+) -> None:
     core = sandloom_core.runtime_view()
     with pytest.raises(PlanningError, match="no ForeignKey"):
         plan_for(
             core,
-            JoinRead(entity=JChild, join=JParent, via="other_id", by=("id",), result=RoleOut),
+            JoinRead(
+                entity=JChild, join=JParent, via="other_id", by=("id",), result=RoleOut
+            ),
         )
     with pytest.raises(PlanningError, match="unique key"):
         plan_for(
@@ -266,7 +295,9 @@ async def test_no_tenant_no_io(jn: S5, sandloom_core: Any) -> None:
     await _get(sandloom_core, A, parent_id=1, code="x")
     jn.proxy.reset()
     with pytest.raises(MissingTenantError):
-        await execute_one(sandloom_core.runtime_view(), role_in_active, {"parent_id": 1, "code": "x"})
+        await execute_one(
+            sandloom_core.runtime_view(), role_in_active, {"parent_id": 1, "code": "x"}
+        )
     assert jn.kinds() == []
 
 

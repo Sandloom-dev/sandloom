@@ -6,7 +6,13 @@ per-statement verdict. Tables, RLS and grants come from
 ``benchsuite.setup_db.write_statements``.
 """
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String
+from sqlalchemy import (
+    BigInteger,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.core.orm import Base, TenantScoped
@@ -35,6 +41,8 @@ class BenchTenantOrder(TenantScoped, Base):
     """W5/W6: the header row of the two-table business transaction."""
 
     __tablename__ = "bench_tenant_orders"
+    # the target of the line's composite key (SANDLOOM-R020)
+    __table_args__ = (UniqueConstraint("tenant_id", "id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -42,14 +50,19 @@ class BenchTenantOrder(TenantScoped, Base):
 
 
 class BenchTenantOrderLine(TenantScoped, Base):
-    """W5/W6: the line row (same module, same database: a real FK is fine)."""
+    """W5/W6: the line row (same module, same database: a real FK is fine, and it
+    pairs the tenant on both sides, SANDLOOM-R020)."""
 
     __tablename__ = "bench_tenant_order_lines"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "order_id"],
+            ["bench_tenant_orders.tenant_id", "bench_tenant_orders.id"],
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    order_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("bench_tenant_orders.id"), nullable=False
-    )
+    order_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sku: Mapped[str] = mapped_column(String(64), nullable=False)
     qty: Mapped[int] = mapped_column(Integer, nullable=False)
 
