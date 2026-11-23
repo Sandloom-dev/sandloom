@@ -82,6 +82,36 @@ def test_every_dispatched_command_is_listed_and_every_listed_one_dispatched() ->
     assert dispatched == listed
 
 
+def test_no_explain_text_cites_a_spec_or_a_path_no_app_has() -> None:
+    """An application has no ``spec.md`` and no ``tests/fixtures``: nothing
+    `sandloom explain` prints may send its reader there."""
+    from sandloom.core import error_codes
+
+    for entry in error_codes.CATALOGUE:
+        if entry.planned:  # a reserved code names its hand-off: not shown yet
+            continue
+        text = error_codes.explain_text(entry)
+        assert "§" not in text, entry.code
+        assert "tests/fixtures" not in text, entry.code
+
+
+@pytest.mark.parametrize("code", ["SANDLOOM-C031", "SANDLOOM-C033", "SANDLOOM-B037"])
+def test_the_long_texts_are_short_and_the_cause_comes_first(code: str) -> None:
+    from sandloom.core import error_codes
+
+    entry = error_codes.get(code)
+    assert len(entry.explain.split()) <= 150, code
+    # The first sentence of the explanation is not the context of a spec.
+    assert "(spec" not in entry.explain
+
+
+def test_t009_points_at_the_beginner_tier() -> None:
+    from sandloom.core import error_codes
+
+    text = error_codes.get("SANDLOOM-T009").explain
+    assert "sandloom docs sandloom.sdk" in text
+
+
 def test_admin_help_names_the_commands_the_docs_use() -> None:
     summary = dict(pair for _, entries in sandloom.COMMAND_GROUPS for pair in entries)[
         "admin"
