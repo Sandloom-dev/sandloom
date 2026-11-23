@@ -124,13 +124,14 @@ async def tenant_upsert(
     as on a plain insert: a primary key or another unique key that a row of
     another tenant holds is the database's integrity error, which shows that the
     key exists (PostgreSQL runs that check outside row-level security, so a
-    policy hides it), so do not reuse a key across tenants. A foreign key from a
-    tenant table to another tenant table must be composite,
-    ``(tenant_id, parent_id)``: a model that leaves the tenant out is refused when
-    it is defined (SANDLOOM-R020), as are a ``REPLACE`` conflict clause
-    (SANDLOOM-R019) and a tenant column type that processes the value
-    (SANDLOOM-R021). What the helper refuses, with ``ValueError`` (SANDLOOM-R018)
-    before anything is sent: a model without such a unique key, a model in an
+    policy does not hide it), so do not reuse a key across tenants. A foreign key
+    from a tenant table to another tenant table must be composite,
+    ``(tenant_id, parent_id)``: a model that does not pair the tenant on both
+    sides is refused when it is defined (SANDLOOM-R020), as are a ``REPLACE``
+    conflict clause (SANDLOOM-R019) and a tenant column that is not one plain
+    mapped ``Uuid`` column (SANDLOOM-R021). What the helper refuses, with
+    ``ValueError`` (SANDLOOM-R018) before anything is sent: a model without such
+    a unique key, a model in an
     inheritance hierarchy, one whose tenant column is not named ``tenant_id``, one
     with a column that is not exactly ``sqlalchemy.Column``, one that declares a
     ``<dialect>_on_conflict*`` option of any value on a column, constraint or

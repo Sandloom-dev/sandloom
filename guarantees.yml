@@ -531,8 +531,8 @@ guarantees:
     or another unique key that another tenant holds fails with the database's integrity error, which shows
     that the key exists. PostgreSQL runs its uniqueness checks outside row-level security, so a policy
     hides nothing. Use keys that are not reused across tenants. (A foreign key from a tenant table to
-    another tenant table that leaves the tenant out is not a case the helper meets, the model is refused
-    when it is defined, G-TENANT-28.) An instance the session already holds keeps its old values until it
+    another tenant table that does not pair the tenant on both sides is not a case the helper meets, the
+    model is refused when it is defined, G-TENANT-28.) An instance the session already holds keeps its old values until it
     is refreshed.
   sources:
   - docs/modules/database/multi-tenancy.md
@@ -576,16 +576,24 @@ guarantees:
     UnsafeTenantModelError (an UnsafeTenantOperationError) and a SANDLOOM code, before any table or row exists.
     SANDLOOM-R019, a REPLACE conflict clause (SQLite's ON CONFLICT REPLACE on a primary key, a unique
     constraint or a column, any case, deletes the row that holds the key whichever tenant owns it; IGNORE,
-    ABORT, FAIL and ROLLBACK delete nothing and stay allowed). SANDLOOM-R020, a foreign key from a tenant
-    table to another tenant table that leaves tenant_id out (the database accepts, locks and probes a parent
+    ABORT, FAIL and ROLLBACK delete nothing and stay allowed). SANDLOOM-R020, a foreign key between tenant
+    tables that does not pair tenant_id on both sides (the database accepts, locks and probes a parent
     row of another tenant, PostgreSQL outside row-level security; the key must pair the tenant columns,
-    (tenant_id, col) -> parent(tenant_id, id), and the error names it; whichever of the two models is defined
-    second is refused, tables match by lower-cased name, the schema ignored, as the guard matches them, and
-    the tenant column is the one named tenant_id or the one the attribute tenant_id maps, so a column the
-    database calls org_id is covered and named in the fix; a
-    foreign key to a table without tenant_id, a table without one pointing at a tenant table, and the key of a
-    joined-inheritance subclass table, which carries no tenant column, are not refused). SANDLOOM-R021, a
-    tenant column whose type is not exactly SQLAlchemy's Uuid (its postgresql spelling UUID included, every
+    (tenant_id, col) -> parent(tenant_id, id), and the error names it, tables spelled as declared, schema and
+    case included; whichever of the two models is defined second is refused, tables match by lower-cased
+    name, the schema ignored, as the guard matches them, and the tenant column is the one named tenant_id or
+    the one the attribute tenant_id maps, so a column the database calls org_id is covered and named in the
+    fix; a joined-inheritance subclass table is a tenant table without a tenant column, so no key on it or to
+    it can pair the tenant, and only its inherit key, its primary key to the table it inherits from, is
+    exempt; a key of the subclass is declared on its base table and a key to the subclass targets the base
+    table, which the error says; a foreign key to a table that is not a tenant table, and a table that is not
+    a tenant table pointing at a tenant table, are not refused). SANDLOOM-R021, a tenant column that is not
+    one plain mapped Column of exactly SQLAlchemy's Uuid. The attribute tenant_id of the mapper must be a
+    mapped column over exactly one Column of a table of the mapper with the default comparator, and no
+    table of the mapper may have another column called tenant_id (a synonym, a hybrid_property, an
+    expression, a comparator of its own and a subclass that does not map the column are refused for
+    their shape, because the guard and the foreign-key check would read a column other than the one a
+    statement binds), and the type must be exactly Uuid (its postgresql spelling UUID included, every
     dialect variant of it too) - a TypeDecorator, a UserDefinedType, a subclass or a type_coerce of the
     attribute can store a tenant other than the one the guard bound; this is what tenant_upsert (G-TENANT-27)
     relies on when it binds the tenant with the column's own type. The check reads every table the mapper of a
@@ -596,7 +604,8 @@ guarantees:
     covered, by design - what the model does not declare, such as a table built by hand or by a migration with a
     clause or a key the model leaves out, a unique key that leaves the tenant out (G-TENANT-27's own not
     covered), a foreign key to a table that is not a tenant table, and a clause other than REPLACE that
-    changes a row. The check runs once per mapper at definition, never on a statement.
+    changes a row. The check runs once per mapper at definition, never on a statement, and costs the
+    keys of the new mapper plus the keys that point at it, not the models defined so far.
   sources:
   - docs/modules/database/multi-tenancy.md
   - docs/adr/0018-tenant-guard-at-the-cursor.md
@@ -612,13 +621,24 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_to_a_table_without_a_tenant_is_not_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_from_a_table_without_a_tenant_is_not_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_joined_inheritance_is_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_on_or_to_a_joined_subclass_table_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_on_the_subclass_table_names_the_base_table_it_belongs_on
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_to_the_subclass_table_names_the_base_table_it_must_target
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_keys_the_joined_errors_ask_for_are_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_subclass_of_a_base_without_a_tenant_keeps_its_inherit_key
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_to_a_base_table_without_a_tenant_names_the_subclass_table
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_key_on_a_base_table_without_a_tenant_names_the_subclass_table
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_schema_and_the_case_of_a_table_name_survive_into_the_fix
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_definition_costs_its_own_keys_and_the_keys_that_point_at_it
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_over_a_renamed_tenant_column_is_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_composite_key_over_a_renamed_tenant_column_is_not_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_added_afterwards_over_a_renamed_tenant_column_is_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_renamed_tenant_column_replaced_on_the_table_afterwards_is_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_type_that_processes_the_value_is_refused_when_defined
-  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_replaced_on_the_table_afterwards_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_that_is_not_one_plain_mapped_column_is_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_plain_mapped_tenant_column_is_not_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_plain_uuid_spellings_are_not_refused
+  - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_replaced_on_the_table_afterwards_is_refused
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_replace_deletes_the_row_of_another_owner_on_a_plain_table
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_without_the_tenant_takes_the_parent_of_another_owner
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_composite_key_holds_under_the_guard

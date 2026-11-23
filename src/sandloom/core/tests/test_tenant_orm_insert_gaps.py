@@ -7,10 +7,12 @@ still reach another tenant's row:
 
 * SANDLOOM-R019: a SQLite ``ON CONFLICT REPLACE`` clause on a key deletes the row
   that holds the key, whoever owns it, before anything else is asked;
-* SANDLOOM-R020: a foreign key to another TenantScoped table that leaves
-  ``tenant_id`` out accepts, locks and probes a parent row of another tenant;
-* SANDLOOM-R021: a tenant column type that processes the value (a
-  ``TypeDecorator``) writes a tenant other than the one the guard bound.
+* SANDLOOM-R020: a foreign key to another TenantScoped table that does not pair
+  ``tenant_id`` on both sides (a joined subclass table included: it has no tenant
+  column) accepts, locks and probes a parent row of another tenant;
+* SANDLOOM-R021: a tenant column that is not one plain mapped ``Column`` of
+  exactly ``Uuid`` (a ``synonym``, a ``hybrid_property``, a ``TypeDecorator``)
+  makes the guard read, or bind, a tenant other than the one it bound.
 
 Every way to declare one is covered, each in a fresh ``DeclarativeBase`` so no
 table of one case is another's parent: a constraint in ``__table_args__``, a
@@ -24,7 +26,9 @@ the shape the error asks for holds under the guard.
 
 from __future__ import annotations
 
+import functools
 import itertools
+import re
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
@@ -59,16 +63,20 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import (
+    ColumnProperty,
     DeclarativeBase,
     Mapped,
     column_property,
     declared_attr,
     mapped_column,
     registry,
+    synonym,
 )
 from sqlalchemy.types import UserDefinedType
 
+import sandloom.core.tenant as tenant_module
 from sandloom.core.config.settings import settings
 from sandloom.core.di import UnsafeTenantOperationError, bind_tenant, unscoped
 from sandloom.core.orm import TenantScoped
@@ -739,6 +747,381 @@ def test_joined_inheritance_is_not_refused() -> None:
         )
 
 
+# A joined subclass table has no tenant column: a key on it cannot pair the tenant
+# (the review's H1), and a key to it cannot either (H2). Only the inherit key, from
+# its primary key to the table it inherits from, is exempt. The base table is where a
+# key starts and where it ends.
+
+
+def _employee(base: Any, t: str) -> Any:
+    class Emp(TenantScoped, base):
+        __tablename__ = f"tgap_e_{t}"
+        __table_args__ = (UniqueConstraint("tenant_id", "id"),)
+        __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_identity": "emp"}
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        kind: Mapped[str] = mapped_column(String(10))
+
+    return Emp
+
+
+def _in_order(first: bool, early: Callable[[], None], late: Callable[[], None]) -> None:
+    for step in (early, late) if first else (late, early):
+        step()
+
+
+def _manager_with_a_key_to_a_tenant_table(
+    base: Any, t: str, *, department_first: bool
+) -> None:
+    """Tenant A inserts ``Mgr(dept_id=<a department of B>)``: the subclass table
+    has no ``tenant_id``, so nothing would stop the row from referencing it."""
+
+    def department() -> None:
+        _tenant_parent(base, t)
+
+    def managers() -> None:
+        emp = _employee(base, t)
+
+        class Mgr(emp):
+            __tablename__ = f"tgap_m_{t}"
+            __mapper_args__ = {"polymorphic_identity": "mgr"}
+
+            id: Mapped[int] = mapped_column(
+                ForeignKey(f"tgap_e_{t}.id"), primary_key=True
+            )
+            dept_id: Mapped[int | None] = mapped_column(ForeignKey(f"tgap_p_{t}.id"))
+
+    _in_order(department_first, department, managers)
+
+
+def _manager_with_a_key_to_its_base_outside_the_primary_key(base: Any, t: str) -> None:
+    """Two keys to the base table: only the one on the primary key is the inherit
+    key (the join is spelled out, SQLAlchemy cannot choose between the two)."""
+    metadata = MetaData()
+    emp = Table(
+        f"tgap_e_{t}",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("tenant_id", Uuid, nullable=False),
+        UniqueConstraint("tenant_id", "id"),
+    )
+    mgr = Table(
+        f"tgap_m_{t}",
+        metadata,
+        Column("id", Integer, ForeignKey(emp.c.id), primary_key=True),
+        Column("boss_id", Integer, ForeignKey(emp.c.id)),
+    )
+
+    class Emp(TenantScoped):
+        pass
+
+    class Mgr(Emp):
+        pass
+
+    reg = registry()
+    reg.map_imperatively(Emp, emp)
+    reg.map_imperatively(Mgr, mgr, inherits=Emp, inherit_condition=emp.c.id == mgr.c.id)
+
+
+def _manager_whose_primary_key_also_references_a_tenant_table(
+    base: Any, t: str
+) -> None:
+    """The inherit key is the one to the table it inherits from, not any key on the
+    primary key."""
+    _tenant_parent(base, t)
+    emp = _employee(base, t)
+
+    class Mgr(emp):
+        __tablename__ = f"tgap_m_{t}"
+        __mapper_args__ = {"polymorphic_identity": "mgr"}
+
+        id: Mapped[int] = mapped_column(
+            ForeignKey(f"tgap_e_{t}.id"),
+            ForeignKey(f"tgap_p_{t}.id"),
+            primary_key=True,
+        )
+
+
+def _review_of_a_manager(base: Any, t: str, *, review_first: bool) -> None:
+    """A key to the subclass table: ``Review.mgr_id -> mgr.id``. Whichever of the
+    two is defined second is the one refused."""
+
+    def review() -> None:
+        class Review(TenantScoped, base):
+            __tablename__ = f"tgap_r_{t}"
+
+            id: Mapped[int] = mapped_column(primary_key=True)
+            mgr_id: Mapped[int] = mapped_column(ForeignKey(f"tgap_m_{t}.id"))
+
+    def managers() -> None:
+        emp = _employee(base, t)
+
+        class Mgr(emp):
+            __tablename__ = f"tgap_m_{t}"
+            __mapper_args__ = {"polymorphic_identity": "mgr"}
+
+            id: Mapped[int] = mapped_column(
+                ForeignKey(f"tgap_e_{t}.id"), primary_key=True
+            )
+
+    _in_order(review_first, review, managers)
+
+
+JOINED_FORMS: dict[str, Define] = {
+    "a key on the subclass table, parent first": functools.partial(
+        _manager_with_a_key_to_a_tenant_table, department_first=True
+    ),
+    "a key on the subclass table, parent second": functools.partial(
+        _manager_with_a_key_to_a_tenant_table, department_first=False
+    ),
+    "a key from outside the primary key to the base": (
+        _manager_with_a_key_to_its_base_outside_the_primary_key
+    ),
+    "a second key on the primary key": (
+        _manager_whose_primary_key_also_references_a_tenant_table
+    ),
+    "a key to the subclass table, subclass first": functools.partial(
+        _review_of_a_manager, review_first=False
+    ),
+    "a key to the subclass table, subclass second": functools.partial(
+        _review_of_a_manager, review_first=True
+    ),
+}
+
+
+@pytest.mark.parametrize("define", JOINED_FORMS.values(), ids=JOINED_FORMS)
+def test_a_foreign_key_on_or_to_a_joined_subclass_table_is_refused(
+    define: Define,
+) -> None:
+    error = _refused(define)
+    assert error.sandloom_code == "SANDLOOM-R020"
+    assert "joined subclass" in str(error)
+
+
+def test_a_key_on_the_subclass_table_names_the_base_table_it_belongs_on() -> None:
+    message = str(
+        _refused(
+            functools.partial(
+                _manager_with_a_key_to_a_tenant_table, department_first=True
+            )
+        )
+    )
+    assert re.search(r"declare the key on its base table tgap_e_\d+", message)
+    assert re.search(
+        r"ForeignKeyConstraint\(\['tenant_id', 'dept_id'\], "
+        r"\['tgap_p_(\d+)\.tenant_id', 'tgap_p_\1\.id'\]\)",
+        message,
+    )
+
+
+def test_a_key_to_the_subclass_table_names_the_base_table_it_must_target() -> None:
+    message = str(_refused(functools.partial(_review_of_a_manager, review_first=False)))
+    assert re.search(r"must target its base table tgap_e_\d+", message)
+    assert re.search(
+        r"ForeignKeyConstraint\(\['tenant_id', 'mgr_id'\], "
+        r"\['tgap_e_(\d+)\.tenant_id', 'tgap_e_\1\.id'\]\), with "
+        r"UniqueConstraint\('tenant_id', 'id'\) on tgap_e_\1",
+        message,
+    )
+
+
+@pytest.mark.parametrize("review_first", [False, True], ids=["after", "before"])
+def test_the_keys_the_joined_errors_ask_for_are_not_refused(
+    review_first: bool,
+) -> None:
+    """The base table is where a key starts and ends: both the key to the hierarchy
+    and the department a manager works in are columns of the base."""
+    base, suffix = _fresh()
+
+    def review() -> None:
+        class Review(TenantScoped, base):
+            __tablename__ = f"tgap_r_{suffix}"
+            __table_args__ = (
+                ForeignKeyConstraint(
+                    ["tenant_id", "emp_id"],
+                    [f"tgap_e_{suffix}.tenant_id", f"tgap_e_{suffix}.id"],
+                ),
+            )
+
+            id: Mapped[int] = mapped_column(primary_key=True)
+            emp_id: Mapped[int] = mapped_column(Integer)
+
+    def employees() -> None:
+        _tenant_parent(base, suffix)
+
+        class Emp(TenantScoped, base):
+            __tablename__ = f"tgap_e_{suffix}"
+            __table_args__ = (
+                UniqueConstraint("tenant_id", "id"),
+                ForeignKeyConstraint(
+                    ["tenant_id", "dept_id"],
+                    [f"tgap_p_{suffix}.tenant_id", f"tgap_p_{suffix}.id"],
+                ),
+            )
+            __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_identity": "emp"}
+
+            id: Mapped[int] = mapped_column(primary_key=True)
+            kind: Mapped[str] = mapped_column(String(10))
+            dept_id: Mapped[int | None] = mapped_column(Integer)
+
+        class Mgr(Emp):
+            __tablename__ = f"tgap_m_{suffix}"
+            __mapper_args__ = {"polymorphic_identity": "mgr"}
+
+            id: Mapped[int] = mapped_column(
+                ForeignKey(f"tgap_e_{suffix}.id"), primary_key=True
+            )
+
+    _in_order(review_first, review, employees)
+
+
+# A TenantScoped subclass of a model that is no tenant model: the base table holds no
+# tenant column and the subclass table adds it. The guard counts both as tenant tables.
+
+
+def _vehicle(base: Any, t: str, *, owner_key: bool = False) -> Any:
+    class Vehicle(base):
+        __tablename__ = f"tgap_v_{t}"
+        __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_identity": "vehicle"}
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        kind: Mapped[str] = mapped_column(String(10))
+        if owner_key:
+            owner_id: Mapped[int | None] = mapped_column(ForeignKey(f"tgap_p_{t}.id"))
+
+    return Vehicle
+
+
+def _tenant_car(vehicle: Any, t: str) -> Any:
+    class Car(TenantScoped, vehicle):
+        __tablename__ = f"tgap_c_{t}"
+        __mapper_args__ = {"polymorphic_identity": "car"}
+
+        id: Mapped[int] = mapped_column(ForeignKey(f"tgap_v_{t}.id"), primary_key=True)
+
+    return Car
+
+
+def test_a_tenant_subclass_of_a_base_without_a_tenant_keeps_its_inherit_key() -> None:
+    """The key from the subclass table to the base table is the inherit key whichever
+    of the two holds the tenant column."""
+    base, suffix = _fresh()
+    _tenant_car(_vehicle(base, suffix), suffix)
+
+
+@pytest.mark.parametrize("inspection_first", [False, True], ids=["after", "before"])
+def test_a_key_to_a_base_table_without_a_tenant_names_the_subclass_table(
+    inspection_first: bool,
+) -> None:
+    def define(base: Any, t: str) -> None:
+        def inspection() -> None:
+            class Inspection(TenantScoped, base):
+                __tablename__ = f"tgap_i_{t}"
+
+                id: Mapped[int] = mapped_column(primary_key=True)
+                vehicle_id: Mapped[int] = mapped_column(ForeignKey(f"tgap_v_{t}.id"))
+
+        def cars() -> None:
+            _tenant_car(_vehicle(base, t), t)
+
+        _in_order(inspection_first, inspection, cars)
+
+    error = _refused(define)
+    assert error.sandloom_code == "SANDLOOM-R020"
+    message = str(error)
+    assert re.search(r"base table of a tenant subclass", message)
+    assert re.search(
+        r"must target the subclass table tgap_c_\d+ that holds it", message
+    )
+    assert "is the table of a joined subclass" not in message
+
+
+def test_a_key_on_a_base_table_without_a_tenant_names_the_subclass_table() -> None:
+    def define(base: Any, t: str) -> None:
+        _tenant_parent(base, t)
+        _tenant_car(_vehicle(base, t, owner_key=True), t)
+
+    error = _refused(define)
+    assert error.sandloom_code == "SANDLOOM-R020"
+    assert re.search(
+        r"declare the key on the subclass table tgap_c_\d+ that holds it", str(error)
+    )
+
+
+def test_the_schema_and_the_case_of_a_table_name_survive_into_the_fix() -> None:
+    """The fix is meant to be copied: ``sales.Orders`` is the key a
+    ``ForeignKeyConstraint`` resolves, never ``orders``."""
+
+    def define(base: Any, t: str) -> None:
+        class Orders(TenantScoped, base):
+            __tablename__ = f"Orders_{t}"
+            __table_args__ = (UniqueConstraint("tenant_id", "id"), {"schema": "sales"})
+
+            id: Mapped[int] = mapped_column(primary_key=True)
+
+        class Line(TenantScoped, base):
+            __tablename__ = f"Line_{t}"
+            __table_args__ = {"schema": "sales"}
+
+            id: Mapped[int] = mapped_column(primary_key=True)
+            order_id: Mapped[int] = mapped_column(
+                ForeignKey(f"sales.Orders_{t}.id", name="line_order")
+            )
+
+    message = str(_refused(define))
+    assert re.search(r"sales\.Line_\d+\(order_id\) -> sales\.Orders_\d+\(id\)", message)
+    assert re.search(
+        r"\['sales\.Orders_(\d+)\.tenant_id', 'sales\.Orders_\1\.id'\]\), with "
+        r"UniqueConstraint\('tenant_id', 'id'\) on sales\.Orders_\1",
+        message,
+    )
+
+
+def test_a_definition_costs_its_own_keys_and_the_keys_that_point_at_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not the keys of every tenant table defined so far (the review measured +4.1 s
+    at 1000 chained models and +22.9 s at 2000 with a scan). The keys looked at are
+    counted, the same for a chain defined parent first and child first: a key waits
+    for a parent defined later in an index, and the parent finds it there."""
+    looked_at: list[int] = []
+    real = tenant_module._foreign_keys_involving
+
+    def counting(new: Any) -> Any:
+        pairs = real(new)
+        looked_at.append(len(pairs))
+        return pairs
+
+    monkeypatch.setattr(tenant_module, "_foreign_keys_involving", counting)
+    length = 120
+    for parent_first in (True, False):
+        looked_at.clear()
+        base, suffix = _fresh()
+
+        def link(i: int, base: Any = base, suffix: str = suffix) -> None:
+            previous = f"tgap_chain_{suffix}_{i - 1}"
+            args: tuple[Any, ...] = (UniqueConstraint("tenant_id", "id"),)
+            if i:
+                args += (
+                    ForeignKeyConstraint(
+                        ["tenant_id", "up_id"],
+                        [f"{previous}.tenant_id", f"{previous}.id"],
+                    ),
+                )
+
+            class Link(TenantScoped, base):
+                __tablename__ = f"tgap_chain_{suffix}_{i}"
+                __table_args__ = args
+
+                id: Mapped[int] = mapped_column(primary_key=True)
+                up_id: Mapped[int | None] = mapped_column(Integer)
+
+        for i in range(length) if parent_first else reversed(range(length)):
+            link(i)
+        assert len(looked_at) == length
+        assert sum(looked_at) <= 2 * length, (parent_first, sum(looked_at))
+
+
 # The attribute ``tenant_id`` may map a column the database calls ``org_id``: the
 # ORM guard scopes such a model through the attribute, so its key must pair that
 # column, whichever name each side gives it.
@@ -916,7 +1299,7 @@ def _type_on_an_imperatively_mapped_table(base: Any, t: str) -> None:
     registry().map_imperatively(M, table)
 
 
-def _type_coerced_by_a_column_property(base: Any, t: str) -> None:
+def _shape_column_property_over_type_coerce(base: Any, t: str) -> None:
     """The table is plain; the attribute the criterion binds through is not."""
     table = Table(
         f"tgap_t10_{t}",
@@ -938,7 +1321,10 @@ def _type_coerced_by_a_column_property(base: Any, t: str) -> None:
     )
 
 
-def _type_on_the_table_of_a_joined_subclass(base: Any, t: str) -> None:
+def _shape_column_called_tenant_id_on_the_subclass_table(base: Any, t: str) -> None:
+    """The cursor guard finds a tenant column by NAME: the subclass table has one
+    the attribute ``tenant_id`` does not map."""
+
     class Parent(TenantScoped, base):
         __tablename__ = f"tgap_t11p_{t}"
 
@@ -949,6 +1335,23 @@ def _type_on_the_table_of_a_joined_subclass(base: Any, t: str) -> None:
 
         id: Mapped[int] = mapped_column(
             ForeignKey(f"tgap_t11p_{t}.id"), primary_key=True
+        )
+        shadow = Column("tenant_id", _Prefixed(), nullable=False, key="child_tenant")
+
+
+def _shape_tenant_id_mapped_on_the_subclass_table_too(base: Any, t: str) -> None:
+    """Two columns under the one attribute: the parent's and the subclass's."""
+
+    class Parent(TenantScoped, base):
+        __tablename__ = f"tgap_t14p_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+
+    class Child(Parent):
+        __tablename__ = f"tgap_t14c_{t}"
+
+        id: Mapped[int] = mapped_column(
+            ForeignKey(f"tgap_t14p_{t}.id"), primary_key=True
         )
         tenant_id = Column("tenant_id", _Prefixed(), nullable=False, key="child_tenant")
 
@@ -993,8 +1396,6 @@ TYPE_FORMS: dict[str, Define] = {
     "mixin": _type_in_a_mixin,
     "classic Column": _type_on_a_classic_column,
     "imperative mapping": _type_on_an_imperatively_mapped_table,
-    "column_property over type_coerce": _type_coerced_by_a_column_property,
-    "joined subclass table": _type_on_the_table_of_a_joined_subclass,
     "table reused by a plain model": _type_on_a_table_a_plain_model_mapped_first,
 }
 
@@ -1007,6 +1408,191 @@ def test_a_tenant_column_type_that_processes_the_value_is_refused_when_defined(
     assert error.sandloom_code == "SANDLOOM-R021"
     assert "sandloom explain SANDLOOM-R021" in str(error)
     assert "tenant_id" in str(error)
+
+
+# The tenant column is the one column the attribute ``tenant_id`` maps. The guard,
+# R020 and R021 all start from it, so a model whose attribute is anything else
+# (the review's H3: a synonym or a hybrid_property reads and scopes through the
+# attribute, but R020 never saw its foreign key and R021 never saw its type) is
+# refused for its shape.
+
+
+def _shape_synonym(base: Any, t: str) -> None:
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_s1_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        org_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False)
+        tenant_id = synonym("org_id")  # type: ignore[assignment]
+
+
+def _shape_synonym_over_a_prefixed_type(base: Any, t: str) -> None:
+    """``org_id`` stores ``t-<hex>``; the attribute the guard binds through is a
+    synonym, so no type check ever looked at it."""
+
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_s2_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        org_id: Mapped[uuid.UUID] = mapped_column(_Prefixed(), nullable=False)
+        tenant_id = synonym("org_id")  # type: ignore[assignment]
+
+
+def _shape_hybrid_property_with_a_setter(base: Any, t: str) -> None:
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_s3_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        org_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False)
+
+        @hybrid_property  # type: ignore[override]
+        def tenant_id(self) -> uuid.UUID:
+            return self.org_id
+
+        @tenant_id.setter  # type: ignore[no-redef]
+        def tenant_id(self, value: uuid.UUID) -> None:
+            self.org_id = value
+
+
+def _shape_comparator_of_its_own(base: Any, t: str) -> None:
+    class Own(ColumnProperty.Comparator[Any]):
+        pass
+
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_s4_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        tenant_id = column_property(  # type: ignore[assignment]
+            Column("tenant_id", Uuid(), nullable=False), comparator_factory=Own
+        )
+
+
+def _shape_table_without_a_tenant_column(base: Any, t: str) -> None:
+    table = Table(f"tgap_s5_{t}", MetaData(), Column("id", Integer, primary_key=True))
+
+    class M(TenantScoped):
+        pass
+
+    registry().map_imperatively(M, table)
+
+
+def _shape_concrete_subclass_without_the_column(base: Any, t: str) -> None:
+    parent = Table(
+        f"tgap_s6p_{t}",
+        MetaData(),
+        Column("id", Integer, primary_key=True),
+        Column("tenant_id", Uuid, nullable=False),
+    )
+    child = Table(f"tgap_s6c_{t}", MetaData(), Column("id", Integer, primary_key=True))
+
+    class Parent(TenantScoped):
+        pass
+
+    class Child(Parent):
+        pass
+
+    reg = registry()
+    reg.map_imperatively(Parent, parent)
+    reg.map_imperatively(Child, child, inherits=Parent, concrete=True)
+
+
+def _shape_a_second_column_called_tenant_id(base: Any, t: str) -> None:
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_s7_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        tenant_id: Mapped[uuid.UUID] = mapped_column("org_id", Uuid(), nullable=False)
+        shadow = Column("tenant_id", Uuid(), key="shadow_tenant")
+
+
+SHAPE_FORMS: dict[str, tuple[Define, str]] = {
+    "synonym": (_shape_synonym, "is a Synonym"),
+    "synonym over a Prefixed type": (_shape_synonym_over_a_prefixed_type, "Synonym"),
+    "hybrid_property with a setter": (
+        _shape_hybrid_property_with_a_setter,
+        "maps no column",
+    ),
+    "comparator of its own": (_shape_comparator_of_its_own, "comparator of its own"),
+    "table without a tenant column": (
+        _shape_table_without_a_tenant_column,
+        "maps no column",
+    ),
+    "concrete subclass without the column": (
+        _shape_concrete_subclass_without_the_column,
+        "ConcreteInheritedProperty",
+    ),
+    "column_property over type_coerce": (
+        _shape_column_property_over_type_coerce,
+        "not exactly one Column",
+    ),
+    "a column called tenant_id on the subclass table": (
+        _shape_column_called_tenant_id_on_the_subclass_table,
+        "does not map",
+    ),
+    "tenant_id mapped on the subclass table too": (
+        _shape_tenant_id_mapped_on_the_subclass_table_too,
+        "maps 2 column element(s)",
+    ),
+    "a second column called tenant_id": (
+        _shape_a_second_column_called_tenant_id,
+        "does not map",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("define", "reason"), SHAPE_FORMS.values(), ids=list(SHAPE_FORMS)
+)
+def test_a_tenant_column_that_is_not_one_plain_mapped_column_is_refused(
+    define: Define, reason: str
+) -> None:
+    error = _refused(define)
+    assert error.sandloom_code == "SANDLOOM-R021"
+    assert "sandloom explain SANDLOOM-R021" in str(error)
+    assert reason in str(error)
+
+
+def _deferred(base: Any, t: str) -> None:
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_ok1_{t}"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        tenant_id: Mapped[uuid.UUID] = mapped_column(
+            Uuid(), nullable=False, deferred=True
+        )
+
+
+def _single_table_subclass(base: Any, t: str) -> None:
+    class M(TenantScoped, base):
+        __tablename__ = f"tgap_ok2_{t}"
+        __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_identity": "m"}
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        kind: Mapped[str] = mapped_column(String(10))
+
+    class Sub(M):
+        __mapper_args__ = {"polymorphic_identity": "s"}
+
+
+def _joined_subclass(base: Any, t: str) -> None:
+    emp = _employee(base, t)
+
+    class Mgr(emp):
+        __tablename__ = f"tgap_m_{t}"
+        __mapper_args__ = {"polymorphic_identity": "mgr"}
+
+        id: Mapped[int] = mapped_column(ForeignKey(f"tgap_e_{t}.id"), primary_key=True)
+        level: Mapped[int] = mapped_column(Integer, default=0)
+
+
+@pytest.mark.parametrize(
+    "define",
+    [_deferred, _single_table_subclass, _joined_subclass],
+    ids=["deferred column", "single-table subclass", "joined subclass"],
+)
+def test_a_plain_mapped_tenant_column_is_not_refused(define: Define) -> None:
+    base, suffix = _fresh()
+    define(base, suffix)
 
 
 def test_a_tenant_column_replaced_on_the_table_afterwards_is_refused() -> None:
@@ -1029,6 +1615,9 @@ def test_a_renamed_tenant_column_replaced_on_the_table_afterwards_is_refused() -
     assert caught.value.sandloom_code == "SANDLOOM-R021"
 
 
+# The check is about code that runs on the value (a type of its own), not about what a
+# database can compare: the text form and the string form are exactly `Uuid`, pass the
+# check, and fail scoped reads on PostgreSQL and SQLite (docs: multi-tenancy.md, R021).
 @pytest.mark.parametrize(
     "column_type",
     [

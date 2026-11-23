@@ -171,14 +171,18 @@ def write_statements(role: str) -> list[str]:
             id BIGSERIAL PRIMARY KEY,
             tenant_id UUID NOT NULL,
             name VARCHAR(64) NOT NULL,
-            total INTEGER NOT NULL
+            total INTEGER NOT NULL,
+            UNIQUE (tenant_id, id)
         )""",
+        # the key pairs the tenant on both sides, as the model declares it (R020)
         """CREATE TABLE IF NOT EXISTS bench_tenant_order_lines (
             id BIGSERIAL PRIMARY KEY,
             tenant_id UUID NOT NULL,
-            order_id BIGINT NOT NULL REFERENCES bench_tenant_orders (id),
+            order_id BIGINT NOT NULL,
             sku VARCHAR(64) NOT NULL,
-            qty INTEGER NOT NULL
+            qty INTEGER NOT NULL,
+            FOREIGN KEY (tenant_id, order_id)
+                REFERENCES bench_tenant_orders (tenant_id, id)
         )""",
     ]
     for table in reversed(WRITE_DIAG_TABLES):

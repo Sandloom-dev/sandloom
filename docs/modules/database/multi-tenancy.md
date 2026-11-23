@@ -247,19 +247,32 @@ A constraint or column added to the table later is refused as it is attached.
   whichever tenant owns the row, so an insert of one tenant can delete a row of
   another. The other clauses delete no row and stay allowed. Put `tenant_id`
   into the key and drop the clause.
-- **A foreign key to another tenant table that leaves `tenant_id` out**
+- **A foreign key to another tenant table that does not pair `tenant_id` on
+  both sides**
   ([SANDLOOM-R020](../../reference/error-codes.md#sandloom-r020)). The database
   checks the key against a parent row of another tenant and locks that row.
-  PostgreSQL runs the check outside row-level security. Make the key composite:
-  `(tenant_id, parent_id)` to `parent(tenant_id, id)`. The parent needs
+  PostgreSQL runs the check outside row-level security. No policy hides it.
+  Make the key composite: `(tenant_id, parent_id)` to
+  `parent(tenant_id, id)`. The parent needs
   `UniqueConstraint("tenant_id", "id")`. Whichever model is defined second is
   the one refused. A foreign key to a table without `tenant_id` is not refused.
   A shared list of countries is an example.
-- **A tenant column type that processes the value**
-  ([SANDLOOM-R021](../../reference/error-codes.md#sandloom-r021)). A type such
-  as a `TypeDecorator` can store a tenant other than the one the guard bound.
-  The tenant column must be exactly SQLAlchemy's `Uuid`. `postgresql.UUID` and
-  any `native_uuid` or `as_uuid` setting are fine.
+  The table of a joined subclass has no `tenant_id` of its own. No key on it or
+  to it can pair the tenant. Only its inherit key is allowed: its primary key
+  to the table it inherits from. Declare any other key of a subclass on the
+  base table. Point a key to a subclass at the base table: `emp(tenant_id, id)`.
+- **A tenant column that is not one plain mapped column of the plain type**
+  ([SANDLOOM-R021](../../reference/error-codes.md#sandloom-r021)). The
+  attribute `tenant_id` must map exactly one `Column` of the model's own tables
+  with the default comparator. The guard and the foreign-key check find the
+  column through that attribute. A `synonym` or a `hybrid_property` is
+  refused. So is an expression, or a subclass that leaves the column out. So is
+  a second column called `tenant_id` that the attribute does not map.
+  A `TypeDecorator` can store a tenant other than the one the guard bound.
+  The type must be exactly SQLAlchemy's `Uuid` or its PostgreSQL spelling
+  `UUID`, with their defaults. Other `Uuid` settings pass the check, and the
+  database may still not compare them: `Uuid(native_uuid=False)` fails scoped
+  reads on PostgreSQL, and `Uuid(as_uuid=False)` fails on SQLite.
 
 Each error names the change. `sandloom explain` gives the long form.
 
@@ -581,8 +594,8 @@ mistakes, not against malicious Python or SQL inside its process.
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | no tenant bound where one is required (`400`) |
 | [SANDLOOM-R018](../../reference/error-codes.md#sandloom-r018) | a `tenant_upsert` call or model that cannot stay inside the bound tenant |
 | [SANDLOOM-R019](../../reference/error-codes.md#sandloom-r019) | a `TenantScoped` model with a `REPLACE` conflict clause, defined (SQLite deletes the row that holds the key, whichever tenant owns it) |
-| [SANDLOOM-R020](../../reference/error-codes.md#sandloom-r020) | a foreign key between `TenantScoped` tables that leaves `tenant_id` out |
-| [SANDLOOM-R021](../../reference/error-codes.md#sandloom-r021) | a `TenantScoped` tenant column whose type processes the value |
+| [SANDLOOM-R020](../../reference/error-codes.md#sandloom-r020) | a foreign key between `TenantScoped` tables that does not pair `tenant_id` on both sides, a joined subclass table included |
+| [SANDLOOM-R021](../../reference/error-codes.md#sandloom-r021) | a `TenantScoped` tenant column that is not one plain mapped `Column`, or whose type processes the value |
 | [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026) | `tenant_rls` or the system channel on a database without row security |
 
 ??? note "Guarantees, precisely"
@@ -597,8 +610,8 @@ mistakes, not against malicious Python or SQL inside its process.
       (G-TENANT-27).
     - A model whose plain insert would reach another tenant through the
       database is refused when it is defined (G-TENANT-28, ADR-0018 decision
-      7). The three cases are a `REPLACE` clause, a foreign key without
-      `tenant_id` and a tenant column type that processes the value.
+      7). Three cases: a `REPLACE` clause, a foreign key that skips
+      `tenant_id` on one side, a tenant column that is not a plain mapped `Uuid`.
     - A missing tenant is `400 tenant_required`, also when the error
       reaches the request boundary (G-TENANT-12).
     - RLS policies are fail-closed, forced and without bypass; the role checks

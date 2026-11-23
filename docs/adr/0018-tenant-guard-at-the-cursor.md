@@ -273,46 +273,64 @@ The cursor guard sees the values and the filters of a statement. It cannot see w
 does with an `INSERT` whose every value belongs to the bound tenant. Three declarations of a model
 make the database reach another tenant's row on such an insert, so the model is refused when it is
 defined, with `UnsafeTenantModelError` (an `UnsafeTenantOperationError`), before any table or row
-exists:
+exists. The check is an allowlist built on one column: the tenant column of a model is the one
+`Column` its attribute `tenant_id` maps, and every refusal reads from it.
 
 - `SANDLOOM-R019`, a `REPLACE` conflict clause. SQLite's `ON CONFLICT REPLACE` on a primary key, a
   unique constraint or a column deletes the row that holds the key, whichever tenant owns it, before
   any other check runs. `IGNORE`, `ABORT`, `FAIL` and `ROLLBACK` delete nothing and stay allowed, and
   so does a composite key that includes the tenant column;
-- `SANDLOOM-R020`, a foreign key from a tenant table to another tenant table that leaves
-  `tenant_id` out. PostgreSQL checks a foreign key outside row-level security, so the insert locks
-  and probes a parent row of another tenant. The error names the key that replaces it,
-  `(tenant_id, col)` to `parent(tenant_id, id)`, which needs a unique key on `(tenant_id, id)` of the
-  parent;
-- `SANDLOOM-R021`, a tenant column whose type is not exactly SQLAlchemy's `Uuid` (its PostgreSQL
-  spelling `UUID` and every dialect variant of it included). A `TypeDecorator`, a `UserDefinedType`, a
-  subclass or a `type_coerce` of the attribute can store a tenant other than the one the guard bound.
-  This also closes the case decision 6 relied on: `tenant_upsert` binds the tenant with the column's
-  own type.
+- `SANDLOOM-R020`, a foreign key from a tenant table to another tenant table that does not pair
+  `tenant_id` on both sides. PostgreSQL checks a foreign key outside row-level security, so the
+  insert locks and probes a parent row of another tenant. Every foreign key of every table of a
+  tenant mapper whose referred table is a tenant table must pair the tenant column of both: the
+  table of a joined subclass is a tenant table without a tenant column of its own, so no key on it
+  or to it can pair one. The only exception is the inherit key of a joined subclass, its primary key
+  to the table it inherits from: the row it joins is the one the same flush wrote. A key from a
+  subclass is declared on the base table, and a key to a subclass targets the base table,
+  `emp(tenant_id, id)`; the error says so. The reverse shape, a tenant model that inherits a model
+  that is no tenant model, keeps the column on the subclass table: the base table has none, and
+  the error names the subclass table instead. The error names the key that replaces the refused one,
+  `(tenant_id, col)` to `parent(tenant_id, id)` (tables spelled as declared, schema and case
+  included), which needs a unique key on `(tenant_id, id)` of the parent;
+- `SANDLOOM-R021`, a tenant column that is not one plain mapped `Column` of exactly SQLAlchemy's
+  `Uuid`. The attribute `tenant_id` of the mapper must be a `ColumnProperty` over exactly one
+  `Column` of a table of the mapper, with the default comparator, and no table of the mapper may
+  have another column called `tenant_id` (the cursor guard finds a column by name). A `synonym`, a
+  `hybrid_property`, a `column_property` over an expression, a concrete subclass that does not map
+  the column and a comparator of its own are refused for their shape: the guard, R020 and R021 would
+  read a column other than the one a statement binds. The column's type must be exactly `Uuid` (its
+  PostgreSQL spelling `UUID` and every dialect variant of it included): a `TypeDecorator`, a
+  `UserDefinedType` or a subclass can store a tenant other than the one the guard bound. This also
+  closes the case decision 6 relied on: `tenant_upsert` binds the tenant with the column's own type.
 
 The check reads every table that the mapper of a `TenantScoped` class maps, whatever declared it:
 `__table_args__` or a column keyword, `mapped_column` or `Column`, a mixin or `declared_attr`,
 declarative or imperative mapping, joined inheritance, one `Table` under two models. It runs once
 per mapper, at `after_mapper_constructed`, so a model defined after its foreign key target is
 checked when the second of the two is defined. Tables match by lower-cased name with the schema
-ignored, as the guard matches them. The tenant column of a table is the column named `tenant_id`
-or the one that the attribute `tenant_id` maps (`mapped_column("org_id")`), so a renamed column is
-checked and named in the fix. A constraint or a column attached to such a table afterwards
+ignored, as the guard matches them. A constraint or a column attached to such a table afterwards
 is refused as it is attached (`after_parent_attach`). The refusal comes after the constraint is on
 the `Table`, so a process that caught it is not meant to go on with that object.
 
-Not refused, because the model declares nothing the guard cannot hold: a foreign key to a table
-without `tenant_id`, a table without `tenant_id` that points at a tenant table, and the key of a
-joined-inheritance subclass table, which carries no tenant column of its own. Not covered, by design:
-a table built by hand or by a migration with a clause or a key that the model does not declare, a
-unique key that leaves the tenant out (the helper's own limit, decision 6), and a clause other than
-`REPLACE` that changes a row. The cost is one pass over the tables of a model when it is defined
-and a set lookup per attached constraint or column. No statement pays it.
+Not refused, because the model declares nothing the guard can see: a foreign key to a table
+without a tenant column, and a table that is no tenant table (an association table, say) that points
+at a tenant table. The second is a limit by the owner's decision. Not covered, by design: a table
+built by hand or by a migration with a clause or a key that the model does not declare, a unique key
+that leaves the tenant out (the helper's own limit, decision 6), and a clause other than `REPLACE`
+that changes a row. The cost is bounded by the keys the new mapper touches, not by the models
+defined so far: tenant tables are indexed by name, and a foreign key to a table not defined yet
+waits in an index by the table it names until that table is defined, so a mapper costs its own
+foreign keys plus the ones that point at it, and a set lookup per attached constraint or column.
+2000 chained models define in 1.71 s with the check and 1.60 s without it; a scan of every tenant
+table per mapper, the first version, added 22.9 s at 2000. No statement pays it.
 
 **Upgrade:** a model with a plain foreign key to another tenant table makes the key composite and
 adds `UniqueConstraint("tenant_id", "id")` to the parent, in a migration for an existing table.
-A model with `sqlite_on_conflict="REPLACE"` drops it or uses a composite key. A tenant column type
-other than `Uuid` moves its conversion to a column that is not the tenant.
+A joined subclass moves its foreign keys to the base table, and a key to a subclass targets the
+base. A model with `sqlite_on_conflict="REPLACE"` drops it or uses a composite key. A model that
+maps `tenant_id` through a synonym, a hybrid or an expression maps the column itself. A tenant
+column type other than `Uuid` moves its conversion to a column that is not the tenant.
 
 ### 8. A cursor listener that rewrites the statement is a seam, named and not refused
 
@@ -395,7 +413,7 @@ of the owner. Row-level security is the boundary for it, as for the other seams.
   integrity error, which shows that the key exists. PostgreSQL runs that check outside row-level
   security. Use keys that are not reused across tenants, as for the stamp above. A foreign key to a
   tenant table is no such case: it must be composite, `(tenant_id, parent_id)`, and a model that
-  leaves the tenant out is refused when it is defined (decision 7).
+  does not pair the tenant on both sides is refused when it is defined (decision 7).
 - Some seams stay with the caller or with the database, in the order they are named:
   - a hidden raw reference inside a criterion-approved statement that the ORM walk cannot see;
   - `Connection.exec_driver_sql`, which has no compiled statement;
