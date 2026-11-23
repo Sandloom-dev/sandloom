@@ -91,6 +91,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "unsafe-tenant-sql",
     "yield-inside-unscoped",
     "engine-in-module",
+    "cursor-listener",
     "event-schema-channels",
     "guard-order",
     "consumed-contracts",
@@ -551,6 +552,8 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
         "yield-inside-unscoped": az.find_yield_inside_unscoped,
         # a migration builds no engine either: the kernel runs it on its own
         "engine-in-module": az.find_engine_constructors,
+        # a migration is no exception: the kernel runs it on its own connection
+        "cursor-listener": az.find_cursor_listeners,
         "infra-imports": lambda p: (
             az.find_legacy_infra_imports(p)
             + driver_import_violations(p, rules, drivers)

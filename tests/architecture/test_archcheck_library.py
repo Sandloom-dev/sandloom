@@ -84,6 +84,7 @@ def test_rule_ids_are_stable() -> None:
         "generated-reserved",  # ADR-0013: _generated/ is the generator's (C032)
         "yield-inside-unscoped",  # a generator never hands unscoped() on (C036)
         "engine-in-module",  # an engine of a module's own skips the guards (C037)
+        "cursor-listener",  # no listener runs around the cursor tenant check (C039)
     } | {
         # Public API 1.0 (C021-C027, e.g. "module-local-imports"): each is an
         # sandloom check rule exactly when its catalogue code is no longer planned.

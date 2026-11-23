@@ -65,6 +65,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C036`](#sandloom-c036) | `yield-inside-unscoped` | check | a module uses `unscoped` other than as the context expression of a `with` block, or yields inside that block, letting the tenant bypass outlive it | active |
 | [`SANDLOOM-C037`](#sandloom-c037) | `engine-in-module` | check | a business module reaches a database around the framework's engine (builds an engine or a pool, or opens a raw driver connection) | active |
 | [`SANDLOOM-C038`](#sandloom-c038) | `core-in-public-api` | check | architecture_rules.yml public_api lists an entry that covers the kernel (sandloom, sandloom.core, sandloom.core.*) | active |
+| [`SANDLOOM-C039`](#sandloom-c039) | `cursor-listener` | check | a business module registers a listener at the cursor or on the pool (before_cursor_execute, do_execute, connect, ...), or under an event name the check cannot read | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -914,6 +915,64 @@ keys are not covered.
 **Fix:** delete every entry that covers the kernel from public_api (a module imports sandloom.sdk only); see docs/operate/upgrade.md
 
 **More:** `docs/operate/upgrade.md`
+
+### SANDLOOM-C039
+
+**a business module registers a listener at the cursor or on the pool (before_cursor_execute, do_execute, connect, ...), or under an event name the check cannot read**
+
+Slug: `cursor-listener` · kind: check · status: active
+
+**What happened and why it matters**
+
+The tenant check at the cursor runs inside the dialect's do_execute,
+do_executemany and do_execute_no_params, after every before_cursor_execute
+listener. A listener at the cursor gets around it in module code: a
+before_cursor_execute listener registered with retval=True hands the driver
+another SQL text or other parameters than the ones the check read, and a dialect
+listener (do_execute, do_executemany, do_execute_no_params) that runs the cursor
+itself and returns True makes SQLAlchemy skip the dialect method, so the tenant
+check, write admission, the owner check and the tenant_rls setting sync never
+run for that statement. after_cursor_execute and do_setinputsizes hand the
+listener the raw DBAPI cursor, and a pool or connect listener (connect,
+checkout, do_connect, ...) the raw DBAPI connection or its parameters; either
+runs a statement the check never reads. Row-level security still filters, by the
+setting an earlier statement of the transaction made. The reach is that of
+Connection.exec_driver_sql and .raw_connection(), which SANDLOOM-C015,
+SANDLOOM-C031 and SANDLOOM-C037 refuse in a module; ADR-0018 decision 8 has the
+seam this rule closes for module code.
+
+sandloom check refuses, in any file of a business module (migrations included;
+tests are not scanned), the capability and not one spelling:
+
+- a string that is, whole, the name of a cursor-level event
+  (before_cursor_execute, after_cursor_execute, do_execute, do_executemany,
+  do_execute_no_params, do_setinputsizes): `event.listen(engine,
+  "before_cursor_execute", fn)` and `@event.listens_for(...)` on an engine, a
+  connection, the Engine class or a dialect, with retval or not, under an
+  aliased import of event or of listen (`from sqlalchemy.event import listen
+  as l`), through `getattr(event, "listen")`, or a name bound to the constant;
+- `listen` / `listens_for` called with a pool or connect event (connect,
+  first_connect, checkout, checkin, close, close_detached, detach, reset,
+  invalidate, soft_invalidate, do_connect);
+- `listen` / `listens_for` used other than as a direct call, or called with an
+  event name that is not a string literal (a variable, a call, a star
+  argument): an unreadable name could be any event, so it is refused;
+- the sqlalchemy event module passed to a function or stored in a field, a star
+  import from `sqlalchemy.event`, and a constant `import_module` of it;
+- `<x>.dispatch.before_cursor_execute`, and an attribute that replaces or calls
+  a dialect's do_execute family (`dialect.do_execute = fn`).
+
+A listener on another event (the ORM and mapper events, `before_insert`,
+`load`, `after_flush`) written with a literal event name stays allowed. A
+deliberate exception is waived on its line with `# sandloom: allow
+cursor-listener &lt;reason>`. Not seen: the event module re-exported through
+another file of the module and called there with a name built at run time, a
+name made by `str.join` or `getattr` on a computed string, and a listener
+attached outside module code (a driver, a test).
+
+**Fix:** remove the listener: a module never rewrites or runs a statement at the cursor, and a database is set up by its driver; a listener on another event (`load`, `before_insert`, ...) stays allowed, written with a string literal event name
+
+**More:** `docs/modules/database/multi-tenancy.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 

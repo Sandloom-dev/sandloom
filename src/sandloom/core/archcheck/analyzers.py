@@ -15,7 +15,7 @@ from __future__ import annotations
 import ast
 import functools
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -2903,6 +2903,283 @@ def find_engine_constructors(file_path: Path) -> list[str]:
     return found
 
 
+#: The events whose listener runs around the cursor tenant check, or is handed the
+#: raw DBAPI cursor: ``before_cursor_execute`` (``retval=True`` replaces the SQL
+#: text and the parameters after the check read them), ``after_cursor_execute``
+#: and ``do_setinputsizes`` (the listener receives the cursor and can run a
+#: statement of its own on it), and the dialect's ``do_execute``,
+#: ``do_executemany`` and ``do_execute_no_params`` (a listener that returns
+#: True makes SQLAlchemy skip the dialect method, which holds the check).
+_CURSOR_EVENTS = frozenset(
+    {
+        "before_cursor_execute",
+        "after_cursor_execute",
+        "do_execute",
+        "do_executemany",
+        "do_execute_no_params",
+        "do_setinputsizes",
+    }
+)
+#: The events whose listener is handed the raw DBAPI connection (the pool's) or
+#: builds it (``do_connect``): the same capability as ``.raw_connection()``,
+#: which SANDLOOM-C037 refuses. These names are common words, so they are read
+#: only as the event name of a ``listen`` / ``listens_for`` call.
+_CONNECTION_EVENTS = frozenset(
+    {
+        "do_connect",
+        "connect",
+        "first_connect",
+        "checkout",
+        "checkin",
+        "close",
+        "close_detached",
+        "detach",
+        "reset",
+        "invalidate",
+        "soft_invalidate",
+    }
+)
+#: The dialect methods among them: assigning one replaces the method the guard wraps.
+_DIALECT_CURSOR_METHODS = frozenset(
+    {"do_execute", "do_executemany", "do_execute_no_params", "do_setinputsizes"}
+)
+#: ``sqlalchemy.event`` functions that register a listener.
+_LISTEN_FUNCTIONS = frozenset({"listen", "listens_for"})
+#: Submodules of ``sqlalchemy.event`` that hold the registration code.
+_EVENT_SUBMODULES = frozenset({"api", "base", "registry", "attr", "legacy"})
+_EVENT_PACKAGE = "sqlalchemy.event"
+
+
+def _assignment_pairs(node: ast.AST) -> Iterator[tuple[str, ast.expr]]:
+    """``(name, value)`` of a plain assignment, a walrus or an annotated
+    assignment with a value; a tuple target paired with a tuple value of the
+    same length is paired element by element (``a, b = event, 1``)."""
+    if isinstance(node, ast.Assign):
+        pairs = [(target, node.value) for target in node.targets]
+    elif isinstance(node, ast.AnnAssign | ast.NamedExpr) and node.value is not None:
+        pairs = [(node.target, node.value)]
+    else:
+        return
+    while pairs:
+        target, value = pairs.pop()
+        if isinstance(target, ast.Name):
+            yield target.id, value
+        elif (
+            isinstance(target, ast.Tuple | ast.List)
+            and isinstance(value, ast.Tuple | ast.List)
+            and len(target.elts) == len(value.elts)
+            and not any(isinstance(e, ast.Starred) for e in (*target.elts, *value.elts))
+        ):
+            pairs.extend(zip(target.elts, value.elts, strict=True))
+
+
+def _sqlalchemy_paths(expr: ast.AST, bound: dict[str, set[str]]) -> set[str]:
+    """The dotted ``sqlalchemy`` paths ``expr`` may name (``bound`` is per name)."""
+    root, attrs = _root_name_and_attrs(expr)
+    if root is None:
+        return set()
+    return {".".join([path, *attrs]) for path in bound.get(root, ())}
+
+
+def _event_bindings(tree: ast.AST) -> dict[str, set[str]]:
+    """Local name -> every ``sqlalchemy`` path it may be bound to: the imports of
+    :func:`_sqlalchemy_bindings`, plus plain re-binding followed to a fixed point
+    (``ev = event``, ``sa2 = sa``, ``ev, other = event, 1``), in whatever order
+    the assignments are written. Names resolve file-wide, not by scope: a name
+    that stands for the module anywhere stands for it everywhere (more is
+    reported, never less)."""
+    imported, _hidden = _sqlalchemy_bindings(tree)
+    bound = {name: {path} for name, path in imported.items()}
+    pairs = [pair for node in ast.walk(tree) for pair in _assignment_pairs(node)]
+    changed = True
+    while changed:
+        changed = False
+        for name, value in pairs:
+            paths = _sqlalchemy_paths(value, bound)
+            if not paths <= bound.get(name, set()):
+                bound.setdefault(name, set()).update(paths)
+                changed = True
+    return bound
+
+
+def _event_path_kind(path: str) -> str | None:
+    """``"listen"`` for a path that reaches the registration code of
+    ``sqlalchemy.event`` (``listen``, ``listens_for``, anything private),
+    ``"module"`` for the package or one of its registration submodules, else
+    ``None`` (``event.remove``, ``event.contains``, a constant)."""
+    parts = path.split(".")
+    if parts[:2] != ["sqlalchemy", "event"]:
+        return None
+    rest = parts[2:]
+    if any(p in _LISTEN_FUNCTIONS or p.startswith("_") for p in rest):
+        return "listen"
+    if not rest or (len(rest) == 1 and rest[0] in _EVENT_SUBMODULES):
+        return "module"
+    return None
+
+
+def _event_name_argument(call: ast.Call) -> ast.expr | None:
+    """The ``identifier`` of ``listen(target, identifier, fn)`` /
+    ``listens_for(target, identifier)``: the second positional argument, or the
+    keyword; ``None`` when a star argument hides which one it is."""
+    leading = call.args[:2]
+    if len(leading) == 2 and not any(isinstance(a, ast.Starred) for a in leading):
+        return leading[1]
+    for keyword in call.keywords:
+        if keyword.arg == "identifier":
+            return keyword.value
+    return None
+
+
+def _event_reference_findings(
+    node: ast.Name | ast.Attribute,
+    bound: dict[str, set[str]],
+    receivers: set[int],
+    aliased: set[int],
+    callees: dict[int, ast.Call],
+) -> list[str]:
+    """A reference to ``sqlalchemy.event``: ``listen`` / ``listens_for`` only as
+    the callee of a call whose event name is a string the check can read, and the
+    module itself only as the receiver of an attribute or the value of a plain
+    assignment (which :func:`_event_bindings` follows)."""
+    kinds = {_event_path_kind(p) for p in _sqlalchemy_paths(node, bound)}
+    name = ast.unparse(node)
+    if "listen" in kinds:
+        call = callees.get(id(node))
+        if call is None:
+            return [
+                f"Line {node.lineno}: `{name}` registers event listeners and is used "
+                "without being called, so its event name cannot be read: call it "
+                "directly with a string literal event name"
+            ]
+        identifier = _event_name_argument(call)
+        event_name = None if identifier is None else _const_str(identifier)
+        if event_name is None:
+            return [
+                f"Line {node.lineno}: `{name}` registers a listener under an event "
+                "name the check cannot read (a variable, a call, a star argument): "
+                "write the event name as a string literal"
+            ]
+        if event_name in _CONNECTION_EVENTS:
+            return [
+                f'Line {node.lineno}: a listener on the "{event_name}" event is '
+                "handed the DBAPI connection, or builds it, outside the framework's "
+                "engine checks"
+            ]
+    elif (
+        "module" in kinds
+        and id(node) not in receivers
+        and id(node) not in aliased
+        and isinstance(node.ctx, ast.Load)
+    ):
+        return [
+            f"Line {node.lineno}: `{name}`, the sqlalchemy event module, is passed "
+            "around or stored: use it only as `event.<name>` or bind it to a plain "
+            "name, so that its listeners can be read"
+        ]
+    return []
+
+
+def _cursor_event_string_findings(node: ast.AST) -> list[str]:
+    """A string that is, whole, the name of a cursor-level event: a listener is
+    registered by that name however the call is spelled (``event.listen``, an
+    aliased import, ``getattr(event, "listen")``, a name bound to the constant)."""
+    if not isinstance(node, ast.Constant | ast.BinOp | ast.JoinedStr):
+        return []
+    text = _const_str(node)
+    if text not in _CURSOR_EVENTS:
+        return []
+    return [
+        f'Line {node.lineno}: the string "{text}" names a cursor-level event: a '
+        "listener on it runs around the cursor tenant check, or is handed the raw "
+        "DBAPI cursor, and skips it"
+    ]
+
+
+def _cursor_attribute_findings(node: ast.Attribute) -> list[str]:
+    """``<engine>.dispatch.before_cursor_execute`` (a listener list reached
+    without ``event``) and an attribute that replaces or calls a dialect's
+    ``do_execute`` family (``dialect.do_execute = fn``, ``setattr`` is a string)."""
+    if node.attr not in _CURSOR_EVENTS:
+        return []
+    mentioned = {n.id for n in ast.walk(node.value) if isinstance(n, ast.Name)} | {
+        n.attr for n in ast.walk(node.value) if isinstance(n, ast.Attribute)
+    }
+    if "dispatch" in mentioned:
+        reason = "is the listener list of a cursor-level event, reached without `event`"
+    elif node.attr in _DIALECT_CURSOR_METHODS and (
+        "dialect" in mentioned or not isinstance(node.ctx, ast.Load)
+    ):
+        reason = "is the dialect method that holds the cursor tenant check"
+    else:
+        return []
+    return [f"Line {node.lineno}: `.{node.attr}` {reason}"]
+
+
+def find_cursor_listeners(file_path: Path) -> list[str]:
+    """A business module registering a listener at the cursor (SANDLOOM-C039).
+
+    The cursor tenant check runs inside the dialect's ``do_execute`` family. A
+    ``before_cursor_execute`` listener with ``retval=True`` rewrites the SQL text
+    or the parameters after it read them, and a dialect listener that returns
+    True makes SQLAlchemy skip the method that holds it; the cursor-level events
+    hand the raw DBAPI cursor to the listener as well. The rule refuses the
+    capability, not one spelling:
+
+    - any string that is, whole, a cursor-level event name (``_CURSOR_EVENTS``):
+      ``event.listen`` / ``@event.listens_for`` on an engine, a connection, the
+      ``Engine`` class or a dialect, ``retval`` or not, under any alias of
+      ``event`` or ``listen`` (``from sqlalchemy.event import listen as l``),
+      through ``getattr``, or a name bound to the constant;
+    - ``listen`` / ``listens_for`` used other than as a direct call, called
+      with an event name that is not a string literal, or called with an event
+      that hands out the DBAPI connection (``_CONNECTION_EVENTS``);
+    - the ``sqlalchemy.event`` module passed around or stored in a field, a
+      star import from it, a constant ``import_module`` of it;
+    - ``<x>.dispatch.before_cursor_execute`` and an attribute that replaces or
+      calls a dialect's ``do_execute`` family.
+
+    A listener on any other event stays allowed. Tests are not scanned.
+    """
+    tree = parse_file(file_path)
+    bound = _event_bindings(tree)
+    receivers: set[int] = set()
+    aliased: set[int] = set()
+    callees: dict[int, ast.Call] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            receivers.add(id(node.value))
+        elif isinstance(node, ast.Call):
+            callees[id(node.func)] = node
+        aliased.update(id(value) for _name, value in _assignment_pairs(node))
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and (node.module or "") in {_EVENT_PACKAGE, f"{_EVENT_PACKAGE}.api"}
+            and any(alias.name == "*" for alias in node.names)
+        ):
+            found.append(
+                f"Line {node.lineno}: star import from {node.module} hides the "
+                "listeners a file registers"
+            )
+        if isinstance(node, ast.Name | ast.Attribute):
+            found.extend(
+                _event_reference_findings(node, bound, receivers, aliased, callees)
+            )
+        if isinstance(node, ast.Attribute):
+            found.extend(_cursor_attribute_findings(node))
+        found.extend(_cursor_event_string_findings(node))
+    for line, module, _call in dynamic_imports(tree):
+        if module == _EVENT_PACKAGE or module.startswith(f"{_EVENT_PACKAGE}."):
+            found.append(
+                f"Line {line}: imports {module} by name, which hides the listeners "
+                "a file registers: import it with `from sqlalchemy import event`"
+            )
+    return list(dict.fromkeys(found))
+
+
 def import_refs(tree: ast.AST, package: Sequence[str]) -> list[tuple[int, str, str]]:
     """``(line, absolute module, source text)`` of every import in ``tree``.
 
@@ -3098,6 +3375,7 @@ __all__ = [
     "find_unsafe_tenant_sql",
     "find_yield_inside_unscoped",
     "find_engine_constructors",
+    "find_cursor_listeners",
     "module_test_import_hits",
     "read_source",
     "endpoint_method",

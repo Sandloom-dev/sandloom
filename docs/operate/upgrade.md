@@ -218,6 +218,26 @@ import moves. C038 reads `public_api` only: the `allowlist`, `framework_packages
 The repository's `public_api_baseline.json` no longer records the six kernel modules: they
 are not public API.
 
+## Upgrading an application: a module registers no listener at the cursor
+
+`sandloom check` has a new rule, `cursor-listener`
+([SANDLOOM-C039](../reference/error-codes.md#sandloom-c039)). It reports a listener that a
+module registers on a cursor-level event: `before_cursor_execute` and `do_execute` are two.
+It reports one on a pool or connect event too: `connect` and `checkout` are two. The rule
+scans every file of the module, migrations included. Such a listener runs around the
+cursor tenant check ([ADR-0018](../adr/0018-tenant-guard-at-the-cursor.md), decision 8).
+It can rewrite the statement the check read. It can also make SQLAlchemy skip the check.
+Nothing changes at runtime, and a module's tests are not scanned.
+
+| Your module | After |
+| --- | --- |
+| Registers a listener on `before_insert`, `load` or `do_orm_execute` | Nothing to do: the rule does not report other events |
+| Counts its queries with a `before_cursor_execute` listener | Register the listener in the module's test instead |
+| Passes the event name in a variable | Write the name as a string literal. The rule cannot read a variable and reports the call |
+
+A listener that has to stay is waived on its line with
+`# sandloom: allow cursor-listener <reason>`. Review it like raw SQL.
+
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 
 Four answers of `TenantScope` have a stable `code`, and two of them new

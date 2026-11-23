@@ -938,6 +938,66 @@ keys are not covered.
 """,
         docs="docs/operate/upgrade.md",
     ),
+    _entry(
+        "SANDLOOM-C039",
+        "cursor-listener",
+        "check",
+        "a business module registers a listener at the cursor or on the pool "
+        "(before_cursor_execute, do_execute, connect, ...), or under an event name "
+        "the check cannot read",
+        "remove the listener: a module never rewrites or runs a statement at the "
+        "cursor, and a database is set up by its driver; a listener on another "
+        "event (`load`, `before_insert`, ...) stays allowed, written with a "
+        "string literal event name",
+        """
+The tenant check at the cursor runs inside the dialect's do_execute,
+do_executemany and do_execute_no_params, after every before_cursor_execute
+listener. A listener at the cursor gets around it in module code: a
+before_cursor_execute listener registered with retval=True hands the driver
+another SQL text or other parameters than the ones the check read, and a dialect
+listener (do_execute, do_executemany, do_execute_no_params) that runs the cursor
+itself and returns True makes SQLAlchemy skip the dialect method, so the tenant
+check, write admission, the owner check and the tenant_rls setting sync never
+run for that statement. after_cursor_execute and do_setinputsizes hand the
+listener the raw DBAPI cursor, and a pool or connect listener (connect,
+checkout, do_connect, ...) the raw DBAPI connection or its parameters; either
+runs a statement the check never reads. Row-level security still filters, by the
+setting an earlier statement of the transaction made. The reach is that of
+Connection.exec_driver_sql and .raw_connection(), which SANDLOOM-C015,
+SANDLOOM-C031 and SANDLOOM-C037 refuse in a module; ADR-0018 decision 8 has the
+seam this rule closes for module code.
+
+sandloom check refuses, in any file of a business module (migrations included;
+tests are not scanned), the capability and not one spelling:
+
+- a string that is, whole, the name of a cursor-level event
+  (before_cursor_execute, after_cursor_execute, do_execute, do_executemany,
+  do_execute_no_params, do_setinputsizes): `event.listen(engine,
+  "before_cursor_execute", fn)` and `@event.listens_for(...)` on an engine, a
+  connection, the Engine class or a dialect, with retval or not, under an
+  aliased import of event or of listen (`from sqlalchemy.event import listen
+  as l`), through `getattr(event, "listen")`, or a name bound to the constant;
+- `listen` / `listens_for` called with a pool or connect event (connect,
+  first_connect, checkout, checkin, close, close_detached, detach, reset,
+  invalidate, soft_invalidate, do_connect);
+- `listen` / `listens_for` used other than as a direct call, or called with an
+  event name that is not a string literal (a variable, a call, a star
+  argument): an unreadable name could be any event, so it is refused;
+- the sqlalchemy event module passed to a function or stored in a field, a star
+  import from `sqlalchemy.event`, and a constant `import_module` of it;
+- `<x>.dispatch.before_cursor_execute`, and an attribute that replaces or calls
+  a dialect's do_execute family (`dialect.do_execute = fn`).
+
+A listener on another event (the ORM and mapper events, `before_insert`,
+`load`, `after_flush`) written with a literal event name stays allowed. A
+deliberate exception is waived on its line with `# sandloom: allow
+cursor-listener <reason>`. Not seen: the event module re-exported through
+another file of the module and called there with a name built at run time, a
+name made by `str.join` or `getattr` on a computed string, and a listener
+attached outside module code (a driver, a test).
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
     # ------------------------------------------------------------- boot time
     _entry(
         "SANDLOOM-B001",
