@@ -430,7 +430,7 @@ sandloom check            # module isolation rules against architecture_rules.ym
 
 `sandloom check` runs the framework's own architecture analyzers over
 `$app/modules/*`: no sibling-module imports, only the framework public API
-(`sandloom.core.*`, `sandloom.shared.*`),
+(`sandloom.sdk`, `sandloom.shared.*`; never `sandloom.core.*`),
 no ORM in endpoints, endpoints only in `api/`, no `db.commit()`, no raw
 backend SDKs. CI (`.github/workflows/ci.yml`) and the pre-commit hook run it.
 
@@ -764,8 +764,7 @@ modules_package: $app.modules
 source_root: .
 
 # The framework's ENFORCED public API for business modules: sandloom.sdk (Public
-# API 1.0), and the sandloom.core modules it supersedes until the 1.0 migration
-# completes.
+# API 1.0). Never list a sandloom.core module: `sandloom check` refuses one.
 public_api:
   - sandloom.sdk
   - sandloom.sdk.app
@@ -781,16 +780,12 @@ public_api:
   - sandloom.sdk.projections
   - sandloom.sdk.sagas
   - sandloom.sdk.security
+  - sandloom.sdk.tasks
   - sandloom.sdk.tenant
   - sandloom.sdk.testing
+  - sandloom.sdk.testing.fixtures
   - sandloom.sdk.tooling
   - sandloom.sdk.web
-  - sandloom.core.di
-  - sandloom.core.facade
-  - sandloom.core.module_api
-  - sandloom.core.descriptors
-  - sandloom.core.orm
-  - sandloom.core.projections
 # Further framework packages a module may import.
 shared_api:
   - sandloom.shared

@@ -477,8 +477,9 @@ def test_generated_manifest_is_enforced_by_sandloom_check(tmp_path: Path) -> Non
     rules = load_rules(root / "architecture_rules.yml")
     assert rules.modules_package == "probe.modules"
     assert rules.business_modules() == ["gadgets"]
-    # module_api / projections are part of the enforced public API.
-    assert {"sandloom.core.module_api", "sandloom.core.projections"} <= rules.public_api
+    # The enforced public API is sandloom.sdk: the kernel is not on it.
+    assert {"sandloom.sdk", "sandloom.sdk.projections"} <= rules.public_api
+    assert not [e for e in rules.public_api if e.startswith("sandloom.core")]
     assert run_checks(rules) == [], "a fresh project must pass sandloom check"
 
     from sandloom.core.cli import add

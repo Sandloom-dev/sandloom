@@ -9,18 +9,56 @@ from types import SimpleNamespace
 import pytest
 
 from sandloom.core import error_codes
+from sandloom.core.archcheck import load_rules
+from sandloom.core.archcheck.manifest import (
+    CORE_IN_PUBLIC_API_CODE,
+    MANIFEST_REFUSAL_CODES,
+    ManifestError,
+)
 from sandloom.core.archcheck.runner import RULES, Violation
 from sandloom.core.cli import check as check_cli
 from sandloom.core.cli import explain
 
+#: A manifest text that makes ``load_rules`` raise each manifest refusal code.
+_MANIFEST_REFUSAL_TRIGGERS: dict[str, str] = {
+    CORE_IN_PUBLIC_API_CODE: "public_api:\n  - sandloom.sdk\n  - sandloom.core.testing\n",
+}
+
 
 def test_every_check_rule_has_a_catalogue_entry() -> None:
+    """The check-kind entries are the archcheck rules plus the manifest refusals."""
     check_slugs = {
         e.slug
         for e in error_codes.CATALOGUE
         if e.kind == "check" and not e.retired and not e.planned
     }
-    assert set(RULES) == check_slugs
+    refusal_slugs = {error_codes.get(c).slug for c in MANIFEST_REFUSAL_CODES}
+    assert not refusal_slugs & set(RULES)
+    assert set(RULES) | refusal_slugs == check_slugs
+
+
+def test_every_manifest_refusal_has_a_trigger() -> None:
+    """A new manifest refusal code needs its trigger here, so it is proven raised."""
+    assert set(_MANIFEST_REFUSAL_TRIGGERS) == set(MANIFEST_REFUSAL_CODES)
+
+
+@pytest.mark.parametrize("code", MANIFEST_REFUSAL_CODES)
+def test_a_manifest_refusal_is_raised_by_load_rules(code: str, tmp_path: Path) -> None:
+    """Each listed code really comes out of the manifest loader."""
+    (tmp_path / "m").mkdir()
+    manifest = tmp_path / "architecture_rules.yml"
+    manifest.write_text("modules_path: m\n" + _MANIFEST_REFUSAL_TRIGGERS[code])
+    with pytest.raises(ManifestError) as raised:
+        load_rules(manifest)
+    assert code in str(raised.value)
+    assert explain.main([code]) == 0
+
+
+def test_a_clean_manifest_raises_no_manifest_refusal(tmp_path: Path) -> None:
+    (tmp_path / "m").mkdir()
+    manifest = tmp_path / "architecture_rules.yml"
+    manifest.write_text("modules_path: m\npublic_api:\n  - sandloom.sdk\n")
+    load_rules(manifest)
 
 
 _SPEC = (

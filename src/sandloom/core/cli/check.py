@@ -5,8 +5,8 @@ the framework's own lives in ``backend/``) and runs every analyzer of
 :mod:`sandloom.core.archcheck` over its business modules:
 
     module-boundaries      no sibling-module imports (any spelling)
-    framework-imports      only the public API (sandloom.core.{di,facade,module_api,
-                           descriptors,orm,projections}) + sandloom.shared.*
+    framework-imports      only the public API (the sandloom.sdk modules, never
+                           sandloom.core) + sandloom.shared.*
     raw-provider           no raw_client()/raw_backend()/raw() escape hatches
     unsafe-tenant-sql      raw SQL/Core tables need explicit unscoped() admission
     tenant-scoped-models   a model / Table with a tenant-like column

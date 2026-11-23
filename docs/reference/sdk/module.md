@@ -498,7 +498,7 @@ The handler signature is `async (session, envelope) -> None`.
 `dead_letter=False` retries a failing delivery FOREVER (capped
 backoff) instead of dead-lettering it after the delivery budget — for
 effects that must never be silently parked; the handler raises
-`PoisonEventError` (`sandloom.core.di`) for an event that can never
+`PoisonEventError` (`sandloom.sdk.events`) for an event that can never
 apply, which is dead-lettered at once with a CRITICAL log.
 
 #### `ModuleAPI.register_saga`
@@ -507,7 +507,7 @@ apply, which is dead-lettered at once with a CRITICAL log.
 def register_saga(self, definition: Any) -> None
 ```
 
-Register a saga this module owns (`sandloom.core.module_api.Saga`).
+Register a saga this module owns (`sandloom.sdk.sagas.Saga`).
 
 Binds it to the module (`saga_type = "<module>.<name>"`) and adds a
 `ContractRequirement(name, methods=...)` for every contract its

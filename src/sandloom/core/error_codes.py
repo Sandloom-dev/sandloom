@@ -915,6 +915,29 @@ time from a non-constant.
 """,
         docs="docs/modules/database/multi-tenancy.md",
     ),
+    _entry(
+        "SANDLOOM-C038",
+        "core-in-public-api",
+        "check",
+        "architecture_rules.yml public_api lists an entry that covers the kernel "
+        "(sandloom, sandloom.core, sandloom.core.*)",
+        "delete every entry that covers the kernel from public_api (a module "
+        "imports sandloom.sdk only); see docs/operate/upgrade.md",
+        """
+`public_api` in architecture_rules.yml names the framework modules a business
+module may import, and it holds `sandloom.sdk` modules only. An entry that
+covers the kernel is refused: any `sandloom.core.*` module (a glob too),
+`sandloom.core` itself, or `sandloom` (the import check matches an entry by
+prefix, so each would let a module import the kernel). Every command that reads
+the manifest stops with this code: `sandloom check` before it scans any module
+(exit code 2), and `generate`, `test`, `add` and `add deploy`. The message names
+the entries to delete. A module's tests keep `sandloom.core.testing` and
+`sandloom.core.contract_testing` through `test_api`. The check reads
+`public_api` only: the `allowlist`, `framework_packages` and `kernel_package`
+keys are not covered.
+""",
+        docs="docs/operate/upgrade.md",
+    ),
     # ------------------------------------------------------------- boot time
     _entry(
         "SANDLOOM-B001",

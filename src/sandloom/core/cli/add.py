@@ -57,7 +57,11 @@ import sandloom.core.cli.stack_files as _stack_files
 import sandloom.core.cli.stack_service as _stack
 import sandloom.core.cli.tool_process as _tool_process
 from sandloom.core.archcheck import api10_rules
-from sandloom.core.archcheck.manifest import ManifestError, load_rules
+from sandloom.core.archcheck.manifest import (
+    CORE_IN_PUBLIC_API_CODE,
+    ManifestError,
+    load_rules,
+)
 from sandloom.core.cli.scaffold_wiring import (
     FRAMEWORK_TREE_CONFTEST,
     contract_inherited,
@@ -136,6 +140,10 @@ def layout(root: Path, *, tenant_scoped: bool = True) -> Layout:
     try:
         rules = load_rules(root / "architecture_rules.yml")
     except ManifestError as exc:
+        if CORE_IN_PUBLIC_API_CODE in str(exc):
+            # The manifest was found and read: the project root is right, the
+            # message already says which entries to delete.
+            raise GeneratorError(str(exc)) from exc
         raise GeneratorError(
             f"{exc}; run `sandloom add` from the project root (where "
             "architecture_rules.yml is)"

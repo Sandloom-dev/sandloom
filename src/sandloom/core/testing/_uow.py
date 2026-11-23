@@ -213,8 +213,9 @@ def capture_effects(monkeypatch: Any, *modules: ModuleType) -> Captured:
     calls made from ``modules``.
 
     Patches the two names in each module (where the service imported them
-    from ``sandloom.core.di``), so the calls never reach a UoW: events are recorded
-    as ``(channel, payload)`` and audits as ``(action, kwargs)`` — the exact
+    from ``sandloom.sdk.events`` / ``sandloom.sdk.effects``), so the calls never
+    reach a UoW: events are recorded as ``(channel, payload)`` and audits as
+    ``(action, kwargs)`` — the exact
     keyword arguments, so ``kwargs["required"]`` can be asserted. Use it when
     the service runs on a session that is not bound as the UoW (committed
     sessions of a race test, a direct service call).

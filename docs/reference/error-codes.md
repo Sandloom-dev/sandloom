@@ -64,6 +64,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C035`](#sandloom-c035) | `task-enqueue-ownership` | check | a module enqueues a task by name that is not a string literal naming one of its own tasks | active |
 | [`SANDLOOM-C036`](#sandloom-c036) | `yield-inside-unscoped` | check | a module uses `unscoped` other than as the context expression of a `with` block, or yields inside that block, letting the tenant bypass outlive it | active |
 | [`SANDLOOM-C037`](#sandloom-c037) | `engine-in-module` | check | a business module reaches a database around the framework's engine (builds an engine or a pool, or opens a raw driver connection) | active |
+| [`SANDLOOM-C038`](#sandloom-c038) | `core-in-public-api` | check | architecture_rules.yml public_api lists an entry that covers the kernel (sandloom, sandloom.core, sandloom.core.*) | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -889,6 +890,30 @@ time from a non-constant.
 **Fix:** use the module's session (`get_db`, the unit of work); a database is declared in INFRA and built by a driver, never built, wrapped or opened with sqlalchemy engine / pool code or a DBAPI driver in module code
 
 **More:** `docs/modules/database/multi-tenancy.md`
+
+### SANDLOOM-C038
+
+**architecture_rules.yml public_api lists an entry that covers the kernel (sandloom, sandloom.core, sandloom.core.*)**
+
+Slug: `core-in-public-api` · kind: check · status: active
+
+**What happened and why it matters**
+
+`public_api` in architecture_rules.yml names the framework modules a business
+module may import, and it holds `sandloom.sdk` modules only. An entry that
+covers the kernel is refused: any `sandloom.core.*` module (a glob too),
+`sandloom.core` itself, or `sandloom` (the import check matches an entry by
+prefix, so each would let a module import the kernel). Every command that reads
+the manifest stops with this code: `sandloom check` before it scans any module
+(exit code 2), and `generate`, `test`, `add` and `add deploy`. The message names
+the entries to delete. A module's tests keep `sandloom.core.testing` and
+`sandloom.core.contract_testing` through `test_api`. The check reads
+`public_api` only: the `allowlist`, `framework_packages` and `kernel_package`
+keys are not covered.
+
+**Fix:** delete every entry that covers the kernel from public_api (a module imports sandloom.sdk only); see docs/operate/upgrade.md
+
+**More:** `docs/operate/upgrade.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 

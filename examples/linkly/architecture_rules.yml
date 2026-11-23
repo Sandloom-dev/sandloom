@@ -36,9 +36,6 @@ public_api:
   - sandloom.sdk.testing.fixtures
   - sandloom.sdk.tooling
   - sandloom.sdk.web
-  # Kernel modules still imported where the sandloom.sdk name is a stub until
-  # its Public API 1.0 hand-off (each import line says what it flips to).
-  - sandloom.core.di
 # Further framework packages a module may import.
 shared_api:
   - sandloom.shared

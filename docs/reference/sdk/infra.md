@@ -475,8 +475,8 @@ facade: it can resolve contracts and capabilities, read settings, log,
 trace, count, and collect token claims — but it cannot reach the event bus
 (publish through `publish_event`), the infrastructure registry, the raw
 FastAPI app, the service registry, or any `register_*` mutator.
-Registration happens only through the
-`sandloom.core.module_api.ModuleAPI` handed to `register(core)`.
+Registration happens only through the `ModuleAPI` of
+`sandloom.sdk.module` handed to `register(core)`.
 
 This is an API-discipline boundary for trusted application code, not an
 immutable object graph or a sandbox. Shared Settings must be treated as

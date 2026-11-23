@@ -33,8 +33,9 @@ ROOT = Path(__file__).resolve().parents[2]
 RULES_PATH = ROOT / "architecture_rules.yml"
 BASELINE_PATH = ROOT / "public_api_baseline.json"
 
-# Extra public packages beyond core's public_api: those a business module may
-# import, and sandloom.driverkit, which is for driver packages.
+# Extra public packages beyond the manifest's public_api (the sandloom.sdk
+# modules): sandloom.shared and the test surfaces a module may import, and
+# sandloom.driverkit, which is for driver packages.
 EXTRA_MODULES = (
     "sandloom.driverkit",
     "sandloom.driverkit.atomic_store",

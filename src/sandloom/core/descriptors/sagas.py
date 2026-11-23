@@ -21,8 +21,8 @@ They must be pure: the durable command log's argument digest turns a
 non-deterministic one into ``409`` and the instance parks
 (``nondeterministic_args``).
 
-This module is part of the stable public API (``sandloom.core.descriptors``,
-re-exported by ``sandloom.core.module_api``).
+Kernel-internal: a module imports these names from ``sandloom.sdk.sagas``,
+never from ``sandloom.core.descriptors`` or ``sandloom.core.module_api``.
 """
 
 from __future__ import annotations

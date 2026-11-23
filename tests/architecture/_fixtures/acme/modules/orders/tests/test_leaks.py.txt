@@ -16,7 +16,7 @@ from ...billing_lite import services  # VIOLATION: sibling, relative spelling
 
 # Allowed: harness, public API, shared API, own package (absolute + relative).
 from sandloom.core.contract_testing import assert_contract_conformance
-from sandloom.core.di import bind_tenant
+from sandloom.sdk.tenant import bind_tenant
 from sandloom.core.testing import make_user_headers
 from sandloom.shared.contracts.tenancy_dto import MemberState
 from acme.modules.orders.models import Order

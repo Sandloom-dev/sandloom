@@ -7,7 +7,9 @@ capability resolution, projections) while hiding concrete infrastructure choices
 behind capability contracts. Modules depend on this surface, never on core
 internals.
 
-This is part of the stable public API (``sandloom.core.facade``).
+Kernel-internal: a module reaches ``CoreFacade`` through ``sandloom.sdk.infra``
+(and receives the instance as ``register(core)``), never from
+``sandloom.core.facade``.
 """
 
 from __future__ import annotations

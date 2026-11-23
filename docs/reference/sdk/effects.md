@@ -86,7 +86,8 @@ iff the audited change commits (correct for auditing SUCCESSFUL actions).
 To audit a FAILED attempt that must survive a rollback, write it in a
 separate transaction opened after the request.
 
-Modules call this by importing from `sandloom.core.di` — no ORM import needed.
+Modules import it from `sandloom.sdk.effects` (also `sandloom.sdk`) —
+no ORM import needed; the kernel's own import path is not public API.
 
 Like `publish_event`, when an endpoint holds more than one database
 session at once pass `database=` to choose which database's `audit_log`
