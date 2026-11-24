@@ -13,6 +13,15 @@ from pathlib import Path
 
 import pytest
 
+# The page lists the settings of the bundled modules (the admin console among
+# them), so its generator imports every battery. The kernel-without-batteries
+# lane hides them: the file skips there and runs on every lane that installs
+# them (backend-tests, the docs job's reference check).
+pytest.importorskip(
+    "sandloom_admin",
+    reason="the configuration reference lists the bundled modules' settings",
+)
+
 REPO = Path(__file__).resolve().parents[2]
 PAGE = "reference/configuration.md"
 
