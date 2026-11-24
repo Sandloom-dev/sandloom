@@ -211,12 +211,13 @@ async def saga_status(
     loader it only calls: a row in another database, or one another process
     writes, is not ordered against the instance by this call.
     """
-    if with_row is not None and not callable(with_row):
-        if inspect.iscoroutine(with_row):
-            with_row.close()  # never awaited: it is the loader's result, not a loader
+    given: object = with_row  # the annotation is a promise; the call site is not
+    if given is not None and not callable(given):
+        if inspect.iscoroutine(given):
+            given.close()  # never awaited: it is the loader's result, not a loader
         raise TypeError(
             "saga_status(with_row=...) takes a loader, a callable that returns "
-            f"the awaitable row, not {type(with_row).__name__}: write "
+            f"the awaitable row, not {type(given).__name__}: write "
             "with_row=lambda: Rows.get_or_404(id), not with_row=Rows.get_or_404(id)"
         )
     handle = await runtime_of().status(definition, saga_id)
