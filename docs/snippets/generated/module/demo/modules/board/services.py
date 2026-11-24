@@ -12,16 +12,16 @@ from .schemas import ItemIn, ItemOut
 
 
 async def create_item(body: ItemIn, *, owner_id: UUID) -> ItemOut:
-    item = BoardItem(title=body.title, owner_id=owner_id)
-    db().add(item)
+    row = BoardItem(title=body.title, owner_id=owner_id)
+    db().add(row)
     await db().flush()
-    await ItemCreated(item_id=item.id, tenant_id=item.tenant_id).publish()
-    return ItemOut.model_validate(item)
+    await ItemCreated(item_id=row.id, tenant_id=row.tenant_id).publish()
+    return ItemOut.model_validate(row)
 
 
 async def get_item(item_id: UUID) -> ItemOut | None:
-    item = await db().get(BoardItem, item_id)
-    return None if item is None else ItemOut.model_validate(item)
+    row = await db().get(BoardItem, item_id)
+    return None if row is None else ItemOut.model_validate(row)
 
 
 async def list_items(*, limit: int) -> list[ItemOut]:

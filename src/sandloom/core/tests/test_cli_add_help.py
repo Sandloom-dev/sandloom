@@ -103,6 +103,21 @@ def test_no_tenant_is_a_flag_of_module_and_event_with_its_own_help(
         assert "--no-tenant" not in text
 
 
+def test_entity_empty_and_settings_are_flags_of_module_only() -> None:
+    choices = _subparsers(add._parser()).choices
+    text = " ".join(choices["module"].format_help().split())
+    for flag in ("--entity NAME", "--empty", "--settings"):
+        assert flag in text
+    assert "default: item" in text and "no example entity" in text
+    for other in set(choices) - {"module"}:
+        other_text = choices[other].format_help()
+        assert "--entity" not in other_text and "--empty" not in other_text, other
+    parsed = add._parser().parse_args(["module", "shop", "--entity", "order"])
+    assert (parsed.entity, parsed.empty, parsed.settings) == ("order", False, False)
+    parsed = add._parser().parse_args(["module", "shop", "--empty", "--settings"])
+    assert (parsed.entity, parsed.empty, parsed.settings) == (None, True, True)
+
+
 def test_the_event_help_states_the_tenant_default_and_the_flag_that_drops_it() -> None:
     text = " ".join(_subparsers(add._parser()).choices["event"].format_help().split())
     assert "also gets tenant_id: UUID, unless --no-tenant" in text

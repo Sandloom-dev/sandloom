@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import sandloom.core.cli.dev.errors as _dev_errors
+import sandloom.core.cli.migrate_checks as _migrate_checks
 import sandloom.core.cli.migrate_drift as _migrate_drift
 import sandloom.core.cli.migrate_rls as _migrate_rls
 import sandloom.core.testing.migrations as _chain_checks
@@ -49,9 +50,7 @@ from sandloom.core.eventing.bus_base import durable_transport
 from sandloom.core.facade import CoreFacade  # facade used only for module descriptors
 from sandloom.core.infra.ports.eventbus import EventTransport
 from sandloom.core.migrations.migrations import (
-    _mask_url as _mask,
-)
-from sandloom.core.migrations.migrations import (
+    NoSchemaChangesError,
     build_plan,
     check_chain_collisions,
     ensure_core_infra_tables,
@@ -64,6 +63,9 @@ from sandloom.core.migrations.migrations import (
     run_core_upgrade,
     upgrade_all_modules,
     upgrade_module,
+)
+from sandloom.core.migrations.migrations import (
+    _mask_url as _mask,
 )
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.observability import log_level as _log_level
@@ -308,7 +310,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rev.add_argument(
         "--autogenerate",
         action="store_true",
-        help="Diff the module's models against its database (must be at head)",
+        help="Diff the module's models against its database (must be at head); "
+        "refuses with 'no changes detected' when there is nothing to write",
     )
     p_rev.add_argument(
         "--database",
@@ -321,10 +324,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "new",
         help=(
             "Autogenerate a revision in ONE module's chain and add row-level "
-            "security for each new TenantScoped table. Compares "
+            "security for each new TenantScoped table. Refuses with 'no changes "
+            "detected' when the models match the chain. Compares "
             "against a scratch database with every chain at head (any state of "
             "your databases works; --against-database compares against the "
-            "module's configured database, which must be at its head)"
+            "module's configured database, which must be at its head). The "
+            "revision is numbered after the chain's last one (0002_<module>)"
         ),
     )
     p_new.add_argument("name", help="Module name (e.g. billing or myapp.modules.x)")
@@ -665,15 +670,30 @@ def _cmd_revision(
             file=sys.stderr,
         )
         return 1
-    for created in revision_module(
-        target,
-        args.message,
-        autogenerate=args.autogenerate,
-        database=args.database,
-        rev_id=args.rev_id,
-    ):
+    try:
+        created_files = revision_module(
+            target,
+            args.message,
+            autogenerate=args.autogenerate,
+            database=args.database,
+            rev_id=_revision_id(target, args.rev_id),
+        )
+    except NoSchemaChangesError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    for created in created_files:
         print(f"Created {created}")
     return 0
+
+
+def _revision_id(target: ModuleDescriptor, explicit: str | None) -> str | None:
+    """``--rev-id`` as given, else the next number of the module's chain
+    (``0002_<module>``, the file ``0002_<module>_<slug>.py``): the names of
+    the baseline and of every chain the framework ships, not a random hash."""
+    if explicit is not None or not target.migrations_path:
+        return explicit
+    versions = Path(target.migrations_path) / "versions"
+    return _migrate_checks.next_revision(versions, target.migration_chain_key())
 
 
 def _cmd_new(
@@ -689,32 +709,41 @@ def _cmd_new(
         )
         return 1
     tables = _migrate_rls.tenant_tables(target.name)
-    if args.against_database or _migrate_drift.drift_supported() is not None:
-        created_files = revision_module(
-            target,
-            args.message,
-            autogenerate=True,
-            database=args.database,
-            rev_id=args.rev_id,
-        )
-    else:
-        # A scratch database on the default server with every chain at head:
-        # the comparison sees exactly the chain, whatever state (or absence)
-        # the configured databases are in.
-        with _migrate_drift.chains_at_head(descriptors) as url:
+    rev_id = _revision_id(target, args.rev_id)
+    try:
+        if args.against_database or _migrate_drift.drift_supported() is not None:
             created_files = revision_module(
                 target,
                 args.message,
                 autogenerate=True,
                 database=args.database,
-                rev_id=args.rev_id,
-                url=url,
+                rev_id=rev_id,
             )
+        else:
+            # A scratch database on the default server with every chain at head:
+            # the comparison sees exactly the chain, whatever state (or absence)
+            # the configured databases are in.
+            with _migrate_drift.chains_at_head(descriptors) as url:
+                created_files = revision_module(
+                    target,
+                    args.message,
+                    autogenerate=True,
+                    database=args.database,
+                    rev_id=rev_id,
+                    url=url,
+                )
+    except NoSchemaChangesError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     for created in created_files:
         covered = _migrate_rls.add_tenant_rls(Path(created), tables)
         print(f"Created {created}")
         for table in covered:
             print(f"  row-level security: {table}")
+        for column in _migrate_checks.not_null_without_default(Path(created)):
+            print(
+                f"warning: {_migrate_checks.not_null_warning(column)}", file=sys.stderr
+            )
     return 0
 
 

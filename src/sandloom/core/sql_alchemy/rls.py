@@ -65,6 +65,11 @@ from sandloom.core.sql_alchemy.portable import (
 #: Default name of the dedicated system-channel login role.
 DEFAULT_SYSTEM_ROLE = "sandloom_system"
 
+#: The Alembic ``config.attributes`` key the chain runner sets: ``True`` when
+#: the database a migration runs on has ``tenant_rls`` in its INFRA instance
+#: (``alembic_support.run_migrations`` writes it; ``if_configured=True`` reads it).
+TENANT_RLS_SWITCH = "sandloom_tenant_rls"
+
 
 class _Executes(Protocol):
     def execute(self, sql: Any, /) -> Any: ...
@@ -123,6 +128,13 @@ def _op_dialect(op: _Executes) -> Any:
     return op.get_context().dialect
 
 
+def _runner_enforces(op: _Executes) -> bool:
+    """Whether the chain runner switched tenant row security on for the database
+    this migration runs on (the INFRA instance's ``tenant_rls``)."""
+    config = op.get_context().config
+    return config is not None and bool(config.attributes.get(TENANT_RLS_SWITCH, False))
+
+
 def enable_tenant_rls(
     op: _Executes,
     table: str,
@@ -131,6 +143,7 @@ def enable_tenant_rls(
     schema: str | None = None,
     system_access: bool = False,
     system_role: str = DEFAULT_SYSTEM_ROLE,
+    if_configured: bool = False,
 ) -> None:
     """Enable + FORCE the database's row security with the Sandloom tenant
     policy on ``table``.
@@ -141,7 +154,13 @@ def enable_tenant_rls(
     ``system_access=True`` lets the system-channel role (``system_role``,
     default ``sandloom_system``; it must already exist) read and write every
     tenant's rows of THIS table. Re-running is safe (policies are replaced).
+    ``if_configured=True`` acts only on a database whose INFRA instance sets
+    ``tenant_rls`` (the runner tells the migration), so one revision runs on a
+    database with row security and on one without (what ``sandloom migrate new``
+    writes); the default always acts and refuses a database without it.
     """
+    if if_configured and not _runner_enforces(op):
+        return
     for sql in enable_tenant_rls_statements(
         table,
         dialect=_op_dialect(op),
@@ -153,10 +172,19 @@ def enable_tenant_rls(
         op.execute(sql)
 
 
-def disable_tenant_rls(op: _Executes, table: str, *, schema: str | None = None) -> None:
+def disable_tenant_rls(
+    op: _Executes,
+    table: str,
+    *,
+    schema: str | None = None,
+    if_configured: bool = False,
+) -> None:
     """Drop the Sandloom tenant policies and disable row security on
-    ``table`` (for downgrade).
+    ``table`` (for downgrade). ``if_configured=True``: only on a database whose
+    INFRA instance sets ``tenant_rls`` (see :func:`enable_tenant_rls`).
     """
+    if if_configured and not _runner_enforces(op):
+        return
     for sql in disable_tenant_rls_statements(
         table, dialect=_op_dialect(op), schema=schema
     ):
@@ -165,6 +193,7 @@ def disable_tenant_rls(op: _Executes, table: str, *, schema: str | None = None) 
 
 __all__ = [
     "DEFAULT_SYSTEM_ROLE",
+    "TENANT_RLS_SWITCH",
     "TENANT_SETTING",
     "disable_tenant_rls",
     "disable_tenant_rls_statements",

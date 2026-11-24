@@ -37,6 +37,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import pkgutil
 import re
 from collections.abc import Callable, Iterable, Sequence
 from logging.config import fileConfig
@@ -44,6 +45,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from alembic import context
+from alembic.config import Config
+from alembic.operations.ops import MigrationScript
+from alembic.runtime.migration import MigrationContext
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Connection, Dialect, make_url
 from sqlalchemy.exc import DBAPIError
@@ -58,6 +62,14 @@ from sandloom.core.sql_alchemy.portable import (
     LockStatement,
     optional_lock_statement_for,
 )
+from sandloom.core.sql_alchemy.rls import TENANT_RLS_SWITCH
+
+#: ``config.attributes`` key: ``revision_module(autogenerate=True)`` sets it so
+#: an autogenerate that finds no difference writes no revision.
+REFUSE_EMPTY_AUTOGENERATE = "sandloom_refuse_empty_autogenerate"
+#: ``config.attributes`` key this runner sets when it dropped such an empty
+#: revision, for ``revision_module`` to refuse with a message.
+EMPTY_AUTOGENERATE = "sandloom_empty_autogenerate"
 
 #: Sync DSN injected by ``sandloom-migrate`` to target a named database instance.
 MIGRATE_URL_ENV = "SANDLOOM_MIGRATE_DATABASE_URL"
@@ -90,6 +102,43 @@ def _resolve_sync_url(configured: str | None) -> str:
     return to_sync_url(settings.database_url)
 
 
+def _import_models(name: str) -> None:
+    """Import ``name`` and, when it is a package, every module below it: a
+    ``models/<x>.py`` registers its tables whether or not ``models/__init__.py``
+    imports it (``define_module`` walks the package the same way), so a new
+    model file joins the chain without an import loop in ``__init__``."""
+    module = importlib.import_module(name)
+    spec = module.__spec__
+    locations = spec.submodule_search_locations if spec is not None else None
+    if locations is None:
+        return
+    for info in sorted(
+        pkgutil.walk_packages(locations, prefix=f"{name}."), key=lambda i: i.name
+    ):
+        importlib.import_module(info.name)
+
+
+def _drop_empty_autogenerate(
+    config: Config,
+) -> Callable[[MigrationContext, object, list[MigrationScript]], None]:
+    """The ``process_revision_directives`` hook of every chain: with
+    ``REFUSE_EMPTY_AUTOGENERATE`` set, an autogenerate that found no change
+    emits no revision (and sets ``EMPTY_AUTOGENERATE``). A plain
+    ``alembic revision`` (an empty template by intent) is left alone."""
+
+    def hook(
+        _context: MigrationContext, _revision: object, directives: list[MigrationScript]
+    ) -> None:
+        if not config.attributes.get(REFUSE_EMPTY_AUTOGENERATE, False):
+            return
+        script = directives[0]
+        if script.upgrade_ops is not None and script.upgrade_ops.is_empty():
+            directives[:] = []
+            config.attributes[EMPTY_AUTOGENERATE] = True
+
+    return hook
+
+
 def run_migrations(
     table_names: Iterable[str] = (),
     model_modules: Sequence[str] = (),
@@ -116,7 +165,7 @@ def run_migrations(
     no-op (the migration ops run as written).
     """
     for mod in model_modules:
-        importlib.import_module(mod)
+        _import_models(mod)
 
     owned = frozenset(table_names)
     config = context.config
@@ -143,7 +192,7 @@ def run_migrations(
     url = _resolve_sync_url(config.get_main_option("sqlalchemy.url"))
     # Keep generated table policies consistent with the runtime tenant hook.
     # Match the effective URL, including named databases and CLI URL overrides.
-    config.attributes["sandloom_tenant_rls"] = any(
+    config.attributes[TENANT_RLS_SWITCH] = any(
         instance.options.get("tenant_rls") is True
         and to_sync_url(str(instance.options.get("url") or settings.database_url))
         == url
@@ -161,6 +210,7 @@ def run_migrations(
             dialect_opts={"paramstyle": "named"},
             include_object=include_object,
             version_table=version_table,
+            process_revision_directives=_drop_empty_autogenerate(config),
         )
         with context.begin_transaction():
             context.run_migrations()
@@ -181,6 +231,7 @@ def run_migrations(
                 target_metadata=target_metadata,
                 include_object=include_object,
                 version_table=version_table,
+                process_revision_directives=_drop_empty_autogenerate(config),
                 **COMPARE_OPTIONS,
             )
             with context.begin_transaction():

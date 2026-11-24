@@ -557,10 +557,12 @@ def _git_blob(data: bytes) -> str:
 
 def framework_content_mismatches(app: Path, dist: Dist, repo: Path) -> list[str]:
     """Installed ``sandloom/`` and ``sandloom_<module>/`` files whose bytes are
-    not the file at ``dist.sha`` (``src/<package>/...``; the packaged core chain
-    is ``migrations/core``)."""
+    not the file at ``dist.sha`` (``src/<package>/...``, or
+    ``packages/sandloom-<x>/src/sandloom_<x>/...`` for a driver or stack package;
+    the packaged core chain is ``migrations/core``)."""
     listing = sh(
-        ["git", "ls-tree", "-r", dist.sha, "--", "src", "migrations/core"], repo
+        ["git", "ls-tree", "-r", dist.sha, "--", "src", "packages", "migrations/core"],
+        repo,
     ).stdout
     blobs = {
         path: line.split()[2]
@@ -583,6 +585,9 @@ def framework_content_mismatches(app: Path, dist: Dist, repo: Path) -> list[str]
                 if rel.startswith(core_chain)
                 else f"src/{rel}"
             )
+            if source not in blobs and rel.startswith("sandloom_"):
+                package = rel.split("/", 1)[0].replace("_", "-")
+                source = f"packages/{package}/src/{rel}"
             path = site / rel
             checked += 1
             if not path.is_file() or blobs.get(source) != _git_blob(path.read_bytes()):

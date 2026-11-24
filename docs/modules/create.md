@@ -52,13 +52,11 @@ conventional submodules (`models`, `api`, `events`, `consumers`,
 --8<-- "docs/snippets/generated/module/demo/modules/board/__init__.py"
 ```
 
-In `settings.py`, `BOARD_DEFAULT_PAGE_SIZE` supplies the list limit when a
-request omits `limit`. Its default is 20. The setting and explicit `limit` values
-accept 1 through 100.
-
-```python
---8<-- "docs/snippets/generated/module/demo/modules/board/settings.py"
-```
+The module has no `settings.py`: most modules need none, and the list route
+takes a default `limit` of 20 (1 through 100). For a setting of the module's
+own, run `sandloom add module board --settings`: it also writes a `settings.py`
+with `BOARD_DEFAULT_PAGE_SIZE`, which then supplies the default limit
+([the `settings_of` reference](../reference/sdk/module.md)).
 
 An example table. `TenantScoped` adds the `tenant_id` column and filters
 every query by the bound tenant. Table names start with the module name.
@@ -99,8 +97,10 @@ unbounded table, and `TenantScoped` keeps it to the caller's tenant:
 ```
 
 The baseline migration of the module's own chain, rendered from the model
-(no database is needed). It enables row-level security for the tenant
-table:
+(no database is needed). One call enables row-level security for the tenant
+table. It acts where the database is configured for tenant isolation (the
+`tenant_rls` option of its `INFRA` instance) and does nothing on one that is
+not:
 
 ```python
 --8<-- "docs/snippets/generated/module/demo/modules/board/migrations/versions/0001_board_baseline.py"
@@ -113,8 +113,16 @@ The tests, which run against the real app and a real database:
 ```
 
 The generator also writes `schemas.py` (pydantic request and response
-models), `models/__init__.py` (imports every `models/*.py`),
-`migrations/env.py` and `migrations/script.py.mako`.
+models), `migrations/env.py` and `migrations/script.py.mako`. `models/__init__.py`
+is an empty package file: the app and the migration chain import every
+`models/*.py` themselves.
+
+The example is called `item`. `--entity NAME` names it instead
+(`sandloom add module shop --entity order` writes `ShopOrder`, `shop_orders`,
+`/orders` and `shop.order.created.v1`). `--empty` writes no example: only the
+package and its migration chain, for a module whose first model you write
+yourself. Both are decided at generation; `--entity` and `--empty` exclude each
+other.
 
 The files above are the default: always tenant-scoped. For an app without
 tenants, run `sandloom add module <name> --no-tenant`: the table is a plain
@@ -125,6 +133,11 @@ its row-level security because of one machine's configuration. See
 [the scaffold is tenant-scoped](../reference/cli.md#the-scaffold-is-tenant-scoped).
 
 ### 3. Replace the example with your domain
+
+Naming the example for your domain from the start (`--entity`) or starting
+from nothing (`--empty`) saves this step. With `--empty`, write your first
+model in `models/`, then run `sandloom migrate new board "<message>"`: it
+writes the module's first revision, `0001_board`.
 
 1. Rename or replace `BoardItem` in `models/`. Add one file per table;
    keep the `board_` prefix and reference other modules' rows by UUID, never

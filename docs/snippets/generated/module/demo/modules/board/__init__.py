@@ -7,6 +7,4 @@ events and contracts.
 
 from sandloom.sdk import define_module
 
-from .settings import BoardSettings
-
-register = define_module(__name__, version="0.1.0", settings=BoardSettings)
+register = define_module(__name__, version="0.1.0")

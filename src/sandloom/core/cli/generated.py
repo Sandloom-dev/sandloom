@@ -75,7 +75,8 @@ import sandloom.core.contract_compat as _contract_compat
 import sandloom.core.descriptors.release_marks as _release_marks
 import sandloom.core.route_snapshots as _route_snapshots
 import sandloom.core.testing.settings_gate as _settings_gate
-from sandloom.core.archcheck.manifest import load_rules
+from sandloom.core.archcheck.manifest import ArchRules, load_rules
+from sandloom.core.archcheck.runner import run_checks
 from sandloom.core.composition import load_composition_app
 from sandloom.core.contracts.schema_compatibility import (
     schema_problems as schema_problems,
@@ -1612,7 +1613,24 @@ def main(argv: list[str] | None = None) -> int:
         make_file=Generated,
         apply_files=apply,
     )
+    _warn_view_compat(rules, generated_ok=code == 0 and not args.check)
     return _after_new_major(code, args.new_major)
+
+
+def _warn_view_compat(rules: ArchRules, *, generated_ok: bool) -> None:
+    """After a successful write, print each consumer view that no longer matches
+    its producer's event (SANDLOOM-C025, an error of ``sandloom check``) as a
+    warning: a producer's field change shows up while the producer is edited, not
+    at the next check. Never changes the exit status of ``sandloom generate``."""
+    if not generated_ok:
+        return
+    for violation in run_checks(rules, only=["event-view-compat"]):
+        if violation.severity == "error":
+            print(
+                f"warning: {violation.location(rules.root)}: {violation.message} "
+                f"({violation.code}; `sandloom check` fails on it)",
+                file=sys.stderr,
+            )
 
 
 __all__ = [

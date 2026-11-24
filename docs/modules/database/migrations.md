@@ -51,12 +51,18 @@ sandloom migrate revision tasks -m "backfill" # an empty revision to write by ha
 
 `sandloom migrate new` diffs the module's models against its database, which must
 be at the chain head (`sandloom test` provisions it). For each new `TenantScoped`
-table the revision calls `enable_tenant_rls(op, "<table>")` (and
-`disable_tenant_rls` in `downgrade`); `system_access=True` is rendered only
+table the revision calls `enable_tenant_rls(op, "<table>", if_configured=True)`
+(and `disable_tenant_rls` in `downgrade`); `system_access=True` is rendered only
 for a model that sets `__system_access__ = True`. A `MoneyLedger` model gets
-its unique operation-key constraint. Review the file before committing it:
-autogenerate cannot see renames or data moves. `--database` picks the
-database when the module has several; `--rev-id` sets an explicit id.
+its unique operation-key constraint. When the models already match the chain
+it refuses with "no changes detected" and writes no file. It warns about a new
+`NOT NULL` column without a `server_default`, which fails on a table that has
+rows. Review the file before committing it: autogenerate cannot see renames or
+data moves. `--database` picks the database when the module has several.
+
+Revisions are numbered in the chain's order: the baseline is `0001_<module>`,
+the next `0002_<module>` in the file `0002_<module>_<message>.py`. `--rev-id`
+sets an explicit id instead.
 
 Autogenerate compares types and server defaults. It cannot see an index's
 access method, operator classes, sort order or condition; the

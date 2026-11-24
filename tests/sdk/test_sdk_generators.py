@@ -73,6 +73,10 @@ def _app(tmp_path: Path, *, everything: bool = True) -> Path:
     if everything:
         where = add.layout(root)
         add.add_module("stats", where)
+        # The other two shapes of a module: its own example entity, and none
+        # (an empty chain that already passes its own drift test).
+        add.add_module("shop", where, entity="purchase_order")
+        add.add_module("ledger", where, empty=True)
         add.add_event("notes", "NoteArchived", where, ["note_id:UUID", "reason:str"])
         add.add_contract("stats", "quota", where)
         add.add_consumer("stats", "notes.item.created.v1", where, [])
@@ -251,8 +255,8 @@ def test_add_task_declares_the_task_queue(tmp_path: Path) -> None:
     stats = root / "probe" / "modules" / "stats" / "__init__.py"
     stats.write_text(
         stats.read_text().replace(
-            'version="0.1.0", settings=StatsSettings',
-            'version="0.1.0",  # kept\n    settings=StatsSettings',
+            'define_module(__name__, version="0.1.0")',
+            'define_module(\n    __name__,\n    version="0.1.0",  # kept\n)',
         )
     )
     before = stats.read_text()
@@ -529,6 +533,30 @@ def test_sandloom_add_with_no_tenant_generates_and_checks_clean(
     assert code == 0, output
 
 
+def test_sandloom_add_module_takes_entity_empty_and_settings(tmp_path: Path) -> None:
+    """The command line reaches ``add_module``: ``--entity`` names the example,
+    ``--empty`` leaves it out, ``--settings`` writes ``settings.py``; the result
+    generates and checks clean."""
+    root = _app(tmp_path, everything=False)
+    modules = root / "probe" / "modules"
+    assert add.main(["--root", str(root), "module", "shop", "--entity", "order"]) == 0
+    assert (modules / "shop" / "models" / "order.py").is_file()
+    assert not (modules / "shop" / "settings.py").exists()
+    assert add.main(["--root", str(root), "module", "ledger", "--empty"]) == 0
+    assert not (modules / "ledger" / "api.py").exists()
+    assert add.main(["--root", str(root), "module", "tuned", "--settings"]) == 0
+    assert (modules / "tuned" / "settings.py").is_file()
+    with pytest.raises(SystemExit):
+        _cli(root, "event", "shop", "OrderPlaced", "--entity", "order")
+    assert (
+        add.main(["--root", str(root), "module", "both", "--empty", "--entity", "x"])
+        == 1
+    )
+    assert not (modules / "both").exists()
+    code, output = add.run_generate(root, "--check")
+    assert code == 0, output
+
+
 def test_add_consumer_takes_the_producer_schema_or_marks_unverified(
     tmp_path: Path,
 ) -> None:
@@ -539,14 +567,85 @@ def test_add_consumer_takes_the_producer_schema_or_marks_unverified(
     consumers = (root / "probe" / "modules" / "stats" / "consumers.py").read_text()
     assert "fields of the producer (notes/events.py)" in consumers
     assert "    item_id: UUID\n    tenant_id: UUID\n" in consumers
+    # The group name is explicit: renaming the function must not replay the stream.
     assert (
-        "@on(ItemCreated)\nasync def on_item_created(event: ItemCreated)" in consumers
-    )
+        '@on(ItemCreated, name="on_item_created")\n'
+        "async def on_item_created(event: ItemCreated)"
+    ) in consumers
     with pytest.raises(add.GeneratorError, match="--field"):
         add.add_consumer("stats", "billing.payment.done.v1", where, [])
     add.add_consumer("stats", "billing.payment.done.v1", where, ["amount:int"])
     text = (root / "probe" / "modules" / "stats" / "consumers.py").read_text()
     assert "# unverified: no producer schema was found" in text
+
+
+def test_add_consumer_scaffolds_a_redelivery_test(tmp_path: Path) -> None:
+    """A consumer comes with the test of its one guarantee: the same event
+    delivered twice is applied once (``deliver(..., times=2)``)."""
+    root = _app(tmp_path, everything=False)
+    where = add.layout(root)
+    add.add_module("stats", where)
+    created = add.add_consumer("stats", "notes.item.created.v1", where, [])
+    tests = root / "probe" / "modules" / "stats" / "tests"
+    scaffold = tests / "test_on_item_created.py"
+    assert scaffold in created
+    text = scaffold.read_text()
+    ast.parse(text)
+    assert "from ..consumers import ItemCreated" in text
+    assert "from uuid import uuid4" in text
+    assert "event = ItemCreated(item_id=uuid4(), tenant_id=uuid4())" in text
+    assert "deliver(event, times=2, session=db)" in text
+    assert "async def test_on_item_created_applies_a_redelivered_event_once(" in text
+    assert (tests / "__init__.py").is_file()  # the relative import needs a package
+    # A consumer of other field types gets a value per type.
+    add.add_module("ledger", where)
+    fields = ["amount:int", "paid_at:datetime", "price:Decimal", "ok:bool"]
+    add.add_consumer("ledger", "billing.payment.done.v1", where, fields)
+    other_tests = root / "probe" / "modules" / "ledger" / "tests"
+    other = (other_tests / "test_on_payment_done.py").read_text()
+    assert "paid_at=datetime(2026, 1, 1, tzinfo=UTC)" in other
+    assert "from datetime import UTC, datetime" in other
+    assert 'price=Decimal("1")' in other and "amount=1" in other and "ok=True" in other
+    check = [sys.executable, "-m", "ruff", "format", "--check", "--line-length=88"]
+    proc = subprocess.run(
+        [*check, str(scaffold), str(other_tests / "test_on_payment_done.py")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    # A type the scaffold has no sample for is marked, not guessed.
+    unknown = add._consumer_test("Cls", "on_x", [("tags", "list[str]")])
+    ast.parse(unknown)
+    assert "tags=None,  # a list[str] value for tags" in unknown
+    mixed = add._consumer_test("Cls", "on_x", [("tags", "list[str]"), ("n", "int")])
+    ast.parse(mixed)  # a comment after one argument does not swallow the next
+
+
+def test_generate_warns_about_a_consumer_view_its_producer_no_longer_matches(
+    tmp_path: Path,
+) -> None:
+    """``sandloom generate`` reports SANDLOOM-C025 as a warning (exit 0); only
+    ``sandloom check`` fails on it."""
+    root = _app(tmp_path)
+    code, output = add.run_generate(root)
+    assert code == 0, output
+    assert "C025" not in output  # a view that matches says nothing
+    consumers = root / "probe" / "modules" / "stats" / "consumers.py"
+    source = consumers.read_text()
+    assert "    tenant_id: UUID\n" in source
+    consumers.write_text(
+        source.replace("    tenant_id: UUID\n", "    tenant_id: UUID\n    ghost: str\n")
+    )
+    code, output = add.run_generate(root)
+    assert code == 0, output  # a warning, never a failure
+    assert "warning:" in output and "SANDLOOM-C025" in output, output
+    assert "ghost" in output and "stats/consumers.py" in output, output
+    code, output = add.run_generate(root, "--check")
+    assert "C025" not in output  # --check writes nothing and leaves it to the check
+    rules = load_rules(root / "architecture_rules.yml")
+    failing = run_checks(rules, only=["event-view-compat"])
+    assert [v.code for v in failing] == ["SANDLOOM-C025"]  # the check does fail
 
 
 def test_an_existing_target_is_never_overwritten(tmp_path: Path) -> None:
@@ -678,6 +777,9 @@ def test_add_projection_chains_its_migration_after_the_head(tmp_path: Path) -> N
         'down_revision: str | Sequence[str] | None = "0001_notes"'
         in migration.read_text()
     )
+    # Numbered like every other revision of the chain, not a name made up here.
+    assert migration.name == "0002_notes_board_projection.py"
+    assert 'revision: str = "0002_notes"' in migration.read_text()
 
 
 def test_migrate_new_adds_row_level_security_to_new_tenant_tables(
@@ -706,9 +808,11 @@ def test_migrate_new_adds_row_level_security_to_new_tenant_tables(
     text = revision.read_text()
     compile(text, str(revision), "exec")
     assert migrate_rls.RLS_IMPORT in text
-    assert 'enable_tenant_rls(op, "m_sys", system_access=True)' in text
+    assert (
+        'enable_tenant_rls(op, "m_sys", system_access=True, if_configured=True)' in text
+    )
     upgrade, downgrade = text.split("def downgrade")
-    assert 'enable_tenant_rls(op, "m_rows")' in upgrade
+    assert 'enable_tenant_rls(op, "m_rows", if_configured=True)' in upgrade
     assert "m_global" not in text.split("enable_tenant_rls", 1)[1].split("def")[0]
     assert downgrade.index("disable_tenant_rls") < downgrade.index("op.drop_table")
     assert migrate_rls.add_tenant_rls(revision, {}) == []

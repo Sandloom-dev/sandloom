@@ -5,10 +5,10 @@
 must be at its chain head), followed by this step: every ``op.create_table``
 of a ``TenantScoped`` table in the new revision gets
 ``enable_tenant_rls(op, <table>)`` at the end of ``upgrade()`` and
-``disable_tenant_rls(op, <table>)`` at the start of ``downgrade()``, under the
-same ``sandloom_tenant_rls`` switch the runner sets from the database's INFRA
-configuration (``system_access=True`` for a model with
-``__system_access__ = True``).
+``disable_tenant_rls(op, <table>)`` at the start of ``downgrade()``, each with
+``if_configured=True``: the call acts only where the runner switched
+``tenant_rls`` on from the database's INFRA configuration (``system_access=True``
+for a model with ``__system_access__ = True``).
 """
 
 from __future__ import annotations
@@ -17,13 +17,8 @@ import ast
 import json
 from pathlib import Path
 
+from sandloom.core.cli.migrate_checks import RLS_IMPORT
 from sandloom.core.orm import Base, TenantScoped
-
-GUARD = 'if op.get_context().config.attributes.get("sandloom_tenant_rls", False):'
-RLS_IMPORT = (
-    "from sandloom.sdk.data import disable_tenant_rls, enable_tenant_rls  "
-    "# sandloom: advanced RLS"
-)
 
 
 def tenant_tables(package: str) -> dict[str, bool]:
@@ -73,12 +68,13 @@ def add_tenant_rls(path: Path, tables: dict[str, bool]) -> list[str]:
     enable = []
     for table in covered:
         extra = ", system_access=True" if tables[table] else ""
-        call = f"enable_tenant_rls(op, {json.dumps(table)}{extra})"
-        enable += [f"    {GUARD}", f"        {call}"]
-    disable = []
-    for table in reversed(covered):
-        call = f"disable_tenant_rls(op, {json.dumps(table)})"
-        disable += [f"    {GUARD}", f"        {call}"]
+        enable.append(
+            f"    enable_tenant_rls(op, {json.dumps(table)}{extra}, if_configured=True)"
+        )
+    disable = [
+        f"    disable_tenant_rls(op, {json.dumps(table)}, if_configured=True)"
+        for table in reversed(covered)
+    ]
     up_end = upgrade.end_lineno or upgrade.lineno
     down_start = downgrade.body[0].lineno
     if isinstance(downgrade.body[0], ast.Expr) and isinstance(
@@ -99,4 +95,4 @@ def add_tenant_rls(path: Path, tables: dict[str, bool]) -> list[str]:
     return covered
 
 
-__all__ = ["GUARD", "RLS_IMPORT", "add_tenant_rls", "tenant_tables"]
+__all__ = ["RLS_IMPORT", "add_tenant_rls", "tenant_tables"]

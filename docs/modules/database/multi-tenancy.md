@@ -526,17 +526,21 @@ from sandloom.sdk.data import disable_tenant_rls, enable_tenant_rls  # sandloom:
 
 def upgrade() -> None:
     op.create_table("notes_notes", ...)   # has a tenant_id uuid column
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        enable_tenant_rls(op, "notes_notes")
-        # only for tables that privileged system jobs must reach across tenants:
-        # enable_tenant_rls(op, "notes_notes", system_access=True)
+    enable_tenant_rls(op, "notes_notes", if_configured=True)
+    # only for tables that privileged system jobs must reach across tenants:
+    # enable_tenant_rls(op, "notes_notes", system_access=True, if_configured=True)
 
 
 def downgrade() -> None:
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        disable_tenant_rls(op, "notes_notes")
+    disable_tenant_rls(op, "notes_notes", if_configured=True)
     op.drop_table("notes_notes")
 ```
+
+With `if_configured=True` the call acts only where the migration runner
+enabled it, from the `tenant_rls` option above. On a database without it the
+call does nothing, so one revision runs on both. Without the argument the call
+always acts, and a database with no row-level security refuses it
+(SANDLOOM-R015).
 
 The policy is fail-closed and has **no bypass**: the application role sees and
 writes only rows of the tenant in `sandloom.tenant_id`; no tenant, an empty or a

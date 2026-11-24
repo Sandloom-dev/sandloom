@@ -216,7 +216,11 @@ inbox. It starts at `start_from` (`"earliest"` by default) and applies again
 every event the stream still retains, including those the old group already
 applied. Keep the name. Or pin the old group with
 `group="<module>:<old name>"`. Or start the new one at `start_from="latest"`
-when skipping the backlog is acceptable.
+when skipping the backlog is acceptable. `sandloom add consumer` writes the
+name out (`@on(NoteCreated, name="on_note_created")`) so that renaming the
+function later changes nothing. `module.snapshot.json` lists each consumer's
+name and group. A rename is a changed entry, and `sandloom test` reports it as
+a stale snapshot. Read that diff before you regenerate.
 
 `/diagnostics/consumers` reports each local consumer's state, connection
 attempts, last error, group, module and the group's lag and pending count.

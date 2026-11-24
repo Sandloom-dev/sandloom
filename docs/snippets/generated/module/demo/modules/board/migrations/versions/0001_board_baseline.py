@@ -36,14 +36,11 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_board_items_tenant_id"), "board_items", ["tenant_id"])
     op.create_index(op.f("ix_board_items_owner_id"), "board_items", ["owner_id"])
-    # The runner sets sandloom_tenant_rls from the target database's INFRA config.
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        enable_tenant_rls(op, "board_items")
+    enable_tenant_rls(op, "board_items", if_configured=True)
 
 
 def downgrade() -> None:
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        disable_tenant_rls(op, "board_items")
+    disable_tenant_rls(op, "board_items", if_configured=True)
     op.drop_index(op.f("ix_board_items_owner_id"), table_name="board_items")
     op.drop_index(op.f("ix_board_items_tenant_id"), table_name="board_items")
     op.drop_table("board_items")
