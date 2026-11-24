@@ -357,7 +357,7 @@ def test_a_recorded_hash_that_differs_from_the_templates_is_the_notice(
     assert skills.outdated_files(app, "probe") == [path]
     assert run_tests.agent_files_notice(app) == (
         "sandloom test: agent files are from an older sandloom: "
-        "run `sandloom add skills`"
+        "run `sandloom add skills` (`--force` replaces a file you edited)"
     )
 
 
@@ -383,12 +383,76 @@ def test_no_record_or_no_manifest_is_no_notice(app: Path, tmp_path: Path) -> Non
     assert run_tests.agent_files_notice(tmp_path / "nowhere") is None
 
 
-def test_an_unreadable_record_is_not_swallowed(app: Path) -> None:
-    """Only a missing manifest is skipped (`sandloom check` reports it); a
-    corrupt record still raises instead of printing nothing."""
+def test_an_unreadable_record_is_one_line_not_a_traceback(app: Path) -> None:
+    """The notice is info, never a failure: a corrupt record is named in one
+    line, and `sandloom test` goes on with its steps."""
     (app / skills.RECORD).write_text("{not json", encoding="utf-8")
-    with pytest.raises(ValueError, match="Expecting"):
-        run_tests.agent_files_notice(app)
+    notice = run_tests.agent_files_notice(app)
+    assert notice is not None
+    assert skills.RECORD in notice
+    assert "unreadable" in notice
+    assert "\n" not in notice
+
+
+def test_a_malformed_manifest_is_no_notice_and_check_reports_it(
+    app: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The notice skips a manifest that is not YAML (a ManifestError, not a
+    PyYAML traceback); `sandloom check` still reports it."""
+    rules = app / "architecture_rules.yml"
+    rules.write_text("modules_path: [unclosed\n", encoding="utf-8")
+    assert run_tests.agent_files_notice(app) is None
+    assert check.main(["--rules", str(rules)]) == 2
+    assert "not valid YAML" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flags", [[], ["--no-gates"]])
+def test_sandloom_test_goes_on_past_an_unreadable_record(
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+) -> None:
+    (app / skills.RECORD).write_text("{not json", encoding="utf-8")
+    monkeypatch.chdir(app)
+    monkeypatch.setattr(run_tests, "plan", lambda *args, **kwargs: [])
+    monkeypatch.setattr(run_tests, "load_project_test_env", lambda root: None)
+    assert run_tests.main(flags) == 0
+    out = capsys.readouterr().out
+    assert "unreadable" in out
+    assert "FAILED" not in out
+
+
+def test_a_user_written_pointer_file_is_no_notice(tmp_path: Path) -> None:
+    """`add skills` keeps a CLAUDE.md the user wrote and records no hash for it;
+    counting it would put the notice on every run, and no command clears it."""
+    generate_project("probe", tmp_path, sample_module="gadgets", agents=["codex"])
+    app = tmp_path / "probe"
+    for pointer in ("CLAUDE.md", "probe/modules/CLAUDE.md"):
+        (app / pointer).write_text("my own notes\n", encoding="utf-8")
+    _, kept = skills.write_skills(
+        app, "probe", ["claude", "codex"], modules="probe/modules"
+    )
+    assert {path.relative_to(app).as_posix() for path in kept} == {
+        "CLAUDE.md",
+        "probe/modules/CLAUDE.md",
+    }
+    assert skills.outdated_files(app, "probe") == []
+    assert run_tests.agent_files_notice(app) is None
+
+
+def test_a_user_edited_skill_stays_and_the_notice_names_force(app: Path) -> None:
+    """A kept skill is outdated until `--force`: the line says so."""
+    path = app / SKILL
+    path.write_text("my own recipe\n", encoding="utf-8")
+    _rewrite_record(app, lambda files: files.pop(SKILL))
+    agents = skills.load_record(app)[0]
+    assert agents
+    _, kept = skills.write_skills(app, "probe", agents, modules="probe/modules")
+    assert kept == [path]
+    notice = run_tests.agent_files_notice(app)
+    assert notice is not None
+    assert "`--force`" in notice
 
 
 def test_sandloom_test_prints_the_notice_once_and_still_passes(

@@ -51,7 +51,8 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
 When the app's agent files (``.sandloom/agent-files.json``: the skills and the
 module-author contract) differ from the installed sandloom's templates, it prints
 one info line before the steps ("agent files are from an older sandloom: run
-`sandloom add skills`"); it is not a failure and makes no network call.
+`sandloom add skills` (`--force` replaces a file you edited)"); it is not a
+failure and makes no network call.
 
 Run it from the project root (the directory holding ``pyproject.toml`` /
 ``architecture_rules.yml``): the framework's ``backend/`` or an ``sandloom new``
@@ -553,12 +554,22 @@ def agent_files_notice(root: Path) -> str | None:
     The record's hashes against the packaged templates: no network, no write, no
     failure. An app without the record (a project that never ran ``sandloom new``
     or ``sandloom add skills``) or without a readable manifest gets no line: the
-    ``sandloom check`` step reports the manifest."""
+    ``sandloom check`` step reports the manifest. A record that does not parse is
+    named in one line (it is an info line, never a traceback before the steps)."""
     try:
         app = load_rules(root / "architecture_rules.yml").modules_package.split(".")[0]
     except ManifestError:
         return None
-    if not app or not _skills.outdated_files(root, app):
+    if not app:
+        return None
+    try:
+        outdated = _skills.outdated_files(root, app)
+    except ValueError as exc:
+        return (
+            f"sandloom test: {_skills.RECORD} is unreadable ({exc}): "
+            "delete it and run `sandloom add skills` to write it again"
+        )
+    if not outdated:
         return None
     return f"sandloom test: {_skills.OUTDATED_NOTICE}"
 

@@ -46,7 +46,10 @@ _TEMPLATES = Path(__file__).resolve().parent / "templates" / "skills"
 #: them, relative to the project root (committed: the team shares it).
 RECORD = ".sandloom/agent-files.json"
 #: What ``sandloom test`` prints once when :func:`outdated_files` is not empty.
-OUTDATED_NOTICE = "agent files are from an older sandloom: run `sandloom add skills`"
+OUTDATED_NOTICE = (
+    "agent files are from an older sandloom: run `sandloom add skills` "
+    "(`--force` replaces a file you edited)"
+)
 #: A pointer file for an agent that reads its own instruction file name.
 _POINTER = "@AGENTS.md\n"
 
@@ -224,6 +227,11 @@ def outdated_files(root: Path, app: str) -> list[str]:
     templates'. A skill the record lacks is outdated too (an older sandloom had
     fewer). Empty without a record: nothing says which agents the app chose.
 
+    The agent pointer files (``CLAUDE.md``, ``<modules>/CLAUDE.md``) are left
+    out: their content is the constant :data:`_POINTER`, never a template that
+    changes, and ``add skills`` keeps one the user wrote without recording it, so
+    counting it would report it on every run.
+
     Reads the record and the packaged templates only; no network, no write."""
     agents, recorded = load_record(root)
     if agents is None:
@@ -235,7 +243,7 @@ def outdated_files(root: Path, app: str) -> list[str]:
     return sorted(
         rel
         for rel, content in expected.items()
-        if recorded.get(rel) != _digest(content)
+        if content != _POINTER and recorded.get(rel) != _digest(content)
     )
 
 
