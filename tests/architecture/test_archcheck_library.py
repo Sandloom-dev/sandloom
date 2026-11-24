@@ -284,12 +284,23 @@ def test_test_imports_rule_runs_in_sandloom_check(tmp_path: Path) -> None:
 
 
 def test_test_imports_rule_honours_the_allowlist(tmp_path: Path) -> None:
-    manifest = _app_with_module_test(
-        tmp_path,
-        "from sandloom.core.database import Base\n",
-        allowlist='[{file: "acme/modules/orders/tests/*", '
-        'imports: ["sandloom.core.database*"]}]',
+    # An application's allowlist excuses no kernel module (SANDLOOM-C042), so the
+    # entry names a sibling business module's import.
+    body = "from acme.modules.billing import service\n"
+    entry = (
+        '[{file: "acme/modules/orders/tests/*", imports: ["acme.modules.billing*"]}]'
     )
+    without = _app_with_module_test(tmp_path / "without", body)
+    (tmp_path / "without" / "acme" / "modules" / "billing").mkdir()
+    (tmp_path / "without" / "acme" / "modules" / "billing" / "__init__.py").write_text(
+        ""
+    )
+    assert [v.rule for v in run_checks(load_rules(without), only=["test-imports"])] == [
+        "test-imports"
+    ]
+    manifest = _app_with_module_test(tmp_path / "with", body, allowlist=entry)
+    (tmp_path / "with" / "acme" / "modules" / "billing").mkdir()
+    (tmp_path / "with" / "acme" / "modules" / "billing" / "__init__.py").write_text("")
     assert run_checks(load_rules(manifest), only=["test-imports"]) == []
 
 

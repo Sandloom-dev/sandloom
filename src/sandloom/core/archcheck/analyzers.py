@@ -2863,8 +2863,8 @@ def _engine_attribute_findings(
         reason = "reads sqlalchemy's engine factories by name"
     elif node.attr == "cursor" and _is_attribute(node.value, "connection"):
         reason = (
-            "opens a raw DBAPI cursor on a connection, which skips the cursor "
-            "tenant check"
+            "opens a raw DBAPI cursor on a connection, which skips the engine's "
+            "cursor tenant check"
         )
     elif node.attr == "connection" and _is_connection_call(node.value):
         reason = "is the DBAPI connection of a connection, under no engine check"
