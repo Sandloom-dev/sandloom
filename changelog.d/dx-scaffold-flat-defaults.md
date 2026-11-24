@@ -1,3 +1,0 @@
-### Changed
-
-- **`sandloom new` stops writing the flat defaults** (dx-scaffold-flat-defaults). The generated `.env` and `.env.test` no longer carry `STORAGE_TYPE=local` (`STORAGE_PATH` stays), and the generated compose file passes `NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-}` instead of `:-log`, as the microservices compose template already did. A flat setting replaces the composition's driver and warns, so a fresh app keeps the driver its `default_infra` or `INFRA` selects; with nothing selected the object store is still local files and the notifier `log`. The helpdesk example's compose file changes the same way. Existing apps are not touched: delete the two lines yourself if you only set them to get the default.

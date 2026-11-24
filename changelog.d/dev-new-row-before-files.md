@@ -1,3 +1,0 @@
-### Fixed
-
-- **`sandloom dev up` on your own servers saves a new checkout's row before it writes the checkout's files** (dev-new-row-before-files). The row, with its keyed-server indexes, was saved only at the end of `up`: one that stopped after the `.env` write left a `.env` naming indexes no state reserved, and a retry from another checkout could hand the same pair out again or drop the rewrite marker without writing the new checkout. The state is now saved after the database ownership check and before the files are written. Nothing to change: run `dev up` again in a checkout whose `up` stopped.

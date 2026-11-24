@@ -1,3 +1,0 @@
-### Changed
-
-- **A saga step costs about half the instructions, a token refresh 2 to 3 % less** (infra-perf-followups). The saga store built its `lock`, `update`, `upsert` and `insert` statements per call (one bind per column, then the cache key over all of them); they are now built once and bound per call, so a local step runs 4.6 M instead of 10.9 M instructions on PostgreSQL (`XSgL`), a start 3.7 M instead of 6.6 M, a command step 7.5 M instead of 14.9 M. The SQL sent is unchanged. A refresh reads the token's columns and the user's `is_active` instead of building a `RefreshToken` and a `User` object; it refuses a revoked, rotated, expired or inactive-user token exactly as before. No upgrade steps.
