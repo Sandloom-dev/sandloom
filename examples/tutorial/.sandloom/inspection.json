@@ -39,5 +39,5 @@
 ["source_locators","module:tasks",{"distributions":{},"kind":"registered_declaration","source_root":"tasklist/modules/tasks"}]
 ["@list","unresolved"]
 ["@map","wire_documents"]
-["wire_documents","tasklist/shared/contracts/stats_quota_v1.py",{"kind":"generated_wire","sha256":"0068baeae5381ffe989c35eae51b2e6f252691ef2930a774423e1bef1100479b"}]
+["wire_documents","tasklist/shared/contracts/stats_quota_v1.py",{"kind":"generated_wire","sha256":"b8a06dcd4a7921ab05b699f89ac2c81ab78486e53bb4cbc749f8c6e8de43bf29"}]
 ["wire_documents","tasklist/shared/events/tasks.item.created.v1.json",{"kind":"generated_wire","sha256":"8b86dd89d9c5bca277f25ab9536198a9c5f8d1f4b2806ab3519924e4689abeb4"}]

@@ -43,5 +43,5 @@
 ["source_locators","module:payments",{"distributions":{},"kind":"registered_declaration","source_root":"academy/modules/payments"}]
 ["@list","unresolved"]
 ["@map","wire_documents"]
-["wire_documents","academy/shared/contracts/notifications_mail_v1.py",{"kind":"generated_wire","sha256":"b0bd74463084f9a4590862d16f424ac83c747bc4929521dd76d662dfd9318fc1"}]
-["wire_documents","academy/shared/contracts/payments_charges_v1.py",{"kind":"generated_wire","sha256":"a271d4d7c571556d91abfb50fbcb246a009095c8da45cced86ccb84e93837df4"}]
+["wire_documents","academy/shared/contracts/notifications_mail_v1.py",{"kind":"generated_wire","sha256":"24897428840285ce8a8a5161cf3ebb80ce60df7f91d13cf0c4e930bbeab34190"}]
+["wire_documents","academy/shared/contracts/payments_charges_v1.py",{"kind":"generated_wire","sha256":"15707c9a4be532d91aa18ed31e8c1a8a6d66bfb4e176e2d56099f2af0da40c74"}]
