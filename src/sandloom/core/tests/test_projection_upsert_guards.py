@@ -75,7 +75,7 @@ async def _row(sm: async_sessionmaker, item_id: uuid.UUID):
 @pytest.mark.asyncio
 async def test_null_stored_version_is_updatable(sm: async_sessionmaker) -> None:
     tenant, group, item = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    async with _unit(sm) as s:
+    async with _unit(sm):
         # Seeded without a group version (NULL): the first group event must
         # apply, not be blocked forever by NULL < v being NULL.
         await monotonic_upsert(
@@ -85,7 +85,7 @@ async def test_null_stored_version_is_updatable(sm: async_sessionmaker) -> None:
             version_column="item_version",
             incoming_version=1,
         )
-    async with _unit(sm) as s:
+    async with _unit(sm):
         assert (
             await monotonic_update(
                 _ROWS,
@@ -119,7 +119,7 @@ async def test_tombstone_prevents_old_rebuild_from_resurrecting_deleted_entity(
     seed = {"tenant_id": tenant, "group_id": group, "title": "deleted"}
     # Deletion can arrive before even the first create/backfill for the entity.
     with bind_tenant(tenant):
-        async with _unit(sm) as session:
+        async with _unit(sm):
             assert await monotonic_delete(
                 _ROWS,
                 key={"item_id": item},
@@ -127,7 +127,7 @@ async def test_tombstone_prevents_old_rebuild_from_resurrecting_deleted_entity(
                 version_column="item_version",
                 incoming_version=3,
             )
-        async with _unit(sm) as session:
+        async with _unit(sm):
             assert not await monotonic_upsert(
                 _ROWS,
                 key={"item_id": item},
@@ -154,7 +154,7 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
     sm: async_sessionmaker,
 ) -> None:
     tenant_a, tenant_b, group, item = (uuid.uuid4() for _ in range(4))
-    async with _unit(sm) as s:
+    async with _unit(sm):
         with pytest.raises(ValueError, match="tenant_id"):
             await monotonic_upsert(
                 _ROWS,
@@ -163,7 +163,7 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
                 version_column="item_version",
                 incoming_version=1,
             )
-    async with _unit(sm) as s:
+    async with _unit(sm):
         await monotonic_upsert(
             _ROWS,
             key={"item_id": item},
@@ -172,7 +172,7 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
             incoming_version=1,
         )
     # Same key, other tenant: must NOT overwrite tenant A's row.
-    async with _unit(sm) as s:
+    async with _unit(sm):
         changed = await monotonic_upsert(
             _ROWS,
             key={"item_id": item},
@@ -201,7 +201,7 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
 async def test_update_is_scoped_to_bound_tenant(sm: async_sessionmaker) -> None:
     tenant_a, tenant_b, group = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     item_a, item_b = uuid.uuid4(), uuid.uuid4()
-    async with _unit(sm) as s:
+    async with _unit(sm):
         for item, tenant in ((item_a, tenant_a), (item_b, tenant_b)):
             await monotonic_upsert(
                 _ROWS,
@@ -211,7 +211,7 @@ async def test_update_is_scoped_to_bound_tenant(sm: async_sessionmaker) -> None:
                 incoming_version=1,
             )
     with bind_tenant(tenant_a):
-        async with _unit(sm) as s:
+        async with _unit(sm):
             updated = await monotonic_update(
                 _ROWS,
                 match={"group_id": group},
