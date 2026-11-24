@@ -485,6 +485,10 @@ def test_a_versioned_model_that_drops_the_check_is_refused_when_declared() -> No
 
             id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
 
+    # The refused class is registered, half built, until it is collected, and
+    # ``Base.registry.mappers`` (read by a module test) raises meanwhile.
+    gc.collect()
+
 
 def test_a_versioned_model_that_names_the_check_itself_is_accepted() -> None:
     class _Isolated(Base):
