@@ -27,9 +27,10 @@ from sqlalchemy.orm import ColumnProperty
 from sqlalchemy.sql import sqltypes
 
 from sandloom.core.planner import (
+    InvalidOperation,
     JoinRead,
     ListOperation,
-    PlanningError,
+    OperationSchemaMismatch,
     ReadOperation,
     like_prefix,
 )
@@ -214,7 +215,9 @@ def _mapper(op: ReadOperation[Any], entity: Any) -> Any:
     try:
         return inspect(entity)
     except NoInspectionAvailable:
-        raise PlanningError(f"{op.name}: {entity!r} is not a mapped entity") from None
+        raise OperationSchemaMismatch(
+            f"{op.name}: {entity!r} is not a mapped entity"
+        ) from None
 
 
 def _columns(mapper: Any) -> dict[str, Any]:
@@ -256,7 +259,7 @@ def _single_column(
 ) -> Any:
     prop = cols.get(name)
     if prop is None or len(prop.columns) != 1:
-        raise PlanningError(f"{op.name}: {what} {name!r} is not a column")
+        raise OperationSchemaMismatch(f"{op.name}: {what} {name!r} is not a column")
     return prop
 
 
@@ -270,7 +273,7 @@ def _list_filters(
     for name in op.prefix.values():
         prop = _single_column(op, cols_e, name, f"{ent.__name__} prefix filter")
         if not isinstance(prop.columns[0].type, sqltypes.String):
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: prefix filter {name!r} is not a string column"
             )
     # optional (equality / prefix) filters: (argument, column, is prefix)
@@ -281,7 +284,7 @@ def _list_filters(
     for name in (*op.join_by.values(), *op.join_where):
         _single_column(op, sides.cols_j, name, f"{getattr(jn, '__name__', '?')} filter")
     if (op.join_by or op.join_where or op.joined_fields) and jn is None:
-        raise PlanningError(f"{op.name}: join_* given without join=")
+        raise InvalidOperation(f"{op.name}: join_* given without join=")
     return opt
 
 
@@ -308,12 +311,12 @@ def _list_order_keys(op: ListOperation[Any], sides: _ListSides) -> list[str]:
     for name in op.order_by:
         prop = _single_column(op, sides.cols_e, name, "order_by")
         if prop.columns[0].nullable:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: order_by {name!r} is nullable; keyset ordering "
                 "requires NOT NULL columns"
             )
         if prop.columns[0] not in indexed:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: order_by {name!r} is not part of an index of "
                 f"{table.name} (a keyset page must not sort the table)"
             )
@@ -335,11 +338,13 @@ def _list_getters(
         if f in op.joined_fields:
             attr = op.joined_fields[f]
             if not hasattr(jn, attr):
-                raise PlanningError(f"{op.name}: {jn.__name__} has no {attr!r}")
+                raise OperationSchemaMismatch(
+                    f"{op.name}: {jn.__name__} has no {attr!r}"
+                )
             getters.append((1, attr))
         else:
             if not hasattr(ent, f):
-                raise PlanningError(
+                raise OperationSchemaMismatch(
                     f"{op.name}: result field {f!r} has no attribute on {ent.__name__}"
                 )
             getters.append((0, f))
@@ -397,12 +402,12 @@ def _join_sides(op: JoinRead[Any]) -> _ListSides:
 def _join_key_columns(op: JoinRead[Any], sides: _ListSides) -> None:
     for name in op.by:
         if name not in sides.cols_e:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: key {name!r} is not a column of {sides.ent.__name__}"
             )
     for name in (*op.join_by.values(), *op.join_where):
         if name not in sides.cols_j:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: {name!r} is not a column of {sides.jn.__name__}"
             )
 
@@ -412,12 +417,16 @@ def _join_via(op: JoinRead[Any], sides: _ListSides) -> tuple[Any, Any]:
     ent, jn, m_join = sides.ent, sides.jn, sides.m_j
     via = sides.cols_e.get(op.via)
     if via is None or len(via.columns) != 1:
-        raise PlanningError(f"{op.name}: via={op.via!r} is not a column attribute")
+        raise OperationSchemaMismatch(
+            f"{op.name}: via={op.via!r} is not a column attribute"
+        )
     if len(m_join.primary_key) != 1:
-        raise PlanningError(f"{op.name}: {jn.__name__} needs a one-column primary key")
+        raise OperationSchemaMismatch(
+            f"{op.name}: {jn.__name__} needs a one-column primary key"
+        )
     pk_j = m_join.primary_key[0]
     if not any(fk.column is pk_j for fk in via.columns[0].foreign_keys):
-        raise PlanningError(
+        raise OperationSchemaMismatch(
             f"{op.name}: {ent.__name__}.{op.via} has no ForeignKey to "
             f"{jn.__name__}'s primary key (JoinRead never guesses a join)"
         )
@@ -440,7 +449,7 @@ def _join_returns_one_row(op: JoinRead[Any], sides: _ListSides, via: Any) -> Non
         by_cols.add(via.columns[0])
     uniques = unique_keys(sides.m_e)
     if not any(u and u <= by_cols for u in uniques):
-        raise PlanningError(
+        raise OperationSchemaMismatch(
             f"{op.name}: by={op.by} is not a primary or unique key of "
             f"{sides.ent.__name__} (a JoinRead returns at most one row)"
         )

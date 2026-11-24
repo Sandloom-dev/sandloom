@@ -42,8 +42,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from sandloom.core.planner import (
     ExecutionContext,
+    InvalidReadScope,
+    NoExecutionAdapter,
     Plan,
-    PlanningError,
     Reads,
     SnapshotReadsUnavailable,
 )
@@ -338,12 +339,12 @@ def _check_unit(plan: Plan[Any], ctx: ExecutionContext, unit: AsyncSession) -> N
         # A handle that outlived its unit (leaked into another request /
         # task, or used after the UoW closed): running it would autobegin
         # a NEW transaction outside any UoW. Refuse.
-        raise PlanningError(
+        raise InvalidReadScope(
             f"{plan.operation.name}: UoW reads handle used outside its Unit "
             "of Work (the unit is closed or belongs to another scope)"
         )
     if database is not None and database != ctx.database:
-        raise PlanningError(
+        raise InvalidReadScope(
             f"{plan.operation.name}: declared on database {ctx.database!r} but "
             f"the Unit of Work governs {database!r}; there is no cross-database "
             "transaction"
@@ -359,7 +360,9 @@ def adapter_for_session(session: AsyncSession) -> SQLAlchemyExecutionAdapter:
     bind: Any = session.bind
     engine: Any = bind.engine if isinstance(bind, AsyncConnection) else bind
     if not isinstance(engine, AsyncEngine):
-        raise PlanningError(f"session bound to {bind!r}: no async engine to plan on")
+        raise NoExecutionAdapter(
+            f"session bound to {bind!r}: no async engine to plan on"
+        )
     sync = engine.sync_engine
     adapter: SQLAlchemyExecutionAdapter | None = sync.__dict__.get(_ADAPTER_ATTR)
     if adapter is None or adapter.engine.sync_engine is not sync:

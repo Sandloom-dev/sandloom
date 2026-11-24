@@ -2589,6 +2589,138 @@ ModuleAPI(core).register_operations(op) before reading it.
 """,
         docs="docs/modules/database/units.md",
     ),
+    _entry(
+        "SANDLOOM-R023",
+        "invalid-planner-operation",
+        "runtime",
+        "a declared read operation (ReadOperation, ListOperation, JoinRead) whose "
+        "own arguments contradict each other",
+        "correct the declaration the message names: key arguments, order_by, "
+        "join= with via=, max_limit, and no lock= on a declared operation",
+        """
+A read operation is a frozen declaration, and it checks itself when it is built,
+before any entity or database is looked at. It raises InvalidOperation (a
+PlanningError) for a declaration that cannot mean anything:
+
+- by= is empty on a plain ReadOperation (a ListOperation or JoinRead may have
+  no by=);
+- lock= is set: a lock needs a read-write Unit of Work, so keep it on db() with
+  select(...).with_for_update(...);
+- a JoinRead without join= and via=, or with neither by= nor join_by=;
+- a ListOperation without order_by=, with join= but no via= (or the reverse),
+  with max_limit below 1, or with more optional and prefix filters than the
+  limit (each combination is its own statement);
+- an argument name used twice across by=, join_by=, optional= and prefix=;
+- join_by=, join_where= or joined_fields= given without join=.
+
+Fix. Change the declaration as the message says. The message names the
+operation. A declaration that is well formed but does not match the table it
+reads is SANDLOOM-R024.
+""",
+        docs="docs/advanced/execution-planner.md",
+    ),
+    _entry(
+        "SANDLOOM-R024",
+        "planner-schema-mismatch",
+        "runtime",
+        "a declared read operation that does not fit the entity or the schema it reads",
+        "change the declaration or the model so they agree: a key, order_by or "
+        "filter column that exists, a pydantic result whose fields the entity "
+        "has, an index for a keyset page, a ForeignKey for a join",
+        """
+The planner plans every declared operation against its entity when the app
+boots (and on first use for one declared late). It raises OperationSchemaMismatch
+(a PlanningError) when the declaration and the schema disagree, so the app does
+not start, or the read does not run, rather than return a wrong or unbounded
+result. It also is the code of a bare PlanningError, which a third-party
+execution adapter may raise. The message names the operation and the first
+violation:
+
+- the entity is not a mapped class, a key, filter, order_by or via= name is not a
+  (single) column, or a result field has no attribute on the entity;
+- result= is not a pydantic model;
+- tenant_scoped= says something other than the entity's TenantScoped base;
+- an order_by column is nullable (a keyset page needs NOT NULL columns), or the
+  equality filters and the order are not the leading columns of an index while
+  require_index is true (a page would sort every matching row);
+- a prefix filter is not on a string column;
+- a join with no ForeignKey from via= to the other entity's one-column primary
+  key (a join is never guessed), a join that could repeat rows, or a JoinRead
+  whose by= is not a primary or unique key.
+
+Fix. Change the declaration or the model. For a missing index, add it in a
+migration of the module that owns the table, or declare require_index=False for
+a small bounded table. An operation whose own arguments contradict each other
+is SANDLOOM-R023.
+""",
+        docs="docs/advanced/execution-planner.md",
+    ),
+    _entry(
+        "SANDLOOM-R025",
+        "planner-no-execution-adapter",
+        "runtime",
+        "a planner read on a database whose driver offers no execution adapter",
+        "use a database driver that supports declared operations, or read this "
+        "table through db() instead of the planner",
+        """
+A declared operation runs on the execution adapter of the database it names
+(provider.planner_adapter()). A database driver that offers none, or an
+AsyncSession whose bind is not an async engine (adapter_for_session), raises
+NoExecutionAdapter (a PlanningError) instead of falling back to some other
+read path.
+
+Fix. Name a database whose driver provides a planner adapter (the built-in
+SQLAlchemy drivers do). For a database that cannot, read through db() or the
+driver's own surface. The message names the database and its driver.
+""",
+        docs="docs/advanced/execution-planner.md",
+    ),
+    _entry(
+        "SANDLOOM-R026",
+        "invalid-planner-read-scope",
+        "runtime",
+        "a planner read handle or route used where its read scope does not allow it",
+        "open the handle where the message says: a read-only scope for "
+        "repeatable_read, UowReads inside a Unit of Work, one read scope per route",
+        """
+Planned reads run in a read scope: PlannedReads or SnapshotReads on a read-only
+route, UowReads inside a Unit of Work, or Reads(core) built by hand. A use the
+scope cannot honour raises InvalidReadScope (a PlanningError) rather than run
+outside its transaction. The cases:
+
+- Reads(...) built with neither a core nor an adapter;
+- an isolation other than read_committed or repeatable_read;
+- repeatable_read inside a Unit of Work (the unit's isolation applies) or
+  without a shared read-only scope;
+- a UowReads handle used after its unit closed, or in another request or task;
+- an operation declared on another database than the one the unit governs
+  (there is no cross-database transaction);
+- a route that declares PlannedReads together with SnapshotReads, or
+  PlannedReads together with a Unit of Work (get_db, a named database).
+
+Fix. Take the handle from the scope that is open now: UowReads inside a write
+route, PlannedReads or SnapshotReads on a read-only one, never both.
+""",
+        docs="docs/advanced/execution-planner.md",
+    ),
+    _entry(
+        "SANDLOOM-R027",
+        "planner-unencodable-cursor-value",
+        "runtime",
+        "a keyset value of a type a page cursor cannot carry",
+        "order a page by columns of a supported type (str, int, bool, float, "
+        "Decimal, UUID, date, datetime)",
+        """
+A page cursor carries the last row's order_by values, tagged and signed.
+UnencodableCursorValue (a PlanningError) is raised when one of them has a type
+the cursor has no tag for, so the page is refused rather than the value
+stringified into a cursor that would not round-trip.
+
+Fix. Order the operation by columns of a supported type. The message names the
+Python type that was refused.
+""",
+        docs="docs/advanced/execution-planner.md",
+    ),
     # ------------------------------------------------------- tests/snapshots
     _entry(
         "SANDLOOM-T001",
@@ -2959,6 +3091,12 @@ EXCEPTION_CODES: dict[str, str] = {
     "NestedWriterRefused": "SANDLOOM-R016",
     "UnsealedClaimsError": "SANDLOOM-R017",
     "UndeclaredOperation": "SANDLOOM-R022",
+    "InvalidOperation": "SANDLOOM-R023",
+    "OperationSchemaMismatch": "SANDLOOM-R024",
+    "PlanningError": "SANDLOOM-R024",
+    "NoExecutionAdapter": "SANDLOOM-R025",
+    "InvalidReadScope": "SANDLOOM-R026",
+    "UnencodableCursorValue": "SANDLOOM-R027",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",
