@@ -369,9 +369,13 @@ async def purge() -> None:
 ```
 
 `cron` is five fields, evaluated in UTC; `id` is unique in the deployment
-(a duplicate is refused at load). Each run may repeat or overlap another, so
-make the body harmless to run twice. A periodic task is also a function as
-written: `await purge()` runs it inline, and `purge.max_interval` is the
+(a duplicate is refused at load). Two facts are separate. A slot goes out twice
+only when the lease store is down or in the repeated daylight-saving hour. A
+slot can also be lost, whatever the task declares. Keep the body idempotent and let
+the next run catch up. By default a run is acknowledged when it starts, so a
+worker that dies mid-run loses it. `@periodic(..., at_least_once=True)`
+redelivers it, and the module also declares the feature `redelivery`. A
+periodic task is also a function as written: `await purge()` runs it inline, and `purge.max_interval` is the
 longest gap between two of its slots.
 
 **A module with tasks declares the task queue.** The module states what it

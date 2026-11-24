@@ -43,10 +43,21 @@ def test_a_plain_task_states_at_most_once_and_omits_at_least_once(
     assert "at_least_once=True)" not in source and "(at_least_once" not in source
 
 
-def test_a_periodic_task_keeps_the_repeat_warning(tmp_path: Path) -> None:
+def test_a_periodic_task_teaches_at_least_once_not_a_default_repeat(
+    tmp_path: Path,
+) -> None:
     where = _where(tmp_path)
     add.add_task("notes", "purge", where, periodic="0 3 * * *")
     source = (
         tmp_path / "probe" / "probe" / "modules" / "notes" / "tasks.py"
     ).read_text()
-    assert "A run can repeat or overlap" in source
+    # Two facts: a slot is sent twice only in two cases and can be lost (any
+    # ack mode), and a dead worker loses the run unless the task is
+    # at_least_once.
+    assert "A slot is sent twice only when" in source
+    assert "it can\n    be lost" in source
+    assert "harmless to repeat" in source and "next run catch up" in source
+    assert "loses the run unless the task declares\n    at_least_once=True" in source
+    assert "redelivery" in source
+    assert "at most once per slot" not in source
+    assert "A run can repeat" not in source

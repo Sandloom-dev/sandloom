@@ -2,7 +2,7 @@
 4, 5 and 7; ledger G-PROJ-14..17, C-PROJ-07/08).
 
 A ``store=`` target applies through the version-guarded conditional writes
-and is read by ``View``; the tombstone purge and the watermark guard on the
+and is read by ``Projection.view``; the tombstone purge and the watermark guard on the
 apply path; ``rebuild_all`` / ``rebuild_entity``; consistency tokens: the
 entries a write's events produce, a read that waits for them and a read that
 serves stale with ``SANDLOOM-Projection-Stale`` once its budget is spent.
@@ -11,16 +11,18 @@ serves stale with ``SANDLOOM-Projection-Stale`` once its budget is spent.
 from __future__ import annotations
 
 import asyncio
+import importlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 import pytest_asyncio
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel, ConfigDict
 from sdkfix_notes.events import NoteDeleted, NoteLiked, NoteSaved
 from sdkfix_notes.models import FixtureBase, NoteIndex
@@ -30,6 +32,7 @@ from sqlalchemy import select
 import sandloom.core.http.route_runtime as route_runtime
 import sandloom.core.projections.tokens as tokens_module
 import sandloom.sdk._decl.projections as decl
+from sandloom.core.di import get_db
 from sandloom.core.drivers.memory_document_store import MemoryDocumentStoreProvider
 from sandloom.core.eventing.delivery import PoisonEventError
 from sandloom.core.facade import CoreFacade
@@ -767,3 +770,90 @@ def test_a_write_route_sets_the_token_header(monkeypatch: pytest.MonkeyPatch) ->
     )
     assert token is not None and token.entries[0].version == 1
     assert token.entries[0].group == "note_version"
+
+
+# -- Projection.view: the read dependency binds the object ----------------------
+
+
+def _view_app(projection: Projection, tenant: UUID) -> FastAPI:
+    """One route reading ``projection`` through ``projection.view(NoteRow)``; it
+    answers whether the injected view holds this very projection object."""
+    app = FastAPI()
+
+    async def no_session() -> AsyncIterator[None]:
+        yield None
+
+    async def read_notes(view: Any) -> dict[str, Any]:
+        with bind_tenant(tenant):
+            page = await view.query(limit=10)
+        return {
+            "bound": view.projection is projection,
+            "ids": [str(r.note_id) for r in page.items],
+        }
+
+    # This module postpones annotations: FastAPI gets the real one.
+    read_notes.__annotations__["view"] = Annotated[
+        ProjectionView[NoteRow], projection.view(NoteRow)
+    ]
+    app.dependency_overrides[get_db] = no_session
+    app.add_api_route("/notes", read_notes)
+    return app
+
+
+async def test_a_view_is_bound_to_the_projection_object_not_to_a_name(
+    memory_store: MemoryDocumentStoreProvider,
+) -> None:
+    # Never passed to define_module: no registry knows it, and it reads anyway.
+    projection = _store_projection()
+    group = projection.groups[0]
+    tenant, kept, gone = uuid4(), uuid4(), uuid4()
+    saved, deleted = group.events[NoteSaved], group.events[NoteDeleted]
+    with bind_tenant(tenant):
+        for note in (kept, gone):
+            event = NoteSaved(note_id=note, tenant_id=tenant, title="t", version=1)
+            await projection.apply(group, event, saved)
+        await projection.apply(
+            group, NoteDeleted(note_id=gone, tenant_id=tenant, version=2), deleted
+        )
+    transport = httpx.ASGITransport(app=_view_app(projection, tenant))
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+        got = await client.get("/notes")
+    assert got.status_code == 200
+    assert got.json() == {"bound": True, "ids": [str(kept)]}
+
+
+async def test_a_view_hands_its_options_to_the_projection_view() -> None:
+    projection = _store_projection()
+    request, response = Request({"type": "http", "headers": []}), Response()
+    tuned: Any = projection.view(NoteRow, on_stale="source", wait_ms=250).dependency
+    view = await tuned(None, request, response)
+    assert view.projection is projection and view.row is NoteRow
+    assert (view.on_stale, view.wait_ms) == ("source", 250)
+    assert view.response is response and view.token is None
+    plain: Any = projection.view(NoteRow).dependency
+    default = await plain(None, request, response)
+    assert (default.on_stale, default.wait_ms) == ("serve", None)
+
+
+@pytest.mark.parametrize(
+    ("options", "problem"),
+    [
+        ({"on_stale": "stale"}, "on_stale"),
+        ({"wait_ms": -1}, "wait_ms"),
+    ],
+)
+def test_a_view_refuses_what_it_cannot_serve(
+    options: dict[str, Any], problem: str
+) -> None:
+    with pytest.raises(ProjectionDefinitionError, match=problem):
+        _store_projection().view(NoteRow, **options)
+    # The edge of each refusal is accepted.
+    _store_projection().view(NoteRow, on_stale="source", wait_ms=0)
+
+
+def test_the_name_lookup_view_is_gone() -> None:
+    public = importlib.import_module("sandloom.sdk.projections")
+    assert not hasattr(public, "View") and "View" not in public.__all__
+    assert not hasattr(decl, "View")
+    assert not hasattr(decl, "register_view_source")
+    assert callable(Projection.view)

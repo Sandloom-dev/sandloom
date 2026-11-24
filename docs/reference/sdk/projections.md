@@ -42,14 +42,13 @@ later hand-off raises `NotImplementedError` naming it.
 | [`ProjectionRebuilder`](#projectionrebuilder_1) | class | Reconstructs a projection from its source modules (idempotently). |
 | [`ProjectionRebuildResult`](#projectionrebuildresult) | class | Outcome of a rebuild run (rows written + whether the index was cleared). |
 | [`ProjectionRegistryError`](#projectionregistryerror) | exception | A projection/consumer registration conflicts with existing state. |
-| [`ProjectionView`](#projectionview) | class | Reads one projection (`Annotated[ProjectionView[R], View(...)]`). |
+| [`ProjectionView`](#projectionview_1) | class | Reads one projection (`Annotated[ProjectionView[R], PROJECTION.view(R)]`). |
 | [`purge_tombstones`](#purge_tombstones) | async function | Purge tombstones behind the watermark that refuses older replays. |
 | [`QueryProjectionDescriptor`](#queryprojectiondescriptor) | class | A denormalised cross-module read model owned by one module. |
 | [`QueryProjectionRegistry`](#queryprojectionregistry) | class | Holds query-projection descriptors, consumers and rebuilders by name. |
 | [`read_token`](#read_token) | function | The token of `header`; `None` for a missing, malformed, expired, unknown-kid or other-tenant token (never an error). |
 | [`rebuild`](#rebuild) | async function | Rebuild projection `name` from its source (§6.4): one tenant, or every tenant. Purges refuse while it runs; the purge watermark is kept.... |
 | [`start_projection_consumers`](#start_projection_consumers) | async function | Subscribe every registered projection consumer to the event bus. |
-| [`View`](#view) | function | The dependency resolving a `ProjectionView` of projection `name`: |
 
 ## After-first names
 
@@ -100,6 +99,32 @@ The source channels, in declaration order.
 ```python
 def descriptor(self, owner_module: str) -> QueryProjectionDescriptor
 ```
+
+#### `Projection.view`
+
+```python
+def view(
+    self,
+    row: type[R],
+    *,
+    on_stale: Literal['serve', 'source'] = 'serve',
+    wait_ms: int | None = None,
+) -> params.Depends
+```
+
+The dependency resolving a `ProjectionView` of THIS projection:
+
+```python
+BoardView = Annotated[ProjectionView[BoardOut], BOARD.view(BoardOut)]
+
+async def list_boards(boards: BoardView) -> Page[BoardOut]: ...
+```
+
+It binds the object, never a name: a typo is a `NameError` at import,
+and a module reads only a projection it can import (another module's
+data reaches it through events and contracts). The row type stays in
+the annotation too, because a type checker needs it and FastAPI hands
+the dependency no annotation.
 
 #### `Projection.token_entries`
 
@@ -547,7 +572,7 @@ class ProjectionView(Generic)(
 ) -> None
 ```
 
-Reads one projection (`Annotated[ProjectionView[R], View(...)]`).
+Reads one projection (`Annotated[ProjectionView[R], PROJECTION.view(R)]`).
 
 Rows whose tombstone is set are never returned. With a consistency token
 (`SANDLOOM-Consistency-Token`) a read waits up to `wait_ms` for the rows
@@ -747,24 +772,6 @@ Returns the number of consumers wired through the canonical supervised
 runtime. Duplicate groups and missing required projections fail startup;
 repeated calls do not add duplicate handlers. `session_opener` defaults
 to `unit_of_work.db_session` and is injectable for tests.
-
-### `View`
-
-```python
-def View(
-    name: str,
-    row: type[R],
-    *,
-    on_stale: Literal['serve', 'source'] = 'serve',
-    wait_ms: int | None = None,
-) -> params.Depends
-```
-
-The dependency resolving a `ProjectionView` of projection `name`:
-
-```python
-tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
-```
 
 ## Examples and related guides
 

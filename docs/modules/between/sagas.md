@@ -142,10 +142,17 @@ stand-in ledger contract with its stub; it writes no tests and no route. See [Ad
 
 ### Rules for authors
 
-- `args` / `compensate_args` are **pure, named, module-level functions** of
-  `c.input` and `c.result(...)`: no lambdas, no closures over request state,
-  no clock, no randomness. Arguments are recomputed on every attempt; a
-  drift hits the command log's argument digest (409) and parks the instance.
+<!-- prose-ok: S13 seven independent author rules, one of them reworded -->
+- `args` / `compensate_args` are **pure functions** of `c.input` and
+  `c.result(...)`: no closures over request state, no clock, no randomness.
+  Arguments are recomputed on every attempt; a drift hits the command log's
+  argument digest (409) and parks the instance.
+- **A lambda is fine for a one-expression mapping of `c.input`**:
+  `args=lambda c: {"customer_id": c.input.student_id, "amount": c.input.price}`.
+  **Write a named function** when the mapping reads `c.result(...)` or
+  `c.key(...)`. A mapping that reads a result or a key is where impurity
+  creeps in on a retry. The startup check also names a function by
+  `fn.__name__` in its errors, and a lambda reports there as `<lambda>()`.
 - Every compensatable step names a compensation **command** that is
   idempotent and **accepts "nothing to undo"**: refunding a charge that never
   happened is a success, not a 404 (the forward call may have been refused,
@@ -187,6 +194,36 @@ Outside a unit it raises `UnitOfWorkRequiredError`. `saga_status(ENROLL,
 saga_id)` is the read side (`None` if never started). The route gets the
 ordinary write defaults (authentication, the session check, automatic
 idempotency); nothing to declare.
+
+### Reading it: the status route
+
+The status route reports the saga and the business row. Pass the row's
+loader to `saga_status` and it returns both, in the right order:
+
+```python
+--8<-- "examples/academy/academy/modules/enrollment/api/enrollment.py:65:81"
+```
+
+`saga_status` comes from `sandloom.sdk.sagas`, an advanced name that needs a
+`# sandloom: advanced <reason>` marker. `handle` is `None` if the saga never
+started. The call reads the instance
+first and awaits the loader after it, in the same unit. A saga transition
+commits the business row and the instance status together, and under READ
+COMMITTED a later read never sees an older commit. So the row is at least as
+new as the status you report. Read in the other order, a transition between
+the two reads pairs a terminal status with the row's previous state.
+
+It is correct only when the row lives in the saga's own database and a local
+step of the saga writes it. The call cannot check that for a loader it only
+calls. A row in another database, or a row another process writes, is not
+ordered against the instance. `with_row=` takes the loader, not its result:
+`with_row=lambda: enrollments.get_or_404(id)`, never
+`with_row=enrollments.get_or_404(id)` (that is a `TypeError`).
+
+The loader must read the row fresh. The request's session keeps a row it
+already loaded in its identity map. A `db().get(Model, id)` after an earlier
+load of that row returns the cached copy, so the guarantee above does not hold
+for it. Use a `select` in the loader, or `get` with `populate_existing=True`.
 
 ### How it runs
 
@@ -269,7 +306,9 @@ countermeasures explicitly (Richardson, *Microservices Patterns*, ch. 4):
 
 ### Anti-patterns
 
-- A lambda, or a closure over request state, as `args`.
+<!-- prose-ok: S13 eight independent anti-patterns, one of them reworded -->
+- A closure over request state, or a lambda that reads `c.result(...)` or
+  `c.key(...)`, as `args`.
 - PII in the input or results.
 - A retriable step that refuses: after the pivot a refusal parks the
   instance.

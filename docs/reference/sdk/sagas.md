@@ -168,11 +168,20 @@ A command step: `call` a command contract with `args(ctx)`:
 
 ```python
 credits = Contract(BILLING_CREDITS_V1)
-step("charge", call=credits.spend, args=lambda ctx: {...},
+step("charge", call=credits.spend,
+     args=lambda c: {"user_id": c.input.user_id, "amount": c.input.price},
      compensate=credits.grant)
 ```
 
 Identical to the L2 `step` with `call="billing.credits.v1.spend"`.
+
+`args` runs again on every attempt, so it is pure: no clock, no
+randomness, no closure over request state (a drift changes the command's
+argument digest and parks the saga). A lambda suits a one-expression
+mapping of `c.input`. Write a named function when the mapping reads
+`c.result(...)` or `c.key(...)`: the startup check names the function
+in its errors (`fn.__name__`), and a lambda shows up there as
+`<lambda>()`.
 
 ## Advanced names
 
@@ -287,10 +296,41 @@ contract, and the rolling-upgrade check covers exactly these methods.
 ### `saga_status`
 
 ```python
-async def saga_status(definition: Saga[Any], saga_id: object) -> SagaHandle | None
+async def saga_status(
+    definition: Saga[Any],
+    saga_id: object,
+    *,
+    with_row: Callable[[], Awaitable[RowT]] | None = None,
+) -> tuple[SagaHandle | None, RowT] | SagaHandle | None
 ```
 
 The instance of `definition` for `saga_id` (`None` if never started).
+
+`with_row=loader` returns `(handle, row)`: it reads the instance first,
+then awaits `loader()` in the same unit, so the API fixes the order:
+
+```python
+handle, row = await saga_status(
+    ENROLL, eid, with_row=lambda: Enrollments.get_or_404(eid)
+)
+```
+
+The order matters because a saga transition commits the business row and
+the instance status together. Under READ COMMITTED a later read never sees
+an older commit, so the row is at least as new as the status reported with
+it; read the other way round, a transition landing between the two reads
+would pair a terminal status with the row's previous state.
+
+It is only correct when the row lives in the saga's own database and a
+local step of the saga writes it. The runtime cannot check that for a
+loader it only calls: a row in another database, or one another process
+writes, is not ordered against the instance by this call.
+
+The loader must read the row fresh. A row the request's session already
+holds is served from its identity map, not re-read, so the guarantee above
+would not hold for it: `db().get(Model, id)` after an earlier load of that
+row returns the cached copy. Run a `select` (or `get` with
+`populate_existing=True`) inside the loader.
 
 ### `saga_step_key`
 

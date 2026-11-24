@@ -1774,9 +1774,14 @@ def _task_block(module: str, name: str, schedule: str | None) -> str:
         )
     else:
         doc = (
-            "The work of one run. A run can repeat or overlap another, so make\n"
-            "    it harmless (delete by a condition, upsert, or claim a\n"
-            "    durable_inbox key)."
+            "The work of one run. A slot is sent twice only when the slot claim\n"
+            "    store is down or in the repeated daylight-saving hour, and it can\n"
+            "    be lost (a scheduler killed between claim and send). Make it\n"
+            "    harmless to repeat (delete by a condition, upsert, or claim a\n"
+            "    durable_inbox key) and let the next run catch up. A worker that\n"
+            "    dies mid-run loses the run unless the task declares\n"
+            "    at_least_once=True (add the taskqueue feature redelivery next to\n"
+            "    periodic)."
         )
     return f'''{decorator}
 async def {name}() -> None:

@@ -51,12 +51,17 @@ async def on_note_created(event: NoteCreatedView) -> None: ...
 A contract call, declared at module level from the generated stub:
 
 ```python
+from uuid import UUID
+
 from <app>.shared.contracts.stats_quota_v1 import STATS_QUOTA_V1
 from sandloom.sdk import Contract
 
 quota = Contract(STATS_QUOTA_V1)
 
-left = await quota.remaining(org_id)  # a method of the provider's contract
+
+async def check_quota(org_id: UUID) -> int:
+    """In a service function: the call needs a running unit."""
+    return await quota.remaining(org_id)  # a method of the provider's contract
 ```
 
 The provider's refusal reaches you as `HTTPException` with its status; let it
