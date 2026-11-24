@@ -52,7 +52,9 @@ def environment() -> Mapping[str, str]:
     not settings (``src/sandloom/core/AGENTS.md`` lists them):
     ``SANDLOOM_DEBUG``, ``CI``, ``DOCKER_HOST``, the terminal's ``NO_COLOR``,
     ``FORCE_COLOR``, ``CLICOLOR_FORCE``, ``TERM``, ``COLORTERM``, ``UV`` and
-    the coding-agent markers of :data:`sandloom.core.cli.ui.AGENT_MARKERS`."""
+    the coding-agent markers of :data:`sandloom.core.cli.ui.AGENT_MARKERS`.
+    ``sandloom dev token`` also reads ``PGHOST`` here: the host the database
+    driver uses for a url that names none, which no ``Settings`` field holds."""
     return os.environ
 
 

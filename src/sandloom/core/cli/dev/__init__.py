@@ -22,6 +22,11 @@ the installed driver package describes
     sandloom dev prune                databases of removed worktrees, stale test
                                       databases, ports of removed repositories
     sandloom dev logs [service] [-f]
+    sandloom dev token [--tenant UUID] [--role NAME]... [--user UUID]
+                       [--ttl-minutes N] [--quiet]
+                                      an access token your app accepts, printed
+                                      on stdout; refuses unless ENVIRONMENT is
+                                      dev or test (:mod:`sandloom.core.cli.dev.token`)
 
 ``up`` is idempotent and safe to run from every agent first thing: a second
 ``up`` waits for the first (the repository lock) and finds everything up.
@@ -46,6 +51,7 @@ from sandloom.core.cli.dev import docker as _docker
 from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import errors as _errors
 from sandloom.core.cli.dev import identity as _identity
+from sandloom.core.cli.dev import token as _token
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -122,6 +128,39 @@ def _parser() -> argparse.ArgumentParser:
         help="show Docker Compose's own progress",
     )
     sub.add_parser("prune", help="drop what removed worktrees and old runs left")
+    token = sub.add_parser(
+        "token",
+        help="print an access token your app accepts (ENVIRONMENT=dev or test only)",
+    )
+    token.add_argument(
+        "--user",
+        type=_token.uuid_argument,
+        default=None,
+        help="the token's subject (default: a fixed dev user)",
+    )
+    token.add_argument(
+        "--tenant",
+        type=_token.uuid_argument,
+        default=None,
+        help="grant this tenant (needs a module that assigns tenant grants, "
+        "tenancy by default)",
+    )
+    token.add_argument(
+        "--role",
+        action="append",
+        default=[],
+        help="carry this role, repeatable (needs a module that assigns roles, "
+        "identity by default)",
+    )
+    token.add_argument(
+        "--ttl-minutes",
+        type=int,
+        default=None,
+        help="how long the token lives (default 60, at most 1440)",
+    )
+    token.add_argument(
+        "--quiet", action="store_true", help="print the token only, nothing on stderr"
+    )
     logs = sub.add_parser("logs", help="the services' logs")
     logs.add_argument(
         "service",
@@ -157,6 +196,17 @@ def _dispatch(ctx: _commands.Context, args: argparse.Namespace) -> int:
         )
     if args.action == "prune":
         return _commands.prune(ctx)
+    if args.action == "token":
+        return _token.run(
+            ctx,
+            _token.Request(
+                user=args.user,
+                tenant=args.tenant,
+                roles=tuple(args.role),
+                ttl_minutes=args.ttl_minutes,
+                quiet=args.quiet,
+            ),
+        )
     return _commands.logs(ctx, service=args.service, follow=args.follow)
 
 
@@ -167,6 +217,9 @@ def _ci(action: str, env: Mapping[str, str]) -> int:
             "SANDLOOM_TEST_DATABASE_URL names the test database); nothing to start"
         )
         return 0
+    if action == "token":
+        print(f"error: {_token.CI_REFUSAL}", file=sys.stderr)
+        return 1
     print(
         f"error: `sandloom dev {action}` is for a developer machine; in CI, "
         "provide the services and set SANDLOOM_TEST_DATABASE_URL, "

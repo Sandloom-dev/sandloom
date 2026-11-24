@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -22,6 +23,7 @@ from sandloom.core.auth.marks import (
 from sandloom.core.claims import (
     CPV_CLAIM,
     CPV_VERSION,
+    DEV_MINT_CLAIM,
     NO_AUTHORITIES,
     ClaimAuthorities,
     SealedClaims,
@@ -30,7 +32,7 @@ from sandloom.core.claims import (
     sealed_data,
 )
 from sandloom.core.config import accepted_risks
-from sandloom.core.config.common import strict_profile_active
+from sandloom.core.config.common import Environment, strict_profile_active
 from sandloom.core.config.settings import settings
 from sandloom.core.signing_keys import (
     KeyConfigError,
@@ -38,6 +40,11 @@ from sandloom.core.signing_keys import (
     load_public_key,
     same_public_key,
 )
+
+#: The only environments where a development token (``sandloom dev token``)
+#: is minted and verified. An allow-list: every other value (``prod`` today, a
+#: new environment tomorrow) is refused.
+DEV_ENVIRONMENTS: tuple[str, ...] = (Environment.dev.value, Environment.test.value)
 
 
 def create_access_token(
@@ -351,6 +358,8 @@ def _verification_settings() -> tuple[Any, ...]:
         s.jwt_audience,
         s.jwt_issuer,
         s.jwt_leeway_seconds,
+        # A development token verifies only where this is dev or test.
+        s.environment,
     )
 
 
@@ -417,6 +426,21 @@ def decode_token(token: str) -> dict[str, Any] | None:
     return claims
 
 
+def _accepted_payload(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The verified ``payload`` as a plain dict, or ``None`` when this process
+    must not accept it: an empty one, or a development token
+    (``sandloom dev token``) read by a verifier that is not running dev or
+    test. Such a token names itself with a sealed marker, so a development
+    key reused in production signs no token that production trusts (ADR-0014,
+    development token)."""
+    if not payload:
+        return None
+    if DEV_MINT_CLAIM in payload and settings.environment.value not in DEV_ENVIRONMENTS:
+        return None
+    # jwt.decode returns a dict; explicit copy keeps mypy --strict happy.
+    return dict(payload)
+
+
 def _decode_token_uncached(token: str) -> dict[str, Any] | None:
     """Decode and verify a JWT, returning its claims or ``None`` on any failure.
 
@@ -465,8 +489,7 @@ def _decode_token_uncached(token: str) -> dict[str, Any] | None:
                 options=cast(Any, options),
                 **kwargs,
             )
-            # jwt.decode returns a dict; explicit copy keeps mypy --strict happy.
-            return dict(payload) if payload else None
+            return _accepted_payload(payload)
         except jwt.InvalidSignatureError:
             # Wrong key: try the next (previous) secret, if any.
             if idx == len(keys) - 1:
