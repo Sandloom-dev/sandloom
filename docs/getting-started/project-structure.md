@@ -29,8 +29,8 @@ myapp/
   architecture_rules.yml    # the import boundaries `sandloom check` enforces
   .github/workflows/ci.yml  # the same checks in CI
   .pre-commit-config.yaml
-  AGENTS.md, CLAUDE.md      # instructions for coding agents
-  .agents/, .claude/        # skills for coding agents
+  AGENTS.md                 # instructions for coding agents (CLAUDE.md, GEMINI.md: for the agents you pick)
+  .agents/                  # skills for coding agents (.claude/, .kiro/: for the agents you pick)
   .sandloom/inspection.json # generated: what the inspection commands read
   .gitattributes            # merges that file line by line (`merge=union`, LF)
 ```

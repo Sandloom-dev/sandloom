@@ -98,6 +98,76 @@ def test_a_legacy_bare_path_marker_is_still_ours(
     assert not ownership.same_owner("run-a", "x:run-a")
 
 
+def _claimed_by_a_run(url: str) -> bool:
+    """``ownership.database_claimed`` on a new connection (a database's own
+    settings apply when a session starts)."""
+    import psycopg2
+
+    conn = psycopg2.connect(_plain(url, urlsplit(url).path.lstrip("/")))
+    try:
+        with conn.cursor() as cur:
+            return ownership.database_claimed(cur)
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def unborn_db(scratch_db: str) -> Iterator[str]:
+    """The URL of a database that does not exist yet (dropped afterwards)."""
+    import psycopg2
+
+    name = f"{urlsplit(scratch_db).path.lstrip('/')}_born"
+    yield urlunsplit(urlsplit(scratch_db)._replace(path=f"/{name}"))
+    admin = psycopg2.connect(_plain(scratch_db, "postgres"))
+    admin.autocommit = True
+    with admin.cursor() as cur:
+        cur.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+    admin.close()
+
+
+def test_a_slot_run_claims_the_database_migrate_new_stamped_without_a_slot(
+    unborn_db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``migrate new`` creates the test database before any run slot is held
+    (owner ``<machine>:<checkout>``); the first plain ``pytest`` is slot 1
+    (``…#1``) of the same checkout and must not be refused its own database."""
+    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
+    checkout = "abcdef123456:/work/app2"
+    monkeypatch.setattr(ownership, "current_owner", lambda *args, **kwargs: checkout)
+    workers.ensure_database(unborn_db)  # what `migrate new` runs: stamped, unused
+    assert _marker(unborn_db) == checkout
+    assert not _claimed_by_a_run(unborn_db)
+    ownership._claimed.clear()
+    ownership.claim_database(unborn_db, owner=f"{checkout}#1")
+    assert _marker(unborn_db) == f"{checkout}#1"
+    assert _claimed_by_a_run(unborn_db)
+    ownership._claimed.clear()
+    with pytest.raises(ownership.TestResourceOwnershipError):
+        ownership.claim_database(unborn_db, owner="abcdef123456:/work/app3#1")
+    with pytest.raises(ownership.TestResourceOwnershipError):
+        ownership.claim_database(unborn_db, owner=f"{checkout}#2")
+    assert _marker(unborn_db) == f"{checkout}#1"
+
+
+def test_a_slot_run_never_takes_the_database_of_a_live_slotless_run(
+    scratch_db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run A of a checkout got no slot (none free, or its own database url
+    exported without an owner): it claimed the checkout's base database under
+    the slot-less owner. Run B of the same checkout is slot 1, which uses that
+    same base database: it must be refused, or both truncate each other's."""
+    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
+    checkout = "abcdef123456:/work/app2"
+    ownership.claim_database(scratch_db, owner=checkout)  # run A: claimed, in use
+    assert _claimed_by_a_run(scratch_db)
+    ownership._claimed.clear()  # run B is another process
+    with pytest.raises(ownership.TestResourceOwnershipError):
+        ownership.claim_database(scratch_db, owner=f"{checkout}#1")
+    assert _marker(scratch_db) == checkout
+    ownership._claimed.clear()
+    ownership.claim_database(scratch_db, owner=checkout)  # run A keeps it
+
+
 def test_an_unmarked_database_is_claimed_then_refused_to_others(
     scratch_db: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

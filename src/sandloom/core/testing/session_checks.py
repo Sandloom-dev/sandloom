@@ -26,7 +26,10 @@ from urllib.parse import parse_qs, urlunsplit
 
 import pytest
 
+from sandloom.core.infra.errors import Unavailable
 from sandloom.core.migrations.pg_sync import psycopg2
+from sandloom.core.observability.unreachable import CODE as R014
+from sandloom.core.observability.unreachable import unreachable
 from sandloom.core.testing import connections, families, ownership, workers
 from sandloom.core.testing.env import dev_up_hint
 from sandloom.core.testing.families import INFRA_VAR, INSTANCE_URL_OPTIONS
@@ -161,6 +164,11 @@ def check_run_resources(config: pytest.Config) -> None:
         hint = dev_up_hint(env_starts(config))
         message = f"{exc} Or: {hint}." if hint else str(exc)
         pytest.exit(message, returncode=pytest.ExitCode.USAGE_ERROR)
+    except Unavailable as exc:
+        # A harness family probed its server and nothing answers: the run's own
+        # SANDLOOM-R014 line (the server named), not an INTERNALERROR traceback.
+        line = unreachable(exc) or f"{exc}   [{R014}]"
+        pytest.exit(line, returncode=pytest.ExitCode.USAGE_ERROR)
     if database and not count:
         _prepare_serial_database(database)
 

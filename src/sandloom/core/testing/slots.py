@@ -59,6 +59,7 @@ from sandloom.core.testing.machine import (
     machine_id,
     short_hash,
 )
+from sandloom.core.testing.ownership import slot_owner
 from sandloom.core.url_split import split_url
 
 SLOT_HELD_ENV = "SANDLOOM_TEST_SLOT_HELD"
@@ -122,10 +123,6 @@ def slot_database_url(base_url: str, number: int) -> str:
     parts = split_url(base_url)
     name = parts.path.lstrip("/")
     return urlunsplit(parts._replace(path=f"/{name}_{number}"))
-
-
-def slot_owner(machine: str, checkout: Path, number: int) -> str:
-    return f"{machine}:{checkout}#{number}"
 
 
 def _pid_alive(pid: int) -> bool:

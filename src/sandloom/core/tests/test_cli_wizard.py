@@ -922,3 +922,64 @@ def test_the_wizard_in_a_pseudo_terminal(tmp_path: Path) -> None:
     assert (root / ".claude/skills").is_dir() and not (root / ".agents").exists()
     assert "sandloom-identity" in (root / "pyproject.toml").read_text()
     assert (root / ".git").is_dir() or "inside the git repository at" in text
+
+
+@pytest.mark.usefixtures("_no_boot")
+def test_yes_without_agents_writes_the_shared_folder_and_one_agent_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--yes` asks nothing and detects nothing: ``.agents/skills`` and
+    ``AGENTS.md``, no copy per installed agent, no pointer file."""
+    from sandloom.core.cli import skills
+
+    # Every agent "installed": a detecting default would write all three folders.
+    everything = {agent.key: "x" for agent in skills.CODING_AGENTS}
+    monkeypatch.setattr(skills, "detect_agents", lambda *a, **k: everything)
+    out, err = _Stream(tty=False), _Stream(tty=False)
+    code = wizard.main(
+        ["shop", "--dir", str(tmp_path), "--yes"],
+        environ={},
+        stdin=_Stream(tty=False),
+        out=out,
+        err=err,
+    )
+    assert code == 0, err.getvalue()
+    root = tmp_path / "shop"
+    assert (root / ".agents/skills").is_dir() and (root / "AGENTS.md").is_file()
+    assert not (root / ".claude").exists() and not (root / ".kiro").exists()
+    for pointer in ("CLAUDE.md", "GEMINI.md"):
+        assert not list(root.rglob(pointer)), pointer
+
+
+@pytest.mark.usefixtures("_no_boot")
+def test_agents_flag_still_adds_an_agents_own_folder(tmp_path: Path) -> None:
+    out, err = _Stream(tty=False), _Stream(tty=False)
+    code = wizard.main(
+        ["shop", "--dir", str(tmp_path), "--yes", "--agents", "claude"],
+        environ={},
+        stdin=_Stream(tty=False),
+        out=out,
+        err=err,
+    )
+    assert code == 0, err.getvalue()
+    root = tmp_path / "shop"
+    assert (root / ".claude/skills").is_dir() and (root / "CLAUDE.md").is_file()
+
+
+@pytest.mark.usefixtures("_no_boot")
+@pytest.mark.parametrize(("services", "dev_up"), [("none", False), ("docker", True)])
+def test_next_steps_name_dev_up_only_when_the_stack_runs_in_docker(
+    tmp_path: Path, services: str, dev_up: bool
+) -> None:
+    out, err = _Stream(tty=False), _Stream(tty=False)
+    code = wizard.main(
+        ["shop", "--dir", str(tmp_path), "--yes", "--services", services],
+        environ={},
+        stdin=_Stream(tty=False),
+        out=out,
+        err=err,
+    )
+    assert code == 0, err.getvalue()
+    steps = out.getvalue().split("Next steps:\n", 1)[1]
+    assert ("uv run sandloom dev up" in steps) is dev_up
+    assert "uv run sandloom test" in steps  # the rest of the quickstart stays

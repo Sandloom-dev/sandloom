@@ -673,6 +673,7 @@ def test_b037_is_in_the_catalogue_and_explained() -> None:
     assert entry.kind == "boot"
     assert entry.slug == "capability-unavailable"
     text = error_codes.explain_text(entry)
-    assert "find_spec" in text and "INFRA" in text
+    # The text opens with the cause and the fix, and says no driver is imported.
+    assert "INFRA" in text and "without importing a driver" in text
     for name in ("DriverUnavailableError", "CapabilityUnavailable"):
         assert error_codes.EXCEPTION_CODES[name] == "SANDLOOM-B037"

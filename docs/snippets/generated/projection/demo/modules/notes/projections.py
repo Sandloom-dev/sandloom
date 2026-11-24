@@ -1,4 +1,4 @@
-"""The notes.board projection (spec §6.4).
+"""The notes.board projection.
 
 Full-state events of one aggregate, versioned tombstones, one owning group
 per column.

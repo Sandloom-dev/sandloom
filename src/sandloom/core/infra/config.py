@@ -33,6 +33,7 @@ passed verbatim to that driver as an option.
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -59,6 +60,8 @@ DEFAULTED_CAPABILITIES: tuple[str, ...] = (
 
 
 DEFAULT_INSTANCE = "default"
+
+logger = logging.getLogger("sandloom.infra")
 
 #: The synthesized instances the kernel itself uses in every composition, so
 #: they count as required whether or not a module names them: the database
@@ -291,6 +294,81 @@ def _flat_options(
         existing.options = {**given, **existing.options}
 
 
+#: ``capability -> (flat setting, its field)`` for the capabilities a flat
+#: setting can select the ``default`` driver of.
+_FLAT_SELECTORS: Mapping[str, tuple[str, str]] = MappingProxyType(
+    {
+        "objectstore": ("STORAGE_TYPE", "storage_type"),
+        "notification": ("NOTIFIER_BACKEND", "notifier_backend"),
+    }
+)
+
+#: The driver that runs when neither a flat setting, the composition nor INFRA
+#: selects one: the two zero-dependency in-tree drivers (local files, the log).
+_KERNEL_FALLBACK: Mapping[str, str] = MappingProxyType(
+    {"objectstore": "local", "notification": "log"}
+)
+
+#: Warnings already written (a process builds the configuration several times).
+_WARNED: set[str] = set()
+
+
+def _warn_once(message: str) -> None:
+    if message not in _WARNED:
+        _WARNED.add(message)
+        logger.warning(message)
+
+
+def _flat_selection(settings: Any, capability: str) -> str | None:
+    """The driver the flat setting of ``capability`` names; ``None`` when unset."""
+    _, field_name = _FLAT_SELECTORS[capability]
+    value = getattr(settings, field_name, None)
+    return str(value) if value is not None else None
+
+
+def _infra_driver(raw: object, capability: str) -> str | None:
+    """The driver ``INFRA`` names for ``capability``'s ``default`` instance."""
+    spec = raw.get(capability) if isinstance(raw, Mapping) else None
+    chosen = spec.get(DEFAULT_INSTANCE) if isinstance(spec, Mapping) else None
+    driver = chosen.get("driver") if isinstance(chosen, Mapping) else None
+    return str(driver) if driver else None
+
+
+def _default_driver(config: InfraConfig, settings: Any, capability: str) -> str:
+    """The driver of ``capability``'s ``default`` instance before ``INFRA``: an
+    explicit flat setting, else what the composition selected, else the
+    kernel's fallback. A flat setting that replaces the composition's own
+    choice says so (it dropped that choice's options before, silently), unless
+    ``INFRA`` names the driver too: then the flat setting is ignored and
+    :func:`_warn_flat_shadowed_by_infra` says that."""
+    flat = _flat_selection(settings, capability)
+    existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
+    if flat is None:
+        return existing.driver if existing is not None else _KERNEL_FALLBACK[capability]
+    infra_driver = _infra_driver(getattr(settings, "infra", None), capability)
+    if existing is not None and existing.driver != flat and infra_driver is None:
+        name = _FLAT_SELECTORS[capability][0]
+        _warn_once(
+            f"{name}={flat} replaces the {capability}.default driver the app "
+            f"selects ({existing.driver}); its options are dropped. Unset "
+            f"{name} to keep the app's choice, or select {flat} in INFRA."
+        )
+    return flat
+
+
+def _warn_flat_shadowed_by_infra(settings: Any, raw: Mapping[str, Any]) -> None:
+    """An explicit flat setting that ``INFRA`` names another driver over is
+    ignored: say so, once."""
+    for capability, (name, _) in _FLAT_SELECTORS.items():
+        flat = _flat_selection(settings, capability)
+        driver = _infra_driver(raw, capability)
+        if flat is not None and driver and driver != flat:
+            _warn_once(
+                f"INFRA.{capability}.default selects {driver}; {name}={flat} is "
+                f"ignored. Unset {name}, or make them agree."
+            )
+
+
 def _eventbus_selector(settings: Settings) -> str | None:
     """The driver ``EVENT_BUS_BACKEND`` names, ``None`` when it is unset (the
     composition's ``eventbus.default`` decides: no kernel default, in any
@@ -313,16 +391,22 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
     objectstore_options: dict[str, Any] = {
         "max_upload_size_bytes": settings.max_upload_size_bytes,
     }
-    if settings.storage_type != "s3":
-        objectstore_options["path"] = settings.storage_path
-
     synthesized = _composition_instances()
     _flat_options(synthesized, "database", {"url": settings.database_url})
-    # The in-tree objectstore and notifier drivers are selected by their own
-    # flat settings (``local`` and ``log`` by default); the options of ``smtp``
-    # (host, port, credentials, ``use_tls``) come from INFRA.notification.
-    _select(synthesized, "objectstore", settings.storage_type, objectstore_options)
-    _select(synthesized, "notification", settings.notifier_backend, {})
+    # The in-tree objectstore and notifier drivers: an explicit flat setting
+    # selects them, else the composition's own choice stands (its options
+    # kept), else ``local`` and ``log``; the options of ``smtp`` (host, port,
+    # credentials, ``use_tls``) come from INFRA.notification.
+    store_driver = _default_driver(synthesized, settings, "objectstore")
+    if store_driver == "local":
+        objectstore_options["path"] = settings.storage_path
+    _select(synthesized, "objectstore", store_driver, objectstore_options)
+    _select(
+        synthesized,
+        "notification",
+        _default_driver(synthesized, settings, "notification"),
+        {},
+    )
     selected_bus = _eventbus_selector(settings)
     if selected_bus is not None:
         _select(synthesized, "eventbus", selected_bus, {})
@@ -443,6 +527,14 @@ def resolved_instances(settings: Any, capability: str) -> dict[str, InstanceConf
     return _resolved_capability(settings, capability, selected)
 
 
+def _with_kernel_fallback(config: InfraConfig, capability: str) -> None:
+    """Put the kernel's fallback driver under ``capability.default`` when
+    nothing selected one (the same driver :func:`_synthesize_defaults` runs)."""
+    fallback = _KERNEL_FALLBACK.get(capability)
+    if fallback is not None and DEFAULT_INSTANCE not in config[capability]:
+        _select(config, capability, fallback, {})
+
+
 def _resolved_capability(
     settings: Any, capability: str, selected: str | None
 ) -> dict[str, InstanceConfig]:
@@ -451,6 +543,8 @@ def _resolved_capability(
     }
     if selected is not None:
         _select(config, capability, selected, {})
+    else:
+        _with_kernel_fallback(config, capability)
     raw = getattr(settings, "infra", None)
     if raw:
         if not isinstance(raw, Mapping):
@@ -511,6 +605,7 @@ def load_infra_config(settings: Settings) -> InfraConfig:
         if not isinstance(raw, Mapping):
             raise InfraConfigError("INFRA must be a JSON object")
         _overlay(config, raw)
+        _warn_flat_shadowed_by_infra(settings, raw)
     return config
 
 

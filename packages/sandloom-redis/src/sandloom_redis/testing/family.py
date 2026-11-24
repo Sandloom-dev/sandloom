@@ -30,10 +30,12 @@ from sandloom_redis.testing import resources
 from sandloom_redis.testing.ownership import claim_redis, flush_owned_redis
 from sandloom_redis.testing.urls import (
     infra_redis_urls,
+    instance_using,
     is_redis_url,
     redis_client_installed,
     redis_urls,
     refuse_unplain_database,
+    server_of,
 )
 
 
@@ -137,12 +139,34 @@ class RedisFamily:
             return
         from sandloom_redis.testing import isolation
 
-        mapping = resources.allocate_worker_redis(
-            urls,
-            count,
-            current_owner(),
-            spares=resources.REDIS_SPARES_PER_BASE,  # replacements of crashed workers
-        )
+        try:
+            mapping = resources.allocate_worker_redis(
+                urls,
+                count,
+                current_owner(),
+                # replacements of crashed workers
+                spares=resources.REDIS_SPARES_PER_BASE,
+            )
+        except resources.unreachable_errors() as exc:
+            if resources.refused_login(exc):
+                raise  # the server answered: a wrong credential is no outage
+            # Imported here, not at the top: ``sandloom.driverkit`` imports the
+            # settings and SQLAlchemy, which the harness loads this family ahead of
+            # (test_loading_the_family_imports_no_settings_and_no_sqlalchemy).
+            from sandloom.driverkit import Unavailable
+
+            # The one server every URL shares (allocate_worker_redis refuses
+            # several): say which, as SANDLOOM-R014 does for any backend.
+            capability, instance = instance_using(values.get(INFRA_VAR), urls[0]) or (
+                "redis",
+                None,
+            )
+            raise Unavailable(
+                f"the test run's Redis server {server_of(urls[0])} did not answer "
+                f"({type(exc).__name__})",
+                capability=capability,
+                instance=instance,
+            ) from exc
         os.environ[isolation.REDIS_MAP_ENV] = isolation.format_redis_map(mapping)
 
     def cap_workers(self, values: Mapping[str, str], count: int) -> int:

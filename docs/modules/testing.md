@@ -62,6 +62,49 @@ committed and names this repository's test servers.
 - When every slot is taken, the run stops with one line that names the runs
   holding them.
 
+`uv run sandloom migrate new` creates the test database before any run holds
+a slot. A first plain `pytest` right after it finds a database stamped with the
+checkout alone (`<machine>:<checkout>`). That run is slot 1 of the same
+checkout, so it takes the database over without a refusal. This holds only
+while no run has used the database yet.
+
+A database a slot-less run of the checkout already used is refused to a slot
+run, because that run may still be using it. Set
+`SANDLOOM_TEST_TAKE_OWNERSHIP=1` once when it is gone. A database stamped by
+another checkout, machine or slot is refused too.
+
+### What a test run reads
+
+One table, for the pytest plugin of an app (`-p sandloom.sdk.testing.plugin`).
+The first row that sets a key wins:
+
+| # | Source | What it sets |
+|---|---|---|
+| 1 | `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL` | exported in the shell, else the lines of `.env.test.local`; they replace `DATABASE_URL` and the cache and broker urls in `INFRA` |
+| 2 | `.env.test` | every key it names, also one the shell exports: it is loaded over the shell |
+| 3 | `.env.test.local` | a key neither the shell nor `.env.test` sets (`sandloom dev up` writes only the three `SANDLOOM_TEST_*` lines there) |
+| 4 | the shell | every key `.env.test` does not name |
+| 5 | the defaults of the settings | what is left |
+
+The developer's **`.env` is not in the table**. The plugin makes the settings
+of a test run skip it, the settings a module declares included. Keys only your
+dev `.env` sets (`TENANCY_MODE=single`, a `STORAGE_PATH`, a
+`SANDLOOM_COMPOSITION_ROOT`) never reach a test. If a test needs one, put it in
+`.env.test` or set it in the test. An exported `SECRETS_DIR` is still read.
+
+- **The composition root** a test run boots is `SANDLOOM_COMPOSITION_ROOT` from
+  this environment (an app made by `sandloom new` names it in `.env.test`). Else
+  it is the `sandloom_composition_root` ini option, else `sandloom.main`.
+- **Not tests, so they read `.env`:** `sandloom migrate` and the authoring
+  commands. So does every step of `sandloom test` that builds your app without
+  pytest, such as the migration drift check. They run the app, and the app's
+  configuration is its `.env`.
+- **The settings are read once per process.** The plugin loads the files above
+  before any conftest runs. A `UserWarning` saying the settings "were read
+  before" `.env.test` was loaded means a plugin or conftest ahead of it used
+  them. They keep the environment of that moment. List
+  `-p sandloom.sdk.testing.plugin` first in `addopts`.
+
 ### Your own database and Redis (shared machines)
 
 `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL` win
@@ -141,10 +184,12 @@ What the plugin does:
   pytest rootdir (then from the test paths) is loaded with `override=True` in
   `pytest_load_initial_conftests`, before any conftest or test module can
   read the settings. The `.env.test.local` beside it follows, without
-  overriding. No file found is a clear usage error.
-- **Boots the app** through the composition root (`SANDLOOM_COMPOSITION_ROOT`, else
-  the `sandloom_composition_root` ini option, else `sandloom.main`), which also
-  registers every loaded module's models.
+  overriding. No file found is a clear usage error. The developer's `.env` is
+  never read ([the table above](#what-a-test-run-reads)).
+- **Boots the app** through the composition root, which also registers every
+  loaded module's models. The root is `SANDLOOM_COMPOSITION_ROOT` from the
+  shell or `.env.test`, else the `sandloom_composition_root` ini option, else
+  `sandloom.main`.
 - **Guards the database.** `db_engine` refuses any `DATABASE_URL` whose
   database name lacks `test`, even with `ENVIRONMENT=test`. The schema (every
   model plus the core outbox / audit / consumer-inbox tables) is built once
@@ -177,6 +222,24 @@ test transaction:
 ```python
 --8<-- "examples/tutorial/tasklist/modules/stats/tests/test_stats.py:tests"
 ```
+
+### A single-tenant app
+
+Under `TENANCY_MODE=single` every request belongs to `SINGLE_TENANT_ID`, and a
+token for any other tenant is refused with 403 `tenant_mismatch`. `as_user()`
+therefore mints its user into `SINGLE_TENANT_ID` when you name no `tenant_id`.
+Set both in `.env.test`: the plugin never reads your dev `.env`, so
+`TENANCY_MODE=single` there does not reach the tests.
+
+```bash
+# .env.test
+TENANCY_MODE=single
+SINGLE_TENANT_ID=00000000-0000-4000-8000-000000000001
+```
+
+A test that passes `as_user(tenant_id=...)` keeps that tenant. That is how a
+test asserts the refusal. Without `SINGLE_TENANT_ID` the settings refuse to
+load, so `as_user` never has to guess.
 
 ## Fixtures and helpers in brief
 

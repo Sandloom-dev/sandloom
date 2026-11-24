@@ -251,7 +251,7 @@ def parser() -> argparse.ArgumentParser:
         default=None,
         help="comma-separated standard modules to install and load: "
         "identity,tenancy,billing,admin (the sandloom-<module> packages; "
-        "admin brings identity)",
+        "admin is the operator console and brings identity)",
     )
     p.add_argument(
         "--no-batteries", action="store_true", help="install no standard module"
@@ -275,7 +275,8 @@ def parser() -> argparse.ArgumentParser:
         "--agents",
         default=None,
         help=f"comma-separated coding agents to write skills for: {agents} "
-        "(default: asked at a terminal, else the installed ones)",
+        "(default: asked at a terminal; with --yes or without a terminal the "
+        "shared .agents/skills folder and AGENTS.md only)",
     )
     p.add_argument(
         "-y",
@@ -319,7 +320,7 @@ def parser() -> argparse.ArgumentParser:
         "--services",
         choices=SERVICE_CHOICES,
         default=None,
-        help="how --setup runs PostgreSQL and the keyed server: docker (the default), "
+        help="how --setup runs PostgreSQL and Redis: docker (the default), "
         "external (servers you already run: --database-url, --kv-url) or "
         "none (create the files only)",
     )
@@ -332,8 +333,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--kv-url",
         default=None,
-        help="with --services external: your keyed server (the one the stack's "
-        "driver package describes; default: its local server on 127.0.0.1)",
+        help="with --services external: your Redis URL (default: the local "
+        "server on 127.0.0.1)",
     )
     p.add_argument(
         "--plain",
@@ -353,7 +354,7 @@ def plan_from_args(args: argparse.Namespace, *, cwd: Path) -> Plan:
     agents = (
         _skills.parse_agents(args.agents)
         if args.agents
-        else list(_skills.DEFAULT_AGENTS)
+        else list(_skills.SHARED_AGENTS)
     )
     parent = cwd if args.dir is None else args.dir
     return Plan(
@@ -1346,7 +1347,7 @@ def _answers(run: _Run, given: Given) -> Answers | int:
             if isinstance(checked, int):
                 return checked
             given = checked
-        agents = given.agents or _skills.choose_agents(None, None, interactive=False)
+        agents = given.agents or list(_skills.SHARED_AGENTS)
         setup = bool(given.setup)
         return Answers(
             str(given.app),
@@ -1454,6 +1455,9 @@ def _serve_line(run: _Run, root: Path) -> str:
     return serve
 
 
+_DEV_UP = "uv run sandloom dev up"
+
+
 def _next_steps(run: _Run, plan: Plan, root: Path, answers: Answers) -> list[str]:
     """The quickstart lines, or after a setup the ones left to run."""
     in_cwd = plan.parent.resolve() == Path.cwd().resolve()
@@ -1468,6 +1472,10 @@ def _next_steps(run: _Run, plan: Plan, root: Path, answers: Answers) -> list[str
         if run.stack_pending:  # after `uv sync`: its package writes the files
             at = next(i for i, line in enumerate(lines) if line.startswith("uv sync"))
             lines.insert(at + 1, "uv run sandloom add stack")
+        if _services_flag(run.args) == LATER:
+            # `--services none` given: the person runs the servers; `dev up`
+            # is not the step they chose (without the flag it stays).
+            lines = [line for line in lines if not line.startswith(_DEV_UP)]
         if "admin" in plan.batteries:
             lines.append(_project.ADMIN_NEXT_STEP)
     return lines

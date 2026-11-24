@@ -90,7 +90,7 @@ x-app-env: &app-env
   # "notification": {"default": {"driver": "smtp", "host": "...", "from_addr": "..."}}.
   # A demo that runs without mail adds log_notifier_in_prod to
   # SANDLOOM_ACCEPTED_RISKS (mail is NOT delivered; the risk is logged at every start).
-  NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
+  NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-}
   # Dedicated contract pool per process (in-process contract calls / claims
   # contributors), on top of DB_POOL_SIZE + DB_MAX_OVERFLOW (README "Sizing").
   # In the monolith EVERY cross-module call is in-process: a request holding a
