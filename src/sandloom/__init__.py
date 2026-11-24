@@ -64,7 +64,7 @@ Subcommands:
                          (see sandloom.core.cli.worker)
     sandloom dev ...          local Postgres + Redis per repository, a database
                          per checkout: up / status / run / reset / down /
-                         prune / logs (see sandloom.core.cli.dev)
+                         prune / logs / token (see sandloom.core.cli.dev)
     sandloom version          print the installed framework version
 
 A command that cannot reach a backing service prints one line naming
@@ -202,7 +202,8 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("new", "scaffold an application"),
             (
                 "dev",
-                "local PostgreSQL + Redis: up / status / run / reset / down / logs",
+                "local PostgreSQL + Redis: up / status / run / reset / down / logs; "
+                "token: a dev access token",
             ),
             ("docs", "the sandloom.sdk reference: sandloom docs <name>"),
             ("explain", "explain an error code: SANDLOOM-C001, C001 or a rule id"),

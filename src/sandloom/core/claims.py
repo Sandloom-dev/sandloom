@@ -402,8 +402,10 @@ class SealedClaims(Mapping[str, Any]):
 
 
 def _seal_claims(data: Mapping[str, Any]) -> SealedClaims:
-    """Kernel-internal: seal a merge result (``collect_claims``) or the
-    kernel test authority's contribution (``sandloom.core.testing.auth``).
+    """Kernel-internal: seal a merge result (``collect_claims``), the kernel
+    test authority's contribution (``sandloom.core.testing.auth``) or the
+    development token of ``sandloom dev token``
+    (``sandloom.core.auth.dev_token``, refused outside dev and test).
     A ``dict`` is taken over, not copied: the caller built it for the seal
     and keeps no reference."""
     return SealedClaims(data, seal=_SEAL)

@@ -1,19 +1,25 @@
 ---
 title: Get your first access token
-description: Register, verify your email in a local inbox, sign in and refresh organization claims.
+description: Call your own route in the first hour - register and verify with the printed link, or print a development token with one command.
 type: how-to
 ---
 
 # Get your first access token
 
-The identity battery requires a verified email before password login. The
-default `log` notifier records delivery metadata, but deliberately keeps email
-addresses, message bodies and verification tokens out of logs. Use a local SMTP
-inbox to complete the flow; no external email account is needed.
+Two ways to a bearer token for your own routes, both without an email account
+or a mail server:
 
-## Start a local inbox
+- **The real flow.** Register, verify the email with the link the app prints,
+  sign in, refresh after creating an organization. It is the flow your users
+  take, so do it once.
+- **`sandloom dev token`.** One command prints a token the app accepts, for
+  development and tests of your routes. It never runs in production.
 
-Create an application with identity and tenancy:
+The identity battery requires a verified email before password login. In
+development the app prints the links of the emails it sends instead of mailing
+them. The verification link is in the terminal where `sandloom dev run` runs.
+
+## Create the application
 
 ```bash
 uvx --from "sandloom[standard]==0.7.0a16" sandloom new myapp --with identity,tenancy --module notes
@@ -24,39 +30,17 @@ The `tenant_not_authorized` code, the tenant error texts and the printed
 the same answers carry no `code` and the older texts.
 
 Follow the printed quickstart through `uv sync`, `uv run sandloom generate`,
-starting the development services and applying migrations. Before starting the
-API, launch [Mailpit's official Docker image](https://mailpit.axllent.org/docs/install/docker/):
-
-```bash
-docker run --rm -d --name sandloom-dev-mail \
-  -p 127.0.0.1:1025:1025 -p 127.0.0.1:8025:8025 \
-  axllent/mailpit:v1.32.0
-```
-
-Add these values to the application's `.env`:
-
-```dotenv
-NOTIFIER_BACKEND=smtp
-INFRA={"notification": {"default": {"driver": "smtp", "host": "127.0.0.1", "port": 1025, "from_addr": "no-reply@example.com", "use_tls": false}}}
-```
-
-Leave `username` and `password` out for this local inbox. These host
-options apply when the API runs with `uv run uvicorn myapp.asgi:app --reload` on
-your computer. A containerized API needs the inbox's reachable service hostname
-instead. The inbox UI is [http://127.0.0.1:8025](http://127.0.0.1:8025).
-
-This configuration captures development mail on loopback only. Production uses
-your real SMTP provider and verified STARTTLS (the `use_tls` option, on unless you write `false`); Sandloom
-rejects SMTP credentials sent without TLS in production.
-
-Without a mail server, you can print the links instead. Add `NOTIFIER_LOG_LINKS=true`
-to `.env` and keep the default `log` notifier. The running API then prints each
-email's links, marked `[dev only]`. Production refuses this setting.
+`uv run sandloom dev up` and the migrations. The generated `.env` already holds
+`NOTIFIER_LOG_LINKS=true` for an application with identity: the running API
+prints each email's links, marked `[dev only]`. Production refuses that
+setting. When you want a real inbox, configure a notification driver as
+[Notifications](../../infrastructure/notifications.md) describes.
 
 ## Register and verify
 
-Start the API and open its interactive API documentation at
-[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+Start the API with `uv run sandloom dev run` and open its interactive API
+documentation at the address it prints, `http://127.0.0.1:8000/docs` when that
+port was free.
 
 1. Execute **POST `/auth/register`** with a new address:
 
@@ -67,8 +51,8 @@ Start the API and open its interactive API documentation at
     The response is `202`; registration deliberately returns the same response
     for an existing address. Login before verification returns `403`.
 
-2. Open the message in the local inbox. Copy the value after `token=` from its
-    verification URL.
+2. Find the message in the `sandloom dev run` output. Its verification link is
+    marked `[dev only]`. Copy the value after `token=`.
 
 3. Execute **POST `/auth/verify-email`**:
 
@@ -78,16 +62,15 @@ Start the API and open its interactive API documentation at
 
     Success is `204`. Sandloom provides the verification API; the URL in the
     email points to your frontend's verification page. A backend-only application
-    can use this API request directly without implementing that page yet. With
-    `NOTIFIER_LOG_LINKS=true` and the default `log` notifier (dev only) the API
-    prints the request after the link: `[dev only] no frontend? POST
-    /auth/verify-email {"token": "..."}`. With the `smtp` driver a real mail
-    goes out and the API prints nothing.
+    can use this API request directly without implementing that page yet, and
+    the output says so after the link: `[dev only] no frontend? POST
+    /auth/verify-email {"token": "..."}`. A notifier that really sends mail,
+    such as the `smtp` driver, prints nothing.
 
-If registration happened before SMTP was configured, execute
-**POST `/auth/resend-verification`** with `{"email": "alice@example.com"}` after
-restarting the API. It returns `204` and sends a fresh link for an unverified
-account.
+If registration happened before `NOTIFIER_LOG_LINKS=true` was set, set it,
+restart the API and execute **POST `/auth/resend-verification`** with
+`{"email": "alice@example.com"}`. It returns `204` and prints a fresh link for
+an unverified account.
 
 ## Sign in
 
@@ -147,11 +130,77 @@ to refresh the access token or log in again. This does not mean organization
 creation failed. Accepting an invitation requires the same refresh. Refresh
 tokens rotate, so subsequent refreshes use the newest one.
 
-Stop the inbox when finished:
+## A token in one command
 
 ```bash
-docker stop sandloom-dev-mail
+TOKEN=$(uv run sandloom dev token --tenant "$ORG_ID")
+curl --fail-with-body http://127.0.0.1:8000/api/v1/notes/items \
+  -H "Authorization: Bearer $TOKEN"
 ```
+
+The token goes to standard output and nothing else does, so it fits in `$(...)`.
+What it carries goes to standard error: the subject, the tenant, the roles and
+how long it lives.
+
+| Flag | What it does |
+|---|---|
+| `--tenant UUID` | grants that organization, the way a tenancy membership would |
+| `--role NAME` | carries a role; repeat it for several (at most 16) |
+| `--user UUID` | the subject; the default is one fixed development user |
+| `--ttl-minutes N` | how long it lives: 60 by default, 1 to 1440 |
+| `--quiet` | prints the token only |
+
+The app accepts the token as it accepts one it issued itself. The app's own key
+signs it. It also carries the proof of origin that the app's claim policy asks
+for ([ADR-0014](../../adr/0014-claims-trust-and-authorization-portability.md)).
+Its role and tenant claims therefore count. A JWT you sign by hand has no such
+proof; the app drops its roles and tenants.
+
+For that reason the command grants a role or a tenant only when a module of
+your application vouches for it, as identity and tenancy do. Asking for one that
+no module vouches for is an error that names the missing assignment. It is not a
+token that answers `403`.
+
+The token has no account behind it, so a route that reads the account, such as
+`/auth/me`, answers as it does for an unknown user. It carries no permissions.
+
+### When the command refuses
+
+It runs only on a developer machine, and it says why when it does not:
+
+- `ENVIRONMENT` must be `dev` or `test`, written exactly so in the environment
+  or in `.env`. `prod` and a typo such as `Dev` are refused. So is a missing
+  value: the app runs as `dev` then, but a command that signs a credential does
+  not guess.
+- `DATABASE_URL` must point at this machine, which includes a unix socket and a
+  file database. A `.env` copied from production that still says
+  `ENVIRONMENT=dev` is refused for its remote database. No flag overrides
+  this. The check covers `DATABASE_URL` only, not the urls under `INFRA`.
+- `CI` must not be set. A test mints its own tokens with `as_user`
+  ([testing](../../reference/testing.md)).
+
+The signing key is never printed. When the app's settings or its composition
+root do not load, the command says so. It leaves out the settings' own error
+text, which can echo the value that failed. `uv run sandloom --debug dev token`
+adds the last error line of the failed process, without urls.
+
+### An application without batteries
+
+`sandloom new --no-batteries` composes no identity and no tenancy, so no module
+vouches for a role or a tenant: `--role` and `--tenant` are refused. A token
+without flags is still a valid login for routes that need nothing more.
+
+A tenant-scoped route, such as the generated module's, still has to know the
+tenant. With the default `TENANCY_MODE=multi` nothing can bind one for any
+token, so such a route answers `400 tenant_required`. For a first try set one
+tenant in `.env`:
+
+```dotenv
+TENANCY_MODE=single
+SINGLE_TENANT_ID=00000000-0000-4000-8000-000000000001
+```
+
+Restart `uv run sandloom dev run`, and `uv run sandloom dev token` is enough.
 
 Next: [tenant boundaries and membership rules](tenancy.md),
 [identity's security behavior](identity.md) and

@@ -778,6 +778,32 @@ without changing a decision.
   declared. Every declared key, and every key an imported generated claim atom reads, is protected
   even when the map does not name it (B035).
 
+### Amendment 2026-11-24: the development token (dx-dev-token)
+
+Decision 5 names two holders of the sealed mint: the claims merge and the kernel test authority.
+`sandloom dev token` (`sandloom.core.auth.dev_token`) is a third, so a developer can call a route of
+their own app in the first hour without running an issuer. It forges provenance by design (it signs
+the `cpv` digests and the `claims_sources` the app's own policy asks for), so it carries its own
+refusals, each with a test that fails without it:
+
+- **Environment.** `ENVIRONMENT` must be exactly `dev` or `test`: unset, a typo (`Dev`) and `prod`
+  are refused. The command checks the raw environment and `.env` before the app's code is imported,
+  the loaded settings again in a child process, and the mint checks the loaded settings a third time
+  (an allow-list, so a new environment is refused by default).
+- **Database host.** `DATABASE_URL` must name this machine (loopback, `localhost`, a unix socket or a
+  file database); an absent, unparsable, remote or multi-host url is refused, so a copied production
+  `.env` that still says `ENVIRONMENT=dev` mints nothing. This covers the default database only, not
+  the instances of `INFRA`. No flag overrides it.
+- **CI.** Refused when `CI` is set.
+- **Claims.** A role or a tenant is minted only when the composition's `claim_authorities` assigns an
+  authority for the key; asking for an unassigned one is an error, never a token the verifier then
+  trims to nothing. Roles are bounded (16, a name pattern), the lifetime is 1 to 1440 minutes, and
+  no `permissions` are ever minted.
+- **Secrets.** The signing key is read only by the token signer; no answer, error text or `repr`
+  carries it, and the child process's stderr is hidden unless `--debug`.
+
+The subject has no account: a route that reads one answers as it does for an unknown user.
+
 ## Alternatives considered
 
 | alternative | why not |
