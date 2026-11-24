@@ -383,6 +383,31 @@ def test_add_module_refuses_a_bad_entity_name(tmp_path: Path, entity: str) -> No
     assert not (tmp_path / "shop").exists()
 
 
+@pytest.mark.parametrize("entity", ["tenant", "owner"])
+def test_add_module_refuses_an_entity_that_repeats_a_framework_column(
+    tmp_path: Path, entity: str
+) -> None:
+    """``<entity>_id`` is the example's id field: for ``tenant`` / ``owner`` it is the
+    ``tenant_id`` / ``owner_id`` the example already writes (``tenant_id=row.id,
+    tenant_id=row.tenant_id``: a SyntaxError in services.py)."""
+    with pytest.raises(add.GeneratorError, match=f"{entity}_id"):
+        add.add_module("shop", _layout(tmp_path), entity=entity)
+    assert not (tmp_path / "shop").exists()
+
+
+def test_a_tenant_entity_is_fine_where_the_module_writes_no_tenant_column(
+    tmp_path: Path,
+) -> None:
+    """The refusal names a real clash only: ``--no-tenant`` writes no ``tenant_id``,
+    so ``tenant`` is a plain entity there (and ``owner`` still is not)."""
+    add.add_module("shop", _flat_layout(tmp_path), entity="tenant")
+    for name in ("services.py", "events.py", "api.py"):
+        source = (tmp_path / "shop" / name).read_text()
+        compile(source, name, "exec")  # no duplicated argument or field
+    with pytest.raises(add.GeneratorError, match="owner_id"):
+        add.add_module("other", _flat_layout(tmp_path), entity="owner")
+
+
 def test_add_module_empty_is_the_package_and_its_chain_only(tmp_path: Path) -> None:
     created = add.add_module("blank", _layout(tmp_path), empty=True)
     base = tmp_path / "blank"

@@ -51,14 +51,28 @@ def test_if_configured_enables_where_the_runner_switched_rls_on() -> None:
 
 @pytest.mark.parametrize(
     "op",
-    [_Op(False), _Op(None), _Op(None, config=False)],
-    ids=["switch off", "switch absent", "no alembic config"],
+    [_Op(False), _Op(None)],
+    ids=["switch off", "switch absent"],
 )
 def test_if_configured_does_nothing_where_the_switch_is_not_on(op: _Op) -> None:
     enable_tenant_rls(op, "notes_note", if_configured=True)
     enable_tenant_rls(op, "notes_note", system_access=True, if_configured=True)
     disable_tenant_rls(op, "notes_note", if_configured=True)
     assert op.sql == []
+
+
+def test_if_configured_refuses_a_context_with_no_alembic_config() -> None:
+    """A bare ``Operations(MigrationContext.configure(conn))`` has no config to
+    carry the switch: a silent "off" would leave the table without its policy."""
+    for call in (enable_tenant_rls, disable_tenant_rls):
+        op = _Op(None, config=False)
+        with pytest.raises(RuntimeError, match="has none"):
+            call(op, "notes_note", if_configured=True)
+        assert op.sql == []
+    # Without if_configured the config is not needed: the helper acts as before.
+    op = _Op(None, config=False)
+    enable_tenant_rls(op, "notes_note")
+    assert any("ENABLE ROW LEVEL SECURITY" in s for s in op.sql)
 
 
 def test_the_default_acts_whatever_the_switch() -> None:

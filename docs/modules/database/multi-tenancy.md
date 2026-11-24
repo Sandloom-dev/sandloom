@@ -538,9 +538,11 @@ def downgrade() -> None:
 
 With `if_configured=True` the call acts only where the migration runner
 enabled it, from the `tenant_rls` option above. On a database without it the
-call does nothing, so one revision runs on both. Without the argument the call
-always acts, and a database with no row-level security refuses it
-(SANDLOOM-R015).
+call does nothing, so one revision runs on both. A migration context built with
+no Alembic config (a bare `MigrationContext.configure`) cannot carry that
+setting. There the call raises; run the revision through `sandloom migrate`.
+Without the argument the call always acts, and a database with no row-level
+security refuses it (SANDLOOM-R015).
 
 The policy is fail-closed and has **no bypass**: the application role sees and
 writes only rows of the tenant in `sandloom.tenant_id`; no tenant, an empty or a

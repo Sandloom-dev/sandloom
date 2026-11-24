@@ -69,6 +69,13 @@ The revision is numbered after the chain's last one: `0002_notes` in the file
 `0002_notes_add_archived_at_to_notes.py`, as the baseline is `0001_notes`.
 `--rev-id <id>` sets an explicit revision id instead.
 
+If two branches each add the next revision of one chain, both write `0002_notes`,
+and Alembic keeps only one of the files. `sandloom migrate` and the migration
+step of `sandloom test` refuse a chain in which two files declare one revision
+id. The message names the file to renumber, for example `renumber
+0002_notes_add_x.py to 0003_notes`. Rename that file and edit two fields:
+`revision` becomes the new id, `down_revision` the id it now follows.
+
 When the models already match the chain, the command refuses with "no changes
 detected" and writes nothing. Change a model first, or write a revision by
 hand (see "Other forms").

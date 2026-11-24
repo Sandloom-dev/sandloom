@@ -851,6 +851,17 @@ def add_module(
     _check_name(name, "the module name")
     if entity is not None:
         _check_name(entity, "the entity name")
+        # The example names the entity's id ``<entity>_id`` (route parameter,
+        # service argument, event field) next to the columns every module's
+        # example carries: a name that makes it one of them would write the
+        # field twice (a SyntaxError in services.py).
+        framework = {"owner_id"} | ({"tenant_id"} if where.tenant_scoped else set())
+        if f"{entity}_id" in framework:
+            raise GeneratorError(
+                f"the entity name {entity!r} makes the example's {entity}_id the "
+                f"{entity}_id the scaffold already writes for the row's "
+                f"{entity}: give the entity another name"
+            )
         if empty:
             raise GeneratorError(
                 "--entity names the example entity and --empty leaves it out: "
@@ -1422,7 +1433,9 @@ def add_consumer(
         + "from sandloom.sdk import Event, on\n\n\n"
     )
     created = [_append(path, block, header=header)]
-    created.append(_write(directory / "tests" / "__init__.py", ""))
+    tests_init = directory / "tests" / "__init__.py"
+    if not tests_init.exists():  # `add module` writes it: never a `__init__.py.new`
+        created.append(_write(tests_init, ""))
     created.append(
         _write(
             directory / "tests" / f"test_{handler}.py",

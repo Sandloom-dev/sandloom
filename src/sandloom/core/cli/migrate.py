@@ -50,6 +50,7 @@ from sandloom.core.eventing.bus_base import durable_transport
 from sandloom.core.facade import CoreFacade  # facade used only for module descriptors
 from sandloom.core.infra.ports.eventbus import EventTransport
 from sandloom.core.migrations.migrations import (
+    MigrationDependencyError,
     NoSchemaChangesError,
     build_plan,
     check_chain_collisions,
@@ -107,6 +108,22 @@ def _find_descriptor(
         if d.migrations_path and d.migration_chain_key() == name:
             return d
     return None
+
+
+def check_revision_ids(descriptors: Sequence[ModuleDescriptor]) -> None:
+    """Refuse a module chain in which two files declare one revision id (two
+    branches that each added ``0002_<module>``), before any command touches a
+    chain: ``sandloom migrate`` and the migration step of ``sandloom test`` (which
+    runs ``migrate drift``) both start here."""
+    for descriptor in descriptors:
+        if not descriptor.migrations_path:
+            continue
+        problem = _migrate_checks.duplicate_revision_problem(
+            Path(descriptor.migrations_path) / "versions",
+            descriptor.migration_chain_key(),
+        )
+        if problem is not None:
+            raise MigrationDependencyError(problem)
 
 
 def _hosting_databases(descriptors: Sequence[ModuleDescriptor]) -> list[str]:
@@ -479,6 +496,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI wr
         core = _load_core()
         descriptors = core.module_descriptors
         check_chain_collisions(descriptors)
+        check_revision_ids(descriptors)
         command = _COMMANDS.get(args.cmd)
         if command is not None:
             return command(core, descriptors, args)

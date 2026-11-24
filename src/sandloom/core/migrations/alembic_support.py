@@ -106,17 +106,27 @@ def _resolve_sync_url(configured: str | None) -> str:
 def _submodule_names(package: ModuleType) -> list[str]:
     """Every module below ``package``, in order, or none for a plain module: a
     ``models/<x>.py`` registers its tables whether or not ``models/__init__.py``
-    imports it (``define_module`` walks the package the same way), so a new
-    model file joins the chain without an import loop in ``__init__``. Only
-    names: ``run_migrations`` imports them."""
+    imports it (``define_module`` walks the package the same way, skipping the
+    same two subpackages: a ``tests`` package below it and a ``migrations`` one,
+    the chain's own), so a new model file joins the chain without an import loop
+    in ``__init__``. Only names: ``run_migrations`` imports them."""
     spec = package.__spec__
     locations = spec.submodule_search_locations if spec is not None else None
     if locations is None:
         return []
-    return sorted(
+    names = sorted(
         info.name
         for info in pkgutil.walk_packages(locations, prefix=f"{package.__name__}.")
     )
+    return [name for name in names if not _is_skipped_below(name, package.__name__)]
+
+
+def _is_skipped_below(name: str, package: str) -> bool:
+    """The rule of ``sandloom.sdk._decl.module._walk``: a ``tests`` or a
+    ``migrations`` module below ``package`` is not a model module (a test file
+    imported here would run its collection-time code in the migration run)."""
+    below = name[len(package) :]
+    return ".tests" in below or ".migrations" in below
 
 
 def _tenant_rls_enabled(url: str) -> bool:

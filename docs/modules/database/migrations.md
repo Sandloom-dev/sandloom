@@ -62,7 +62,9 @@ data moves. `--database` picks the database when the module has several.
 
 Revisions are numbered in the chain's order: the baseline is `0001_<module>`,
 the next `0002_<module>` in the file `0002_<module>_<message>.py`. `--rev-id`
-sets an explicit id instead.
+sets an explicit id instead. When two branches each add `0002_<module>`,
+`sandloom migrate` and `sandloom test` refuse the chain. They name the file to
+renumber to `0003_<module>`; rename it and edit its `revision` and `down_revision`.
 
 Autogenerate compares types and server defaults. It cannot see an index's
 access method, operator classes, sort order or condition; the

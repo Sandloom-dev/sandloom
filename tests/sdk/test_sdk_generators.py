@@ -597,6 +597,14 @@ def test_add_consumer_scaffolds_a_redelivery_test(tmp_path: Path) -> None:
     assert "deliver(event, times=2, session=db)" in text
     assert "async def test_on_item_created_applies_a_redelivered_event_once(" in text
     assert (tests / "__init__.py").is_file()  # the relative import needs a package
+    # `add module` wrote tests/__init__.py: the consumer leaves it alone, no `.new`.
+    assert tests / "__init__.py" not in created
+    assert list(tests.glob("*.new")) == []
+    # A module made before that gets it from the first consumer.
+    (tests / "__init__.py").unlink()
+    add.add_consumer("stats", "billing.payment.done.v1", where, ["amount:int"])
+    assert (tests / "__init__.py").is_file()
+    assert list(tests.glob("*.new")) == []
     # A consumer of other field types gets a value per type.
     add.add_module("ledger", where)
     fields = ["amount:int", "paid_at:datetime", "price:Decimal", "ok:bool"]

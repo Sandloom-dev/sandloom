@@ -326,6 +326,32 @@ def test_revision_autogenerate_refuses_when_no_model_changed(
     ]
 
 
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("drift",),  # the migration step of `sandloom test`
+        ("upgrade-module", "revprobe", "--apply"),
+        ("revision", "revprobe", "-m", "by hand"),
+    ],
+    ids=["drift", "upgrade-module", "revision"],
+)
+def test_a_chain_with_a_duplicate_revision_id_is_refused(
+    tmp_path: Path, scratch_db: str, args: tuple[str, ...]
+) -> None:
+    """Two branches that each added the next numbered revision leave two files with
+    one id: every command refuses it and names the file to renumber, before it
+    touches the database or writes a revision."""
+    module_dir = _scaffold(tmp_path)
+    versions = module_dir / "migrations" / "versions"
+    baseline = versions / "0001_revprobe_baseline.py"
+    (versions / "0001_revprobe_other_branch.py").write_text(baseline.read_text())
+    before = _versions(module_dir)
+    proc = _migrate_proc(tmp_path, _env(tmp_path, scratch_db), *args)
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    assert "renumber 0001_revprobe_other_branch.py to 0002_revprobe" in proc.stderr
+    assert _versions(module_dir) == before
+
+
 def test_new_numbers_the_revision_and_warns_about_a_not_null_column(
     tmp_path: Path, scratch_db: str
 ) -> None:

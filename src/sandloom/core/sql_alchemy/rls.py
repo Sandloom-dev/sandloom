@@ -130,9 +130,19 @@ def _op_dialect(op: _Executes) -> Any:
 
 def _runner_enforces(op: _Executes) -> bool:
     """Whether the chain runner switched tenant row security on for the database
-    this migration runs on (the INFRA instance's ``tenant_rls``)."""
+    this migration runs on (the INFRA instance's ``tenant_rls``). A migration
+    context with no Alembic config (a bare ``MigrationContext.configure``) cannot
+    say, and a silent "off" would leave a tenant table with no policy: it raises."""
     config = op.get_context().config
-    return config is not None and bool(config.attributes.get(TENANT_RLS_SWITCH, False))
+    if config is None:
+        raise RuntimeError(
+            "if_configured=True reads the switch the migration runner (sandloom "
+            "migrate, run_migrations) leaves on the Alembic config, and this "
+            "migration context has none, so it cannot tell whether tenant row "
+            "security is on: run the revision through the runner, or call "
+            "enable_tenant_rls / disable_tenant_rls without if_configured"
+        )
+    return bool(config.attributes.get(TENANT_RLS_SWITCH, False))
 
 
 def enable_tenant_rls(

@@ -12,12 +12,16 @@ import pytest
 from alembic.config import Config
 from alembic.operations import ops
 
+from sandloom.core.cli.migrate import check_revision_ids
 from sandloom.core.cli.migrate_checks import (
+    duplicate_revision_problem,
     next_revision,
     not_null_warning,
     not_null_without_default,
 )
+from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.migrations import alembic_support
+from sandloom.core.migrations.migrations import MigrationDependencyError
 
 # --------------------------------------------------------------------------- #
 # Numbered revision ids
@@ -46,6 +50,84 @@ def test_next_revision_counts_the_files_of_a_hash_chain(tmp_path: Path) -> None:
     (versions / "32513109912d_add_status.py").write_text("")
     (versions / "9f0c1e7ab4d2_add_note.py").write_text("")
     assert next_revision(versions, "orders") == "0003_orders"
+
+
+def _revision_file(versions: Path, name: str, revision: str, down: str | None) -> None:
+    """A revision file the way alembic's template writes it (annotated)."""
+    versions.mkdir(parents=True, exist_ok=True)
+    (versions / name).write_text(
+        f'"""{name}"""\n'
+        "from typing import Union\n\n"
+        f'revision: str = "{revision}"\n'
+        f"down_revision: Union[str, None] = {down!r}\n\n\n"
+        "def upgrade() -> None:\n    pass\n"
+    )
+
+
+def test_two_files_with_one_revision_id_are_refused_with_the_renumbering(
+    tmp_path: Path,
+) -> None:
+    """Two branches that each added ``0002_orders``: Alembic keeps one file."""
+    versions = tmp_path / "versions"
+    _revision_file(versions, "0001_orders_baseline.py", "0001_orders", None)
+    _revision_file(versions, "0002_orders_add_status.py", "0002_orders", "0001_orders")
+    assert duplicate_revision_problem(versions, "orders") is None
+    _revision_file(versions, "0002_orders_add_note.py", "0002_orders", "0001_orders")
+    problem = duplicate_revision_problem(versions, "orders")
+    assert problem is not None
+    assert "'0002_orders' in 2 files" in problem
+    # The later file by name is the one to renumber, after the chain's highest.
+    assert "renumber 0002_orders_add_status.py to 0003_orders" in problem
+    assert 'revision = "0003_orders" and down_revision = "0002_orders"' in problem
+    assert "renumber 0002_orders_add_note.py" not in problem
+
+
+def test_three_files_with_one_id_are_renumbered_one_after_the_other(
+    tmp_path: Path,
+) -> None:
+    versions = tmp_path / "versions"
+    for name in ("a", "b", "c"):
+        _revision_file(versions, f"0001_orders_{name}.py", "0001_orders", None)
+    problem = duplicate_revision_problem(versions, "orders")
+    assert problem is not None
+    assert "renumber 0001_orders_b.py to 0002_orders" in problem
+    assert 'down_revision = "0001_orders")' in problem
+    assert "renumber 0001_orders_c.py to 0003_orders" in problem
+    assert 'down_revision = "0002_orders")' in problem
+
+
+def test_a_plain_assignment_and_a_non_revision_file_are_read_the_same(
+    tmp_path: Path,
+) -> None:
+    versions = tmp_path / "versions"
+    versions.mkdir()
+    (versions / "__init__.py").write_text("")
+    (versions / "0001_orders_a.py").write_text('revision = "0001_orders"\n')
+    (versions / "0001_orders_b.py").write_text('revision = "0001_orders"\n')
+    problem = duplicate_revision_problem(versions, "orders")
+    assert problem is not None and "renumber 0001_orders_b.py" in problem
+    (versions / "0001_orders_b.py").write_text('revision = "0002_orders"\n')
+    assert duplicate_revision_problem(versions, "orders") is None
+    assert duplicate_revision_problem(tmp_path / "absent", "orders") is None
+
+
+def test_the_migrate_command_refuses_a_chain_with_a_duplicate_revision_id(
+    tmp_path: Path,
+) -> None:
+    """The check ``sandloom migrate`` (and the migration step of ``sandloom test``,
+    which runs ``migrate drift``) runs before any command: a chain with a
+    duplicate id raises, a sound one does not."""
+    versions = tmp_path / "migrations" / "versions"
+    _revision_file(versions, "0001_orders_baseline.py", "0001_orders", None)
+    descriptor = ModuleDescriptor(
+        name="orders", version="1", migrations_path=str(tmp_path / "migrations")
+    )
+    check_revision_ids([descriptor])
+    _revision_file(versions, "0001_orders_other.py", "0001_orders", None)
+    with pytest.raises(MigrationDependencyError, match="renumber 0001_orders_other.py"):
+        check_revision_ids([descriptor])
+    # A module with no chain is not looked at.
+    check_revision_ids([ModuleDescriptor(name="plain", version="1")])
 
 
 # --------------------------------------------------------------------------- #
@@ -151,6 +233,42 @@ def test_the_runner_walks_every_module_below_the_models_package(
         assert "walkedpkg.models.nested.deep" in sys.modules
     finally:
         _forget("walkedpkg")
+
+
+def test_the_runner_skips_tests_and_migrations_below_the_models_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same two skips as ``define_module``'s walk: a ``tests`` or a
+    ``migrations`` package below ``models`` is not a model module."""
+    models = tmp_path / "skippkg" / "models"
+    for directory in ("tests", "migrations", "nested/tests", "nested"):
+        (models / directory).mkdir(parents=True, exist_ok=True)
+    for init in (tmp_path / "skippkg", models, *models.rglob("*")):
+        if init.is_dir():
+            (init / "__init__.py").write_text("")
+    (models / "item.py").write_text("")
+    (models / "nested" / "deep.py").write_text("")
+    for skipped in (
+        models / "tests" / "test_item.py",
+        models / "migrations" / "env.py",
+        models / "nested" / "tests" / "test_deep.py",
+    ):
+        skipped.write_text("raise RuntimeError('imported by the runner')\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        _import_the_models_of(monkeypatch, "skippkg.models")
+        assert "skippkg.models.item" in sys.modules
+        assert "skippkg.models.nested.deep" in sys.modules
+        # (the walk itself imports a package to look inside it, like define_module's;
+        # the skipped files raise on import, so the run above would have failed)
+        for skipped in (
+            "skippkg.models.tests.test_item",
+            "skippkg.models.migrations.env",
+            "skippkg.models.nested.tests.test_deep",
+        ):
+            assert skipped not in sys.modules
+    finally:
+        _forget("skippkg")
 
 
 def test_the_runner_takes_a_plain_models_module(
