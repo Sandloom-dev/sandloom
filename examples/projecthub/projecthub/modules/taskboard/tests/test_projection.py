@@ -7,6 +7,7 @@ deliveries. The projects read contract is faked (``fake_contract``) so the
 test is hermetic.
 """
 
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 
@@ -34,7 +35,8 @@ from sandloom.sdk.tenant import (  # sandloom: advanced test inspection
     bind_tenant,
     unscoped,
 )
-from sandloom.sdk.testing import (  # sandloom: advanced skip a race where writers take turns
+from sandloom.sdk.testing import (  # sandloom: advanced bind a unit, skip a race
+    bind_test_uow,
     fake_contract,
     skip_unless_db_feature,
 )
@@ -54,20 +56,42 @@ def _envelope(event_id: str, channel: str, payload: dict) -> dict:
     return {"id": event_id, "channel": channel, "payload": payload}
 
 
-@pytest_asyncio.fixture
-async def callbacks(db_engine: AsyncEngine):
-    sessionmaker = async_sessionmaker(db_engine, expire_on_commit=False)
+def _committing_opener(sessionmaker: async_sessionmaker):  # noqa: ANN202
+    """A unit opener that commits on success and rolls back on an error."""
 
     @asynccontextmanager
     async def opener(_name: str):
         async with sessionmaker() as session:
             try:
-                yield session
+                with bind_test_uow(session):  # the unit the handler's db() reads
+                    yield session
                 await session.commit()
             except Exception:
                 await session.rollback()
                 raise
 
+    return opener
+
+
+def _delivery(name: str, channel: str, handler, opener):  # noqa: ANN001, ANN202
+    """The consumer runtime of one handler: claim, tenant binding, ``db()``."""
+    return make_consumer_callback(
+        ProjectionConsumerDescriptor(
+            name=name,
+            source_channel=channel,
+            projection=PROJECTION_NAME,
+            handler=handler,
+            bind_tenant_from="tenant_id",  # as the module registers it
+        ),
+        "default",
+        opener,
+    )
+
+
+@pytest_asyncio.fixture
+async def callbacks(db_engine: AsyncEngine):
+    sessionmaker = async_sessionmaker(db_engine, expire_on_commit=False)
+    opener = _committing_opener(sessionmaker)
     project_id = uuid.uuid4()
     projects = {
         str(project_id): ProjectState(
@@ -78,26 +102,13 @@ async def callbacks(db_engine: AsyncEngine):
             version=1,
         )
     }
-    task_cb = make_consumer_callback(
-        ProjectionConsumerDescriptor(
-            name="test.taskboard@task",
-            source_channel="tasks.task.updated.v1",
-            projection=PROJECTION_NAME,
-            handler=on_task_upserted,
-            bind_tenant_from="tenant_id",  # as the module registers it
-        ),
-        "default",
-        opener,
+    task_cb = _delivery(
+        "test.taskboard@task", "tasks.task.updated.v1", on_task_upserted, opener
     )
-    project_cb = make_consumer_callback(
-        ProjectionConsumerDescriptor(
-            name="test.taskboard@project",
-            source_channel="projects.project.updated.v1",
-            projection=PROJECTION_NAME,
-            handler=on_project_updated,
-            bind_tenant_from="tenant_id",
-        ),
-        "default",
+    project_cb = _delivery(
+        "test.taskboard@project",
+        "projects.project.updated.v1",
+        on_project_updated,
         opener,
     )
     with fake_contract(PROJECTS_READ_V2, _StubProjectsRead(projects)):
@@ -212,49 +223,45 @@ async def test_project_update_racing_a_task_insert_is_not_lost(
     yet), then the task row is inserted with v1 — stuck stale forever."""
     sessionmaker = async_sessionmaker(db_engine, expire_on_commit=False)
     tenant_id, project_id, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    with bind_tenant(tenant_id):  # what bind_tenant_from does
+    opener = _committing_opener(sessionmaker)
+    project_cb = _delivery(
+        "test.taskboard@project-race",
+        "projects.project.updated.v1",
+        on_project_updated,
+        opener,
+    )
+    task_cb = _delivery(
+        "test.taskboard@task-race",
+        "tasks.task.created.v1",
+        on_task_upserted,
+        opener,
+    )
 
-        @asynccontextmanager
-        async def opener(_name: str):
-            async with sessionmaker() as session:
-                try:
-                    yield session
-                    await session.commit()
-                except Exception:
-                    await session.rollback()
-                    raise
-
-        on_project = on_project_updated
-
-        class _RacingProjectsRead:
-            async def get(self, _pid: uuid.UUID) -> ProjectState:
-                # The project v2 event is applied AND committed while the task
-                # handler is between its RPC read and its insert.
-                async with opener("default") as session:
-                    await on_project(
-                        session,
-                        _envelope(
-                            "p2",
-                            "projects.project.updated.v1",
-                            _project_payload(project_id, tenant_id, 2),
-                        ),
-                    )
-                return _project_state(project_id, tenant_id, 1)  # stale read
-
-        with fake_contract(PROJECTS_READ_V2, _RacingProjectsRead()):
-            async with opener("default") as session:
-                await on_task_upserted(
-                    session,
-                    _envelope(
-                        "t1",
-                        "tasks.task.created.v1",
-                        _task_payload(task_id, tenant_id, project_id),
-                    ),
+    class _RacingProjectsRead:
+        async def get(self, _pid: uuid.UUID) -> ProjectState:
+            # The project v2 event is applied AND committed while the task
+            # handler is between its RPC read and its insert.
+            await project_cb(
+                _envelope(
+                    "p2",
+                    "projects.project.updated.v1",
+                    _project_payload(project_id, tenant_id, 2),
                 )
+            )
+            return _project_state(project_id, tenant_id, 1)  # stale read
 
-        row = await _row(sessionmaker, task_id)
-        assert row is not None
-        assert (row.project_name, row.project_version) == ("Platform v2", 2)
+    with fake_contract(PROJECTS_READ_V2, _RacingProjectsRead()):
+        await task_cb(
+            _envelope(
+                "t1",
+                "tasks.task.created.v1",
+                _task_payload(task_id, tenant_id, project_id),
+            )
+        )
+
+    row = await _row(sessionmaker, task_id)
+    assert row is not None
+    assert (row.project_name, row.project_version) == ("Platform v2", 2)
 
 
 @pytest.mark.asyncio
@@ -264,57 +271,78 @@ async def test_project_update_waits_for_an_uncommitted_task_insert(
     """Opposite interleaving: the task row is inserted but NOT committed when
     the project event runs; the project handler must serialise behind it and
     then refresh the (now committed) row."""
-    import asyncio
-
     sessionmaker = async_sessionmaker(db_engine, expire_on_commit=False)
     tenant_id, project_id, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    with bind_tenant(tenant_id):  # what bind_tenant_from does
-        projects = _StubProjectsRead(
-            {str(project_id): _project_state(project_id, tenant_id, 1)}
-        )
-        on_project = on_project_updated
+    projects = _StubProjectsRead(
+        {str(project_id): _project_state(project_id, tenant_id, 1)}
+    )
+    inserted = asyncio.Event()
+    release = asyncio.Event()
 
-        async def _project_v2() -> None:
-            async with sessionmaker() as session:
-                await on_project(
-                    session,
+    @asynccontextmanager
+    async def held_opener(_name: str):
+        """The task delivery's unit: its transaction stays open until released."""
+        async with sessionmaker() as session:
+            with bind_test_uow(session):
+                yield session
+            inserted.set()  # the handler returned: the row is inserted, not committed
+            await release.wait()
+            await session.commit()
+
+    task_cb = _delivery(
+        "test.taskboard@task-wait",
+        "tasks.task.created.v1",
+        on_task_upserted,
+        held_opener,
+    )
+    project_cb = _delivery(
+        "test.taskboard@project-wait",
+        "projects.project.updated.v1",
+        on_project_updated,
+        _committing_opener(sessionmaker),
+    )
+    deliveries: list[asyncio.Task[None]] = []
+    try:
+        with fake_contract(PROJECTS_READ_V2, projects):
+            deliveries.append(
+                asyncio.create_task(
+                    task_cb(
+                        _envelope(
+                            "t1",
+                            "tasks.task.created.v1",
+                            _task_payload(task_id, tenant_id, project_id),
+                        )
+                    )
+                )
+            )
+            await asyncio.wait_for(inserted.wait(), timeout=5)
+            project_delivery = asyncio.create_task(
+                project_cb(
                     _envelope(
                         "p2",
                         "projects.project.updated.v1",
                         _project_payload(project_id, tenant_id, 2),
-                    ),
+                    )
                 )
-                await session.commit()
-
-        task_session = sessionmaker()
-        project_task: asyncio.Task[None] | None = None
-        try:
-            with fake_contract(PROJECTS_READ_V2, projects):
-                await on_task_upserted(
-                    task_session,
-                    _envelope(
-                        "t1",
-                        "tasks.task.created.v1",
-                        _task_payload(task_id, tenant_id, project_id),
-                    ),
-                )  # inserted, not committed
-            project_task = asyncio.create_task(_project_v2())
+            )
+            deliveries.append(project_delivery)
             await asyncio.sleep(0.3)
-            waited = not project_task.done()
-            await task_session.commit()
-        finally:
-            await task_session.close()
-            if project_task is not None:
-                await asyncio.wait_for(project_task, timeout=5)
-        assert waited, "project handler did not serialise behind the task tx"
+            waited = not project_delivery.done()
+            release.set()
+            await asyncio.wait_for(asyncio.gather(*deliveries), timeout=5)
+    finally:
+        release.set()
+        for delivery in deliveries:
+            delivery.cancel()
+    assert waited, "project handler did not serialise behind the task tx"
 
-        row = await _row(sessionmaker, task_id)
-        assert (row.project_name, row.project_version) == ("Platform v2", 2)
+    row = await _row(sessionmaker, task_id)
+    assert (row.project_name, row.project_version) == ("Platform v2", 2)
 
 
 @pytest.mark.asyncio
 async def test_rebuild_refreshes_stale_project_fields(
-    db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+    db_uow, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A row already stuck with stale project data is repaired by a rebuild
     (project fields used to be insert-only, so rebuild never touched them)."""
@@ -324,30 +352,25 @@ async def test_rebuild_refreshes_stale_project_fields(
     from projecthub.modules.taskboard.models import ProjectTaskQueryIndex
     from projecthub.modules.taskboard.rebuilder import TaskboardRebuilder
 
-    sessionmaker = async_sessionmaker(db_engine, expire_on_commit=False)
     tenant_id, project_id, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     with unscoped():  # seed a stale row
-        async with sessionmaker() as session:
-            await session.execute(
-                insert(ProjectTaskQueryIndex).values(
-                    task_id=task_id,
-                    tenant_id=tenant_id,
-                    task_title="Ship it",
-                    task_status="active",
-                    task_version=1,
-                    project_id=project_id,
-                    project_name="Platform v1",
-                    project_status="active",
-                    project_version=1,
-                )
+        await db_uow.execute(
+            insert(ProjectTaskQueryIndex).values(
+                task_id=task_id,
+                tenant_id=tenant_id,
+                task_title="Ship it",
+                task_status="active",
+                task_version=1,
+                project_id=project_id,
+                project_name="Platform v1",
+                project_status="active",
+                project_version=1,
             )
-            await session.commit()
+        )
 
     @asynccontextmanager
     async def _open_uow(_database: str | None = None):
-        async with sessionmaker() as session:
-            yield session
-            await session.commit()
+        yield db_uow  # the test's unit: ``db()`` is already bound to it
 
     monkeypatch.setattr(rebuilder_mod, "open_uow", _open_uow)
 
@@ -365,7 +388,8 @@ async def test_rebuild_refreshes_stale_project_fields(
     ):
         result = await TaskboardRebuilder().rebuild_tenant(tenant_id)
     assert result.rows == 1
-    row = await _row(sessionmaker, task_id)
+    with unscoped():  # test inspection across tenants
+        row = await db_uow.get(ProjectTaskQueryIndex, task_id)
     assert (row.project_name, row.project_status, row.project_version) == (
         "Platform v3",
         "archived",

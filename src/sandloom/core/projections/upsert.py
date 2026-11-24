@@ -35,11 +35,15 @@ owning module imports them from core and never names a database.
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, ParamSpec, TypeVar, cast
 
 from sqlalchemy import Table, or_, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from sandloom.core.sql_alchemy.portable import conflict_insert
 from sandloom.core.tenant_context import (
@@ -48,9 +52,30 @@ from sandloom.core.tenant_context import (
     current_tenant_id_optional,
     unscoped,
 )
+from sandloom.core.unit_of_work.request import db
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from sqlalchemy.ext.asyncio import AsyncSession
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _writes_through_db(fn: Callable[_P, Awaitable[_R]]) -> Callable[_P, Awaitable[_R]]:
+    """Refuse the earlier ``helper(session, table, ...)`` form with the rewrite
+    named: without this Python answers "takes 1 positional argument but 2 were
+    given". Only a first argument that IS a session is the earlier form; any other
+    surplus argument keeps Python's own error. The signature stays the function's
+    (``functools.wraps``)."""
+
+    @functools.wraps(fn)
+    async def checked(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        if args and isinstance(args[0], AsyncSession | Session):
+            raise TypeError(
+                f"{fn.__name__}(session, ...) is gone: it writes through `db()`, "
+                f"the unit the consumer runs in; call "
+                f"`{fn.__name__}(<model or table>, ...)` without the session"
+            )
+        return await fn(*args, **kwargs)
+
+    return checked
 
 
 def _table_of(target: Any) -> Table:
@@ -71,8 +96,8 @@ def _bound_tenant() -> Any:
     return current_tenant_id_optional()
 
 
+@_writes_through_db
 async def monotonic_upsert(
-    session: AsyncSession,
     target: Any,
     *,
     key: dict[str, Any],
@@ -82,6 +107,9 @@ async def monotonic_upsert(
     insert_only: dict[str, Any] | None = None,
 ) -> bool:
     """Insert-or-update a single projection row, guarded by source version.
+
+    Writes through ``db()``, the unit the consumer runs in; ``target`` is the
+    model or table (positional or ``target=``).
 
     Inserts the row (``key`` + ``values`` + ``insert_only`` + the version) when
     absent; on a primary-key/unique conflict it updates ``values`` and the
@@ -97,6 +125,7 @@ async def monotonic_upsert(
     fresh). Without this, every task update would clobber project fields back to
     whatever the seed lookup returned, rolling back fresher project data.
     """
+    session = db()
     table = _table_of(target)
     seed = insert_only or {}
     row = {**key, **values, **seed, version_column: incoming_version}
@@ -129,8 +158,8 @@ async def monotonic_upsert(
     return bool(result.rowcount)
 
 
+@_writes_through_db
 async def monotonic_update(
-    session: AsyncSession,
     target: Any,
     *,
     match: dict[str, Any],
@@ -139,6 +168,8 @@ async def monotonic_update(
     incoming_version: int,
 ) -> int:
     """Update every projection row matching ``match``, guarded by source version.
+
+    Writes through ``db()``, the unit the consumer runs in.
 
     For denormalised fields that fan out across many rows (e.g. a project's name
     copied onto every task row): updates the matched rows whose stored
@@ -174,12 +205,12 @@ async def monotonic_update(
         .values(**values, **{version_column: incoming_version})
     )
     with unscoped():
-        result = await session.execute(stmt)
+        result = await db().execute(stmt)
     return int(getattr(result, "rowcount", 0) or 0)
 
 
+@_writes_through_db
 async def monotonic_delete(
-    session: AsyncSession,
     target: Any,
     *,
     key: dict[str, Any],
@@ -191,6 +222,8 @@ async def monotonic_delete(
     deleted_at: datetime | None = None,
 ) -> bool:
     """Persist a versioned tombstone, including when deletion arrives first.
+
+    Writes through ``db()``, the unit the consumer runs in.
 
     A physical DELETE discards the version and lets a delayed older upsert
     resurrect the row. This helper retains it using the same tenant/version
@@ -219,7 +252,6 @@ async def monotonic_delete(
     if not getattr(table.c[deleted_column].type, "timezone", False):
         timestamp = timestamp.replace(tzinfo=None)
     return await monotonic_upsert(
-        session,
         target,
         key=key,
         values={**(values or {}), deleted_column: timestamp},

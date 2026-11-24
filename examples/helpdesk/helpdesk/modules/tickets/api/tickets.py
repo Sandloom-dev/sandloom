@@ -22,10 +22,7 @@ from fastapi import Depends, Query, status
 
 from helpdesk.shared.contracts.billing_entitlements_v1 import Subscribed
 from helpdesk.shared.contracts.tenancy_membership_v1 import OrgRole
-from sandloom.sdk import CurrentUser, module_router, require
-from sandloom.sdk.authz import (
-    Account,  # sandloom: advanced explicit billing account (spec §7)
-)
+from sandloom.sdk import Account, CurrentUser, module_router, require
 from sandloom.sdk.data import (  # sandloom: advanced read-only planner routes
     PlannedReads,
     UowReads,

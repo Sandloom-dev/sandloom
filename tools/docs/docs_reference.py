@@ -5,7 +5,8 @@ wheel without a docs build (docs strategy §6.3):
 
 * ``docs/reference/sdk/<module>.md`` — one page per public ``sandloom.sdk`` module
   (the paths ``sandloom docs`` and every module's reference block name): its
-  beginner names first, then the advanced ones, each with its exact signature
+  beginner names first, then the after-first ones, then the advanced ones, each
+  with its exact signature
   (``inspect.signature``) and its docstring.
 * ``docs/reference/error-codes.md`` — the error catalogue
   (``sandloom.core.error_codes``): every code with its slug, kind, what happened,
@@ -416,12 +417,30 @@ def _entry(name: str, obj: Any) -> list[str]:
     return lines
 
 
-def _beginner_and_advanced(module: ModuleType) -> tuple[list[str], list[str]]:
+def _after_first(module: ModuleType) -> dict[str, list[str]]:
+    """Tier 2 of ``module``: ``{module file: sorted names}`` of its
+    ``__after_first__``, the names it exports."""
+    names = set(getattr(module, "__all__", ()))
+    declared: dict[str, tuple[str, ...]] = getattr(module, "__after_first__", {})
+    return {
+        file: sorted((n for n in listed if n in names), key=str.lower)
+        for file, listed in sorted(declared.items())
+    }
+
+
+def _tiers(module: ModuleType) -> tuple[list[str], list[str], list[str]]:
+    """``(beginner, after first, advanced)`` names of ``module``, each sorted."""
     names = list(getattr(module, "__all__", ()))
     beginner = sorted(
         (n for n in getattr(module, "__beginner__", ()) if n in names), key=str.lower
     )
-    return beginner, sorted((n for n in names if n not in beginner), key=str.lower)
+    later = sorted(
+        (n for listed in _after_first(module).values() for n in listed), key=str.lower
+    )
+    advanced = sorted(
+        (n for n in names if n not in beginner and n not in later), key=str.lower
+    )
+    return beginner, later, advanced
 
 
 def _anchors(module: ModuleType) -> dict[str, str]:
@@ -436,8 +455,8 @@ def _anchors(module: ModuleType) -> dict[str, str]:
         return slug if seen[slug] == 1 else f"{slug}_{seen[slug] - 1}"
 
     anchors: dict[str, str] = {}
-    beginner, advanced = _beginner_and_advanced(module)
-    for name in (*beginner, *advanced):
+    beginner, later, advanced = _tiers(module)
+    for name in (*beginner, *later, *advanced):
         anchors[name] = heading_id(name)
         for attr, _signature_text, _doc in _methods(getattr(module, name)):
             heading_id(f"{name}.{attr}")
@@ -455,9 +474,29 @@ def _table(names: Iterable[str], module: ModuleType) -> list[str]:
     return rows
 
 
+def _tier_sections(module: ModuleType) -> list[str]:
+    """The name tables, then the entries, of each tier of a module's page."""
+    beginner, later, advanced = _tiers(module)
+    files = ", ".join(f"`{file}`" for file in _after_first(module))
+    groups = (
+        ("Start with (beginner)", "Beginner names", beginner),
+        (f"After the first module (in {files})", "After-first names", later),
+        ("Advanced", "Advanced names", advanced),
+    )
+    out: list[str] = []
+    for title, _entries, names in groups:
+        if names:
+            out += [f"## {title}", "", *_table(names, module), ""]
+    for _title, entries, names in groups:
+        if names:
+            out += [f"## {entries}", ""]
+            for name in names:
+                out += _entry(name, getattr(module, name))
+    return out
+
+
 def render_module(module: ModuleType) -> str:
     """The reference page of one public ``sandloom.sdk`` module."""
-    beginner, advanced = _beginner_and_advanced(module)
     out = [
         "---",
         f"title: {module.__name__}",
@@ -475,23 +514,14 @@ def render_module(module: ModuleType) -> str:
         _module_doc(module),
         "",
         f"`from {module.__name__} import <name>`. Signatures in a terminal: "
-        "`sandloom docs <name>`. Beginner names are the ones generated code and the "
-        "examples use; any other name is advanced (mark its import line "
-        "`# sandloom: advanced <reason>` in generated code and examples).",
+        "`sandloom docs <name>`. Beginner names are the ones every module uses; "
+        "after-first names (a saga, a projection, a task) need no marker in the "
+        "module file `sandloom add` writes for them; any other name is advanced "
+        "(mark its import line `# sandloom: advanced <reason>` in generated code "
+        "and examples).",
         "",
     ]
-    if beginner:
-        out += ["## Start with (beginner)", "", *_table(beginner, module), ""]
-    if advanced:
-        out += ["## Advanced", "", *_table(advanced, module), ""]
-    if beginner:
-        out += ["## Beginner names", ""]
-        for name in beginner:
-            out += _entry(name, getattr(module, name))
-    if advanced:
-        out += ["## Advanced names", ""]
-        for name in advanced:
-            out += _entry(name, getattr(module, name))
+    out += _tier_sections(module)
     guides = {
         "app": ("Application quickstart", "getting-started/index.md"),
         "module": ("Add a module", "modules/create.md"),
@@ -499,7 +529,10 @@ def render_module(module: ModuleType) -> str:
         "data": ("Units and transactions", "modules/database/units.md"),
         "tenant": ("Tenant isolation", "modules/database/multi-tenancy.md"),
         "events": ("Publish and consume events", "modules/between/add-event.md"),
-        "effects": ("Deduplicate effects", "modules/background/effect-deduplication.md"),
+        "effects": (
+            "Deduplicate effects",
+            "modules/background/effect-deduplication.md",
+        ),
         "tasks": ("Background tasks", "modules/background/tasks.md"),
         "contracts": ("Provide and call a contract", "modules/between/add-contract.md"),
         "authz": ("Authorization policies", "modules/http/authorization.md"),
@@ -528,7 +561,27 @@ def render_module(module: ModuleType) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
-_COUNT_WORDS = {6: "six", 7: "seven", 8: "eight"}
+_COUNT_WORDS = {5: "five", 6: "six", 7: "seven", 8: "eight"}
+_TESTING_MODULES = ("sandloom.sdk.testing", "sandloom.sdk.testing.plugin")
+
+
+def _after_first_rows(modules: list[ModuleType]) -> list[str]:
+    """One table row per tier 2 name: its home module, the file it needs no
+    marker in, its kind and summary."""
+    rows = []
+    for mod in modules:
+        for file, listed in _after_first(mod).items():
+            for name in listed:
+                link = (
+                    f"[`{name}`]({_rel('sandloom.sdk', mod.__name__)}"
+                    f"#{_anchors(mod)[name]})"
+                )
+                obj = getattr(mod, name)
+                rows.append(
+                    f"| {link} | `{mod.__name__}` | `{file}` | {_kind(obj)} | "
+                    f"{_summary(obj)} |"
+                )
+    return rows
 
 
 def render_index(modules: list[ModuleType]) -> str:
@@ -538,14 +591,17 @@ def render_index(modules: list[ModuleType]) -> str:
     testing_names = tuple(
         name
         for mod in modules
-        if mod.__name__ in ("sandloom.sdk.testing", "sandloom.sdk.testing.plugin")
+        if mod.__name__ in _TESTING_MODULES
         for name in getattr(mod, "__beginner__", ())
     )
+    later_rows = _after_first_rows(modules)
+    total = len(code_names) + len(testing_names)
+    testing_count = _COUNT_WORDS.get(len(testing_names), len(testing_names))
     out = [
         "---",
         "title: sandloom.sdk",
         "description: The Public API 1.0 namespace — every public module, the "
-        f"{len(code_names) + len(testing_names)} beginner names and where each name lives.",
+        f"{total} beginner names and where each name lives.",
         "---",
         "",
         GENERATED,
@@ -557,10 +613,10 @@ def render_index(modules: list[ModuleType]) -> str:
         "## The beginner names",
         "",
         f"These {len(code_names)} code names are importable from `sandloom.sdk` "
-        f"directly; the {_COUNT_WORDS.get(len(testing_names), len(testing_names))} "
-        "testing names (`client`, `as_user`, `published`, `deliver`, "
-        "`fake_contract`, `fake_access_fact`) come from `sandloom.sdk.testing` and "
-        "its pytest plugin. Each links to its entry on its home page.",
+        f"directly; the {testing_count} testing names (`client`, `as_user`, "
+        "`published`, `deliver`, `fake_contract`) come from their own modules "
+        "(the testing ones with a pytest plugin). "
+        "Each links to its entry on its home page.",
         "",
         "| Name | Home | Kind | Summary |",
         "| --- | --- | --- | --- |",
@@ -591,20 +647,34 @@ def render_index(modules: list[ModuleType]) -> str:
             )
     out += [
         "",
+        "## After the first module",
+        "",
+        f"These {len(later_rows)} names are what a saga, a projection or a task "
+        "needs. A business module imports each with no "
+        "`# sandloom: advanced <reason>` marker in its own file of that name "
+        "(`sagas.py`, `projections.py`, `tasks.py`: the files `sandloom add saga`, "
+        "`sandloom add projection` and `sandloom add task` write), and with the "
+        "marker in any other file.",
+        "",
+        "| Name | Home | No marker in | Kind | Summary |",
+        "| --- | --- | --- | --- | --- |",
+        *later_rows,
+        "",
         "## Modules",
         "",
-        "| Module | Beginner names | Names | Summary |",
-        "| --- | ---: | ---: | --- |",
+        "| Module | Beginner names | After first | Names | Summary |",
+        "| --- | ---: | ---: | ---: | --- |",
     ]
     for module in modules:
         if module.__name__ == "sandloom.sdk":
             continue
         names = getattr(module, "__all__", ())
         beginner = [n for n in getattr(module, "__beginner__", ()) if n in names]
+        later = [n for listed in _after_first(module).values() for n in listed]
         summary = _summary(module)
         out.append(
             f"| [`{module.__name__}`]({_rel('sandloom.sdk', module.__name__)}) | "
-            f"{len(beginner)} | {len(names)} | {summary} |"
+            f"{len(beginner)} | {len(later)} | {len(names)} | {summary} |"
         )
     out += [
         "",

@@ -1,19 +1,19 @@
 """Project business logic (the write side).
 
-``ProjectService`` owns the entity, bumps ``version`` and publishes the
-typed ``ProjectCreated`` / ``ProjectUpdated`` events inside the request's
-unit (transactional outbox). ``db()`` is that unit's session. The read side
-other modules call is the ``projects.read.v2`` contract (``contracts.py``).
+``ProjectService`` owns the entity (its ``version`` counts up by itself) and
+publishes the typed ``ProjectCreated`` / ``ProjectUpdated`` events inside the
+request's unit (transactional outbox). ``db()`` is that unit's session. The
+read side other modules call is the ``projects.read.v2`` contract
+(``contracts.py``).
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 
-from sandloom.sdk import db
+from sandloom.sdk import NotFound, db
 
 from ..events import ProjectCreated, ProjectUpdated
 from ..models import Project
@@ -39,7 +39,6 @@ class ProjectService:
         project = Project(name=data.name, status="active")
         db().add(project)
         await db().flush()
-        await db().refresh(project)  # load server-side created_at/updated_at
         await ProjectCreated(**snapshot(project).model_dump()).publish()
         return project
 
@@ -50,19 +49,19 @@ class ProjectService:
             project.name = data.name
         if data.status is not None:
             project.status = data.status
-        project.version += 1
         await db().flush()
-        await db().refresh(project)  # load server-side updated_at
         await ProjectUpdated(**snapshot(project).model_dump()).publish()
         return project
 
     @classmethod
     async def _get_or_404(cls, project_id: UUID) -> Project:
+        # FOR UPDATE: a second update of this project waits here for the first
+        # to commit, then reads its columns; the event carries the whole state.
         project = (
-            await db().execute(select(Project).where(Project.id == project_id))
+            await db().execute(
+                select(Project).where(Project.id == project_id).with_for_update()
+            )
         ).scalar_one_or_none()
         if project is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-            )
+            raise NotFound("Project not found")
         return project

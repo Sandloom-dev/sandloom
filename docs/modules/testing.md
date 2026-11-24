@@ -243,12 +243,11 @@ load, so `as_user` never has to guess.
 
 ## Fixtures and helpers in brief
 
-The beginner kit is `client`, `as_user`, `published`, `deliver`,
-`fake_contract` and `fake_access_fact`. The rest of the harness (`db`,
-`real_uow_client`, `db_uow`, `ambient_uow`, `sandloom_cache`, `scratch_database`,
-the migration, revocation and RPC helpers) is listed with examples in the
-[testing reference](../reference/testing.md). Two behaviours matter for
-every test:
+The beginner kit is five names: `client`, `as_user`, `published`, `deliver`
+and `fake_contract`. Everything else in the harness is advanced, and so is
+`fake_access_fact`. Examples of all of it are in the
+[testing reference](../reference/testing.md). Two behaviours matter for every
+test:
 
 - **`client` never commits.** Every request runs on the test's one `db`
   session, bound as the Unit of Work. Events and audit rows land in the test
@@ -617,13 +616,13 @@ public `sandloom.sdk` modules, the contract stubs and DTOs, the testing kit
 `sandloom.sdk.testing` and the module's own package. Another business module's
 code (its services, models, schemas) and kernel internals are out.
 
-Build another module's state the way a client would: through its HTTP API on
-the shared `client` (rows land in the test `db`), its contracts
-(`fake_contract`, or the real provider through the test app) or its events
-(`deliver`); carry its facts in the token
-(`as_user(tenant_id=..., roles=[...])`) or answer them with
-`fake_access_fact`. See `sandloom_billing/tests/tenancy_api.py` (organizations and
-memberships seeded through tenancy's routes) and
+Build another module's state the way a client would. Call its HTTP API on
+the shared `client`; rows land in the test `db`. Reach its contracts with
+`fake_contract`, or with the real provider in the test app. Drive its events
+with `deliver`. Carry its facts in the token with
+`as_user(tenant_id=..., roles=[...])`, or answer them with `fake_access_fact`
+(advanced: mark its import). See `sandloom_billing/tests/tenancy_api.py`
+(organizations and memberships seeded through tenancy's routes) and
 `examples/helpdesk/.../tickets/tests/conftest.py`. Take the app and its core
 from the `sandloom_app` / `sandloom_core` fixtures, never from the composition root
 module. A test that is really about kernel behaviour belongs in the kernel's

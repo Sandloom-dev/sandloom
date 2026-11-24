@@ -545,8 +545,7 @@ answers are in
 from fastapi import Depends
 
 from myapp.shared.contracts.billing_entitlements_v1 import Subscribed
-from sandloom.sdk import require
-from sandloom.sdk.authz import Account  # sandloom: advanced account target
+from sandloom.sdk import Account, require
 
 @router.get("/report", dependencies=[Depends(require(Subscribed(of=Account.user())))])
 ```

@@ -294,16 +294,24 @@ CRUD, events and cross-module calls:
 | need | names (`from sandloom.sdk import ...`) |
 | --- | --- |
 | a module | `define_module` |
-| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt`, `UtcDateTime` |
+| tables | `Base`, `TenantScoped`, `db`, `new_id` |
+| times | `CreatedAt`, `UpdatedAt`, `UtcDateTime` |
 | routes | `module_router`, `public`, `CurrentUser` |
+| refusals | `NotFound`, `Conflict`, `Refused` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Owner`, `authorize_resource` |
-| effects | `record_audit`, `on_commit` |
+| authorization | `require`, `Account` |
+| effects | `record_audit`, `on_commit`, `bind_tenant` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, |
-| | `deliver`, `fake_contract`, `fake_access_fact` |
+| | `deliver`, `fake_contract` |
 
-Other SDK names are advanced: mark the import `# sandloom: advanced <reason>`.
+These 29 names need no marker in any file. Twelve more need none in the file
+`sandloom add` writes them into: `Saga`, `SagaContext`, `step`, `local_step`,
+`start_saga` (`sandloom.sdk.sagas`) in `sagas.py`; `Projection`, `SourceGroup`,
+`full_state`, `tombstone` (`sandloom.sdk.projections`) in `projections.py`;
+`task`, `periodic` (`sandloom.sdk.tasks`) and `open_uow` (`sandloom.sdk.data`)
+in `tasks.py`. Any other SDK name, or one of these in another file, is advanced:
+mark the import `# sandloom: advanced <reason>`.
 The billing and tenancy gates (`Subscribed`, `SubscriptionActive`, `Credits`,
 `OrgRole`) are not sdk names: `sandloom generate` writes them beside the
 consumer's contract stub, and a route imports them from
@@ -311,7 +319,9 @@ consumer's contract stub, and a route imports them from
 `$app.shared.contracts.tenancy_membership_v1`.
 Ids and times: `default=new_id` (UUIDv7) and `created_at: Mapped[CreatedAt]`
 (`clock_timestamp()`), so a list ordered by `created_at, id` never ties; any
-other time column is `UtcDateTime()` (SANDLOOM-C029).
+other time column is `UtcDateTime()` (SANDLOOM-C029). A refusal is
+`raise NotFound("...")`, `Conflict("...")` or `Refused(422, "...")`, with no
+FastAPI import.
 
 Routes declare nothing but their exceptions: every route is authenticated
 (`CurrentUser`, or a gate) unless it says `public(reason="...")`; writes get
@@ -319,7 +329,7 @@ the commit-time session check, automatic idempotency and the audit of
 sensitive effects from the framework (there is no per-route class). A billing
 gate names the account it checks, `require(Subscribed(of=Account.user()))` or
 `of=Account.org(param="org_id")` on an organization route
-(`from sandloom.sdk.authz import Account  # sandloom: advanced billing account`).
+(`from sandloom.sdk import Account`).
 
 How-tos with tested code: `uv run sandloom docs recipes`. What you can call:
 `uv run sandloom docs contracts`, `... events`, `... <contract or channel>`.

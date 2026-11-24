@@ -23,10 +23,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from pydantic import BaseModel
 
-from sandloom.sdk import CurrentUser, module_router, public
+from sandloom.sdk import CurrentUser, Refused, module_router, public
 from sandloom.sdk.infra import (  # sandloom: advanced claims collection
     CoreRuntime,
     get_core,
@@ -83,7 +83,7 @@ async def login(
     try:
         external = await verify_id_token(cfg, body.id_token)
     except ExternalTokenRejected as exc:
-        raise HTTPException(401, "id_token rejected") from exc
+        raise Refused(401, "id_token rejected") from exc
     groups = external.get("groups") or []
     user_id = await sign_in_account(
         db,
@@ -119,7 +119,7 @@ async def backchannel_logout(body: LogoutIn, db: DbSession) -> dict[str, Any]:
     try:
         claims = await verify_logout_token(cfg, body.logout_token)
     except ExternalTokenRejected as exc:
-        raise HTTPException(400, "logout_token rejected") from exc
+        raise Refused(400, "logout_token rejected") from exc
     user_id = await mark_signed_out(db, issuer=claims["iss"], subject=claims["sub"])
     if user_id is None:
         return {"revoked": False}

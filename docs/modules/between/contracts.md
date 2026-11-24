@@ -78,11 +78,15 @@ class Credits:
   dedicated contract pool with its row-level-security hook. Contract methods
   take no session parameter; a caller that passes one gets
   `ContractArgumentError` (422).
-- **Errors.** Raise a domain exception carrying `http_status` (or an
-  `HTTPException`). The caller gets `ContractCallError` with the same status,
+- **Errors.** Raise `Refused(402, "...")` from `sandloom.sdk` (`NotFound` and
+  `Conflict` are its 404 and 409 forms), or a domain exception carrying
+  `http_status`. The caller gets `ContractCallError` with the same status,
   detail, headers and code, locally and over RPC. An `AttributeError` /
   `ValueError` escaping provider code is a provider failure (500 locally, 503
   remotely).
+- **A storage miss is not a `NotFound`.** `sandloom.sdk.NotFound` and
+  `sandloom.sdk.infra.NotFound` (an object store's missing key) are unrelated
+  classes: catch the storage one and raise yours, or the miss is a 500.
 - **Locks.** Never hold a row lock that a contract you call will also take:
   the call runs in another transaction on another connection, and waits at
   most `CONTRACT_DB_LOCK_TIMEOUT_MS`.

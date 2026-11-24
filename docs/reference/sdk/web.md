@@ -13,7 +13,7 @@ the operation-intent primitives.
 Public API 1.0 (spec §2.2, Appendix C). A name whose mechanism lands at a
 later hand-off raises `NotImplementedError` naming it.
 
-`from sandloom.sdk.web import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.web import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
 ## Start with (beginner)
 

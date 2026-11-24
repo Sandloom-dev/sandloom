@@ -21,9 +21,8 @@ from oidc_identity.shared.contracts.billing_entitlements_v1 import (
     SubscriptionActive,
 )
 from oidc_identity.shared.contracts.tenancy_membership_v1 import OrgRole
-from sandloom.sdk import CurrentUser, module_router
+from sandloom.sdk import Account, CurrentUser, module_router
 from sandloom.sdk.authz import (  # sandloom: advanced authorization atoms
-    Account,
     Perm,
     current_context,
     require,

@@ -12,21 +12,33 @@ as its own package or read a discovery error.
 
 ## The beginner tier
 
-Twenty-six names (20 for code, 6 for tests) cover CRUD, events and cross-module calls. Generated code
-and the examples use only these (`sandloom test` checks it,
-[SANDLOOM-T009](../reference/error-codes.md#sandloom-t009)); any other name is advanced
-and its import line says why: `# sandloom: advanced <reason>`.
+Twenty-nine names (24 for code, 5 for tests) cover CRUD, events and cross-module calls. They are
+tier 1, free in any file. Generated code and the examples use only these and the tier 2 names below
+(`sandloom check` and `sandloom test` check it,
+[SANDLOOM-T009](../reference/error-codes.md#sandloom-t009)). Any other name is advanced, and its
+import line says why: `# sandloom: advanced <reason>`.
 
 | Need | Names (`from sandloom.sdk import ...`) |
 | --- | --- |
 | a module | `define_module` |
-| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt`, `UtcDateTime` |
+| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt`, `UpdatedAt`, `UtcDateTime` |
 | routes | `module_router`, `public`, `CurrentUser` |
+| refusals | `NotFound`, `Conflict`, `Refused` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Owner`, `authorize_resource`; the billing and tenancy atoms (`Subscribed`, `SubscriptionActive`, `Credits`, `OrgRole`) are generated beside the contract stub and imported from there, not from `sandloom.sdk` |
-| effects | `record_audit`, `on_commit` |
-| tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, `deliver`, `fake_contract`, `fake_access_fact` |
+| authorization | `require`, `Account`; the billing and tenancy atoms (`Subscribed`, `SubscriptionActive`, `Credits`, `OrgRole`) are generated beside the contract stub and imported from there, not from `sandloom.sdk` |
+| effects | `record_audit`, `on_commit`, `bind_tenant` |
+| tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, `deliver`, `fake_contract` |
+
+Twelve more names are tier 2: they need no marker in the module file `sandloom add` writes them
+into, and need one in any other file. The criterion for both tiers is in
+[ADR-0010](../adr/0010-public-api-1.0.md).
+
+| File | Names |
+| --- | --- |
+| `sagas.py` (`sandloom.sdk.sagas`) | `Saga`, `SagaContext`, `step`, `local_step`, `start_saga` |
+| `projections.py` (`sandloom.sdk.projections`) | `Projection`, `SourceGroup`, `full_state`, `tombstone` |
+| `tasks.py` (`sandloom.sdk.tasks`, `sandloom.sdk.data`) | `task`, `periodic`, `open_uow` |
 
 ## Three API levels
 

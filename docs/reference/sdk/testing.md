@@ -11,7 +11,7 @@ The testing kit: every helper of the framework's test harness and the 1.0 names.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.testing import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.testing import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
 ## Start with (beginner)
 
@@ -19,7 +19,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`as_user`](#as_user) | function | `(user_id, headers)` with a freshly minted access token. |
 | [`deliver`](#deliver) | async function | Deliver one event to every consumer of its channel; returns how many. |
-| [`fake_access_fact`](#fake_access_fact) | function | Answer the access fact `(owner, name)` with `value` inside the block; only a policy naming the same `owner` sees it. |
 | [`fake_contract`](#fake_contract) | function | Serve contract `ref` from `impl` for the block: |
 | [`published`](#published) | function | The events of `event`'s channel published by the code under test: |
 
@@ -44,6 +43,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ContractCase`](#contractcase) | class | One call to compare: `method(*args, **kwargs)` under `tenant`. |
 | [`ContractConformanceError`](#contractconformanceerror) | exception | The local and the RPC path disagreed for at least one case. |
 | [`email_of`](#email_of) | function | The deterministic `email` claim minted for a test user. |
+| [`fake_access_fact`](#fake_access_fact) | function | Answer the access fact `(owner, name)` with `value` inside the block; only a policy naming the same `owner` sees it. |
 | [`FakeClock`](#fakeclock) | class | The runtime's injectable clock (naive UTC). |
 | [`get_db`](#get_db) | function | Request-scoped DB session governed by a UnitOfWork (the canonical path). |
 | [`has_optimized_reads`](#has_optimized_reads) | function | Whether the planner's optimized executor can run on the database behind `bind` (an engine, sync or async): its DBAPI adapter runs raw sta... |
@@ -163,22 +163,6 @@ redelivery): a `durable=True` consumer applies it once:
 ```python
 await deliver(NoteCreated(note_id=n, tenant_id=t), times=2)
 ```
-
-### `fake_access_fact`
-
-```python
-def fake_access_fact(
-    name: str,
-    value: bool | Callable[[Any], Any] = True,
-    *,
-    owner: str,
-    deny_category: str | None = None,
-    core: Any = None,
-) -> Iterator[None]
-```
-
-Answer the access fact `(owner, name)` with `value` inside the
-block; only a policy naming the same `owner` sees it.
 
 ### `fake_contract`
 
@@ -469,6 +453,22 @@ def email_of(user_id: uuid.UUID) -> str
 ```
 
 The deterministic `email` claim minted for a test user.
+
+### `fake_access_fact`
+
+```python
+def fake_access_fact(
+    name: str,
+    value: bool | Callable[[Any], Any] = True,
+    *,
+    owner: str,
+    deny_category: str | None = None,
+    core: Any = None,
+) -> Iterator[None]
+```
+
+Answer the access fact `(owner, name)` with `value` inside the
+block; only a policy naming the same `owner` sees it.
 
 ### `FakeClock`
 

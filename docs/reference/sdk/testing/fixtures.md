@@ -15,7 +15,7 @@ application, exactly as under the `sandloom.sdk.testing.plugin`.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.testing.fixtures import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.testing.fixtures import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
 ## Advanced
 

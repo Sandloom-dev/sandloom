@@ -38,6 +38,21 @@ async def create(body: NoteIn, *, author_id: UUID) -> Note:
     return note
 ```
 
+After `flush()` the row is complete. `created_at` and `updated_at` are loaded:
+`Base` reads back what the database set, with `RETURNING`. There is no
+`await db().refresh(note)`. A `default=new_id` key is set when the model is
+constructed, and `Note(...).id` can go into an event before the flush.
+
+A model that mixes in `Versioned` (`sandloom.sdk.data`, advanced) gets a
+`version` that the database counts up with each update. An event carries
+`note.version` after the flush. The code never writes `note.version += 1`.
+The update is checked. If another transaction updated the row after this unit
+read it, the flush raises `sqlalchemy.orm.exc.StaleDataError` and writes
+nothing. No event then carries the newer version with columns this unit never
+saw. To wait for the other transaction instead of failing, read the row with
+`select(Note).where(...).with_for_update()` before changing it.
+
+<!-- lookup -->
 - **Never call `commit()` or `rollback()`** on a session in module code
   ([SANDLOOM-C006](../../reference/error-codes.md#sandloom-c006)). Use `flush()` to get
   ids and constraint errors early.
@@ -53,8 +68,31 @@ async def create(body: NoteIn, *, author_id: UUID) -> Note:
   contract pool with its tenant hook ([Contracts](../between/contracts.md)).
 - **In a consumer** `db()` is the delivery's unit; a delivery that raises
   rolls back and is redelivered ([Events](../between/events.md)).
+- **In a saga local step** `db()` is the transition's session (a savepoint):
+  `local_step("reserve", apply=reserve)` takes `async def reserve(ctx)`
+  ([Sagas](../between/sagas.md)).
+- **In an `authorize_resource` loader** `async def load(id)` reads through
+  `db()` ([Authorization](../http/authorization.md)).
+- **In an L2 projection handler** `async def apply(envelope)` runs on `db()`,
+  and `monotonic_upsert(Row, key=..., ...)` writes through it
+  ([Projections](../between/projections.md)).
 - **In a task or script** open a unit with `open_uow()`; inside the block
   `db()` returns its session ([Background tasks](../background/tasks.md)).
+
+There is one spelling: `db()`. Five forms that took the session as a
+parameter are gone:
+
+- `local_step` `fn(session, ctx)`;
+- the `authorize_resource` loader `(id, session)`;
+- the projection handler `(session, envelope)`;
+- `monotonic_upsert(session, Row, ...)`, and `monotonic_update` and
+  `monotonic_delete`;
+- `projection.apply(session, ...)`.
+
+A function with one of the first three shapes is refused when it is declared.
+A call that passes a session first to the last two is refused at the call.
+The error names the rewrite
+([upgrade guide](../../operate/upgrade-1.0.md#session-parameters-leave-the-author-surface)).
 
 `open_uow(database=None)` opens a unit on the module's primary database, or
 on a named one. The module is the one whose package holds the calling code.

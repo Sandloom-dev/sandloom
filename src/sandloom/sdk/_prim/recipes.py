@@ -34,8 +34,7 @@ membership and entitlements contracts; no tenancy or billing data is needed.
 
     from <app>.shared.contracts.billing_entitlements_v1 import SubscriptionActive
     from <app>.shared.contracts.tenancy_membership_v1 import OrgRole
-    from sandloom.sdk import CurrentUser, require
-    from sandloom.sdk.authz import Account  # sandloom: advanced account target
+    from sandloom.sdk import Account, CurrentUser, require
 
     ORG = Account.org(param="org_id")
     PAID_ADMIN = require(OrgRole("admin") & SubscriptionActive(of=ORG))
@@ -112,8 +111,7 @@ new id) declares `dependencies=[Depends(replay_safe(reason="..."))]`
 
     from sqlalchemy.orm import Mapped, mapped_column
 
-    from sandloom.sdk import Base, CreatedAt, TenantScoped, new_id
-    from sandloom.sdk.data import UpdatedAt  # sandloom: advanced last-write time
+    from sandloom.sdk import Base, CreatedAt, TenantScoped, UpdatedAt, new_id
 
     class Note(TenantScoped, Base):
         __tablename__ = "<module>_notes"
@@ -245,9 +243,9 @@ scaffolds. A service, and a task that runs it for one tenant:
 
     from pydantic import BaseModel
 
-    from sandloom.sdk.data import open_uow  # sandloom: advanced task unit
-    from sandloom.sdk.tasks import task  # sandloom: advanced tasks
-    from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the task's tenant
+    from sandloom.sdk import bind_tenant
+    from sandloom.sdk.data import open_uow
+    from sandloom.sdk.tasks import task
 
     from .stats import count_tenant_items
 
@@ -277,10 +275,9 @@ scaffolds. A service, and a task that runs it for one tenant:
 
     import pytest
 
-    from sandloom.sdk import db
+    from sandloom.sdk import bind_tenant, db
     from sandloom.sdk.data import open_uow  # sandloom: advanced the test's own unit
     from sandloom.sdk.errors import UnitOfWorkRequiredError  # sandloom: advanced R002
-    from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced tenant rows
 
     from ..models.item import <Module>Item
     from ..stats import count_tenant_items
@@ -511,7 +508,7 @@ can refill it:
 
     from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
     from sandloom.sdk import Contract, Event
-    from sandloom.sdk.projections import (  # sandloom: advanced projections
+    from sandloom.sdk.projections import (
         Projection,
         SourceGroup,
         full_state,
@@ -636,7 +633,7 @@ Tests deliver the events (in any order, twice) and fake both contracts:
     from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
     from <app>.shared.contracts.tenancy_dto import MemberState
     from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
-    from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the organization
+    from sandloom.sdk import bind_tenant
     from sandloom.sdk.testing import deliver, fake_contract
 
     from ..projections import MEMBERS, MemberAdded, MemberRemoved, MemberRoleChanged
@@ -824,8 +821,7 @@ and the optional ones it reads:
 
     import sqlalchemy as sa
 
-    from sandloom.sdk import db
-    from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the event's tenant
+    from sandloom.sdk import bind_tenant, db
     from sandloom.sdk.testing import deliver
 
     from ..consumers import ItemCreated
@@ -864,8 +860,8 @@ dies, a slot is sent again): make every run harmless to repeat (delete or update
     import sqlalchemy as sa
 
     from sandloom.sdk import db
-    from sandloom.sdk.data import open_uow  # sandloom: advanced task unit
-    from sandloom.sdk.tasks import periodic  # sandloom: advanced tasks
+    from sandloom.sdk.data import open_uow
+    from sandloom.sdk.tasks import periodic
     from sandloom.sdk.tenant import unscoped  # sandloom: advanced every tenant
 
     from .models.item import <Module>Item
@@ -910,9 +906,9 @@ dies, a slot is sent again): make every run harmless to repeat (delete or update
 
     import sqlalchemy as sa
 
-    from sandloom.sdk import db
+    from sandloom.sdk import bind_tenant, db
     from sandloom.sdk.data import open_uow  # sandloom: advanced the test's own unit
-    from sandloom.sdk.tenant import bind_tenant, unscoped  # sandloom: advanced tenants
+    from sandloom.sdk.tenant import unscoped  # sandloom: advanced tenants
 
     from ..models.item import <Module>Item
     from ..tasks import purge_batch, purge_in_batches, purge_old_items

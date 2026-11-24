@@ -5,13 +5,14 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import BigInteger, Column, DateTime, MetaData, Table, Text, select
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from sandloom.core.projections import (
     monotonic_delete,
@@ -19,7 +20,7 @@ from sandloom.core.projections import (
     monotonic_upsert,
 )
 from sandloom.core.tenant_context import TenantMismatchError, bind_tenant
-from sandloom.core.testing import reload_test_env
+from sandloom.core.testing import bind_test_uow, reload_test_env
 
 _MD = MetaData()
 _ROWS = Table(
@@ -58,6 +59,14 @@ async def sm() -> AsyncGenerator[async_sessionmaker, None]:
     await engine.dispose()
 
 
+@asynccontextmanager
+async def _unit(sm: async_sessionmaker) -> AsyncGenerator[AsyncSession, None]:
+    """A transaction bound as the running unit: the helpers write through ``db()``."""
+    async with sm() as session, session.begin():
+        with bind_test_uow(session):
+            yield session
+
+
 async def _row(sm: async_sessionmaker, item_id: uuid.UUID):
     async with sm() as s:
         return (await s.execute(select(_ROWS).where(_ROWS.c.item_id == item_id))).one()
@@ -66,21 +75,19 @@ async def _row(sm: async_sessionmaker, item_id: uuid.UUID):
 @pytest.mark.asyncio
 async def test_null_stored_version_is_updatable(sm: async_sessionmaker) -> None:
     tenant, group, item = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    async with sm() as s, s.begin():
+    async with _unit(sm):
         # Seeded without a group version (NULL): the first group event must
         # apply, not be blocked forever by NULL < v being NULL.
         await monotonic_upsert(
-            s,
             _ROWS,
             key={"item_id": item},
             values={"tenant_id": tenant, "group_id": group, "title": "t"},
             version_column="item_version",
             incoming_version=1,
         )
-    async with sm() as s, s.begin():
+    async with _unit(sm):
         assert (
             await monotonic_update(
-                s,
                 _ROWS,
                 match={"group_id": group},
                 values={"group_name": "G1"},
@@ -92,10 +99,9 @@ async def test_null_stored_version_is_updatable(sm: async_sessionmaker) -> None:
     assert (await _row(sm, item)).group_name == "G1"
 
     # NULL item_version row: an upsert must apply too.
-    async with sm() as s, s.begin():
+    async with _unit(sm) as s:
         await s.execute(_ROWS.update().values(item_version=None))
         assert await monotonic_upsert(
-            s,
             _ROWS,
             key={"item_id": item},
             values={"tenant_id": tenant, "group_id": group, "title": "t2"},
@@ -113,27 +119,24 @@ async def test_tombstone_prevents_old_rebuild_from_resurrecting_deleted_entity(
     seed = {"tenant_id": tenant, "group_id": group, "title": "deleted"}
     # Deletion can arrive before even the first create/backfill for the entity.
     with bind_tenant(tenant):
-        async with sm() as session, session.begin():
+        async with _unit(sm):
             assert await monotonic_delete(
-                session,
                 _ROWS,
                 key={"item_id": item},
                 values=seed,
                 version_column="item_version",
                 incoming_version=3,
             )
-        async with sm() as session, session.begin():
+        async with _unit(sm):
             assert not await monotonic_upsert(
-                session,
                 _ROWS,
                 key={"item_id": item},
                 values={**seed, "title": "stale rebuild", "deleted_at": None},
                 version_column="item_version",
                 incoming_version=2,
             )
-        async with sm() as session, session.begin():
+        async with _unit(sm):
             assert not await monotonic_delete(
-                session,
                 _ROWS,
                 key={"item_id": item},
                 values=seed,
@@ -151,19 +154,17 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
     sm: async_sessionmaker,
 ) -> None:
     tenant_a, tenant_b, group, item = (uuid.uuid4() for _ in range(4))
-    async with sm() as s, s.begin():
+    async with _unit(sm):
         with pytest.raises(ValueError, match="tenant_id"):
             await monotonic_upsert(
-                s,
                 _ROWS,
                 key={"item_id": item},
                 values={"group_id": group, "title": "x"},
                 version_column="item_version",
                 incoming_version=1,
             )
-    async with sm() as s, s.begin():
+    async with _unit(sm):
         await monotonic_upsert(
-            s,
             _ROWS,
             key={"item_id": item},
             values={"tenant_id": tenant_a, "group_id": group, "title": "a"},
@@ -171,9 +172,8 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
             incoming_version=1,
         )
     # Same key, other tenant: must NOT overwrite tenant A's row.
-    async with sm() as s, s.begin():
+    async with _unit(sm):
         changed = await monotonic_upsert(
-            s,
             _ROWS,
             key={"item_id": item},
             values={"tenant_id": tenant_b, "group_id": group, "title": "b"},
@@ -186,10 +186,9 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
 
     # A bound tenant cannot write another tenant's projection row.
     with bind_tenant(tenant_b):
-        async with sm() as s, s.begin():
+        async with _unit(sm):
             with pytest.raises(TenantMismatchError):
                 await monotonic_upsert(
-                    s,
                     _ROWS,
                     key={"item_id": uuid.uuid4()},
                     values={"tenant_id": tenant_a, "group_id": group, "title": "z"},
@@ -202,10 +201,9 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
 async def test_update_is_scoped_to_bound_tenant(sm: async_sessionmaker) -> None:
     tenant_a, tenant_b, group = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     item_a, item_b = uuid.uuid4(), uuid.uuid4()
-    async with sm() as s, s.begin():
+    async with _unit(sm):
         for item, tenant in ((item_a, tenant_a), (item_b, tenant_b)):
             await monotonic_upsert(
-                s,
                 _ROWS,
                 key={"item_id": item},
                 values={"tenant_id": tenant, "group_id": group, "title": "t"},
@@ -213,9 +211,8 @@ async def test_update_is_scoped_to_bound_tenant(sm: async_sessionmaker) -> None:
                 incoming_version=1,
             )
     with bind_tenant(tenant_a):
-        async with sm() as s, s.begin():
+        async with _unit(sm):
             updated = await monotonic_update(
-                s,
                 _ROWS,
                 match={"group_id": group},
                 values={"group_name": "only-a"},
@@ -226,10 +223,9 @@ async def test_update_is_scoped_to_bound_tenant(sm: async_sessionmaker) -> None:
     assert (await _row(sm, item_a)).group_name == "only-a"
     assert (await _row(sm, item_b)).group_name is None
     with bind_tenant(tenant_a):
-        async with sm() as s, s.begin():
+        async with _unit(sm):
             with pytest.raises(TenantMismatchError):
                 await monotonic_update(
-                    s,
                     _ROWS,
                     match={"tenant_id": tenant_b},
                     values={"group_name": "forbidden"},
@@ -237,3 +233,60 @@ async def test_update_is_scoped_to_bound_tenant(sm: async_sessionmaker) -> None:
                     incoming_version=2,
                 )
     assert (await _row(sm, item_b)).group_name is None
+
+
+@pytest.mark.asyncio
+async def test_every_helper_is_callable_with_keywords_only(
+    sm: async_sessionmaker,
+) -> None:
+    """The three helpers keep their keyword parameters (no ``*args`` swallow
+    them): a call that names ``target=`` and every option reaches the row."""
+    tenant, group, item = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    async with _unit(sm):
+        assert await monotonic_upsert(
+            target=_ROWS,
+            key={"item_id": item},
+            values={"tenant_id": tenant, "group_id": group, "title": "t"},
+            version_column="item_version",
+            incoming_version=1,
+            insert_only=None,
+        )
+        assert (
+            await monotonic_update(
+                target=_ROWS,
+                match={"group_id": group},
+                values={"group_name": "G"},
+                version_column="group_version",
+                incoming_version=1,
+            )
+            == 1
+        )
+        assert await monotonic_delete(
+            target=_ROWS,
+            key={"item_id": item},
+            values={"tenant_id": tenant, "group_id": group, "title": "t"},
+            version_column="item_version",
+            incoming_version=2,
+        )
+    row = await _row(sm, item)
+    assert (row.group_name, row.item_version) == ("G", 2)
+    assert row.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_a_session_as_the_first_argument_is_refused(
+    sm: async_sessionmaker,
+) -> None:
+    """The earlier ``monotonic_upsert(session, table, ...)`` form is gone: it
+    fails with an error that names ``db()``, it is not silently read as
+    ``target=session``."""
+    async with _unit(sm) as session:
+        with pytest.raises(TypeError, match=r"is gone.*`db\(\)`"):
+            await monotonic_upsert(  # type: ignore[call-arg, misc]
+                session,
+                _ROWS,
+                key={"item_id": uuid.uuid4()},
+                values={"tenant_id": uuid.uuid4(), "group_id": uuid.uuid4()},
+                version_column="item_version",
+                incoming_version=1,
+            )

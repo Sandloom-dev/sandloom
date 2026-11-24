@@ -11,7 +11,17 @@ Sagas (ADR-0008): definitions, steps, start and status.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.sagas import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.sagas import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+
+## After the first module (in `sagas.py`)
+
+| Name | Kind | Summary |
+| --- | --- | --- |
+| [`local_step`](#local_step) | function | A local step, run inside the transition's unit of work: |
+| [`Saga`](#saga) | class | A saga definition (ADR-0008), discovered from the module's `sagas` submodule; every parameter is today's. |
+| [`SagaContext`](#sagacontext) | class | What a step's argument function (or local step) sees. |
+| [`start_saga`](#start_saga) | async function | Start `definition` for business id `saga_id` in the caller's UoW. |
+| [`step`](#step) | function | A command step: `call` a command contract with `args(ctx)`: |
 
 ## Advanced
 
@@ -19,20 +29,150 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`CommandStep`](#commandstep) | class | A step that calls a command contract (`call="<contract>.<method>"`). |
 | [`Direction`](#direction) | callable |  |
-| [`local_step`](#local_step) | function | A local step: `await apply(db, ctx)` inside the transition's UoW. |
 | [`LocalStep`](#localstep) | class | A step run in the owner's own Unit of Work (transactional, §1). |
-| [`Saga`](#saga) | class | A saga definition (ADR-0008), discovered from the module's `sagas` submodule; every parameter is today's. |
 | [`saga_contract_requirements`](#saga_contract_requirements) | function | One `ContractRequirement(name, methods=...)` per contract it calls. |
 | [`saga_status`](#saga_status) | async function | The instance of `definition` for `saga_id` (`None` if never started). |
 | [`saga_step_key`](#saga_step_key) | function | The idempotency key the runtime injects into a step's command call. |
-| [`SagaContext`](#sagacontext) | class | What a step's argument function (or local step) sees. |
 | [`SagaHandle`](#sagahandle) | class | What `start_saga` / `saga_status` return. |
 | [`SagaInputConflict`](#sagainputconflict) | exception | `start_saga` of an existing business id with OTHER input (409). |
 | [`SagaStep`](#sagastep) | constant |  |
-| [`start_saga`](#start_saga) | async function | Start `definition` for business id `saga_id` in the caller's UoW. |
-| [`step`](#step) | function | A command step: `call` a command contract with `args(ctx)`: |
 | [`StepKind`](#stepkind) | class | The kind of a saga step (Garcia-Molina & Salem; Richardson). |
 | [`synthetic_instance`](#synthetic_instance) | function | An instance of `model` built from its schema alone (no validation). |
+
+## After-first names
+
+### `local_step`
+
+```python
+def local_step(
+    name: str,
+    *,
+    apply: LocalFn,
+    compensate: LocalFn | None = None,
+    kind: StepKind | str | None = None,
+    deadline: timedelta | None = None,
+) -> LocalStep
+```
+
+A local step, run inside the transition's unit of work:
+
+```python
+async def reserve_seat(ctx: SagaContext[EnrollInput]) -> dict[str, str]:
+    db().add(Seat(course_id=ctx.input.course_id))
+    return {"course_id": str(ctx.input.course_id)}
+
+local_step("reserve", apply=reserve_seat, compensate=release_seat)
+```
+
+`db()` is the transition's session (a savepoint: raising rolls the step's
+writes back). A function that takes the session (`async def f(session,
+ctx)`) is refused with a `TypeError` when the step is declared. Raise
+`NotFound(...)` or `Refused(status, ...)` with status 400, 402, 403,
+404, 410 or 422 for a definitive refusal; `Refused(401, ...)` parks the
+saga as misconfigured; any other status is retried until the saga's
+deadline (`Conflict`, 409, included), as is any other exception. The
+returned value (JSON) is persisted as the step's result.
+
+### `Saga`
+
+```python
+class Saga(Saga)(
+    name: str,
+    *,
+    version: int,
+    input: type[InputT],
+    deadline: timedelta,
+    steps: Sequence[SagaStep],
+    compensation_deadline: timedelta | None = None,
+) -> None
+```
+
+A saga definition (ADR-0008), discovered from the module's `sagas`
+submodule; every parameter is today's.
+
+### `SagaContext`
+
+```python
+class SagaContext(Generic)(
+    saga_type: str,
+    saga_id: str,
+    input: InputT,
+    results: Mapping[str, Any] = <factory>,
+    synthetic: bool = False,
+) -> None
+```
+
+What a step's argument function (or local step) sees.
+
+`input` is the definition's input model; `results` maps each applied
+step's name to its persisted (JSON) result. `key(step)` is the derived
+operation key of a step (e.g. to pass the charge's key to the refund);
+`result(step, Model)` decodes a step's result to `Model`.
+
+#### `SagaContext.key`
+
+```python
+def key(self, step: str, direction: Direction = 'do') -> str
+```
+
+The operation key the runtime uses for `step` (`do` / `undo`).
+
+#### `SagaContext.result`
+
+```python
+def result(self, step: str, model: Any = None) -> Any
+```
+
+The result `step` returned, decoded to `model` when given.
+
+Raises `KeyError` for a step that has not been applied (yet).
+
+### `start_saga`
+
+```python
+async def start_saga(
+    definition: Saga[Any],
+    *,
+    saga_id: object,
+    input: BaseModel | Mapping[str, Any],
+) -> SagaHandle
+```
+
+Start `definition` for business id `saga_id` in the caller's UoW.
+
+Inserts the instance row and publishes its first nudge through the outbox
+in the SAME transaction as the business change. Starting the same
+`saga_id` again is a create-or-get: equal input returns the existing
+instance (`created=False`), other input raises
+`SagaInputConflict` (409). Outside a Unit of Work it raises
+`UnitOfWorkRequiredError`, like `publish_event`.
+
+### `step`
+
+```python
+def step(
+    name: str,
+    *,
+    call: CommandRef,
+    args: ArgsFn,
+    compensate: CommandRef | None = None,
+    compensate_args: ArgsFn | None = None,
+    kind: StepKind | str | None = None,
+    refuse_on: Iterable[int] = (),
+    check_args: bool = True,
+    deadline: timedelta | None = None,
+) -> CommandStep
+```
+
+A command step: `call` a command contract with `args(ctx)`:
+
+```python
+credits = Contract(BILLING_CREDITS_V1)
+step("charge", call=credits.spend, args=lambda ctx: {...},
+     compensate=credits.grant)
+```
+
+Identical to the L2 `step` with `call="billing.credits.v1.spend"`.
 
 ## Advanced names
 
@@ -106,27 +246,6 @@ def Direction(*args, **kwargs)
 
 *(no docstring)*
 
-### `local_step`
-
-```python
-def local_step(
-    name: str,
-    *,
-    apply: LocalFn,
-    compensate: LocalFn | None = None,
-    kind: StepKind | str | None = None,
-    deadline: timedelta | None = None,
-) -> LocalStep
-```
-
-A local step: `await apply(db, ctx)` inside the transition's UoW.
-
-Its writes commit with the instance transition (transactional, no command
-log needed); raising rolls them back (a savepoint). Raise an exception
-with an `http_status` of 400/402/403/404/410/422 for a definitive
-refusal; anything else is retried. The returned value (JSON-able) is
-persisted as the step's result.
-
 ### `LocalStep`
 
 ```python
@@ -152,23 +271,6 @@ local  (property)
 ```python
 has_compensation  (property)
 ```
-
-### `Saga`
-
-```python
-class Saga(Saga)(
-    name: str,
-    *,
-    version: int,
-    input: type[InputT],
-    deadline: timedelta,
-    steps: Sequence[SagaStep],
-    compensation_deadline: timedelta | None = None,
-) -> None
-```
-
-A saga definition (ADR-0008), discovered from the module's `sagas`
-submodule; every parameter is today's.
 
 ### `saga_contract_requirements`
 
@@ -202,43 +304,6 @@ The idempotency key the runtime injects into a step's command call.
 (compensation) — stable across attempts, so the provider's durable command
 log replays a step that already ran instead of running it twice.
 
-### `SagaContext`
-
-```python
-class SagaContext(Generic)(
-    saga_type: str,
-    saga_id: str,
-    input: InputT,
-    results: Mapping[str, Any] = <factory>,
-    synthetic: bool = False,
-) -> None
-```
-
-What a step's argument function (or local step) sees.
-
-`input` is the definition's input model; `results` maps each applied
-step's name to its persisted (JSON) result. `key(step)` is the derived
-operation key of a step (e.g. to pass the charge's key to the refund);
-`result(step, Model)` decodes a step's result to `Model`.
-
-#### `SagaContext.key`
-
-```python
-def key(self, step: str, direction: Direction = 'do') -> str
-```
-
-The operation key the runtime uses for `step` (`do` / `undo`).
-
-#### `SagaContext.result`
-
-```python
-def result(self, step: str, model: Any = None) -> Any
-```
-
-The result `step` returned, decoded to `model` when given.
-
-Raises `KeyError` for a step that has not been applied (yet).
-
 ### `SagaHandle`
 
 ```python
@@ -271,53 +336,6 @@ SagaStep: UnionType
 ```
 
 *(no docstring)*
-
-### `start_saga`
-
-```python
-async def start_saga(
-    definition: Saga[Any],
-    *,
-    saga_id: object,
-    input: BaseModel | Mapping[str, Any],
-) -> SagaHandle
-```
-
-Start `definition` for business id `saga_id` in the caller's UoW.
-
-Inserts the instance row and publishes its first nudge through the outbox
-in the SAME transaction as the business change. Starting the same
-`saga_id` again is a create-or-get: equal input returns the existing
-instance (`created=False`), other input raises
-`SagaInputConflict` (409). Outside a Unit of Work it raises
-`UnitOfWorkRequiredError`, like `publish_event`.
-
-### `step`
-
-```python
-def step(
-    name: str,
-    *,
-    call: CommandRef,
-    args: ArgsFn,
-    compensate: CommandRef | None = None,
-    compensate_args: ArgsFn | None = None,
-    kind: StepKind | str | None = None,
-    refuse_on: Iterable[int] = (),
-    check_args: bool = True,
-    deadline: timedelta | None = None,
-) -> CommandStep
-```
-
-A command step: `call` a command contract with `args(ctx)`:
-
-```python
-credits = Contract(BILLING_CREDITS_V1)
-step("charge", call=credits.spend, args=lambda ctx: {...},
-     compensate=credits.grant)
-```
-
-Identical to the L2 `step` with `call="billing.credits.v1.spend"`.
 
 ### `StepKind`
 

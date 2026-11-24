@@ -8,7 +8,7 @@ description: "Reference of sandloom.sdk.data: every public name with its signatu
 # `sandloom.sdk.data`
 
 Tables, sessions and reads: `Base`, `TenantScoped`, `new_id`,
-`CreatedAt` / `UpdatedAt`, `db()`, RLS
+`CreatedAt` / `UpdatedAt`, `Versioned`, `db()`, RLS
 helpers, the read planner, and the portable SQL forms. Some forms need a
 database feature (`Array`, `fulltext_index` / `matches`, `json_path`,
 `json_contains`, `transaction_lock`): a module declares it
@@ -16,7 +16,7 @@ database feature (`Array`, `fulltext_index` / `matches`, `json_path`,
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.data import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.data import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
 ## Start with (beginner)
 
@@ -27,7 +27,14 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`db`](#db) | function | The session of the innermost open unit of the current task (§4.3): |
 | [`new_id`](#new_id) | function | A new time-ordered id (UUIDv7, RFC 9562) for a primary key: |
 | [`TenantScoped`](#tenantscoped) | class | Mixin marking a model as tenant-owned (adds the indexed `tenant_id`). |
+| [`UpdatedAt`](#updatedat) | annotated type |  |
 | [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
+
+## After the first module (in `tasks.py`)
+
+| Name | Kind | Summary |
+| --- | --- | --- |
+| [`open_uow`](#open_uow) | function | Open a unit of work on `database` (today `db_session`, §4.3): |
 
 ## Advanced
 
@@ -55,7 +62,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`make_db_dependency`](#make_db_dependency) | callable | Build a request dependency yielding a session for a NAMED database. |
 | [`matches`](#matches) | function | `column` (or a list of columns) matches the search `query` (feature `fulltext_search`): |
 | [`MoneyLedger`](#moneyledger) | class | Model mixin of a money ledger: names its unique operation-key column. |
-| [`open_uow`](#open_uow) | function | Open a unit of work on `database` (today `db_session`, §4.3): |
 | [`Page`](#page) | class | One page of a `ListOperation`: the DTOs and the next cursor. |
 | [`PageLimitError`](#pagelimiterror) | exception | `limit` missing, &lt; 1 or above the operation's page cap (400). |
 | [`partial_index`](#partial_index) | function | An index over the rows `where` selects, for `__table_args__`. |
@@ -68,7 +74,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`tenant_upsert`](#tenant_upsert) | async function | Insert `rows` of a `TenantScoped` model for the bound tenant and, where a row of that tenant already exists, refresh the `update` columns... |
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
-| [`UpdatedAt`](#updatedat) | annotated type |  |
+| [`Versioned`](#versioned) | class | A `version: bigint` column the database counts up: `1` on insert, plus one by every update of the row, so a module never writes `item.ver... |
 | [`WallClock`](#wallclock) | class | The database's clock when the statement runs ("now, at the call"). |
 
 ## Beginner names
@@ -80,6 +86,14 @@ class Base(DeclarativeBase)(**kwargs: Any) -> None
 ```
 
 Base class for all SQLAlchemy models.
+
+`eager_defaults`: a flush reads back every value the database set
+(`CreatedAt` on insert, `UpdatedAt` on update) with `RETURNING`, so a
+model's `created_at` / `updated_at` are loaded right after
+`flush()`: no `await db().refresh(row)`. It holds for every model,
+also one that declares its own `__mapper_args__` (polymorphic
+inheritance); a model that names `eager_defaults=False` there keeps
+that choice.
 
 ### `CreatedAt`
 
@@ -124,6 +138,10 @@ Ids sort in creation order: by time across processes, and strictly
 increasing within one process (a counter orders a millisecond's burst).
 So `order_by(Model.id)` is the creation order, with no tie.
 
+The model has its id the moment it is constructed (`Item(...).id` is
+set before `add` or `flush`), so an event or a link can name it at
+once; an `id=` argument wins.
+
 ### `TenantScoped`
 
 ```python
@@ -134,6 +152,14 @@ Mixin marking a model as tenant-owned (adds the indexed `tenant_id`).
 
 Inheriting this both declares the column and opts the model into automatic
 tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
+
+### `UpdatedAt`
+
+```python
+UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn object>]
+```
+
+*(no docstring)*
 
 ### `UtcDateTime`
 
@@ -212,6 +238,40 @@ def process_result_value(
 ```
 
 A loaded value with UTC attached when the database kept no offset.
+
+## After-first names
+
+### `open_uow`
+
+```python
+def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSession]
+```
+
+Open a unit of work on `database` (today `db_session`, §4.3):
+
+```python
+async with open_uow() as session:
+    session.add(row)          # committed when the block exits
+```
+
+One transaction, committed on success and rolled back on an exception,
+with the transactional outbox for the events it publishes.
+
+Without `database` the unit opens on the primary database of the module
+that calls `open_uow` (the one its migration chain lives on, as its
+contracts' units do). Code that belongs to no loaded module, such as a
+script, gets `"default"`; so does a module whose `define_module(name=)`
+differs from its package: pass the database name there.
+
+A module that requires several databases, `default` not among them, and
+declares no `migrations_database` has no primary one: `open_uow()`
+then raises `MigrationTargetError` on entering the block; pass
+`database`. A module that requires `default` and another database gets
+`default`.
+
+The database of a call without `database` is resolved when the block is
+entered, against the core active then (as `db_session` does), not when
+`open_uow()` is called.
 
 ## Advanced names
 
@@ -732,38 +792,6 @@ class MoneyLedger
 
 Model mixin of a money ledger: names its unique operation-key column.
 
-### `open_uow`
-
-```python
-def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSession]
-```
-
-Open a unit of work on `database` (today `db_session`, §4.3):
-
-```python
-async with open_uow() as session:
-    session.add(row)          # committed when the block exits
-```
-
-One transaction, committed on success and rolled back on an exception,
-with the transactional outbox for the events it publishes.
-
-Without `database` the unit opens on the primary database of the module
-that calls `open_uow` (the one its migration chain lives on, as its
-contracts' units do). Code that belongs to no loaded module, such as a
-script, gets `"default"`; so does a module whose `define_module(name=)`
-differs from its package: pass the database name there.
-
-A module that requires several databases, `default` not among them, and
-declares no `migrations_database` has no primary one: `open_uow()`
-then raises `MigrationTargetError` on entering the block; pass
-`database`. A module that requires `default` and another database gets
-`default`.
-
-The database of a call without `database` is resolved when the block is
-entered, against the core active then (as `db_session` does), not when
-`open_uow()` is called.
-
 ### `Page`
 
 ```python
@@ -1045,13 +1073,40 @@ UowReads = Annotated[Any, Depends(dependency=<function get_uow_reads>, use_cache
 
 *(no docstring)*
 
-### `UpdatedAt`
+### `Versioned`
 
 ```python
-UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn object>]
+class Versioned
 ```
 
-*(no docstring)*
+A `version: bigint` column the database counts up: `1` on insert,
+plus one by every update of the row, so a module never writes
+`item.version += 1`:
+
+```python
+class Project(TenantScoped, Versioned, Base):
+    ...
+
+await ProjectSaved(project_id=p.id, version=p.version).publish()
+```
+
+Read the version after `flush()`: the new value comes back with the
+UPDATE (`eager_defaults`), so no `refresh` is needed. Events carry it
+so a consumer can drop a stale or repeated one. A statement that updates
+no column leaves the version as it was; `version` itself is never set by
+hand. On a joined-table model the version counts whichever table's columns
+the update changed.
+
+The update is checked, so the version never goes out with a stale row: the
+ORM writes `WHERE version = <the version this unit loaded>`. When another
+transaction updated the row after this unit read it, the flush raises
+`sqlalchemy.orm.exc.StaleDataError` and writes nothing, so no event
+carries the newer version with columns this unit never saw. To wait for the
+other transaction instead of failing, read the row with
+`select(...).with_for_update()` before changing it. A model that declares
+its own `__mapper_args__` names `version_id_col=Model.version` and
+`version_id_generator=False` there (a model that does not is refused when
+it is declared).
 
 ### `WallClock`
 

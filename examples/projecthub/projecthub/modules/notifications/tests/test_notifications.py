@@ -13,10 +13,10 @@ import uuid
 import pytest
 
 from projecthub.modules.notifications.services import NotificationQueryService
+from sandloom.sdk import bind_tenant
 from sandloom.sdk.data import (
     session_reads,  # sandloom: advanced declared reads on a session
 )
-from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced read as one tenant
 from sandloom.sdk.testing import deliver
 
 

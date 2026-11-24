@@ -24,10 +24,10 @@ the gap between a task handler's project read and its insert (its fan-out
 UPDATE would match no row and the task row would keep stale project data
 forever): whichever transaction locks the snapshot second observes the first.
 
-The handlers keep the L2 form ``(session, envelope)`` of a projection
-consumer (registered in the module's ``setup``): the fan-out over every task
-row of a project is not a ``Projection`` source group (whose rows are keyed
-by the event's aggregate).
+The handlers keep the L2 form of a projection consumer, ``async def f(envelope)``
+(registered in the module's ``setup``) and write through ``db()``, the unit the
+delivery runs in: the fan-out over every task row of a project is not a
+``Projection`` source group (whose rows are keyed by the event's aggregate).
 """
 
 from __future__ import annotations
@@ -36,10 +36,9 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from projecthub.shared.contracts.projects_read_v2 import PROJECTS_READ_V2
-from sandloom.sdk import Contract, Event
+from sandloom.sdk import Contract, Event, db
 from sandloom.sdk.events import (
     EventEnvelope,  # sandloom: advanced L2 projection consumers
 )
@@ -110,7 +109,6 @@ def decode(view: type[V], envelope: EventEnvelope) -> V:
 
 
 async def upsert_project_snapshot(
-    session: AsyncSession,
     *,
     project_id: UUID,
     tenant_id: UUID,
@@ -123,7 +121,6 @@ async def upsert_project_snapshot(
     Returns ``False`` when the snapshot already holds this or a newer version.
     """
     return await monotonic_upsert(
-        session,
         ProjectSnapshot,
         key={"project_id": project_id},
         values={"tenant_id": tenant_id, "name": name, "status": status},
@@ -133,11 +130,10 @@ async def upsert_project_snapshot(
 
 
 async def refresh_task_rows(
-    session: AsyncSession, *, project_id: UUID, name: str, status: str, version: int
+    *, project_id: UUID, name: str, status: str, version: int
 ) -> int:
     """Fan a project's fields out over its task rows (``project_version`` guard)."""
     return await monotonic_update(
-        session,
         ProjectTaskQueryIndex,
         match={"project_id": project_id},
         values={"project_name": name, "project_status": status},
@@ -146,47 +142,43 @@ async def refresh_task_rows(
     )
 
 
-async def _locked_snapshot(session: AsyncSession, project_id: UUID) -> Any:
+async def _locked_snapshot(project_id: UUID) -> Any:
     stmt = (
         select(ProjectSnapshot.name, ProjectSnapshot.status, ProjectSnapshot.version)
         .where(ProjectSnapshot.project_id == project_id)
         .with_for_update()
     )
-    return (await session.execute(stmt)).first()
+    return (await db().execute(stmt)).first()
 
 
-async def lock_project_snapshot(
-    session: AsyncSession, *, project_id: UUID, tenant_id: UUID
-) -> Any:
+async def lock_project_snapshot(*, project_id: UUID, tenant_id: UUID) -> Any:
     """Return the project's snapshot row, LOCKED for this transaction.
 
     Seeds a missing snapshot from the projects read contract first (no lock is
     held during that call). The seed is version-guarded, so a project event
     that committed a newer snapshot meanwhile wins and is what gets locked.
     """
-    snapshot = await _locked_snapshot(session, project_id)
+    snapshot = await _locked_snapshot(project_id)
     if snapshot is not None:
         return snapshot
     project = await projects.get(project_id)
     await upsert_project_snapshot(
-        session,
         project_id=project_id,
         tenant_id=tenant_id,
         name=project.name if project else "",
         status=project.status if project else "unknown",
         version=project.version if project else 0,
     )
-    return await _locked_snapshot(session, project_id)
+    return await _locked_snapshot(project_id)
 
 
-async def on_task_upserted(session: AsyncSession, envelope: EventEnvelope) -> None:
+async def on_task_upserted(envelope: EventEnvelope) -> None:
     # created and updated carry the same fields
     task = decode(TaskUpdated, envelope)
     snapshot = await lock_project_snapshot(
-        session, project_id=task.project_id, tenant_id=task.tenant_id
+        project_id=task.project_id, tenant_id=task.tenant_id
     )
     await monotonic_upsert(
-        session,
         ProjectTaskQueryIndex,
         key={"task_id": task.task_id},
         values={
@@ -205,13 +197,12 @@ async def on_task_upserted(session: AsyncSession, envelope: EventEnvelope) -> No
     )
 
 
-async def on_project_updated(session: AsyncSession, envelope: EventEnvelope) -> None:
+async def on_project_updated(envelope: EventEnvelope) -> None:
     # created and updated carry the same fields
     project = decode(ProjectUpdated, envelope)
     # Snapshot first: the upsert takes the row lock that task handlers
     # wait on, so the fan-out below sees every committed task row.
     applied = await upsert_project_snapshot(
-        session,
         project_id=project.project_id,
         tenant_id=project.tenant_id,
         name=project.name,
@@ -221,7 +212,6 @@ async def on_project_updated(session: AsyncSession, envelope: EventEnvelope) -> 
     if not applied:
         return  # duplicate / out-of-order: a newer state was already fanned out
     await refresh_task_rows(
-        session,
         project_id=project.project_id,
         name=project.name,
         status=project.status,

@@ -308,9 +308,9 @@ Slug: `endpoints-outside-api` · kind: check · status: active
 
 **What happened and why it matters**
 
-define_module mounts api/'s router; endpoints elsewhere are not mounted by convention and escape the api-layer rules.
+define_module mounts the router of api.py or of the api/ package; endpoints elsewhere are not mounted by convention and escape the api-layer rules.
 
-**Fix:** move the route into the module's api/ package
+**Fix:** move the route into the module's api.py (or an api/ package)
 
 ### SANDLOOM-C010
 
@@ -320,9 +320,9 @@ Slug: `orm-leakage` · kind: check · status: active
 
 **What happened and why it matters**
 
-The api/ layer stays persistence-free: endpoints take DbSession, call services and return schemas/ DTOs.
+The api layer (api.py or the api/ package) stays persistence-free: an endpoint takes the request and `user: CurrentUser`, calls a service function (which reaches the session with `db()`) and returns a schemas DTO. It imports no model and no SQLAlchemy name.
 
-**Fix:** map to pydantic DTOs in services and keep persistence out of api/
+**Fix:** move the query into services.py and return pydantic DTOs from the route
 
 ### SANDLOOM-C011
 
@@ -2793,9 +2793,9 @@ Slug: `beginner-tier` · kind: test · status: active
 
 **What happened and why it matters**
 
-Generators and examples teach the 26 beginner names: the 20 code names of `sandloom.sdk`, the five test helpers of `sandloom.sdk.testing` and the `client` fixture of `sandloom.sdk.testing.plugin` (`sandloom docs sandloom.sdk`, `sandloom docs sandloom.sdk.testing` and `sandloom docs sandloom.sdk.testing.plugin` list them). An application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
+Two tiers need no marker. Tier 1, 29 names, is free in any file: the 24 code names of `sandloom.sdk` (`sandloom docs sandloom.sdk`), the four test helpers of `sandloom.sdk.testing` (`sandloom docs sandloom.sdk.testing`) and the `client` fixture, which lives in `sandloom.sdk.testing.plugin` (`sandloom docs sandloom.sdk.testing.plugin`). Tier 2, 12 names, is free only in the module file `sandloom add` writes for it, at the top of the module's own directory (`<module>/sagas.py`, not `<module>/api/sagas.py`): `Saga`, `SagaContext`, `step`, `local_step` and `start_saga` of `sandloom.sdk.sagas` in `sagas.py`; `Projection`, `SourceGroup`, `full_state` and `tombstone` of `sandloom.sdk.projections` in `projections.py`; `task` and `periodic` of `sandloom.sdk.tasks` and `open_uow` of `sandloom.sdk.data` in `tasks.py`. The same name in another file needs the marker, and so does every name outside both tiers. An application's modules keep to this: `sandloom check` (which `sandloom test` runs) reports an import that has no marker and says which file a tier 2 name is free in.
 
-**Fix:** use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`
+**Fix:** use a tier 1 name, or in the module file made for it a tier 2 name, or mark the line `# sandloom: advanced <reason>`
 
 ### SANDLOOM-T010
 

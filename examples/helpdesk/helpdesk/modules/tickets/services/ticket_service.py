@@ -21,11 +21,9 @@ cross-module FK).
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 
-from sandloom.sdk import db, record_audit
-from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced organization = tenant
+from sandloom.sdk import NotFound, bind_tenant, db, record_audit
 
 from ..events import TicketCreated, TicketStatusChanged
 from ..models import Ticket
@@ -47,7 +45,6 @@ class TicketService:
             )
             db().add(ticket)
             await db().flush()
-            await db().refresh(ticket)
         await TicketCreated(
             ticket_id=ticket.id,
             organization_id=organization_id,
@@ -84,16 +81,11 @@ class TicketService:
             result = await db().execute(select(Ticket).where(Ticket.id == ticket_id))
             ticket = result.scalar_one_or_none()
             if ticket is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="ticket not found"
-                )
+                raise NotFound("ticket not found")
             old_status = ticket.status
             if new_status != old_status:
                 ticket.status = new_status
                 await db().flush()
-                # Reload server-side onupdate columns (updated_at) so
-                # serialization never triggers lazy IO on the async session.
-                await db().refresh(ticket)
         if new_status != old_status:
             await TicketStatusChanged(
                 ticket_id=ticket.id,

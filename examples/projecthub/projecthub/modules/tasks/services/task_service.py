@@ -1,9 +1,9 @@
 """Task business logic (the write side).
 
-``TaskService`` owns the entity, bumps ``version`` and publishes the typed
-``TaskCreated`` / ``TaskUpdated`` events inside the request's unit (``db()``
-is its session). The taskboard rebuilder reads through the ``tasks.read.v1``
-contract (``contracts.py``).
+``TaskService`` owns the entity (its ``version`` counts up by itself) and
+publishes the typed ``TaskCreated`` / ``TaskUpdated`` events inside the
+request's unit (``db()`` is its session). The taskboard rebuilder reads
+through the ``tasks.read.v1`` contract (``contracts.py``).
 """
 
 from __future__ import annotations
@@ -11,10 +11,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 
-from sandloom.sdk import db
+from sandloom.sdk import NotFound, db
 
 from ..events import TaskCreated, TaskUpdated
 from ..models import Task
@@ -45,7 +44,6 @@ class TaskService:
         )
         db().add(task)
         await db().flush()
-        await db().refresh(task)  # load server-side created_at/updated_at
         await TaskCreated.model_validate(snapshot(task)).publish()
         return task
 
@@ -56,19 +54,15 @@ class TaskService:
             task.title = data.title
         if data.status is not None:
             task.status = data.status
-        task.version += 1
         await db().flush()
-        await db().refresh(task)  # load server-side updated_at
         await TaskUpdated.model_validate(snapshot(task)).publish()
         return task
 
     @classmethod
     async def _get_or_404(cls, task_id: UUID) -> Task:
         task = (
-            await db().execute(select(Task).where(Task.id == task_id))
+            await db().execute(select(Task).where(Task.id == task_id).with_for_update())
         ).scalar_one_or_none()
         if task is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
-            )
+            raise NotFound("Task not found")
         return task

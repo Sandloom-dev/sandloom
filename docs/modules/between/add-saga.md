@@ -101,7 +101,7 @@ work, so the saga starts only if the business change commits. Answer
 `202 Accepted` with a URL to poll:
 
 ```python
-from sandloom.sdk.sagas import start_saga, saga_status
+from sandloom.sdk.sagas import start_saga, saga_status  # sandloom: advanced start a saga in the request unit
 
 handle = await start_saga(ONBOARDING, saga_id=row.id, input=OnboardingInput(...))
 ```

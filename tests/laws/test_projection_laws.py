@@ -172,8 +172,9 @@ class ItemRow(BaseModel):
 
 
 @pytest_asyncio.fixture
-async def index_db(db: Any) -> AsyncIterator[Any]:
-    """``db`` with the read model's table (created in the rolled-back test)."""
+async def index_db(db_uow: Any) -> AsyncIterator[Any]:
+    """``db`` bound as the unit (``apply`` writes through ``db()``) with the read
+    model's table (created in the rolled-back test)."""
 
     def create(sync: Any) -> None:
         with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
@@ -181,13 +182,13 @@ async def index_db(db: Any) -> AsyncIterator[Any]:
                 sync.connection(), tables=[cast(Table, LawsItemIndex.__table__)]
             )
 
-    await db.run_sync(create)
-    yield db
+    await db_uow.run_sync(create)
+    yield db_uow
 
 
-async def _apply(db: Any, event: Event) -> None:
+async def _apply(event: Event) -> None:
     group = GROUP_OF[type(event)]
-    await ITEM_INDEX.apply(db, group, event, group.events[type(event)])
+    await ITEM_INDEX.apply(group, event, group.events[type(event)])
 
 
 async def _row(db: Any, tenant: UUID, item: UUID) -> LawsItemIndex | None:
@@ -254,7 +255,7 @@ async def test_full_state_converges_to_the_max_version_event_per_group(
 
     with bind_tenant(tenant):
         for event in deliveries:
-            await _apply(index_db, event)
+            await _apply(event)
         for item, history in zip(items, histories, strict=True):
             row = await _row(index_db, tenant, item)
             assert row is not None
@@ -326,12 +327,12 @@ async def test_a_tombstone_beats_any_late_older_upsert(
 
     with bind_tenant(tenant):
         for e in deliveries:
-            await _apply(index_db, e)
+            await _apply(e)
         await check()
         # every older upsert arrives (again) late: nothing changes
         for version, kind, title in history:
             if kind == "upsert" and version < newest_version:
-                await _apply(index_db, event(version, kind, title))
+                await _apply(event(version, kind, title))
         await check()
 
 
@@ -413,13 +414,13 @@ async def test_a_mapper_writing_a_column_its_group_does_not_own_is_refused(
     event = ItemSaved(item_id=item, tenant_id=tenant, title="t", body="b", version=1)
     with bind_tenant(tenant):
         if writes <= set(ITEM_GROUP.owns):
-            assert await ITEM_INDEX.apply(index_db, ITEM_GROUP, event, mapper)
+            assert await ITEM_INDEX.apply(ITEM_GROUP, event, mapper)
             row = await _row(index_db, tenant, item)
             assert row is not None
             assert {c: getattr(row, c) for c in writes} == dict.fromkeys(writes, "x")
             return
         with pytest.raises(ProjectionDefinitionError, match="does not own"):
-            await ITEM_INDEX.apply(index_db, ITEM_GROUP, event, mapper)
+            await ITEM_INDEX.apply(ITEM_GROUP, event, mapper)
         assert await _row(index_db, tenant, item) is None
 
 
@@ -502,7 +503,7 @@ async def test_deltas_under_the_inbox_count_each_event_exactly_once(
     with bind_tenant(tenant):
         for envelope in deliveries:
             if await inbox.claim(index_db, str(envelope["id"])):
-                await consumer.handler(index_db, envelope)
+                await consumer.handler(envelope)
         row = await _row(index_db, tenant, item)
     assert row is not None
     assert (row.likes, row.like_version) == (len(versions), max(versions))

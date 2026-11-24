@@ -11,13 +11,18 @@ Tenant binding and isolation, and the tenant kind (spec §7.1).
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.tenant import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.tenant import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+
+## Start with (beginner)
+
+| Name | Kind | Summary |
+| --- | --- | --- |
+| [`bind_tenant`](#bind_tenant) | function | Bind `tenant_id` for the duration of the block. |
 
 ## Advanced
 
 | Name | Kind | Summary |
 | --- | --- | --- |
-| [`bind_tenant`](#bind_tenant) | function | Bind `tenant_id` for the duration of the block. |
 | [`current_tenant_id`](#current_tenant_id) | function | Return the tenant bound in the current context, or raise (fail closed). |
 | [`current_tenant_id_optional`](#current_tenant_id_optional) | function | Return the bound tenant or `None` (does not raise). |
 | [`scoped`](#scoped) | function | Add a fail-closed tenant filter to `stmt` for `model`. |
@@ -26,7 +31,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`TenantKind`](#tenantkind) | callable |  |
 | [`unscoped`](#unscoped) | function | Disable tenant enforcement for deliberate admin/system work. |
 
-## Advanced names
+## Beginner names
 
 ### `bind_tenant`
 
@@ -35,6 +40,8 @@ def bind_tenant(tenant_id: uuid.UUID) -> Iterator[uuid.UUID]
 ```
 
 Bind `tenant_id` for the duration of the block.
+
+## Advanced names
 
 ### `current_tenant_id`
 

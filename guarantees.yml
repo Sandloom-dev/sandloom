@@ -6772,15 +6772,33 @@ guarantees:
   - tests/sdk/test_sdk_l1_registration.py::test_example_modules_register_identically_through_l1
 - id: G-SDK-04
   statement: 'Generated code (sandloom new, every sandloom add generator) and every example file that imports
-    sandloom.sdk use only the 26 beginner names (30 before KB-34 moved the domain atoms to generated stubs); an
-    advanced name needs `# sandloom: advanced <reason>` on its import (SANDLOOM-T009).'
+    sandloom.sdk use only two tiers of names with no marker: tier 1, the 29 beginner names (24 of
+    sandloom.sdk and the 5 testing names), free in any file, and tier 2, 12 names declared as
+    `__after_first__ = {file: names}` (sandloom.sdk.sagas in sagas.py, sandloom.sdk.projections in
+    projections.py, sandloom.sdk.tasks with open_uow of sandloom.sdk.data in tasks.py), free only in
+    the top-level file of that name in the directory of its module (<module>/sagas.py). Every other name,
+    and a tier 2 name in another file or a subdirectory of the module, needs
+    `# sandloom: advanced <reason>` on its import (SANDLOOM-T009), reported by `sandloom check` (which
+    reads the manifest `--rules` names) and by the `sandloom check` step of `sandloom test`.'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.2 Modules
+  - docs/adr/0010-public-api-1.0.md
   tests:
-  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_26_names
+  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_29_names
+  - tests/sdk/test_sdk_generators.py::test_tier_2_is_the_twelve_names_of_the_three_files_that_add_writes
   - tests/sdk/test_sdk_generators.py::test_generated_code_uses_only_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_examples_importing_the_sdk_stay_in_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_the_pin_reports_an_unmarked_advanced_name
+  - tests/sdk/test_dx_less_boilerplate.py::test_a_tier_2_name_needs_no_marker_in_the_file_made_for_it
+  - tests/sdk/test_dx_less_boilerplate.py::test_a_tier_2_name_elsewhere_needs_its_marker
+  - tests/sdk/test_dx_less_boilerplate.py::test_a_tier_2_name_below_the_module_root_needs_its_marker
+  - tests/sdk/test_dx_less_boilerplate.py::test_an_advanced_name_still_needs_its_marker_in_every_file
+  - tests/architecture/test_public_api_sdk.py::test_root_reexports_the_beginner_code_names
+  - tests/architecture/test_public_api_sdk.py::test_every_public_module_declares_tier_2_as_a_file_map
+  - src/sandloom/core/tests/test_dx_check_beginner_tier.py::test_check_reports_an_unmarked_advanced_import
+  - src/sandloom/core/tests/test_dx_check_beginner_tier.py::test_check_reports_a_tier_2_import_in_any_other_file
+  - src/sandloom/core/tests/test_dx_check_beginner_tier.py::test_check_reports_a_tier_2_import_below_the_module_root
+  - src/sandloom/core/tests/test_dx_check_beginner_tier.py::test_check_reads_the_manifest_it_was_given_not_one_beside_the_root
 - id: G-SDK-05
   statement: 'Every name sandloom.sdk._decl (L1) imports from sandloom.sdk._prim is exported by a public sandloom.sdk
     module, and every _prim name is public: each L1 dependency is an advertised L2 primitive; the H1

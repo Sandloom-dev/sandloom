@@ -6,10 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 from academy.shared.contracts.payments_charges_v1 import PAYMENTS_CHARGES_V1
-from sandloom.sdk import Contract
-from sandloom.sdk.tenant import (
-    bind_tenant,  # sandloom: advanced call a contract as a tenant
-)
+from sandloom.sdk import Contract, bind_tenant
 from sandloom.sdk.testing import as_user
 
 charges = Contract(PAYMENTS_CHARGES_V1)

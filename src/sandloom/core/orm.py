@@ -25,7 +25,7 @@ from sandloom.core.planner import (
     make_cursor,
 )
 from sandloom.core.sql_alchemy.base import Base
-from sandloom.core.sql_alchemy.columns import CreatedAt, UpdatedAt, new_id
+from sandloom.core.sql_alchemy.columns import CreatedAt, UpdatedAt, Versioned, new_id
 from sandloom.core.sql_alchemy.money_ledger import MoneyLedger
 from sandloom.core.sql_alchemy.portable import (
     Array,
@@ -100,6 +100,7 @@ __all__ = [
     "TenantScoped",
     "UpdatedAt",
     "UtcDateTime",
+    "Versioned",
     "WallClock",
     "aggregate_list",
     "conflict_insert",

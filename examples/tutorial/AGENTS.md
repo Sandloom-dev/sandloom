@@ -18,16 +18,19 @@ CRUD, events and cross-module calls:
 | need | names (`from sandloom.sdk import ...`) |
 | --- | --- |
 | a module | `define_module` |
-| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt` |
+| tables | `Base`, `TenantScoped`, `db`, `new_id` |
+| times | `CreatedAt`, `UpdatedAt`, `UtcDateTime` |
 | routes | `module_router`, `public`, `CurrentUser` |
+| refusals | `NotFound`, `Conflict`, `Refused` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Subscribed`, `SubscriptionActive`, `Credits`, |
-| | `OrgRole`, `Owner`, `authorize_resource` |
-| effects | `record_audit`, `on_commit` |
+| authorization | `require`, `Account` (the billing and tenancy gates are generated beside the contract stub) |
+| effects | `record_audit`, `on_commit`, `bind_tenant` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, |
-| | `deliver`, `fake_contract`, `fake_access_fact` |
+| | `deliver`, `fake_contract` |
 
-Any other `sandloom.sdk` name is advanced: mark its line `# sandloom: advanced <reason>`.
+Twelve more names need no marker in the file `sandloom add` writes them into
+(`sagas.py`, `projections.py`, `tasks.py`). Any other `sandloom.sdk` name is
+advanced: mark its line `# sandloom: advanced <reason>`.
 Ids and times: `default=new_id` (UUIDv7) and `created_at: Mapped[CreatedAt]`
 (`clock_timestamp()`), so a list ordered by `created_at, id` never ties.

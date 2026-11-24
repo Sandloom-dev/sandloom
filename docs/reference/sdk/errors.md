@@ -11,7 +11,15 @@ Exceptions a module may raise or catch.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.errors import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.errors import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+
+## Start with (beginner)
+
+| Name | Kind | Summary |
+| --- | --- | --- |
+| [`Conflict`](#conflict) | exception | The request clashes with the current state (409): a duplicate slug, a stale version. `raise Conflict("slug already taken")`. A saga local... |
+| [`NotFound`](#notfound) | exception | The row or resource the request names does not exist (404): `raise NotFound("item not found")`. Also what a row of another tenant is: nev... |
+| [`Refused`](#refused) | exception | A request the module refuses on purpose: `raise Refused(402, "item quota reached")`. |
 
 ## Advanced
 
@@ -47,6 +55,84 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`TenantMismatchError`](#tenantmismatcherror) | exception | A tenant-owned object does not belong to the bound tenant. |
 | [`UnitOfWorkRequiredError`](#unitofworkrequirederror) | exception | A guaranteed write-path effect was requested outside a Unit of Work. |
 | [`UnsafeTenantOperationError`](#unsafetenantoperationerror) | exception | An ORM operation could bypass or mutate tenant ownership. |
+
+## Beginner names
+
+### `Conflict`
+
+```python
+class Conflict(Refused)(
+    detail: str | None = None,
+    *,
+    code: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> None
+```
+
+The request clashes with the current state (409): a duplicate slug, a
+stale version. `raise Conflict("slug already taken")`. A saga local step
+retries a 409 until its deadline; a step that must refuse for good raises
+`Refused(422, ...)` (or another definitive status, see `Refused`).
+
+### `NotFound`
+
+```python
+class NotFound(Refused)(
+    detail: str | None = None,
+    *,
+    code: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> None
+```
+
+The row or resource the request names does not exist (404):
+`raise NotFound("item not found")`. Also what a row of another tenant is:
+never reveal that it exists.
+
+Not `sandloom.sdk.infra.NotFound`, the error an object store raises for a
+missing key: an unrelated class (it is no `Refused`), so `except
+NotFound` with this one does not catch a storage miss, and one left
+uncaught is a 500. Catch the storage one and raise this one:
+
+```python
+from sandloom.sdk.infra import NotFound as ObjectMissing
+
+try:
+    data = await objectstore().get(key)
+except ObjectMissing:
+    raise NotFound("report not found") from None
+```
+
+### `Refused`
+
+```python
+class Refused(HTTPException)(
+    status: int,
+    detail: str | None = None,
+    *,
+    code: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> None
+```
+
+A request the module refuses on purpose: `raise Refused(402, "item quota
+reached")`.
+
+The one error type a service, a route, a contract method or a saga local
+step raises for a client-side refusal (status 400-499; a server fault is any
+other exception, which the framework masks as a 500). It is an
+`HTTPException`, so a route answers `{"detail": ..., "code": ...}` with
+that status and rolls the unit back; a contract caller receives it as a
+`ContractCallError` with the same status. A saga local step classifies
+the status by default: refused for good on 400, 402, 403, 404, 410 and 422;
+401 parks the saga as misconfigured; any other status is retried until the
+saga's deadline (a command step can widen the refused set with
+`refuse_on`).
+
+`detail` defaults to the status phrase ("Payment Required"; "Client
+Error" for a status with no standard phrase, such as 499); `code` is a
+stable machine-readable name a client can branch on; `headers` go out with
+the response.
 
 ## Advanced names
 

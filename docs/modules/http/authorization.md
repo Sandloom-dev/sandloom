@@ -20,7 +20,7 @@ billing account pays.
 | `dependencies=[Depends(require(Role("admin")))]` | evaluates the policy before the handler; a deny answers with the decision's status |
 | `require(Subscribed(of=Account.user()) \| Role("admin"))` | evaluates the cheapest tier first and short-circuits: an admin never costs a billing call |
 | `of=Account.user()`, `Account.org(param="org_id")` or `Account.bound_tenant()` on every billing atom | resolves exactly that account; never infers it from the tenant |
-| `authorize_resource(loader=..., by="note_id", policy=Owner(...))` | loads the resource once, authorizes it and hands it to the endpoint |
+| `authorize_resource(loader=load, by="note_id", policy=Owner(...))`, with `async def load(note_id)` reading through `db()` | loads the resource once, authorizes it and hands it to the endpoint (a loader that takes the session is refused when it is declared) |
 | nothing | the framework's admin gates carry the `admin` risk: an automatic audit row ([Route policy](route-policy.md)) |
 
 ```python
@@ -28,8 +28,7 @@ from fastapi import Depends
 
 from myapp.shared.contracts.billing_entitlements_v1 import Subscribed
 from myapp.shared.contracts.tenancy_membership_v1 import OrgRole
-from sandloom.sdk import require
-from sandloom.sdk.authz import Account  # sandloom: advanced account target
+from sandloom.sdk import Account, require
 
 ORG = Account.org(param="org_id")
 
@@ -54,8 +53,9 @@ call.
 | resource (2) | loads the resource once, lazily | the request's resource |
 | live (3) | a live contract call | another module's contract |
 
-`Perm`, `Role`, `Owner` and `Entitled` come from `sandloom.sdk`, and `Account`
-from `sandloom.sdk.authz`. The billing and tenancy atoms are **not kernel
+`require` and `Account` come from `sandloom.sdk`. `Perm`, `Role`, `Owner`,
+`Entitled` and `authorize_resource` are advanced and come from
+`sandloom.sdk.authz`. The billing and tenancy atoms are **not kernel
 names**. `sandloom generate` writes them from the provider's declarations
 beside the consumer's contract stub. A route imports them from there:
 `<app>.shared.contracts.billing_entitlements_v1` or

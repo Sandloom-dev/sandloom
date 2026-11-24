@@ -28,11 +28,17 @@ import sys
 import threading
 import time
 import uuid
+import weakref
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
-from sqlalchemy.orm import mapped_column
+from sqlalchemy import BigInteger, Connection, event, text
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Mapped, Mapper, declared_attr, mapped_column
+from sqlalchemy.orm.attributes import set_attribute
+from sqlalchemy.sql.schema import CallableColumnDefault
 
+from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.portable import UtcDateTime, WallClock
 
 #: ``created_at: Mapped[CreatedAt]``: a ``timestamptz NOT NULL`` the database
@@ -79,6 +85,81 @@ UpdatedAt.__doc__ = """As ``CreatedAt``, and set again by every ORM update::
 Both the insert default and the update value are the database's clock at
 the statement (``clock_timestamp()`` on PostgreSQL).
 """
+
+
+class Versioned:
+    """A ``version: bigint`` column the database counts up: ``1`` on insert,
+    plus one by every update of the row, so a module never writes
+    ``item.version += 1``::
+
+        class Project(TenantScoped, Versioned, Base):
+            ...
+
+        await ProjectSaved(project_id=p.id, version=p.version).publish()
+
+    Read the version after ``flush()``: the new value comes back with the
+    UPDATE (``eager_defaults``), so no ``refresh`` is needed. Events carry it
+    so a consumer can drop a stale or repeated one. A statement that updates
+    no column leaves the version as it was; ``version`` itself is never set by
+    hand. On a joined-table model the version counts whichever table's columns
+    the update changed.
+
+    The update is checked, so the version never goes out with a stale row: the
+    ORM writes ``WHERE version = <the version this unit loaded>``. When another
+    transaction updated the row after this unit read it, the flush raises
+    ``sqlalchemy.orm.exc.StaleDataError`` and writes nothing, so no event
+    carries the newer version with columns this unit never saw. To wait for the
+    other transaction instead of failing, read the row with
+    ``select(...).with_for_update()`` before changing it. A model that declares
+    its own ``__mapper_args__`` names ``version_id_col=Model.version`` and
+    ``version_id_generator=False`` there (a model that does not is refused when
+    it is declared).
+    """
+
+    version: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=1, onupdate=text("version + 1")
+    )
+
+    @declared_attr.directive
+    def __mapper_args__(cls) -> dict[str, Any]:
+        # ``version_id_generator=False``: the database counts (``onupdate``),
+        # the ORM only checks the version it loaded and reads the new one back.
+        return {"version_id_col": cls.version, "version_id_generator": False}
+
+
+@event.listens_for(Base, "instrument_class", propagate=True)
+def _versioned_is_checked(mapper: Mapper[Any], class_: type) -> None:
+    """A ``Versioned`` model whose own ``__mapper_args__`` replaced the mixin's
+    would count versions with no stale-write check: refuse it when declared."""
+    if issubclass(class_, Versioned) and mapper.version_id_col is None:
+        raise TypeError(
+            f"{class_.__name__} mixes in Versioned but its own __mapper_args__ "
+            "dropped the stale-write check; name "
+            "`version_id_col=<Model>.version, version_id_generator=False` there"
+        )
+
+
+@event.listens_for(Base, "before_update", propagate=True)
+def _count_a_child_only_update(
+    mapper: Mapper[Any], connection: Connection, target: object
+) -> None:
+    """A joined-table child whose update changes only the child's own columns
+    sends no UPDATE to the parent table, where ``version`` lives: the database's
+    ``onupdate`` and the stale-write check would both be skipped. Name the count
+    in the statement, so the parent row is updated (``version = version + 1``,
+    ``WHERE version = <the version this unit loaded>``) whichever table's
+    columns changed."""
+    if len(mapper.tables) == 1 or not isinstance(target, Versioned):
+        return
+    state = sa_inspect(target)
+    if state is None or state.session is None:
+        return
+    session = state.session
+    if state.attrs.version.history.has_changes():
+        return
+    if session.is_modified(target, include_collections=False):
+        set_attribute(target, "version", text("version + 1"))
+
 
 # --------------------------------------------------------------------------- #
 # UUIDv7 (RFC 9562 §5.7, counter method 1 of §6.2: a 42-bit counter seeded at
@@ -135,8 +216,54 @@ def new_id() -> uuid.UUID:
     Ids sort in creation order: by time across processes, and strictly
     increasing within one process (a counter orders a millisecond's burst).
     So ``order_by(Model.id)`` is the creation order, with no tie.
+
+    The model has its id the moment it is constructed (``Item(...).id`` is
+    set before ``add`` or ``flush``), so an event or a link can name it at
+    once; an ``id=`` argument wins.
     """
     return _generate()
 
 
-__all__ = ["CreatedAt", "UpdatedAt", "new_id"]
+# --------------------------------------------------------------------------- #
+# The id at construction
+# --------------------------------------------------------------------------- #
+
+#: ``{model class: attribute names of its primary key columns whose default is
+#: new_id}``, read once per class.
+_ID_ATTRIBUTES: weakref.WeakKeyDictionary[type, tuple[str, ...]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _id_attributes(cls: type) -> tuple[str, ...]:
+    names = _ID_ATTRIBUTES.get(cls)
+    if names is None:
+        # This listener runs before the mapper's own `init` hook, which is
+        # what configures the mappers on a first construction: without this
+        # the class has no attribute implementation to set yet. Only the
+        # class's own registry (and the ones it names by relationship) is
+        # configured, never every registry of the process: another one with a
+        # class still being declared must not fail this construction.
+        mapper: Mapper[Any] = sa_inspect(cls)
+        mapper.registry.configure(cascade=True)
+        names = tuple(
+            mapper.get_property_by_column(column).key
+            for column in mapper.primary_key
+            # SQLAlchemy wraps a callable default; `__wrapped__` is the function
+            # the model named, so only a `default=new_id` column is matched
+            if isinstance(column.default, CallableColumnDefault)
+            and getattr(column.default.arg, "__wrapped__", None) is new_id
+        )
+        _ID_ATTRIBUTES[cls] = names
+    return names
+
+
+@event.listens_for(Base, "init", propagate=True)
+def _assign_ids(target: object, args: tuple[object, ...], kwargs: object) -> None:
+    """Set ``default=new_id`` primary keys before the constructor's own
+    arguments, so ``Item(id=...)`` still wins."""
+    for name in _id_attributes(type(target)):
+        setattr(target, name, _generate())
+
+
+__all__ = ["CreatedAt", "UpdatedAt", "Versioned", "new_id"]

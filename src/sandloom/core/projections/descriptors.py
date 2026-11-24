@@ -18,6 +18,7 @@ a business module, and a half-registered module leaves no orphan behind.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,15 +30,21 @@ from sandloom.core.consumers.callbacks import (
     validate_consumer_identity,
 )
 from sandloom.core.eventing.delivery import START_FROM_EARLIEST
+from sandloom.core.utils import takes_one_argument
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.ext.asyncio import AsyncSession
 
-# A projection consumer handler receives the read-model's UoW session (already
-# opened on the projection's storage database, with the event durably claimed
-# when ``durable``) and the delivered envelope. It applies the change and
-# returns; raising triggers redelivery (at-least-once) instead of a silent drop.
-ProjectionHandler = Callable[["AsyncSession", EventEnvelope], Awaitable[None]]
+# A projection consumer handler receives the delivered envelope and writes
+# through ``db()``: the read-model's UoW session, already opened on the
+# projection's storage database, with the event durably claimed when
+# ``durable``. It applies the change and returns; raising triggers redelivery
+# (at-least-once) instead of a silent drop.
+ProjectionHandler = Callable[[EventEnvelope], Awaitable[None]]
+#: The runtime's form of a handler (:attr:`ProjectionConsumerDescriptor.apply`):
+#: the consumer callback hands it the unit's session first. Authors never
+#: write it.
+ProjectionApply = Callable[["AsyncSession", EventEnvelope], Awaitable[None]]
 #: ``purge(session, cutoff) -> rows deleted``.
 TombstonePurger = Callable[[Any, datetime], Awaitable[int]]
 #: ``token_entries(channel, payload) -> [(row key, group, aggregate id,
@@ -127,6 +134,14 @@ class ProjectionConsumerDescriptor:
             raise ValueError("ProjectionConsumerDescriptor.name must be non-empty")
         if not callable(self.handler):
             raise TypeError(f"consumer {self.name!r}: handler must be callable")
+        if not takes_one_argument(self.handler):
+            raise TypeError(
+                f"consumer {self.name!r}: handler takes `async def f(envelope)` "
+                "and writes through `db()`; a handler that takes the session "
+                f"(`async def f(session, envelope)`) is refused, not "
+                f"{self.handler!r}: drop the `session` parameter and call "
+                "`db()` instead"
+            )
         validate_consumer_identity(
             "projection consumer",
             self.name,
@@ -134,6 +149,19 @@ class ProjectionConsumerDescriptor:
             self.start_from,
             self.bind_tenant_from,
         )
+
+    @property
+    def apply(self) -> ProjectionApply:
+        """The handler in the runtime's ``(session, envelope)`` form: the
+        session the consumer callback opened is ``db()`` already, so the
+        handler is run on the envelope alone."""
+        handler = self.handler
+
+        @functools.wraps(handler)
+        async def apply(_session: AsyncSession, envelope: EventEnvelope) -> None:
+            await handler(envelope)
+
+        return apply
 
     @property
     def group_name(self) -> str:
@@ -153,6 +181,7 @@ class ProjectionRebuildResult:
 
 __all__ = [
     "EventEnvelope",
+    "ProjectionApply",
     "ProjectionHandler",
     "QueryProjectionDescriptor",
     "ProjectionConsumerDescriptor",

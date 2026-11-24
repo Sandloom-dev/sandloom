@@ -13,8 +13,7 @@ import uuid
 from sqlalchemy import BigInteger, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sandloom.sdk import Base, TenantScoped
-from sandloom.sdk.data import UpdatedAt  # sandloom: advanced last-write time
+from sandloom.sdk import Base, TenantScoped, UpdatedAt
 
 
 class ProjectTaskQueryIndex(TenantScoped, Base):

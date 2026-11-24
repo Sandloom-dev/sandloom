@@ -377,7 +377,7 @@ def _projection_callback(
     return build_consumer_callback(
         name=group,
         database=database,
-        handler=descriptor.handler,
+        handler=descriptor.apply,
         durable=descriptor.durable,
         opener=opener,
         metric_processed="projection_events_processed_total",
