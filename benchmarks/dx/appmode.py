@@ -34,6 +34,7 @@ import shlex
 import shutil
 import subprocess
 import time
+import tomllib
 from base64 import urlsafe_b64encode
 from dataclasses import dataclass
 from pathlib import Path
@@ -529,6 +530,25 @@ def _installed_sandloom(app: Path) -> dict[str, Path]:
         if name:
             found[name.group(1).strip()] = info
     return found
+
+
+def lock_resolves_from_wheels(lock_text: str, app: Path, dist: Dist) -> bool:
+    """Whether ``uv.lock`` resolves the framework from ``dist``'s wheels.
+
+    uv writes one ``sandloom`` entry per resolution fork: besides the
+    find-links entry (``+g<sha>`` from the wheels directory, for every real
+    Python) a lock can carry a PyPI entry whose ``resolution-markers`` no
+    running Python meets (``python_full_version >= '4'``). Ask for the entry of
+    the built version: it exists only if the wheels directory resolved it."""
+    built = dist.versions().get("sandloom")
+    for package in tomllib.loads(lock_text).get("package", []):
+        if package.get("name") != "sandloom" or package.get("version") != built:
+            continue
+        # uv.lock records the find-links directory, relative to the app.
+        registry = package.get("source", {}).get("registry")
+        if registry and (app / registry).resolve() == dist.wheels.resolve():
+            return True
+    return False
 
 
 def framework_version_mismatches(app: Path, dist: Dist) -> list[str]:
