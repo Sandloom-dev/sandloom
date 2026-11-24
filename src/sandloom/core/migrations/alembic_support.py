@@ -35,6 +35,7 @@ a shared ``alembic_version`` table.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
 import pkgutil
@@ -102,20 +103,38 @@ def _resolve_sync_url(configured: str | None) -> str:
     return to_sync_url(settings.database_url)
 
 
-def _import_models(name: str) -> None:
-    """Import ``name`` and, when it is a package, every module below it: a
-    ``models/<x>.py`` registers its tables whether or not ``models/__init__.py``
-    imports it (``define_module`` walks the package the same way), so a new
-    model file joins the chain without an import loop in ``__init__``."""
-    module = importlib.import_module(name)
-    spec = module.__spec__
-    locations = spec.submodule_search_locations if spec is not None else None
-    if locations is None:
-        return
-    for info in sorted(
-        pkgutil.walk_packages(locations, prefix=f"{name}."), key=lambda i: i.name
-    ):
-        importlib.import_module(info.name)
+def _model_module_names(model_modules: Sequence[str]) -> list[str]:
+    """Each of ``model_modules`` and, when it is a package, every module below
+    it, in order: a ``models/<x>.py`` registers its tables whether or not
+    ``models/__init__.py`` imports it (``define_module`` walks the package the
+    same way), so a new model file joins the chain without an import loop in
+    ``__init__``. Only names: the caller imports them."""
+    names: list[str] = []
+    for name in model_modules:
+        spec = importlib.util.find_spec(name)
+        if spec is None:
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+        names.append(name)
+        if spec.submodule_search_locations is not None:
+            names += sorted(
+                info.name
+                for info in pkgutil.walk_packages(
+                    spec.submodule_search_locations, prefix=f"{name}."
+                )
+            )
+    return names
+
+
+def _tenant_rls_enabled(url: str) -> bool:
+    """Whether the database at ``url`` runs with ``tenant_rls`` on, so generated
+    table policies match the runtime tenant hook. The effective URL decides,
+    named databases and CLI URL overrides included."""
+    return any(
+        instance.options.get("tenant_rls") is True
+        and to_sync_url(str(instance.options.get("url") or settings.database_url))
+        == url
+        for instance in load_infra_config(settings).get("database", {}).values()
+    )
 
 
 def _drop_empty_autogenerate(
@@ -164,8 +183,8 @@ def run_migrations(
     attached to them) via ``include_object``; at upgrade time the filter is a
     no-op (the migration ops run as written).
     """
-    for mod in model_modules:
-        _import_models(mod)
+    for name in _model_module_names(model_modules):
+        importlib.import_module(name)
 
     owned = frozenset(table_names)
     config = context.config
@@ -190,14 +209,7 @@ def run_migrations(
         return chain_includes(_owns, dialect, obj, name, type_, reflected)
 
     url = _resolve_sync_url(config.get_main_option("sqlalchemy.url"))
-    # Keep generated table policies consistent with the runtime tenant hook.
-    # Match the effective URL, including named databases and CLI URL overrides.
-    config.attributes[TENANT_RLS_SWITCH] = any(
-        instance.options.get("tenant_rls") is True
-        and to_sync_url(str(instance.options.get("url") or settings.database_url))
-        == url
-        for instance in load_infra_config(settings).get("database", {}).values()
-    )
+    config.attributes[TENANT_RLS_SWITCH] = _tenant_rls_enabled(url)
 
     if context.is_offline_mode():
         dialect = make_url(url).get_dialect()()
