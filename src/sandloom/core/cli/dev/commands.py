@@ -55,6 +55,8 @@ from sandloom.core.cli.dev.state import (
     save_registry,
     save_state,
 )
+from sandloom.core.cli.inspection.model import INDEX as INSPECTION_INDEX
+from sandloom.core.cli.inspection.read import parse_index as parse_inspection_index
 from sandloom.core.cli.url_text import drop_urls
 from sandloom.core.testing.machine import sandloom_home
 from sandloom.core.url_split import split_url
@@ -1818,6 +1820,9 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
         *(["--reload"] if reload else []),
     ]
     ctx.say(f"sandloom dev run: {ctx.style.accent(url)} (health: {url}/health)")
+    needing = background_modules(ctx.root)
+    if needing:
+        ctx.say(background_note(needing))
     try:
         return _serve(ctx, argv, env, url=url)
     finally:
@@ -1825,6 +1830,44 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
             data = json.loads(marker.read_text(encoding="utf-8"))
             if data.get("pid") == os.getpid():
                 marker.unlink()
+
+
+def background_modules(root: Path) -> list[str]:
+    """The modules of the checkout's composition that require periodic jobs
+    (a ``taskqueue`` need with the ``periodic`` feature, ``required``), read
+    from the composition record ``sandloom generate`` keeps in
+    ``.sandloom/inspection.json``. ``dev run`` starts only the web process, so
+    these jobs wait for a worker and a beat. An absent or unreadable record
+    names none: this is a hint, and ``generate`` is where it is repaired."""
+    try:
+        doc = parse_inspection_index((root / INSPECTION_INDEX).read_text("utf-8"))
+    except (OSError, ValueError):
+        return []
+    edges = doc.get("edges")
+    if not isinstance(edges, list):
+        return []
+    return sorted(
+        {
+            edge["owner"].removeprefix("module:")
+            for edge in edges
+            if isinstance(edge, dict)
+            and edge.get("kind") == "requires_capability"
+            and edge.get("capability") == "taskqueue"
+            and edge.get("required") is True
+            and "periodic" in (edge.get("features") or ())
+            and isinstance(edge.get("owner"), str)
+        }
+    )
+
+
+def background_note(modules: list[str]) -> str:
+    """The one line ``dev run`` prints for ``modules`` (see
+    :func:`background_modules`)."""
+    return (
+        f"background jobs of {', '.join(modules)} wait for a worker and a beat: "
+        "run `uv run sandloom worker` and `uv run sandloom beat` in two other "
+        "terminals"
+    )
 
 
 #: The setting ``dev run`` turns on for the app it serves

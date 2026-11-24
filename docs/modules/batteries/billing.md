@@ -203,6 +203,12 @@ scheduled periods. Restarting web does not refresh the heartbeat. Use the
 worker's deployment status and logs when the lease is healthy and runs are
 missing.
 
+In `ENVIRONMENT=dev` only, a reconciler that has never run is not a failure.
+`sandloom dev run` starts no worker and no beat. The check reports `ok` with
+`state: never_ran` and a note: run `uv run sandloom worker` and
+`uv run sandloom beat`. A run that went silent still fails there. So does open
+compensation. The `test` and `prod` environments fail a reconciler that never ran.
+
 `/health/simple` reports web liveness. `/ready` checks the web process and its
 serving dependencies. Read-only Billing requests can continue while the
 reconciler is stopped. New checkout and portal requests, including retries of pending intents,
