@@ -6,9 +6,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from teamhub.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
 from sandloom.sdk.testing import as_user, deliver, fake_contract
+from teamhub.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
 from ..consumers import InvitationSent
 
