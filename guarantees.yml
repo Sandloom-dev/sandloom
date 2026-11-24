@@ -9950,6 +9950,7 @@ adr_sections:
     - G-AUTH-12
     - G-AUTH-20
     - G-AUTHZ-12
+    "Amendment 2026-11-24: the development token (dx-dev-token)": informational
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational

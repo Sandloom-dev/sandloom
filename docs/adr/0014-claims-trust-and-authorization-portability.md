@@ -778,6 +778,44 @@ without changing a decision.
   declared. Every declared key, and every key an imported generated claim atom reads, is protected
   even when the map does not name it (B035).
 
+### Amendment 2026-11-24: the development token (dx-dev-token)
+
+Decision 5 names two holders of the sealed mint: the claims merge and the kernel test authority.
+`sandloom dev token` (`sandloom.core.auth.dev_token`) is a third, so a developer can call a route of
+their own app in the first hour without running an issuer. It forges provenance by design (it signs
+the `cpv` digests and the `claims_sources` the app's own policy asks for), so it carries its own
+refusals, each with a test that fails without it:
+
+- **Environment.** `ENVIRONMENT` must be exactly `dev` or `test`: unset, a typo (`Dev`) and `prod`
+  are refused. The command checks the raw environment and `.env` before the app's code is imported,
+  the loaded settings again in a child process, and the mint checks the loaded settings a third time
+  (an allow-list, so a new environment is refused by default).
+- **Database host.** `DATABASE_URL` must name this machine (loopback, `localhost`, a unix socket or a
+  file database): an absent or unparsable url, or a url with any host not on this machine, is
+  refused. The hosts are read as SQLAlchemy reads them (its authority, its `host` and `hostaddr`
+  query parameters, and `PGHOST` for a PostgreSQL url that names none). This is an early refusal of a
+  copied production `.env`, not a protection of its key (next item). It covers the default database
+  only, not the instances of `INFRA`. No flag overrides it.
+- **The marker, which is what keeps a production key out.** Every dev token carries a sealed
+  `dev_mint` claim (`DEV_MINT_CLAIM`, in `PROVENANCE_KEYS`, so no `data=` of a mint can write it), and
+  `decode_token` refuses a token that carries it unless the verifier's own `ENVIRONMENT` is `dev` or
+  `test` (the verification cache is keyed on the environment). A copied production `.env` with
+  `ENVIRONMENT=dev` (or one that `sandloom dev up` rewrote to a local `DATABASE_URL`) still passes
+  the three checks above and mints a token signed with the production key; that token is refused by
+  every verifier running as `prod`, whichever role and tenant it names. What the marker does not do:
+  whoever holds the signing key can sign a token without the marker, here or anywhere, so a
+  production key stays out of a development checkout.
+- **CI.** Refused when `CI` is set to a true value (`1`, `true`, `yes` or `on`, the reading of
+  `sandloom dev up`); `CI=false` or `CI=0` does not count as CI.
+- **Claims.** A role or a tenant is minted only when the composition's `claim_authorities` assigns an
+  authority for the key; asking for an unassigned one is an error, never a token the verifier then
+  trims to nothing. Roles are bounded (16, a name pattern), the lifetime is 1 to 1440 minutes, and
+  no `permissions` are ever minted.
+- **Secrets.** The signing key is read only by the token signer; no answer, error text or `repr`
+  carries it, and the child process's stderr is hidden unless `--debug`.
+
+The subject has no account: a route that reads one answers as it does for an unknown user.
+
 ## Alternatives considered
 
 | alternative | why not |

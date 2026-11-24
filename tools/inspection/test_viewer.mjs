@@ -233,7 +233,7 @@ test('A module lists what it provides, calls, publishes and listens to',()=>{
   const {context}=overview('projecthub');
   const groups=vm.runInContext("connectionGroups(nodes.get('module:taskboard'))",context);
   const of=title=>Array.from(groups.find(g=>g.title===title)?.rows||[],r=>r.id).sort();
-  assert.deepEqual(of('Calls'),['contract:projects.read.v1','contract:tasks.read.v1']);
+  assert.deepEqual(of('Calls'),['contract:projects.read.v2','contract:tasks.read.v1']);
   assert.ok(of('Listens to').includes('event:tasks.task.created.v1'));
 });
 const projecthub=[['tasks','taskboard','event_impact','tasks.task.created.v1'],['tasks','taskboard','event_impact','tasks.task.updated.v1'],['projects','taskboard','event_impact','projects.project.created.v1'],['projects','taskboard','event_impact','projects.project.updated.v1'],['tasks','notifications','event_impact','tasks.task.created.v1'],['taskboard','projects','required_contract','projects.read.v1'],['taskboard','tasks','required_contract','tasks.read.v1'],['taskboard','projects','ordering',''],['taskboard','tasks','ordering',''],['notifications','tasks','ordering','']].map(([source,target,kind,via],i)=>({id:'r'+i,source,target,kind,via}));
