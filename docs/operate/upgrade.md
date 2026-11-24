@@ -240,7 +240,7 @@ commands of C038. The message names the key and the entries.
 
 `framework-imports` ([SANDLOOM-C002](../reference/error-codes.md#sandloom-c002)) now reads
 `sys.modules` as an import. A read the check can name is reported like the import:
-`sys.modules["sandloom.core.x"]` is `import sandloom.core.x`, whatever the spelling of `sys`.
+`sys.modules["sandloom.core.x"]` is `import sandloom.core.x`, under the usual spellings of `sys`.
 A read it cannot follow is refused.
 
 | Your module | After |

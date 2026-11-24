@@ -231,8 +231,8 @@ changes without notice; every name a module needs is re-exported by sandloom.sdk
 
 A read of `sys.modules` is an import that never says import, and the check
 judges it the same way. `sys.modules["sandloom.core.x"]` is reported like
-`import sandloom.core.x`, whatever the spelling: `sys` under an alias,
-`from sys import modules`, `vars(sys)["modules"]`, `getattr(sys, "modules")`,
+`import sandloom.core.x`, in the spellings ordinary code uses: `sys` under an
+alias, `from sys import modules`, `vars(sys)["modules"]`, `getattr(sys, "modules")`,
 `__import__("sys")`, a key folded from constants.
 
 A read the check cannot follow is refused:
