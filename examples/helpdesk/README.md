@@ -34,8 +34,10 @@ helpdesk/modules/tickets/
   `require(OrgRole("member", org_param="organization_id"))` (`"admin"` for the
   status change) from the generated stub `helpdesk.shared.contracts`.
 - **Tenant = organization**: `Ticket` is `TenantScoped`, so its `tenant_id` is
-  the organization id (the ticket JSON carries it as `tenant_id`) and the table
-  has row-level security. The organization comes from the path, not the token,
+  the organization id (the ticket JSON carries it as `tenant_id`) and every
+  query is filtered by it (the table gets a row-level-security policy where
+  `INFRA` declares `tenant_rls`; helpdesk's does not). The organization comes
+  from the path, not the token,
   so the router binds no tenant (`tenant="none"`) and the service binds the
   path's organization with `bind_tenant` after the route's gate has checked
   the caller's membership.
@@ -45,9 +47,10 @@ helpdesk/modules/tickets/
   subscription does not open an organization's export (402).
 - **RBAC**: only `admin`/`owner` may change a ticket's status; status changes
   publish `TicketStatusChanged` and record an audit entry.
-- **Idempotency**: derived, no declaration: a repeated `Idempotency-Key` on
-  `create` replays the stored status (empty body, `Idempotent-Replay: true`)
-  and creates no second ticket.
+- **Idempotency**: derived; `create` opts in to body replay with
+  `replay_safe(reason=...)` (the answer echoes the caller's own fields and the
+  new ticket id): a repeated `Idempotency-Key` returns the first response
+  (`Idempotent-Replay: true`) and creates no second ticket.
 - Module code imports only the beginner names of `sandloom.sdk`; an advanced name
   carries `# sandloom: advanced <reason>` on its import line (SANDLOOM-T009).
 

@@ -21,8 +21,13 @@ SUFFIXES = {".py", ".md", ".yml", ".yaml", ".toml"}
 STALE_PATTERNS: dict[str, re.Pattern[str]] = {
     "a 'lands with H1' marker": re.compile(r"lands\s+with\s+H1", re.IGNORECASE),
     "an 'until db()' marker": re.compile(r"until\s+db\(\)"),
-    "an untyped get_core().get_service(...) lookup": re.compile(
-        r"get_core\(\)\s*\.\s*get_service\("
+    # The stub-less lookup in any spelling: `get_core().get_service(...)`, and a
+    # `core: Any = Depends(get_core)` parameter followed by `core.get_service(`.
+    "an untyped .get_service(...) lookup": re.compile(r"\.\s*get_service\("),
+    # Only the untyped parameter: a `core: CoreRuntime = Depends(get_core)` that
+    # calls a typed runtime method (`collect_claims`) is current code.
+    "an untyped core: Any = Depends(get_core) parameter": re.compile(
+        r":\s*Any\s*=\s*Depends\(\s*get_core\s*\)"
     ),
 }
 
@@ -71,11 +76,15 @@ def test_examples_carry_no_stale_marker() -> None:
         ("# raw session until db() is available\n", "'until db()'"),
         (
             'membership = get_core().get_service("tenancy.membership.v1")\n',
-            "get_core().get_service",
+            ".get_service(",
         ),
         (
             "core = get_core()\n    .get_service(\n",
-            "get_core().get_service",
+            ".get_service(",
+        ),
+        (
+            "def route(core: Any = Depends(get_core)) -> None: ...\n",
+            "Depends(get_core)",
         ),
     ],
 )
@@ -84,6 +93,24 @@ def test_scan_flags_a_broken_example(tmp_path: Path, source: str, label: str) ->
     broken.write_text(source, encoding="utf-8")
     found = stale_markers(example_files(tmp_path), tmp_path)
     assert len(found) == 1 and label in found[0], found
+
+
+def test_scan_flags_the_original_helpdesk_lookup(tmp_path: Path) -> None:
+    # The code helpdesk carried before this scan, verbatim: the lookup went
+    # through a `core` parameter, not a `get_core()` call.
+    old = tmp_path / "tickets.py"
+    old.write_text(
+        "def _membership_service(core: Any = Depends(get_core)) -> Any:\n"
+        "    try:\n"
+        '        return core.get_service("tenancy.membership.v1")\n'
+        "    except Exception as exc:\n"
+        "        raise HTTPException(status_code=501) from exc\n",
+        encoding="utf-8",
+    )
+    found = stale_markers(example_files(tmp_path), tmp_path)
+    assert len(found) == 2, found
+    assert any(".get_service(" in line for line in found)
+    assert any("Depends(get_core)" in line for line in found)
 
 
 def test_scan_accepts_the_current_path(tmp_path: Path) -> None:

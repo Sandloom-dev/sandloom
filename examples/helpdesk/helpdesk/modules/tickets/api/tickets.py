@@ -11,7 +11,8 @@ premium ``export`` route is gated by the ORGANIZATION's subscription:
 billing; 402 without an active one). The caller's personal subscription does not
 open an organization's export. Persistence stays out of this layer; the service
 holds the logic. A retry of ``create`` with the same ``Idempotency-Key`` replays
-the status (derived: the route declares no guard).
+the stored body (``replay_safe``: the answer echoes the caller's own fields and
+the new ticket id).
 """
 
 from typing import Any
@@ -29,6 +30,9 @@ from sandloom.sdk.data import (  # sandloom: advanced read-only planner routes
     PlannedReads,
     UowReads,
 )
+from sandloom.sdk.web import (  # sandloom: advanced opt in to body replay
+    replay_safe,
+)
 
 from ..schemas import TicketCreateIn, TicketOut, TicketStatusIn
 from ..services import TicketService
@@ -44,7 +48,10 @@ ADMIN = Depends(require(OrgRole("admin", org_param="organization_id")))
     "/{organization_id}/tickets",
     response_model=TicketOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[MEMBER],
+    dependencies=[
+        MEMBER,
+        replay_safe(reason="echoes the caller's own fields and the new ticket id"),
+    ],
 )
 async def create_ticket(
     organization_id: UUID, data: TicketCreateIn, user: CurrentUser

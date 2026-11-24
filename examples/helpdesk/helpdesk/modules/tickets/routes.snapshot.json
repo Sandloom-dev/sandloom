@@ -18,7 +18,7 @@
       "path": "/api/v1/orgs/{organization_id}/tickets",
       "policy": {
         "effect": "write",
-        "idempotency": "automatic S",
+        "idempotency": "automatic B (echoes the caller's own fields and the new ticket id)",
         "session": "live, re-check before commit",
         "write_store": "default"
       }

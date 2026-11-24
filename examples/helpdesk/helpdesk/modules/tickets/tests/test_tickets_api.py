@@ -110,8 +110,9 @@ class TestTickets:
             json={"subject": "dup-safe"},
             headers=key_headers,
         )
-        # Same key -> the status is replayed (empty body), not a second ticket.
+        # Same key -> original response replayed, not a second ticket.
         assert second.status_code == 201
+        assert second.json() == first.json()
         assert second.headers.get("Idempotent-Replay") == "true"
         listed = await client.get(f"/api/v1/orgs/{org_id}/tickets", headers=headers)
         assert [t["id"] for t in listed.json()] == [first.json()["id"]]

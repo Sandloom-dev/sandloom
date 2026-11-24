@@ -4,14 +4,18 @@
 enrollment table is ``TenantScoped``).
 """
 
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import status
+from fastapi import Depends, status
 
 from sandloom.sdk import CurrentUser, module_router
 from sandloom.sdk.sagas import (  # sandloom: advanced start a saga in the request unit
     saga_status,
     start_saga,
+)
+from sandloom.sdk.web import (  # sandloom: advanced durable guard: stored body replay
+    idempotency_guard,
 )
 
 from ..sagas import ENROLL
@@ -26,11 +30,19 @@ router = module_router(prefix="/api/v1/enrollments")
     response_model=EnrollmentAccepted,
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def enroll(data: EnrollIn, user: CurrentUser) -> EnrollmentAccepted:
+async def enroll(
+    data: EnrollIn,
+    user: CurrentUser,
+    _key: Annotated[
+        Any, Depends(idempotency_guard(scope="enrollment.enroll", durable=True))
+    ],
+) -> EnrollmentAccepted:
     """Create a pending enrollment and start its saga in the SAME transaction.
 
-    A retry with the same ``Idempotency-Key`` replays the status: the route
-    derives that guard, so it declares none.
+    The explicit durable guard (not the derived status-only one): no
+    ``Idempotency-Key`` is refused, and a keyed retry replays the stored
+    ``EnrollmentAccepted`` body, so the client learns the enrollment id and a
+    double POST never starts a second saga.
     """
     row = await Enrollments.create(user.user_id, data.course_id, data.price)
     handle = await start_saga(

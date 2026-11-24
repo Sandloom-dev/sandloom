@@ -3,7 +3,7 @@
 ``ProjectService`` owns the entity, bumps ``version`` and publishes the
 typed ``ProjectCreated`` / ``ProjectUpdated`` events inside the request's
 unit (transactional outbox). ``db()`` is that unit's session. The read side
-other modules call is the ``projects.read.v1`` contract (``contracts.py``).
+other modules call is the ``projects.read.v2`` contract (``contracts.py``).
 """
 
 from __future__ import annotations

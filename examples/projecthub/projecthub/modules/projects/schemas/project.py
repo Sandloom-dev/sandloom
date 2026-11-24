@@ -18,7 +18,7 @@ class ProjectUpdateIn(BaseModel):
 
 
 class ProjectState(BaseModel):
-    """A project's state as the ``projects.read.v1`` contract returns it.
+    """A project's state as the ``projects.read.v2`` contract returns it.
 
     Callers receive a copy of this class (``sandloom generate`` writes it into
     ``projecthub.shared.contracts``), so a caller reads ``project.name``
