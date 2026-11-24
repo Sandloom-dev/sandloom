@@ -3438,11 +3438,11 @@
     },
     "disable_tenant_rls": {
       "kind": "function",
-      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, schema:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, schema:KEYWORD_ONLY|str | None=None, if_configured:KEYWORD_ONLY|bool=False) -> None"
     },
     "enable_tenant_rls": {
       "kind": "function",
-      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system') -> None"
+      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system', if_configured:KEYWORD_ONLY|bool=False) -> None"
     },
     "fulltext_index": {
       "kind": "function",

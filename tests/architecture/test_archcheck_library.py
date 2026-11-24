@@ -84,6 +84,7 @@ def test_rule_ids_are_stable() -> None:
         "generated-reserved",  # ADR-0013: _generated/ is the generator's (C032)
         "yield-inside-unscoped",  # a generator never hands unscoped() on (C036)
         "engine-in-module",  # an engine of a module's own skips the guards (C037)
+        "cursor-listener",  # no listener runs around the cursor tenant check (C039)
     } | {
         # Public API 1.0 (C021-C027, e.g. "module-local-imports"): each is an
         # sandloom check rule exactly when its catalogue code is no longer planned.
@@ -283,12 +284,23 @@ def test_test_imports_rule_runs_in_sandloom_check(tmp_path: Path) -> None:
 
 
 def test_test_imports_rule_honours_the_allowlist(tmp_path: Path) -> None:
-    manifest = _app_with_module_test(
-        tmp_path,
-        "from sandloom.core.database import Base\n",
-        allowlist='[{file: "acme/modules/orders/tests/*", '
-        'imports: ["sandloom.core.database*"]}]',
+    # An application's allowlist excuses no kernel module (SANDLOOM-C042), so the
+    # entry names a sibling business module's import.
+    body = "from acme.modules.billing import service\n"
+    entry = (
+        '[{file: "acme/modules/orders/tests/*", imports: ["acme.modules.billing*"]}]'
     )
+    without = _app_with_module_test(tmp_path / "without", body)
+    (tmp_path / "without" / "acme" / "modules" / "billing").mkdir()
+    (tmp_path / "without" / "acme" / "modules" / "billing" / "__init__.py").write_text(
+        ""
+    )
+    assert [v.rule for v in run_checks(load_rules(without), only=["test-imports"])] == [
+        "test-imports"
+    ]
+    manifest = _app_with_module_test(tmp_path / "with", body, allowlist=entry)
+    (tmp_path / "with" / "acme" / "modules" / "billing").mkdir()
+    (tmp_path / "with" / "acme" / "modules" / "billing" / "__init__.py").write_text("")
     assert run_checks(load_rules(manifest), only=["test-imports"]) == []
 
 

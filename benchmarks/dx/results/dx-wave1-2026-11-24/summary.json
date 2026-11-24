@@ -17,6 +17,767 @@
   "framework_edits_total": 0,
   "other_module_edits_total": 0,
   "mean_edited_outside": 2.2,
+  "tier_metrics_runs": 10,
+  "mean_docs_lookups": 3.2,
+  "mean_recipes_read": 2.1,
+  "mean_skills_read": 0.1,
+  "mean_first_green_turn": 11.7,
+  "first_green_runs": 10,
+  "t009_failures_total": 0,
+  "advanced_markers_total": 29,
+  "mean_tier_misses": 3.5,
   "tasks_that_created_a_dotenv": 0,
-  "total_cost_usd": 3.04
+  "total_cost_usd": 3.04,
+  "per_task": {
+    "t10_org_banner": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 508510.0,
+        "sd": null,
+        "min": 508510.0,
+        "max": 508510.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 11.0,
+        "sd": null,
+        "min": 11.0,
+        "max": 11.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 10.0,
+        "sd": null,
+        "min": 10.0,
+        "max": 10.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 2.0,
+        "sd": null,
+        "min": 2.0,
+        "max": 2.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 9.0,
+        "sd": null,
+        "min": 9.0,
+        "max": 9.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 4.0,
+        "sd": null,
+        "min": 4.0,
+        "max": 4.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 4.0,
+        "sd": null,
+        "min": 4.0,
+        "max": 4.0
+      }
+    },
+    "t1_notes": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 668316.0,
+        "sd": null,
+        "min": 668316.0,
+        "max": 668316.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 13.0,
+        "sd": null,
+        "min": 13.0,
+        "max": 13.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 12.0,
+        "sd": null,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 2.0,
+        "sd": null,
+        "min": 2.0,
+        "max": 2.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 12.0,
+        "sd": null,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 3.0,
+        "sd": null,
+        "min": 3.0,
+        "max": 3.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 4.0,
+        "sd": null,
+        "min": 4.0,
+        "max": 4.0
+      }
+    },
+    "t2_welcome": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 1506258.0,
+        "sd": null,
+        "min": 1506258.0,
+        "max": 1506258.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 25.0,
+        "sd": null,
+        "min": 25.0,
+        "max": 25.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 24.0,
+        "sd": null,
+        "min": 24.0,
+        "max": 24.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 14.0,
+        "sd": null,
+        "min": 14.0,
+        "max": 14.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 3.0,
+        "sd": null,
+        "min": 3.0,
+        "max": 3.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 23.0,
+        "sd": null,
+        "min": 23.0,
+        "max": 23.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 4.0,
+        "sd": null,
+        "min": 4.0,
+        "max": 4.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 5.0,
+        "sd": null,
+        "min": 5.0,
+        "max": 5.0
+      }
+    },
+    "t3_quotas": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 1471397.0,
+        "sd": null,
+        "min": 1471397.0,
+        "max": 1471397.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 22.0,
+        "sd": null,
+        "min": 22.0,
+        "max": 22.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 21.0,
+        "sd": null,
+        "min": 21.0,
+        "max": 21.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 8.0,
+        "sd": null,
+        "min": 8.0,
+        "max": 8.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 3.0,
+        "sd": null,
+        "min": 3.0,
+        "max": 3.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 21.0,
+        "sd": null,
+        "min": 21.0,
+        "max": 21.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 7.0,
+        "sd": null,
+        "min": 7.0,
+        "max": 7.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 6.0,
+        "sd": null,
+        "min": 6.0,
+        "max": 6.0
+      }
+    },
+    "t4_resend_invitation": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 551966.0,
+        "sd": null,
+        "min": 551966.0,
+        "max": 551966.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 11.0,
+        "sd": null,
+        "min": 11.0,
+        "max": 11.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 10.0,
+        "sd": null,
+        "min": 10.0,
+        "max": 10.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 2.0,
+        "sd": null,
+        "min": 2.0,
+        "max": 2.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 3.0,
+        "sd": null,
+        "min": 3.0,
+        "max": 3.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 10.0,
+        "sd": null,
+        "min": 10.0,
+        "max": 10.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      }
+    },
+    "t5_billing_contacts": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 514074.0,
+        "sd": null,
+        "min": 514074.0,
+        "max": 514074.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 11.0,
+        "sd": null,
+        "min": 11.0,
+        "max": 11.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 10.0,
+        "sd": null,
+        "min": 10.0,
+        "max": 10.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 2.0,
+        "sd": null,
+        "min": 2.0,
+        "max": 2.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 2.0,
+        "sd": null,
+        "min": 2.0,
+        "max": 2.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 10.0,
+        "sd": null,
+        "min": 10.0,
+        "max": 10.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 2.0,
+        "sd": null,
+        "min": 2.0,
+        "max": 2.0
+      }
+    },
+    "t6_team_overview": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 689884.0,
+        "sd": null,
+        "min": 689884.0,
+        "max": 689884.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 13.0,
+        "sd": null,
+        "min": 13.0,
+        "max": 13.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 12.0,
+        "sd": null,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 3.0,
+        "sd": null,
+        "min": 3.0,
+        "max": 3.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 3.0,
+        "sd": null,
+        "min": 3.0,
+        "max": 3.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 12.0,
+        "sd": null,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 4.0,
+        "sd": null,
+        "min": 4.0,
+        "max": 4.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 8.0,
+        "sd": null,
+        "min": 8.0,
+        "max": 8.0
+      }
+    },
+    "t7_credits_event_v2": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 403923.0,
+        "sd": null,
+        "min": 403923.0,
+        "max": 403923.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 9.0,
+        "sd": null,
+        "min": 9.0,
+        "max": 9.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 8.0,
+        "sd": null,
+        "min": 8.0,
+        "max": 8.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 8.0,
+        "sd": null,
+        "min": 8.0,
+        "max": 8.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      }
+    },
+    "t8_purge_invitations": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 259774.0,
+        "sd": null,
+        "min": 259774.0,
+        "max": 259774.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 6.0,
+        "sd": null,
+        "min": 6.0,
+        "max": 6.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 5.0,
+        "sd": null,
+        "min": 5.0,
+        "max": 5.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 2.0,
+        "sd": null,
+        "min": 2.0,
+        "max": 2.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 5.0,
+        "sd": null,
+        "min": 5.0,
+        "max": 5.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 4.0,
+        "sd": null,
+        "min": 4.0,
+        "max": 4.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 4.0,
+        "sd": null,
+        "min": 4.0,
+        "max": 4.0
+      }
+    },
+    "t9_member_export": {
+      "runs": 1,
+      "errored": 0,
+      "passed": 1,
+      "tokens_total": {
+        "n": 1,
+        "mean": 388333.0,
+        "sd": null,
+        "min": 388333.0,
+        "max": 388333.0
+      },
+      "turns": {
+        "n": 1,
+        "mean": 9.0,
+        "sd": null,
+        "min": 9.0,
+        "max": 9.0
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 8.0,
+        "sd": null,
+        "min": 8.0,
+        "max": 8.0
+      },
+      "docs_lookups": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "recipes_read": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "skills_read": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "first_green_turn": {
+        "n": 1,
+        "mean": 7.0,
+        "sd": null,
+        "min": 7.0,
+        "max": 7.0
+      },
+      "t009_failures": {
+        "n": 1,
+        "mean": 0.0,
+        "sd": null,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "advanced_markers": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "tier_misses": {
+        "n": 1,
+        "mean": 1.0,
+        "sd": null,
+        "min": 1.0,
+        "max": 1.0
+      }
+    }
+  }
 }

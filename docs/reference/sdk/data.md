@@ -45,7 +45,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`CaseInsensitiveText`](#caseinsensitivetext) | class | Text that compares, sorts and enforces uniqueness without regard to case. |
 | [`conflict_insert`](#conflict_insert) | function | `INSERT ... ON CONFLICT` for `table` (a model class or a table): |
 | [`ConflictInsert`](#conflictinsert) | class | For annotations only: the shape `conflict_insert` returns (`.on_conflict_do_nothing(index_elements=, index_where=)`, `.on_conflict_do_upd... |
-| [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable row security on `table` (for downgrade). |
+| [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable row security on `table` (for downgrade). `if_configured=True`: only on a database whose INF... |
 | [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE the database's row security with the Sandloom tenant policy on `table`. |
 | [`fulltext_index`](#fulltext_index) | function | An index that serves `matches` over `columns` (feature `fulltext_search`), for `__table_args__`: |
 | [`get_planned_reads`](#get_planned_reads) | function | The handle of a route DECLARED read-only (execution planner). |
@@ -411,11 +411,18 @@ kit's conformance tests check the shape.
 ### `disable_tenant_rls`
 
 ```python
-def disable_tenant_rls(op: _Executes, table: str, *, schema: str | None = None) -> None
+def disable_tenant_rls(
+    op: _Executes,
+    table: str,
+    *,
+    schema: str | None = None,
+    if_configured: bool = False,
+) -> None
 ```
 
 Drop the Sandloom tenant policies and disable row security on
-`table` (for downgrade).
+`table` (for downgrade). `if_configured=True`: only on a database whose
+INFRA instance sets `tenant_rls` (see `enable_tenant_rls`).
 
 ### `enable_tenant_rls`
 
@@ -428,6 +435,7 @@ def enable_tenant_rls(
     schema: str | None = None,
     system_access: bool = False,
     system_role: str = 'sandloom_system',
+    if_configured: bool = False,
 ) -> None
 ```
 
@@ -440,6 +448,10 @@ database, whose renderer writes the SQL. `column` must be the table's
 `system_access=True` lets the system-channel role (`system_role`,
 default `sandloom_system`; it must already exist) read and write every
 tenant's rows of THIS table. Re-running is safe (policies are replaced).
+`if_configured=True` acts only on a database whose INFRA instance sets
+`tenant_rls` (the runner tells the migration), so one revision runs on a
+database with row security and on one without (what `sandloom migrate new`
+writes); the default always acts and refuses a database without it.
 
 ### `fulltext_index`
 

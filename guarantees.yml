@@ -328,12 +328,17 @@ guarantees:
   - yield-inside-unscoped
 - id: G-TENANT-24
   statement: sandloom check rule engine-in-module reports a business module that reaches a database around
-    the framework's engine, by capability and not by spelling - an engine or pool factory or class (under
+    the framework's engine in the ways ordinary code does it (the rule catches the mistakes of a module
+    author or an AI agent who writes in good faith; a deliberate bypass is not caught statically, the
+    connection a module opens itself never gets the cursor guard, and row-level security, where
+    enabled, is the boundary) - an engine or pool factory or class (under
     any alias, as an attribute, through getattr or a vars / __dict__ lookup, also on a name bound to a
     constant import_module or __import__ of sqlalchemy, or assigned from such a name, however long
     the chain), a star import from sqlalchemy,
     sqlalchemy.pool, sqlalchemy.engine beyond its result and URL types, a DBAPI driver (also through a
-    constant import_module), raw_connection and its kin, and an engine's .pool - because such a connection
+    constant import_module), raw_connection and its kin, the DBAPI connection and cursor under a
+    connection (.connection.cursor(), .connection.execute(), session.connection().connection, and a
+    name bound to <x>.connection in the same function), and an engine's .pool - because such a connection
     skips write admission, the cursor tenant check and the tenant_rls session setup that every framework-built
     engine gets; a create_engine method of an object that is not sqlalchemy is not reported.
   sources:
@@ -368,7 +373,10 @@ guarantees:
     the parameters the driver receives), a dialect listener (do_execute, do_executemany,
     do_execute_no_params) that runs the cursor itself and returns True (SQLAlchemy then skips the dialect
     method that holds the cursor check, write admission and the tenant_rls setting sync with it); both
-    reach a tenant table as exec_driver_sql does, see ADR-0018 decision 8, a text()
+    reach a tenant table as exec_driver_sql does, see ADR-0018 decision 8; sandloom check rule
+    cursor-listener refuses the registration in a business module (G-TENANT-29; it catches the mistakes
+    of ordinary code and is no promise against a deliberate bypass), so the runtime seam
+    stays open to code that is not a module and to a deliberate bypass, a text()
     sent straight to session.execute (the caller's), SQL the database builds from text no scan can read
     (PostgreSQL dynamic SQL such as query_to_xml with a concatenated name, table_to_xml(oid::regclass) and
     DO $$ EXECUTE $$, and a view, function or trigger over a tenant table; row-level security holds
@@ -652,6 +660,56 @@ guarantees:
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_foreign_key_without_the_tenant_takes_the_parent_of_another_owner
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_the_composite_key_holds_under_the_guard
   - src/sandloom/core/tests/test_tenant_orm_insert_gaps.py::test_a_tenant_column_type_that_processes_the_value_rewrites_the_tenant
+- id: G-TENANT-29
+  statement: sandloom check rule cursor-listener (SANDLOOM-C039) reports a business module that registers
+    a listener at the cursor in the ways ordinary code writes it. The rule catches the mistakes of a
+    module author or an AI agent who writes in good faith. A deliberate bypass is not caught
+    statically; row-level security, where enabled, is the boundary (ADR-0018 decision 8; owner
+    decision 2026-11-24, option B, revisit in tm archcheck-revisit-allowed-forms). It reports an event named by a string that is a
+    cursor event (before_cursor_execute, after_cursor_execute, do_execute, do_executemany,
+    do_execute_no_params, do_setinputsizes) or a pool, connect or error event whose listener is handed the
+    raw DBAPI connection, cursor or result (do_connect, connect, first_connect, checkout, checkin, close,
+    close_detached, detach, reset, invalidate, soft_invalidate, handle_error, after_execute,
+    engine_connect; an ORM session as the target, `event.listen(Session, "close", fn)`, stays allowed),
+    wherever the string stands (event.listen, @event.listens_for, an aliased event, listen or
+    listens_for, from sqlalchemy.event import listen as l, the event module reached through another
+    sqlalchemy module such as from sqlalchemy.orm.events import event, a name or a file imported from
+    another file of the same tree, one hop - from .helper import ev, from . import event bound in the
+    package's __init__.py, from . import helper then helper.ev.listen, import pkg.helper as h then
+    h.ev.listen; a name handed on through two files is not followed - a name bound to the constant, a getattr lookup), with retval or
+    without, on an engine, a connection, the Engine class or a dialect - because such a listener runs
+    around the cursor tenant check and can rewrite the statement the check read or make SQLAlchemy skip
+    it (ADR-0018 decision 8); a listen call whose event name the check cannot read, a use of the
+    registrar without a call, the event module passed around, stored, star imported or imported by a name
+    that is not a constant, the listener list engine.dispatch.before_cursor_execute and a read or
+    assignment of a dialect's do_execute family (not the module's own self.do_execute, and not a dict
+    key) are reported too, since each hides or replaces a registration; a listener on another event
+    (before_insert, load, after_flush, do_orm_execute, before_execute) is not reported, a migration file
+    is scanned like any module file, a module's tests are not, and no waiver comment admits a hit (the
+    rule cannot be waived). Not covered, by design - code that is not a module (a driver, the
+    application's startup, a test), a deliberate bypass (the event module reached through a container, a
+    call result or an unpacking, getattr on builtins or importlib, an event name computed at run time,
+    exec and eval, the internals of dispatch), and the runtime seam of G-TENANT-25.
+  sources:
+  - docs/modules/database/multi-tenancy.md
+  - docs/adr/0018-tenant-guard-at-the-cursor.md
+  tests:
+  - tests/architecture/test_cursor_listener_rule.py::test_the_case_is_judged
+  - tests/architecture/test_cursor_listener_rule.py::test_the_fixture_covers_every_kind_and_every_event
+  - tests/architecture/test_cursor_listener_rule.py::test_a_cursor_event_is_reported_once_at_its_line
+  - tests/architecture/test_cursor_listener_rule.py::test_a_listener_on_every_other_orm_event_stays_allowed
+  - tests/architecture/test_cursor_listener_rule.py::test_cursor_listener_runs_in_sandloom_check_on_every_file_but_tests
+  - tests/architecture/test_cursor_listener_rule.py::test_a_waiver_comment_admits_no_cursor_listener
+  - tests/architecture/test_cursor_listener_rule.py::test_the_other_rules_stay_waivable_and_only_this_one_is_not
+  - tests/architecture/test_cursor_listener_rule.py::test_an_event_alias_imported_from_a_sibling_file_is_followed
+  - tests/architecture/test_cursor_listener_rule.py::test_a_name_imported_from_a_sibling_file_that_is_not_the_event_module_is_left_alone
+  - tests/architecture/test_cursor_listener_rule.py::test_a_registrar_reached_through_an_imported_file_is_followed
+  - tests/architecture/test_cursor_listener_rule.py::test_an_attribute_of_an_imported_file_that_is_not_the_event_module_is_left_alone
+  - tests/architecture/test_cursor_listener_rule.py::test_a_failure_that_is_not_an_unreadable_sibling_is_not_swallowed
+  - tests/architecture/test_cursor_listener_rule.py::test_sandloom_check_follows_the_alias_of_a_sibling_file
+  - tests/architecture/test_cursor_listener_rule.py::test_the_rule_is_in_the_default_run_and_the_catalogue
+  rules:
+  - cursor-listener
 - id: G-RLS-01
   statement: On a tenant_rls database, every SQL path from the app role (ORM, Core via session/connection,
     text(), exec_driver_sql, streaming cursors, run_sync, executemany/insertmanyvalues, savepoints) sees
@@ -5006,14 +5064,26 @@ guarantees:
   rules:
   - module-boundaries
 - id: G-MODULE-02
-  statement: 'A business module may import from the kernel nothing: `public_api` lists `sandloom.sdk` modules only (an entry that covers the kernel is refused by every command that reads the manifest, SANDLOOM-C038), plus `sandloom.shared.*` and its own package; any `sandloom.core.*` import is a framework-imports violation.'
+  statement: 'A business module may import from the kernel nothing: `public_api` lists `sandloom.sdk` modules only (an entry that covers the kernel is refused by every command that reads the manifest, SANDLOOM-C038), plus `sandloom.shared.*` and its own package; any `sandloom.core.*` import, and any read of `sys.modules` that names or may name one, is a framework-imports violation. The `sandloom` package object is judged like `sys`: after `import sandloom.sdk` only `.sdk` and `.shared` are public, so `sandloom.core.x` read as attributes, and `from sandloom import *`, are violations too. The rule catches the mistakes of ordinary code, not a deliberate bypass (owner decision 2026-11-24; revisit in tm archcheck-revisit-allowed-forms). No manifest key is another way in: `kernel_package` and `framework_packages` outside the framework tree, which is decided by the resolved path of the running kernel and not by a directory the application makes (SANDLOOM-C040), a kernel entry in `test_api` or `shared_api` (SANDLOOM-C041) and any kernel entry in an application''s `allowlist`, whatever its glob (SANDLOOM-C042) are refused like C038. `sandloom test` fails, and does not skip, the architecture check of a root that has no manifest.'
   sources:
   - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
+  - 'docs/operate/upgrade.md#Upgrading an application: no other way into the kernel'
   tests:
   - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
   - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   - src/sandloom/core/tests/test_architecture.py::test_architecture_checker_runs_without_violations
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_read_of_the_kernel_is_found
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_use_the_scan_cannot_follow_is_refused
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_read_of_a_kernel_module_is_reported_like_the_import
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_an_application_may_not_exempt_a_package
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_the_api_lists_may_not_cover_the_kernel
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_use_of_the_sandloom_package_that_may_reach_the_kernel_is_refused
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_made_up_kernel_directory_does_not_make_an_application_the_framework
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_an_application_allowlist_excuses_no_kernel_module
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_framework_tree_allowlist_may_not_excuse_a_family_of_kernel_modules
+  - tests/architecture/test_archcheck_kernel_import_holes.py::test_a_framework_tree_allowlist_entry_for_a_kernel_module_names_one_module
+  - src/sandloom/core/tests/test_run_tests_cli.py::test_a_root_without_the_manifest_fails_the_architecture_check
   rules:
   - framework-imports
 - id: G-MODULE-03
@@ -9224,7 +9294,7 @@ issued:
   G-SDK: 5
   G-SENS: 7
   G-TASK: 5
-  G-TENANT: 28
+  G-TENANT: 29
   G-UNIT: 3
   G-UOW: 9
   G-WINDOW: 3
@@ -9895,6 +9965,7 @@ adr_sections:
     - G-AUTH-12
     - G-AUTH-20
     - G-AUTHZ-12
+    "Amendment 2026-11-24: the development token (dx-dev-token)": informational
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational
@@ -9990,8 +10061,9 @@ adr_sections:
     - G-TENANT-27
     "7. What the database does with a plain insert":
     - G-TENANT-28
-    "8. A listener that acts at the cursor after the rule read the statement is a seam, named and not refused":
+    "8. A listener that acts at the cursor after the rule read the statement is a seam, named, and refused in module code":
     - G-TENANT-25
+    - G-TENANT-29
     "Consequences": informational
     "Measured cost of the guard": informational
     "Out of scope": informational

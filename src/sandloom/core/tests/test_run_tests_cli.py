@@ -79,6 +79,35 @@ def test_sandloom_test_never_writes_a_generated_file(
     assert seen == [["--root", str(root), "--check"]] * 2
 
 
+def test_a_root_without_the_manifest_fails_the_architecture_check(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No ``architecture_rules.yml`` is no module-isolation gate, not a green one:
+    the ``sandloom check`` step stays in the plan and fails, naming the file;
+    ``--no-gates`` still runs the tests alone."""
+    steps = run_tests.plan(tmp_path, None, full=False, gates=True, workers="2")
+    step = next(s for s in steps if s.name == "sandloom check")
+    assert step.call is not None
+    assert step.call() == 2
+    err = capsys.readouterr().err
+    assert "architecture_rules.yml" in err and "not found" in err
+    outcomes = run_tests.run([step], tmp_path)
+    assert [o.code for o in outcomes] == [2]
+    capsys.readouterr()
+    assert "sandloom check" not in _names(
+        run_tests.plan(tmp_path, None, full=False, gates=False, workers="2")
+    )
+    # the manifest present: the step is the real check, not the refusal
+    (tmp_path / "architecture_rules.yml").write_text("modules_path: .\n")
+    monkeypatch.setattr(run_tests, "_sandloom_check", lambda argv: 0)
+    steps = run_tests.plan(tmp_path, None, full=False, gates=True, workers="2")
+    step = next(s for s in steps if s.name == "sandloom check")
+    assert step.call is not None and step.call() == 0
+    assert capsys.readouterr().err == ""
+
+
 def test_an_unknown_module_is_a_usage_error(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="nope"):
         run_tests.plan(tmp_path, "nope", full=False, gates=False, workers="auto")

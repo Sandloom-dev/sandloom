@@ -69,11 +69,16 @@ Both runs above, in one file:
   against it. A view built from `--field` carries the comment
   `# unverified: no producer schema was found` and is reported as unverified
   until the producer's schema file is available.
-- **The handler.** `@on(E)` registers the function as a durable consumer
-  named after the function. Each delivery runs in its own unit of work;
-  `db()` is that unit's session. The envelope id is claimed in the same
-  unit, so a redelivered event applies its effect once. The tenant is bound
-  from the event's `tenant_id` field.
+- **The handler.** `@on(E, name="...")` registers the function as a durable
+  consumer. Each delivery runs in its own unit of work; `db()` is that unit's
+  session. The envelope id is claimed in the same unit, so a redelivered
+  event applies its effect once. The tenant is bound from the event's
+  `tenant_id` field.
+- **The name.** `name=` picks the consumer group, and the generator sets it to
+  the function's name, so renaming the function later does not move the
+  consumer. A new name is a new, empty group that replays the stream from the
+  start: change `name=` only on purpose
+  ([Events](events.md#groups-in-split-deployments)).
 
 ### 3. Write the effect
 
@@ -115,8 +120,10 @@ defaults are right for most handlers:
 
 ## Verify
 
-Deliver the event in a test with `deliver`. With `times=2` the same envelope
-id arrives twice, which proves the effect is applied once:
+The generator also writes a test in `<module>/tests/` that delivers the event
+with `deliver`. It passes as written; add an assertion on your effect. With
+`times=2` the same envelope id arrives twice, which proves the effect is
+applied once:
 
 ```python
 --8<-- "examples/tutorial/tasklist/modules/stats/tests/test_stats.py:tests"

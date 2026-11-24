@@ -68,9 +68,10 @@ uv run sandloom dev run                      # serves the app; prints its addres
 ```
 <!-- quickstart:end -->
 
-`uv run sandloom test` ends with `sandloom test: OK`; the API answers on
+`uv run sandloom test` ends with `sandloom test: OK`. The API answers on
 the address `sandloom dev run` prints, `http://127.0.0.1:8000` when that port
-was free (`/health`, and `/api/v1/notes/items` with a bearer token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these lines during full validation. See
+was free. It serves `/health`, and `/api/v1/notes/items` with a bearer token
+([your first access token](../modules/batteries/first-access-token.md)). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these lines during full validation. See
 [CI profiles](../contributing/ci.md) for the automatic and full checks.
 
 !!! note "The dev services"
@@ -113,7 +114,9 @@ was free (`/health`, and `/api/v1/notes/items` with a bearer token). The CI job 
     to stop. `--services docker` switches back.
 With `--with identity`, development prints the links of the emails identity
 sends (verification, password reset) in the `sandloom dev run` output instead
-of mailing them. For tokens, see [your first access token](../modules/batteries/first-access-token.md).
+of mailing them. `uv run sandloom dev token` prints an access token for your own
+routes, in development only; [your first access token](../modules/batteries/first-access-token.md)
+shows it next to the full sign-in.
 
 ## Next
 

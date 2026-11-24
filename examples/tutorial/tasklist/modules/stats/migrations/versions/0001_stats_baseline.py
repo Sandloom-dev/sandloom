@@ -30,14 +30,11 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("tenant_id"),
     )
-    # The runner sets sandloom_tenant_rls from the target database's INFRA config.
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        enable_tenant_rls(op, "stats_item_counts")
+    enable_tenant_rls(op, "stats_item_counts", if_configured=True)
 
 
 def downgrade() -> None:
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        disable_tenant_rls(op, "stats_item_counts")
+    disable_tenant_rls(op, "stats_item_counts", if_configured=True)
     op.drop_table("stats_item_counts")
 
 

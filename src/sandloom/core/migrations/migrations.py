@@ -861,7 +861,8 @@ def revision_module(
     chain's ``env.py`` compares ONLY the module's tables against that database
     (which must be at the chain's head); ``url`` compares against that
     database instead (``sandloom migrate new``: a scratch database at head).
-    Returns the new revision file paths.
+    An autogenerate that finds no difference writes nothing and raises
+    :class:`NoSchemaChangesError`. Returns the new revision file paths.
     """
     if not descriptor.migrations_path or not _is_migration_dir(
         descriptor.migrations_path
@@ -897,9 +898,18 @@ def revision_module(
     target = url if url is not None else resolve_database_sync_url(db_name)
     cfg.set_main_option("sqlalchemy.url", target.replace("%", "%%"))
     cfg.set_main_option("version_table", version_table_for(descriptor))
+    cfg.attributes[alembic_support.REFUSE_EMPTY_AUTOGENERATE] = autogenerate
     result = command.revision(
         cfg, message=message, autogenerate=autogenerate, rev_id=rev_id
     )
+    if cfg.attributes.get(alembic_support.EMPTY_AUTOGENERATE, False):
+        raise NoSchemaChangesError(
+            f"no changes detected: the models of module {descriptor.name} match "
+            f"its migration chain (compared with database {db_name!r}), so no "
+            "revision was written. For a revision you write by hand (a data "
+            "migration, a raw index), run `sandloom migrate revision "
+            f'{descriptor.name} -m "<message>"` (no --autogenerate)'
+        )
     scripts = result if isinstance(result, list) else [result]
     paths = [str(s.path) for s in scripts if s is not None]
     logger.info(
@@ -945,6 +955,10 @@ def upgrade_all_modules(
 
 class MigrationDependencyError(RuntimeError):
     pass
+
+
+class NoSchemaChangesError(MigrationDependencyError):
+    """An autogenerate found the models and the chain equal: no revision."""
 
 
 def _order_by_dependencies(

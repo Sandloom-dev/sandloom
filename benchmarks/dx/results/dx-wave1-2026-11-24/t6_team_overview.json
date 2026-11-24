@@ -113,5 +113,62 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "transcript",
-  "error": ""
+  "error": "",
+  "docs_lookups": 3,
+  "docs_names": [
+    "billing.entitlements.v1",
+    "contracts",
+    "tenancy.member_added.v2"
+  ],
+  "recipes_read": [
+    "list-order",
+    "org-gate",
+    "projection-from-platform-events"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 12,
+  "t009_failures": 0,
+  "advanced_markers": 4,
+  "sdk_names": [
+    "sandloom.sdk.Base",
+    "sandloom.sdk.Contract",
+    "sandloom.sdk.CurrentUser",
+    "sandloom.sdk.Event",
+    "sandloom.sdk.TenantScoped",
+    "sandloom.sdk.UtcDateTime",
+    "sandloom.sdk.data.disable_tenant_rls",
+    "sandloom.sdk.data.enable_tenant_rls",
+    "sandloom.sdk.db",
+    "sandloom.sdk.define_module",
+    "sandloom.sdk.migrations.run_module_migrations",
+    "sandloom.sdk.module_router",
+    "sandloom.sdk.projections.Projection",
+    "sandloom.sdk.projections.SourceGroup",
+    "sandloom.sdk.projections.full_state",
+    "sandloom.sdk.projections.tombstone",
+    "sandloom.sdk.require",
+    "sandloom.sdk.tenant.current_tenant_id"
+  ],
+  "tier_misses": [
+    "sandloom.sdk.data.disable_tenant_rls",
+    "sandloom.sdk.data.enable_tenant_rls",
+    "sandloom.sdk.migrations.run_module_migrations",
+    "sandloom.sdk.projections.Projection",
+    "sandloom.sdk.projections.SourceGroup",
+    "sandloom.sdk.projections.full_state",
+    "sandloom.sdk.projections.tombstone",
+    "sandloom.sdk.tenant.current_tenant_id"
+  ],
+  "test_sdk_names": [
+    "sandloom.sdk.tenant.bind_tenant",
+    "sandloom.sdk.testing.as_user",
+    "sandloom.sdk.testing.assert_migrations_match_models",
+    "sandloom.sdk.testing.deliver",
+    "sandloom.sdk.testing.fake_contract"
+  ],
+  "test_tier_misses": [
+    "sandloom.sdk.tenant.bind_tenant",
+    "sandloom.sdk.testing.assert_migrations_match_models"
+  ]
 }

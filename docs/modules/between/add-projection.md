@@ -41,9 +41,9 @@ It writes three new files in the module package:
 
 - `models/board_row.py`: the row model;
 - `projections.py`: two example source events and the projection;
-- `migrations/versions/notes_board_projection.py`: the migration that
-  creates the table, chained after the module chain's current head (the
-  generator refuses a chain with several heads).
+- `migrations/versions/0002_notes_board_projection.py`: the migration that
+  creates the table, chained after the module chain's current head and
+  numbered after it (the generator refuses a chain with several heads).
 
 ### 2. Read what it wrote
 
@@ -86,7 +86,7 @@ The projection:
 The migration, with row-level security for the tenant table:
 
 ```python
---8<-- "docs/snippets/generated/projection/demo/modules/notes/migrations/versions/notes_board_projection.py"
+--8<-- "docs/snippets/generated/projection/demo/modules/notes/migrations/versions/0002_notes_board_projection.py"
 ```
 
 ### 3. Point it at your real sources

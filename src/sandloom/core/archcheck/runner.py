@@ -11,7 +11,7 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -91,6 +91,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "unsafe-tenant-sql",
     "yield-inside-unscoped",
     "engine-in-module",
+    "cursor-listener",
     "event-schema-channels",
     "guard-order",
     "consumed-contracts",
@@ -172,6 +173,10 @@ PENDING_RULES.update({k: _catalogue_line(k, v) for k, v in PENDING_RULES.items()
 
 #: Inline waiver: ``# sandloom: allow <rule-id|code> <reason>`` on the reported line.
 _WAIVER = re.compile(r"#\s*sandloom:\s*allow\s+(\S+)\s+\S")
+#: Rules no inline waiver admits. A listener at the cursor (SANDLOOM-C039) is a
+#: trust rule: a deliberate exception is never a comment in module code
+#: (ADR-0018 decision 8).
+NON_WAIVABLE_RULES = frozenset({"cursor-listener"})
 
 
 def iter_module_test_files(rules: ArchRules, module: str) -> Iterator[Path]:
@@ -451,12 +456,23 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
             continue  # framework code above the kernel: import-linter's job
         if _skip(rel_mod, migrations=True):
             continue
+        # ``sys.modules['x']`` is an import that never says ``import``: a read the
+        # scan can name is judged as one, a read it cannot follow is refused.
+        reads, refused = az.sys_modules_reads(tree)
+        violations += [Violation("framework-imports", file, text) for text in refused]
+        read_only: dict[str, str] = {}
+        for line, module, _text in reads:
+            if module not in imports:
+                imports.append(module)
+                import_lines[module] = line
+                read_only[module] = " via sys.modules"
         for imp in imports:
             found = _installed_module_violation(
                 imp, installed, file, import_lines.get(imp, 1)
             )
             if found is not None and not _is_allowed(rel, imp, rules.allowlist):
                 violations.append(found)
+            via = read_only.get(imp, "")
             if imp == "sandloom.core" or imp.startswith("sandloom.core."):
                 if not _covered(imp, rules.public_api) and not _is_allowed(
                     rel, imp, rules.allowlist
@@ -465,7 +481,7 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
                         Violation(
                             "framework-imports",
                             file,
-                            f"Line {import_lines.get(imp, 1)}: {imp} "
+                            f"Line {import_lines.get(imp, 1)}: {imp}{via} "
                             "(non_public_api: not in public_api)",
                         )
                     )
@@ -481,7 +497,7 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
                     Violation(
                         "framework-imports",
                         file,
-                        f"Line {import_lines.get(imp, 1)}: {imp} "
+                        f"Line {import_lines.get(imp, 1)}: {imp}{via} "
                         "(framework_module: only the public API and "
                         f"{', '.join(sorted(rules.shared_api))} may be imported)",
                     )
@@ -495,7 +511,8 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
                     Violation(
                         "framework-imports",
                         file,
-                        f"Line {import_lines.get(imp, 1)}: {imp} (forbidden_pattern)",
+                        f"Line {import_lines.get(imp, 1)}: {imp}{via} "
+                        "(forbidden_pattern)",
                     )
                 )
     return violations
@@ -551,6 +568,8 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
         "yield-inside-unscoped": az.find_yield_inside_unscoped,
         # a migration builds no engine either: the kernel runs it on its own
         "engine-in-module": az.find_engine_constructors,
+        # a migration is no exception: the kernel runs it on its own connection
+        "cursor-listener": az.find_cursor_listeners,
         "infra-imports": lambda p: (
             az.find_legacy_infra_imports(p)
             + driver_import_violations(p, rules, drivers)
@@ -633,7 +652,7 @@ def run_checks(  # noqa: C901
                     Violation("schema-orm-imports", py, d)
                     for d in az.find_schema_orm_imports(py)
                 ]
-    return [v for v in violations if not _waived(v)]
+    return [_unwaivable_note(v) for v in violations if not _waived(v)]
 
 
 def _api10_tree_checks(rules: ArchRules, selected: set[str]) -> list[Violation]:
@@ -716,23 +735,51 @@ def _module_level_checks(
     return out
 
 
-def _waived(violation: Violation) -> bool:
-    """A ``# sandloom: allow <rule|code> <reason>`` comment on the reported line."""
+def _waiver_comment(violation: Violation) -> str | None:
+    """The rule id or code a ``# sandloom: allow <rule|code> <reason>`` comment on
+    the reported line names, if the line carries one."""
     line = violation.line
     if line is None or not violation.file.is_file():
-        return False
+        return None
     try:
         text = az.read_source(violation.file).splitlines()[line - 1]
     except (IndexError, OSError):
-        return False
+        return None
     match = _WAIVER.search(text)
-    if match is None:
-        return False
-    return match.group(1) in {violation.rule, violation.code}
+    return None if match is None else match.group(1)
+
+
+def _waived(violation: Violation) -> bool:
+    """A ``# sandloom: allow <rule|code> <reason>`` comment on the reported line,
+    for a rule that can be waived (:data:`NON_WAIVABLE_RULES` cannot)."""
+    named = _waiver_comment(violation)
+    return (
+        violation.rule not in NON_WAIVABLE_RULES
+        and named is not None
+        and named in {violation.rule, violation.code}
+    )
+
+
+def _unwaivable_note(violation: Violation) -> Violation:
+    """A violation of a rule that cannot be waived whose line carries a waiver
+    comment for it says so, instead of looking ignored."""
+    named = _waiver_comment(violation)
+    if (
+        violation.rule in NON_WAIVABLE_RULES
+        and named is not None
+        and named in {violation.rule, violation.code}
+    ):
+        return replace(
+            violation,
+            detail=f"{violation.detail} (the `# sandloom: allow` comment on this "
+            "line does not apply: this rule cannot be waived)",
+        )
+    return violation
 
 
 __all__ = [
     "API10_RULES",
+    "NON_WAIVABLE_RULES",
     "PENDING_RULES",
     "RULES",
     "Violation",

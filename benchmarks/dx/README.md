@@ -243,10 +243,11 @@ Run from the repository root. The runner uses the backend venv, which has `redis
 `python-dotenv`.
 
 ```bash
-uv run python benchmarks/dx/run_eval.py run --label <label> --ref <git-ref> [--tasks t1,t10] \
-    [--mode app|framework] [--model claude-sonnet-5-5] [--parallel 3] [--keep] \
+uv run python benchmarks/dx/run_eval.py run --label <label> --ref <git-ref> [--tasks t1,t10|measured] \
+    [--runs N] [--mode app|framework] [--model claude-sonnet-5-5] [--parallel 3] [--keep] \
     [--compare <other-label> [--force-compare]] [--dry-run]
 uv run python benchmarks/dx/run_eval.py report  --label <label> [--compare <other>]
+uv run python benchmarks/dx/run_eval.py recompute --label <label>  # doc gaps and tier metrics, from the kept transcripts
 uv run python benchmarks/dx/run_eval.py rescore --label <label> [--tasks …] [--checks-only]  # needs --keep
 uv run python benchmarks/dx/run_eval.py promote --label <label>   # writes baseline.json
 uv run python benchmarks/dx/run_eval.py prune-slots [--dry-run]   # free finished runs' Redis indexes
@@ -258,7 +259,8 @@ uv run python benchmarks/dx/run_eval.py prune-slots [--dry-run]   # free finishe
   the transcript, `changes.patch` (untracked files included, so a new module
   is in it), gate logs, `checks.xml` and, with `--keep`, the worktree.
 - Committed results go to `results/<label>/`: one JSON per task, the agent's
-  `*.report.md`, and `summary.md` / `summary.json`.
+  `*.report.md`, and `summary.md` / `summary.json`. With `--runs N` (N > 1)
+  a task has one file per run, `<task>.r1.json` … `<task>.rN.json`.
 - `baseline.json` is the promoted reference run.
 
 **On a shared machine** point the runner at your own resources:
@@ -310,8 +312,9 @@ check, and the full set before promoting a baseline.
 
 - **One sample per task is noisy.** Model sampling moves tokens and turns by
   ±30% between identical runs. Compare sums over the task set, and treat a
-  single task's delta as a hint, not a finding. Use repeated runs
-  (`--label x-2`) for a decision that hinges on a small delta.
+  single task's delta as a hint, not a finding. Use `--runs 3` for a decision
+  that hinges on a small delta; the report then gives each metric's mean and
+  spread per task (below).
 - **The hidden checks encode rules.** When a change to the contract names a
   rule that a hidden check tests, a lower deviation count partly measures the
   prose. That is the point of the "rules no check enforces yet" list. A rule
@@ -319,3 +322,52 @@ check, and the full set before promoting a baseline.
 - **Model choice.** The default model is `claude-sonnet-5-5`, chosen for cost.
   A weaker model is more sensitive to the quality of the context. Compare
   runs only within one model.
+
+## Tier and skills metrics, and repeated runs
+
+Owner decision 2026-11-24: measure what the beginner tier (the `__beginner__`
+names, SANDLOOM-T009) and the agent skills a new project ships change. The
+numbers come from the run's `transcript.jsonl` and `changes.patch`
+(`tiermetrics.py`), are stored on every result JSON and shown in
+`summary.md` as the "tier and skills metrics" table:
+
+| field | what it counts |
+|---|---|
+| `docs_lookups`, `docs_names` | `sandloom docs <name>` calls (recipe calls apart) and the distinct names; a shell variable (`$n`) is recorded as written |
+| `recipes_read`, `recipe_index_views` | `sandloom docs recipe <name>` names; `sandloom docs recipes` calls |
+| `skills_read` | SKILL.md files read (`Read`, `cat`/`sed`/…, the `Skill` tool), by skill name |
+| `first_green_turn` | the turn (assistant message, as `turns` counts) of the first `sandloom test` whose output shows a pass: its `sandloom test: OK` line, or `PASS` step lines with no `FAIL`. Output a pipe cut to nothing shows nothing: not counted. `null`: none seen |
+| `t009_failures` | SANDLOOM-T009 lines in the agent's tool results, every rerun counted (the code named in `AGENTS.md` is not) |
+| `advanced_markers` | `# sandloom: advanced` lines the final diff adds to a module's own code |
+| `sdk_names`, `tier_misses` | `sandloom.sdk` names the final diff imports in a module's own code, as `module.Name`, and those outside the tier (a tier miss counts with or without a marker) |
+| `test_sdk_names`, `test_tier_misses` | the same for the module's test files, apart: tests import `sandloom.sdk.testing` names and test doubles |
+
+The diff metrics count as SANDLOOM-T009 does: only files under an application's
+`modules/<module>/` directory; generated code (`_generated/`), shared contracts
+and wiring are not the agent's tier use. The diff is read from
+`changes.patch`, whose file headers (`+++ b/<path>`) differ between app mode
+(`difflib`) and framework mode (`git diff`); both are read.
+
+A result stored before these existed has none of them and is left out of every
+mean (never counted as 0). `recompute --label <label>` writes them from a kept
+transcript (`dx-wave1-2026-11-24` has them). The tier is the one of the
+checkout that runs `recompute` (the installed `sandloom.sdk`), not the one the
+run was made against: recompute an old label on that run's ref, or read its
+tier misses as of today's tier.
+
+**Repeated runs.** `run --runs N` runs each selected task N times, one task's
+runs after each other (they share its Redis indexes), tasks in parallel. Run k
+works under the label `<label>.rk` (its own app directory, database and
+checkpoints) and is stored as `results/<label>/<task>.rk.json`. The report adds
+a table with each metric's mean, sample standard deviation and range per task,
+and `summary.json` holds the same under `per_task`. A difference between two
+labels smaller than the spread is noise; one run per task cannot show it. The
+first-green-turn mean covers only the runs that went green (`n=2/3`).
+`rescore` does not handle such a label; `promote` keeps every run
+(`<task>.rk`).
+
+`--tasks measured` selects the measured set, with 3 runs each unless `--runs`
+says otherwise: t1, t3, t5, t9, t10 (tier 1: a first module, refusals,
+billing, an Account export, a banner), t6, t8 (tier 2: a projection, a
+periodic task) and t7 (skills: an event version roll, the one task that read a
+skill in wave 1). That is 24 agent runs, about $12-70 at the cost above.

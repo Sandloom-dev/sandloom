@@ -15,7 +15,7 @@ class ItemCreated(Event, channel="tasks.item.created.v1"):
     tenant_id: UUID
 
 
-@on(ItemCreated)
+@on(ItemCreated, name="on_item_created")
 async def on_item_created(event: ItemCreated) -> None:
     """Runs once per event (durable), with the event's tenant bound."""
     await services.record_item()

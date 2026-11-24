@@ -24,8 +24,8 @@ async def test_create_and_read_an_item(client: Any, sandloom_core: Any) -> None:
     )
     assert created.status_code == 201, created.text
     assert len(published(ItemCreated)) == 1
-    item = created.json()
-    fetched = await client.get(f"/api/v1/board/items/{item['id']}", headers=headers)
+    data = created.json()
+    fetched = await client.get(f"/api/v1/board/items/{data['id']}", headers=headers)
     assert fetched.status_code == 200
     assert fetched.json()["title"] == "first"
 
