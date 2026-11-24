@@ -236,6 +236,33 @@ transaction opened after the request, never nested inside it. A route whose
 job is a sequence of short units around an external call (billing checkout)
 uses the operation-intent mode ([Lifecycle](../../advanced/lifecycle.md)).
 
+## Which read path
+
+A module has five ways to read. Pick by what the read must see and where it
+runs:
+
+| You need | Use | What it is |
+| --- | --- | --- |
+| any SQL, or a read in a route that also writes | `await db().execute(select(...))` | the request's writable unit: sees the unit's own writes, no declaration |
+| a read route over declared reads | `reads: PlannedReads` | read-only unit; each statement sees what was committed before it started |
+| several reads of one route that must agree | `reads: SnapshotReads` | read-only unit on one snapshot (PostgreSQL) |
+| a declared read in a route that also writes, and must see its own writes | `reads: UowReads`, or `session_reads(db())` | the writing unit, with its autoflush and locks |
+| a declared read that a contract serves | `@contract.read(planned=True)` | the planner's own read sessions on the contract pool, no unit |
+
+In a task or a script, `read_scope(core, owner)` opens the same scope as
+`PlannedReads`.
+
+A declared read (`ReadOperation` and its list and join forms) is a
+module-level value. Put it in `services/operations.py` and import that file
+from the module's `api.py` or services. `define_module` finds it at boot, also
+inside a tuple or a dict one level down. Startup plans each one and
+`/diagnostics/core` lists it. No `setup=` registers them.
+
+A read of an operation that no module declares is refused with a
+`PlanningError` that names the fix. One built inside a handler is such an
+operation: declare it at module level. `session_reads(db())` skips the check,
+since it runs on the unit's own session.
+
 ## Read units: read-only and one snapshot
 
 A route that only reads declares it, and the framework runs its reads in a

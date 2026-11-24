@@ -19,6 +19,8 @@ producer ``class E(Event, ...)``       ``core.register_event_schema(C, name, sch
 ``Projection(...)``                    ``register_query_projection`` +
                                        ``register_projection_consumer`` (+ rebuilder)
 module-level ``Contract(REF)``         ``ContractRequirement`` in ``consumes``
+module-level ``ReadOperation(...)``    ``core.register_operations(op)``; one
+(or one level of a tuple, list, dict)  level of a tuple, list or dict counts
 =====================================  =========================================
 
 Discovery validates everything before the first call, so a refused module
@@ -72,6 +74,7 @@ from sandloom.sdk._decl.events import (
 from sandloom.sdk._decl.projections import Projection, register_view_source
 from sandloom.sdk._decl.sagas import Saga
 from sandloom.sdk._decl.web import ModuleRouter
+from sandloom.sdk._prim.data import ReadOperation
 from sandloom.sdk._prim.module import (
     AUTO,
     CapabilityRequirement,
@@ -162,6 +165,7 @@ class Discovered:
     providers: list[tuple[ContractSpec, type]] = field(default_factory=list)
     sagas: list[Saga[Any]] = field(default_factory=list)
     projections: list[Projection] = field(default_factory=list)
+    operations: list[ReadOperation[Any]] = field(default_factory=list)
     requirements: list[ContractRequirement] = field(default_factory=list)
 
 
@@ -248,9 +252,29 @@ class _Collector:
             if getattr(value, "__module__", None) == module.__name__:
                 self._consumers(value)
             return
+        if isinstance(value, ReadOperation | tuple | list | dict):
+            self._operations(value)
+            return
         owner = getattr(value, OWNER_ATTR, None)
         if isinstance(owner, str) and within(owner, self.package):
             self._instance(value, owner)
+
+    def _operations(self, value: Any) -> None:
+        """Declared planner reads in a module variable: the operation itself, or
+        one level of a tuple, list or dict (``OPERATIONS = (a, b)``, a dict a
+        factory filled). An operation counts as the module's when its entity
+        lies in the package (another module's reaches this namespace by import
+        only)."""
+        if isinstance(value, ReadOperation):
+            items: Sequence[Any] = (value,)
+        else:
+            items = list(value.values() if isinstance(value, dict) else value)
+        for op in items:
+            if not isinstance(op, ReadOperation) or id(op) in self.seen:
+                continue
+            self.seen.add(id(op))
+            if within(op.entity.__module__, self.package):
+                self.found.operations.append(op)
 
     def _event(self, event: type[Event]) -> None:
         if not is_concrete(event):
@@ -319,6 +343,8 @@ def discover(package: str) -> Discovered:
         for value in list(vars(module).values()):
             collector.visit(module, value)
     collector.found.requirements = _requirements(package, modules)
+    # by name: the order never depends on which module imports an operation first
+    collector.found.operations.sort(key=lambda op: op.name)
     return collector.found
 
 
@@ -492,6 +518,9 @@ def _register_declarations(
         core.register_service(provider.name, cls, database=provider.database)
     for saga in found.sagas:
         core.register_saga(saga)
+    if found.operations:
+        # planned at boot (a schema error fails it), listed in /diagnostics/core
+        core.register_operations(*found.operations)
     for projection in found.projections:
         core.register_query_projection(projection.descriptor(package))
         for consumer in projection.consumers():

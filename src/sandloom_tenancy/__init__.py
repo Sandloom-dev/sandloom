@@ -69,7 +69,6 @@ from sandloom.sdk.module import CapabilityRequirement, ModuleAPI
 
 from .claims import tenancy_claims
 from .config import TenancySettings
-from .services.operations import OPERATIONS
 
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 
@@ -78,8 +77,6 @@ def _setup(core: ModuleAPI) -> None:
     # Tenant selection is authorization-sensitive: never mint an access token
     # without the allowlist when the tenancy module is present.
     core.add_claims_contributor(tenancy_claims, critical=True)
-    # Declared planner operations: planned (and their executor logged) at boot.
-    core.register_operations(*OPERATIONS)
 
 
 # Discovered (sandloom.sdk define_module): the routers of ``api.__all__``, the
@@ -87,7 +84,7 @@ def _setup(core: ModuleAPI) -> None:
 # and ``tenancy.security.v1`` (operator: a tenant's members for
 # ``sandloom security ... --tenant``) providers of ``contracts`` (never the
 # full MembershipService: its write methods would be callable by any module or
-# internal RPC caller).
+# internal RPC caller) and the planner operations of ``services/operations.py``.
 register = define_module(
     __name__,
     version="1.0.0",

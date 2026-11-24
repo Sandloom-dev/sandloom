@@ -63,3 +63,16 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> Generator[None, int,
 
     requested = yield
     return int(cap_auto_workers(config, requested))
+
+
+@pytest.fixture(autouse=True)
+def _planner_runs_undeclared_operations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """These suites measure the planner's executors on operations a test builds
+    itself (in the test body, never in a module): the kernel's refusal of an
+    undeclared operation (``planner._require_declared``) is a request-path rule
+    that ``src/sandloom/core/tests/test_dx_sp_s2.py`` proves, so it is off here."""
+    import sandloom.core.planner as planner  # noqa: PLC0415 - settings snapshot: loaded after .env.test
+
+    monkeypatch.setattr(planner, "_require_declared", lambda core, op: None)

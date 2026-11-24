@@ -3,9 +3,10 @@
 Declared with ``sandloom.sdk.define_module``. Discovered: the routers exported by
 ``sandloom_identity.api``, the producer classes of ``sandloom_identity.events`` and the
 ``identity.security.v1`` provider of ``sandloom_identity.contracts`` (operator
-incident commands: bulk, audited, durably deduplicated). ``_setup`` adds what
-has no declaration: startup and shutdown tasks, the claims contributor,
-planner reads and the consumers of the kernel's auth channels.
+incident commands: bulk, audited, durably deduplicated) and the planner reads of
+``sandloom_identity.services.operations``. ``_setup`` adds what has no
+declaration: startup and shutdown tasks, the claims contributor and the
+consumers of the kernel's auth channels.
 """
 
 from sandloom.sdk import define_module
@@ -16,11 +17,10 @@ from .claims import contribute_identity_claims
 from .config import IdentitySettings
 from .consumers import revoke_refresh_tokens_on_block
 from .services.auth_service import AuthService, drain_emails_on_shutdown
-from .services.operations import OPERATIONS
 
 
 def _setup(core: ModuleAPI) -> None:
-    """Register identity's lifecycle, claims, reads and consumers.
+    """Register identity's lifecycle, claims and consumers.
 
     Raises ``SystemExit`` (the loader's configuration refusal) when
     ``JWT_SECRET`` is unset (it keys identity's emailed tokens). The TOTP key
@@ -55,10 +55,6 @@ def _setup(core: ModuleAPI) -> None:
     # failure here must abort minting rather than issue a token with empty
     # roles/permissions (which would silently strip privileges).
     core.add_claims_contributor(contribute_identity_claims, critical=True)
-
-    # Declared planner reads (GET /auth/me): planned, and their executor
-    # logged, at boot.
-    core.register_operations(*OPERATIONS)
 
     # Emergency user block (sandloom.core.di.block_user, called from any service):
     # end the user's refresh-token sessions so lifting the block does not

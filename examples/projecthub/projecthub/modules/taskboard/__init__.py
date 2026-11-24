@@ -7,10 +7,11 @@ VIEWS of their channels and calls their contracts through the generated
 stubs (``consumers.py``, ``rebuilder.py``), keeping module isolation intact;
 ``define_module`` derives the consumed contracts from those callers.
 
-Its route and tables are discovered. A short ``setup`` registers what has no
-declaration: the projection, its consumers and its rebuilder in their L2
-form (a ``Projection(...)`` cannot express the project fan-out over task
-rows, see ``consumers.py``) and the board's planner read.
+Its route, tables and the board's planner read (``services/operations.py``) are
+discovered. A short ``setup`` registers what has no declaration: the
+projection, its consumers and its rebuilder in their L2 form (a
+``Projection(...)`` cannot express the project fan-out over task rows, see
+``consumers.py``).
 """
 
 from sandloom.sdk import define_module
@@ -30,7 +31,6 @@ from .consumers import (
     on_task_upserted,
 )
 from .rebuilder import TaskboardRebuilder
-from .services.operations import OPERATIONS
 
 #: (durable consumer name — its inbox identity, never rename —, view, handler)
 CONSUMERS = (
@@ -63,8 +63,6 @@ def _setup(core: ModuleAPI) -> None:
             )
         )
     core.register_projection_rebuilder(PROJECTION_NAME, TaskboardRebuilder())
-    # The board's declared read (execution planner; planned at startup).
-    core.register_operations(*OPERATIONS)
 
 
 register = define_module(

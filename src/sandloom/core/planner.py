@@ -648,11 +648,24 @@ def _contract_adapter(core: CoreRuntime, database: str) -> ExecutionAdapter:
     return adapter if adapter is not None else _adapter(core, database)
 
 
-def _plan(adapter: ExecutionAdapter, op: ReadOperation[R]) -> Plan[R]:
+def _plan(
+    adapter: ExecutionAdapter,
+    op: ReadOperation[R],
+    declared_in: CoreRuntime | None = None,
+) -> Plan[R]:
+    """The plan of ``op`` on ``adapter`` (compiled on its first use).
+
+    ``declared_in`` is the runtime whose modules must have declared ``op``: a
+    first use of an undeclared operation is refused there, once per adapter and
+    mode, never on the cached path. ``None`` skips the check (the startup
+    planning of a declaration, diagnostics, a handle on a fixed adapter).
+    """
     optimized = bool(settings.planner_optimized_executor)
     cache = adapter.plans
     plan = cache.get((id(op), optimized))
     if plan is None or plan.operation is not op:
+        if declared_in is not None:
+            _require_declared(declared_in, op)
         plan = adapter.compile(op, optimized=optimized)
         cache[(id(op), optimized)] = plan
     guard = getattr(adapter, "guard_plan", None)
@@ -676,8 +689,41 @@ def prepare(
 
 
 _log = logging.getLogger("sandloom.core.planner")
-#: Attribute of the CoreFacade holding the registered operations.
+#: Attribute of the CoreFacade holding the declared operations: ``{id(op):
+#: (module, op)}``, filled when a module registers (discovery, or
+#: ``ModuleAPI.register_operations``), so a test app that never ran its startup
+#: tasks knows its modules' operations too. Keyed by identity: two modules may
+#: name operations alike.
 DECLARED_OPERATIONS_ATTR = "_sandloom_declared_operations"
+
+
+def declare(facade: Any, module: str, operations: Sequence[ReadOperation[Any]]) -> None:
+    """Record ``operations`` as declared by ``module`` on ``facade`` (idempotent)."""
+    registry = facade.__dict__.setdefault(DECLARED_OPERATIONS_ATTR, {})
+    for op in operations:
+        registry[id(op)] = (module, op)
+
+
+def _require_declared(core: CoreRuntime, op: ReadOperation[Any]) -> None:
+    """Refuse ``op`` unless a loaded module declared it (``PlanningError``).
+
+    A declared operation is planned at startup, listed in
+    ``/diagnostics/core`` and tied to its module; one that was built where no
+    module declares it (inside a handler, in a helper no module imports) is
+    compiled lazily on its first read with none of that. The kernel refuses it
+    instead, and names the fix.
+    """
+    entry = core._facade.__dict__.get(DECLARED_OPERATIONS_ATTR, {}).get(id(op))
+    if entry is not None and entry[1] is op:
+        return
+    raise PlanningError(
+        f"{op.name}: no module declares this operation, so it is not planned at "
+        "startup and not listed in /diagnostics/core. Declare it at module "
+        f"level in the module that owns {op.entity.__name__} (for instance in "
+        "services/operations.py, imported by the module's api or services): "
+        "discovery registers every operation a module declares at boot. An "
+        "operation built at request time is not supported"
+    )
 
 
 def describe(plan: Plan[Any]) -> dict[str, Any]:
@@ -705,9 +751,8 @@ def register_prepared(
     for ``/diagnostics/core``.
     """
     plans = prepare(facade.runtime_view(), operations)
-    registry = facade.__dict__.setdefault(DECLARED_OPERATIONS_ATTR, {})
+    declare(facade, module, operations)
     for plan in plans:
-        registry[plan.operation.name] = (module, plan.operation)
         _log.debug(
             "declared operation %s (%s): %s executor — %s",
             plan.operation.name,
@@ -722,12 +767,11 @@ def diagnostics(facade: Any) -> list[dict[str, Any]]:
     registry = facade.__dict__.get(DECLARED_OPERATIONS_ATTR) or {}
     core = facade.runtime_view()
     out = []
-    for name in sorted(registry):
-        module, op = registry[name]
+    for module, op in sorted(registry.values(), key=lambda e: (e[1].name, e[0])):
         try:
             entry = describe(plan_for(core, op))
         except Exception as exc:  # noqa: BLE001 - diagnostics never fail
-            entry = {"name": name, "error": f"{type(exc).__name__}: {exc}"}
+            entry = {"name": op.name, "error": f"{type(exc).__name__}: {exc}"}
         entry["module"] = module
         out.append(entry)
     return out
@@ -759,6 +803,11 @@ class Reads:
       tenant GUC — with the GENERAL executor (ORM: autoflush + identity map, so
       the read sees the unit's own writes, flushed or not). The optimized
       executor is never used there (see the design doc, "mixed operations").
+
+    A handle made on a core (every one but a fixed ``adapter=``) refuses, at the
+    first read of an operation on an adapter, one that no loaded module
+    declared: :class:`PlanningError` with the fix (:func:`_require_declared`).
+    The cached path of a declared operation carries no check.
     """
 
     __slots__ = (
@@ -770,6 +819,7 @@ class Reads:
         "_last",
         "_lookup",
         "_isolation",
+        "_declared_in",
     )
 
     def __init__(
@@ -797,6 +847,10 @@ class Reads:
             )
         self._isolation = isolation
         self._core = core
+        #: the runtime whose modules must have declared an operation before its
+        #: first read here (:func:`_require_declared`); a handle on a fixed
+        #: ``adapter=`` (a test seam, ``session_reads``) skips the check
+        self._declared_in = core if adapter is None else None
         self._unit = unit
         self._fixed = adapter
         self._shared = shared and unit is None
@@ -831,7 +885,7 @@ class Reads:
                 assert self._core is not None  # noqa: S101 - type narrowing of an invariant
                 adapter = self._lookup(self._core, op.database)
                 self._last = (op.database, adapter)
-        plan = _plan(adapter, op)
+        plan = _plan(adapter, op, self._declared_in)
         ctx = execution_context(plan)  # before ANY I/O: no tenant -> no query
         args = [key[name] for name in by]
         unit = self._unit
@@ -888,7 +942,7 @@ class Reads:
                 assert self._core is not None  # noqa: S101 - type narrowing of an invariant
                 adapter = self._lookup(self._core, op.database)
                 self._last = (op.database, adapter)
-        plan = _plan(adapter, op)
+        plan = _plan(adapter, op, self._declared_in)
         ctx = execution_context(plan)  # before ANY I/O: no tenant -> no query
         args = [key[name] for name in op.keys]
         after = (
@@ -987,6 +1041,7 @@ __all__ = [
     "ReadOperation",
     "ReadUnit",
     "Reads",
+    "declare",
     "declared_operations",
     "describe",
     "diagnostics",
