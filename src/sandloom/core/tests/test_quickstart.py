@@ -131,6 +131,29 @@ def test_the_readme_hard_codes_no_app_port(
         assert "NOTIFIER_LOG_LINKS" not in readme
 
 
+@pytest.mark.parametrize(
+    ("batteries", "named"),
+    [
+        (["identity", "tenancy", "billing"], True),
+        (["identity"], False),
+        ([], False),
+    ],
+)
+def test_the_readme_names_the_worker_and_beat_only_with_billing(
+    batteries: list[str], named: bool, tmp_path: Path
+) -> None:
+    """`dev run` serves the web process only: billing's reconciler needs a
+    worker and a beat, and the quick start says so in that app alone."""
+    generate_project(
+        "probe", tmp_path, framework_source="pypi", with_batteries=batteries
+    )
+    readme = (tmp_path / "probe" / "README.md").read_text(encoding="utf-8")
+    quick = readme.split("## Architecture checks", 1)[0]
+    for command in ("uv run sandloom worker", "uv run sandloom beat"):
+        assert (command in quick) is named, command
+    assert ("`never_ran`" in quick) is named
+
+
 def test_dev_service_ports_are_configurable(tmp_path: Path) -> None:
     """The host ports are variables `sandloom dev up` fills per repository."""
     generate_project("probe_app", tmp_path, framework_source="pypi")

@@ -2435,17 +2435,13 @@ def dry_run_app(tasks: list[Task], args: argparse.Namespace) -> None:
         sync = sh(["uv", "sync"], app, env=env, timeout=900)
         if sync.returncode:
             raise SystemExit(f"uv sync failed: {sync.stderr[-3000:]}")
-        lock = (app / "uv.lock").read_text()
-        # uv.lock records the find-links directory, relative to the app.
-        src = re.search(
-            r'name = "sandloom"\nversion = "[^"]*"\nsource = \{ registry = "([^"]+)"',
-            lock,
-        )
-        from_wheels = (
-            src is not None and (app / src.group(1)).resolve() == dist.wheels.resolve()
+        from_wheels = appmode.lock_resolves_from_wheels(
+            (app / "uv.lock").read_text(), app, dist
         )
         report["framework_from_wheels"] = from_wheels
         print(f"uv sync: OK; framework resolved from the built wheels: {from_wheels}")
+        if not from_wheels:
+            raise SystemExit("uv.lock does not resolve the framework from the wheels")
         # The installed framework IS the ref: every Sandloom distribution carries
         # its wheel's `+g<sha>` version, and every installed sandloom/ file is
         # byte-identical to that commit (a stale cached build fails here).

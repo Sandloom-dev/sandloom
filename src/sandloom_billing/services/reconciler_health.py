@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.data import WallClock, conflict_insert, open_uow
+from sandloom.sdk.infra import settings
 from sandloom.sdk.module import HealthResult
 from sandloom_billing.models import (
     INTENT_PENDING,
@@ -20,6 +21,12 @@ from sandloom_billing.models import (
 
 RECONCILER_JOB = "reconcile_operation_intents"
 RECONCILER_HEALTH_CHECK = "billing_reconciler"
+
+#: What ``/health`` says in development while the reconciler has never run.
+DEV_NEVER_RAN_NOTE = (
+    "no beat in development: run `uv run sandloom worker` and "
+    "`uv run sandloom beat` to exercise billing reconciliation"
+)
 
 RunRecord = tuple[datetime, int]
 
@@ -120,10 +127,12 @@ class ReconcilerHealthCheck:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         read: Callable[[], Awaitable[RunRecord | None]] = last_reconciler_run,
         compensations: Callable[[], Awaitable[tuple[int, int]]] = _compensations,
+        development: Callable[[], bool] = lambda: settings.is_dev,
     ) -> None:
         self._now = now
         self._read = read
         self._compensations = compensations
+        self._development = development
 
     async def __call__(self) -> HealthResult:
         last = await self._read()
@@ -136,9 +145,18 @@ class ReconcilerHealthCheck:
             "operator_followups": followups,
         }
         if last is None:
-            details.update(
-                state="never_ran",
-                error="no completed reconciler run: check the worker and beat",
+            details["state"] = "never_ran"
+            # ``sandloom dev run`` starts no worker and no beat, so a fresh
+            # development app has never run the reconciler: that alone is not a
+            # failure there (the environment tier, never a setting). A run that
+            # went silent, and open compensation, fail in every environment.
+            if self._development() and not (failed or followups):
+                details["note"] = DEV_NEVER_RAN_NOTE
+                return HealthResult(status="ok", details=details)
+            details["error"] = (
+                "billing intents need compensation or operator follow-up"
+                if failed or followups
+                else "no completed reconciler run: check the worker and beat"
             )
             return HealthResult(status="fail", details=details)
 

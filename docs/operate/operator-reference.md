@@ -986,7 +986,9 @@ restore the interpreter's own behaviour exactly.
   | it optionally (identity's cleanup), or not at all | never probed |
 
   The taskqueue broker probe feeds `/ready`. An overdue or missing Billing
-  reconciler run makes `/health` return 503.
+  reconciler run makes `/health` return 503. Only in `ENVIRONMENT=dev` does a
+  reconciler that never ran pass, with a note: `sandloom dev run` starts no
+  worker and no beat.
   Unresolved compensation failures also degrade that probe. New checkout and
   portal requests, including pending retries, need a run completed in the last
   15 minutes. See the [Billing HTTP API](../modules/batteries/billing.md#http-api).

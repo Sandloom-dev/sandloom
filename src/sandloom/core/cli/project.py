@@ -156,6 +156,15 @@ ${prefix}SINGLE_TENANT_ID=$tenant_id
 """
 )
 
+#: The README's note for an app with billing: ``sandloom dev run`` serves the
+#: web process only, and billing's reconciler is a periodic job.
+_BILLING_NOTE = """
+With billing, `sandloom dev run` serves the web process only: start
+`uv run sandloom worker` and `uv run sandloom beat` in two more terminals to
+run its reconciler (until a run completes, checkout and portal answer 503 and
+`/health` reports `never_ran`).
+"""
+
 #: The ``.env`` line that prints email links (verification, password reset)
 #: to the console in local development; production refuses it.
 _LOG_LINKS = """# Local development only: print the links an email carries ([dev only]).
@@ -400,7 +409,7 @@ API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
 The app answers on the address `sandloom dev run` prints: port 8000, or the
 next free one when 8000 was taken at the first `dev up`. The port is kept
 for this checkout, so the address does not change between runs.
-$identity_note
+$identity_note$billing_note
 ### The dev services
 
 `uv run sandloom dev up` starts Postgres and Redis in Docker for this
@@ -1504,6 +1513,7 @@ def generate_project(
         "identity_note": _IDENTITY_NOTE
         if "identity" in bundled
         else (_BARE_APP_NOTE if not bundled else ""),
+        "billing_note": _BILLING_NOTE if "billing" in bundled else "",
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
         ),
