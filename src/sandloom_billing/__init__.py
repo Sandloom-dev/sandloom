@@ -25,7 +25,6 @@ from . import psp
 from .access import ORG_SUBSCRIPTION_ACTIVE_FACT, SUBSCRIPTION_ACTIVE_FACT
 from .claims import contribute_billing_claims
 from .config import BillingSettings
-from .services.operations import OPERATIONS
 from .services.reconciler_health import RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck
 
 ENTITLEMENTS_SERVICE_V1 = "billing.entitlements.v1"
@@ -51,7 +50,7 @@ BILLING_CLAIM_KEYS: tuple[str, ...] = (
 
 
 def _setup(core: ModuleAPI) -> None:
-    """Register billing's PSP client, claims, access facts and reads.
+    """Register billing's PSP client, claims, access facts and health check.
 
     The PSP configuration (the fake PSP in prod without the accepted risk
     ``billing.fake_psp_in_prod``, Stripe without its keys) is refused earlier,
@@ -78,18 +77,15 @@ def _setup(core: ModuleAPI) -> None:
     core.register_access_fact(SUBSCRIPTION_ACTIVE_FACT)
     core.register_access_fact(ORG_SUBSCRIPTION_ACTIVE_FACT)
 
-    # Declared reads of GET /subscription and GET /credits (execution
-    # planner; planned at startup, a schema error fails the boot).
-    core.register_operations(*OPERATIONS)
-
     core.register_health_check(
         RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck(), operational=True
     )
 
 
 # Discovered (sandloom.sdk define_module): the routers of ``api.__all__``, the
-# producer classes of ``events`` and the ``@contract`` providers of
-# ``contracts`` (billing.entitlements.v1, billing.credits.v1).
+# producer classes of ``events``, the ``@contract`` providers of
+# ``contracts`` (billing.entitlements.v1, billing.credits.v1) and the planner
+# reads of ``services/operations.py`` (GET /subscription, GET /credits).
 register = define_module(
     __name__,
     version="1.0.0",

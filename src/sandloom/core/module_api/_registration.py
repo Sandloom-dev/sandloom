@@ -77,6 +77,8 @@ class ModuleRegistrationDraft:
         self.event_consumers: list[Any] = []
         self.access_facts: list[Any] = []
         self.sagas: list[Any] = []
+        #: ``(module, operations)`` of each ``register_operations`` call.
+        self.operations: list[tuple[str, tuple[_planner.ReadOperation[Any], ...]]] = []
         #: the module's validated settings (ADR-0015), applied last.
         self.module_settings: list[_module_settings.ModuleSettingsRecord] = []
         #: the name the loader registers the module under (set by the facade).
@@ -142,6 +144,8 @@ class ModuleRegistrationDraft:
                 facade.register_access_fact(fact)
             for saga in self.sagas:
                 facade.register_saga(saga, module)
+            for operations_module, operations in self.operations:
+                _planner.declare(facade, operations_module, operations)
             for router, kwargs in self.routers:
                 before = len(facade.app.router.routes)
                 facade.app.include_router(router, **kwargs)
@@ -352,6 +356,9 @@ class ModuleAPI:
     ) -> None:
         self._facade = facade
         self._draft = draft
+        #: the operations this module has registered (``register_operations``
+        #: is idempotent per operation)
+        self._operations: set[_planner.ReadOperation[Any]] = set()
 
     # -- Settings (ADR-0015) ----------------------------------------------
     def declare_settings(self, model: type[M], *, package: str | None = None) -> M:
@@ -603,18 +610,29 @@ class ModuleAPI:
         chosen executor and the reason are logged, and ``/diagnostics/core``
         lists them (``planner``)."""
 
-        ops = tuple(operations)
-        for op in ops:
+        for op in operations:
             if not isinstance(op, _planner.ReadOperation):
                 raise TypeError(f"not a declared operation: {op!r}")
+        # idempotent per operation: ``define_module`` registers the ones its
+        # module declares, and a ``setup`` that still lists them adds nothing
+        ops = tuple(
+            op for op in dict.fromkeys(operations) if op not in self._operations
+        )
         if not ops:
             return
+        self._operations.update(ops)
         facade = self._facade
         # the registering module (set while a module registers); fall back to
         # the package of the first operation's entity
         module = facade._registering_module or ".".join(
             getattr(ops[0].entity, "__module__", "?").split(".")[:2]
         )
+        # recorded now (with the draft, when the module commits), so a read is
+        # refused only when no module declared its operation (planner.Reads)
+        if self._draft is not None:
+            self._draft.operations.append((module, ops))
+        else:
+            _planner.declare(facade, module, ops)
 
         async def prepare_declared_operations() -> None:
             _planner.register_prepared(facade, module, ops)

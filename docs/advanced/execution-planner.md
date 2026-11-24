@@ -18,10 +18,21 @@ item_by_id = ReadOperation(entity=Item, result=ItemOut, by=("id",))
 item = await reads.one(item_by_id, id=item_id)
 ```
 
-Register operations with `core.register_operations(...)` during module setup.
-The startup task validates and prepares them. `/diagnostics/core` lists each
-registered operation's executor and selection reason. Invalid declarations fail
-startup; unsupported optimization uses the general executor.
+Declare an operation at module level, usually in `services/operations.py`.
+The module's `api.py` or services import that file. `define_module` finds the
+operation at boot, also inside a tuple or a dict one level down, and registers
+it: nothing goes into `setup=`. The startup task validates and prepares each
+operation. `/diagnostics/core` lists its executor and selection reason. Invalid
+declarations fail startup; unsupported optimization uses the general executor.
+
+An operation that no module declares is refused at its first read with a
+`UndeclaredOperation` (a `PlanningError`, SANDLOOM-R022) that names this fix. So
+no read runs outside startup planning and diagnostics. The check runs once per
+operation and adapter, never on the cached path. It does not apply to
+`session_reads(db())`, which runs on the unit's own session.
+`core.register_operations(...)` stays for code outside `define_module`. Use it
+for an operation over a kernel table or a shared model that no module package
+holds. It is idempotent per operation.
 
 ## Selection and compatibility
 

@@ -19,7 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.di import db as _kernel_db
 from sandloom.core.di import db_session
-from sandloom.core.orm import ConflictInsert, MoneyLedger, Page, TenantScoped
+from sandloom.core.orm import (
+    ConflictInsert,
+    MoneyLedger,
+    Page,
+    ReadOperation,
+    TenantScoped,
+)
 from sandloom.core.orm import conflict_insert as _conflict_insert
 from sandloom.core.orm import tenant_upsert as _tenant_upsert
 from sandloom.core.orm import transaction_lock as _transaction_lock
@@ -71,7 +77,7 @@ def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSe
     return db_session(database)
 
 
-__all__ = ["MoneyLedger", "Page", "TenantScoped", "db", "open_uow"]
+__all__ = ["MoneyLedger", "Page", "ReadOperation", "TenantScoped", "db", "open_uow"]
 
 
 def conflict_insert(
