@@ -91,6 +91,7 @@ from sandloom.core.migrations.migrations import _mask_url
 from sandloom.core.migrations.pg_sync import extras
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
+from sandloom.core.sql_alchemy.base import base_mappers
 
 logger = logging.getLogger("sandloom.core.migrations.extract")
 
@@ -158,7 +159,7 @@ def module_tables(descriptor: ModuleDescriptor) -> tuple[str, ...]:
         if exc.name not in (f"{pkg}.models", pkg):
             raise
     owned: set[str] = set()
-    for mapper in Base.registry.mappers:
+    for mapper in base_mappers():
         cls_module = getattr(mapper.class_, "__module__", "") or ""
         if cls_module == pkg or cls_module.startswith(f"{pkg}."):
             for table in mapper.tables:
