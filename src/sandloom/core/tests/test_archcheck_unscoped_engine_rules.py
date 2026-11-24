@@ -410,6 +410,17 @@ _ENGINE_BAD = {
         "def f(conn):\n    raw = conn.connection\n    alias = raw\n"
         "    return alias.cursor()\n"
     ),
+    # a name is judged by the scope, not by the order of the statements: a later
+    # re-binding in the same function does not clear it
+    "a name rebound to something else after the DBAPI connection, same function": (
+        "def f(conn, session):\n    raw = conn.connection\n    raw = session\n"
+        "    return raw.execute('x')\n"
+    ),
+    "an alias of sqlalchemy rebound to something else, same function": (
+        "import sqlalchemy as sa\n"
+        "def f(factory):\n    alias = sa\n    alias = factory\n"
+        "    return alias.create_engine('sqlite://')\n"
+    ),
     "a name bound in an enclosing function": (
         "def f(conn):\n    raw = conn.connection\n"
         "    def g():\n        return raw.cursor()\n    return g\n"

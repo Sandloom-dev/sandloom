@@ -59,8 +59,11 @@ the framework's own lives in ``backend/``) and runs every analyzer of
                            session (anything of its own skips write
                            admission and the RLS session)
     cursor-listener        no listener on a cursor-level event
-                           (before_cursor_execute, do_execute, ...) in a
-                           module: it runs around the cursor tenant check
+                           (before_cursor_execute, do_execute, ...) or on a
+                           pool / connection event that hands out the raw
+                           connection (connect, engine_connect, handle_error,
+                           ...) in a module: it runs around the cursor tenant
+                           check; no waiver admits it (SANDLOOM-C039)
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):
@@ -80,7 +83,9 @@ the framework's own lives in ``backend/``) and runs every analyzer of
 
 Each violation prints as ``path:N: error[SANDLOOM-Cnnn rule]: message``;
 ``sandloom explain <code>`` has the long form. A deliberate exception is waived
-on its line with ``# sandloom: allow <rule-id> <reason>``.
+on its line with ``# sandloom: allow <rule-id> <reason>``, except for
+``cursor-listener`` (SANDLOOM-C039), which cannot be waived: the comment is
+ignored and the violation says so.
 
 After the rules, the settings gate (ADR-0015 decision 7; SANDLOOM-B036,
 SANDLOOM-T019) imports each module of the application (importing reads no
