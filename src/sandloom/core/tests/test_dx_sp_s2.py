@@ -14,15 +14,16 @@ from __future__ import annotations
 
 import sys
 import types
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from importlib.machinery import ModuleSpec
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
+import pytest_asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
-from sqlalchemy import Column, String, Uuid
+from sqlalchemy import Column, String, Table, Uuid, inspect
 from sqlalchemy.orm import DeclarativeBase
 
 import sandloom.core.planner as planner
@@ -238,14 +239,32 @@ def test_a_failed_apply_takes_its_declared_operations_back(
 # -- the refusal ----------------------------------------------------------------
 
 
-@pytest.fixture
-def facade(sandloom_app: Any, db_engine: Any) -> Iterator[Any]:
-    """The harness app's facade (on the migrated test database), its
-    registrations put back after the test (the app is shared by the whole run)."""
+@pytest_asyncio.fixture
+async def facade(sandloom_app: Any) -> AsyncIterator[Any]:
+    """The harness app's facade, its registrations put back after the test (the
+    app is shared by the whole run), and the table the tests read on the
+    runtime's own database.
+
+    The planner reads on the database the app's runtime was built on, which is
+    not the copy ``db_engine`` resets (an xdist worker's ``_gw<N>`` database), and
+    no module's migration chain has run there (the kernel lane has no module):
+    the test creates the kernel table it reads and drops it again, when it was
+    not there."""
     core = sandloom_app.state.core
     checkpoint = core.snapshot_registrations()
-    yield core
-    core.restore_registrations(checkpoint)
+    engine = core.runtime_view().database("default").engine
+    table = cast(Table, ConsumerInboxEntry.__table__)
+    async with engine.begin() as conn:
+        created = not await conn.run_sync(lambda c: inspect(c).has_table(table.name))
+        if created:
+            await conn.run_sync(table.create)
+    try:
+        yield core
+    finally:
+        core.restore_registrations(checkpoint)
+        if created:
+            async with engine.begin() as conn:
+                await conn.run_sync(table.drop)
 
 
 async def test_an_undeclared_one_is_refused_with_the_fix(facade: Any) -> None:

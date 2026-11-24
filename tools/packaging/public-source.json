@@ -3250,6 +3250,7 @@
         "changelog.d/migrations-lock-timeout.md",
         "changelog.d/data-bugs-b1.md",
         "changelog.d/dx-cli-help-noise.md",
+        "changelog.d/dx-nobatteries-single-tenant.md",
         "changelog.d/dx-scaffold-flat-defaults.md",
         "changelog.d/dx-sp-s2-read-ops.md",
         "changelog.d/dx-sp-s3-typed-args.md",

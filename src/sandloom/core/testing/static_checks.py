@@ -57,7 +57,7 @@ from sandloom.core.archcheck.manifest import ArchRules, ManifestError, load_rule
 from sandloom.core.composition import load_composition_core
 from sandloom.core.descriptors import MigrationTargetError
 from sandloom.core.migrations.migrations import list_database_instances
-from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.sql_alchemy.base import Base, base_mappers
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
 from sandloom.core.tasks.periodic import has_periodic_tasks
 from sandloom.core.tenant import TenantScoped
@@ -246,7 +246,7 @@ def tenant_key_problems() -> list[str]:
     the other tenant's row, and the insert fails on the key)."""
     tenant_tables = {
         str(getattr(mapper.local_table, "name", ""))
-        for mapper in Base.registry.mappers
+        for mapper in base_mappers()
         if issubclass(mapper.class_, TenantScoped)
     } - {""}
     return [

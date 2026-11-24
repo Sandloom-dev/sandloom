@@ -41,6 +41,7 @@ import re
 import secrets
 import sys
 import tomllib
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 from string import Template
@@ -124,6 +125,36 @@ not mailed: their links appear in the `sandloom dev run` output
 (`NOTIFIER_LOG_LINKS=true` in `.env`). Tokens for API calls:
 [your first access token](https://sandloom.dev/docs/modules/batteries/first-access-token/).
 """
+
+#: The README's note for an app with no bundled module: the generated route
+#: needs a tenant and a token, and ``.env`` already holds the tenant.
+_BARE_APP_NOTE = """
+This app composes no identity and no tenancy battery. `.env` binds one tenant
+for every request (`TENANCY_MODE=single` with a generated `SINGLE_TENANT_ID`;
+uncomment the two lines of `.env.example` when you recreate `.env`), so a
+tenant-scoped route such as the generated module's needs only a token:
+`uv run sandloom dev token` prints one for development
+([guide](https://sandloom.dev/docs/modules/batteries/first-access-token/)).
+"""
+
+#: The tenant lines of an app with no tenancy module (``--no-batteries``): no
+#: module vouches for a tenant, so under the default ``TENANCY_MODE=multi`` a
+#: tenant-scoped route (the generated module's) answers 400 ``tenant_required``
+#: and, with ``X-Tenant-Id``, 403 ``tenant_not_authorized`` for every token.
+#: Single mode binds one tenant for every request, so ``sandloom dev token``
+#: reaches the route. ``$tenant_id`` is a random UUID per app. The local
+#: ``.env`` writes the lines; ``.env.example`` (the file a production deploy
+#: copies) keeps them commented, as production decides its own tenancy.
+_SINGLE_TENANT_ENV = Template(
+    """
+# ==== Tenancy ====
+# This app composes no tenancy module, so no token can name a tenant: one
+# tenant is bound for every request (a tenant-scoped route needs it). Add the
+# tenancy battery and switch to TENANCY_MODE=multi for several tenants.
+${prefix}TENANCY_MODE=single
+${prefix}SINGLE_TENANT_ID=$tenant_id
+"""
+)
 
 #: The ``.env`` line that prints email links (verification, password reset)
 #: to the console in local development; production refuses it.
@@ -562,7 +593,7 @@ SANDLOOM_COMPOSITION_ROOT=$app.asgi
 
 # ==== Environment ====
 ENVIRONMENT=dev
-
+$tenancy
 # ==== Database and Redis instances ====
 # `uv run sandloom dev up` writes DATABASE_URL and INFRA (one Redis url per
 # instance) of this checkout's dev services into the block below; everything
@@ -1063,6 +1094,14 @@ _ADMIN_ENV: tuple[str, ...] = (
 )
 
 
+def _single_tenant_env(tenant_id: str, *, local: bool) -> str:
+    """The tenancy block of an app without a tenancy module: live lines in the
+    local ``.env``, commented ones in ``.env.example``."""
+    return _SINGLE_TENANT_ENV.substitute(
+        prefix="" if local else "# ", tenant_id=tenant_id
+    )
+
+
 def _env_text(lines: tuple[str, ...]) -> str:
     """Declared ``deploy`` lines as the monolith profile's ``x-app-env``
     entries (indented as ``sandloom add deploy`` indents them)."""
@@ -1462,7 +1501,9 @@ def generate_project(
         "port_hint": _stack_files.PORT_HINT,
         # The stack's lines: tokens here, its package's text after the render.
         **{key: _stack_files.token(key) for key in _stack_files.KEYS},
-        "identity_note": _IDENTITY_NOTE if "identity" in bundled else "",
+        "identity_note": _IDENTITY_NOTE
+        if "identity" in bundled
+        else (_BARE_APP_NOTE if not bundled else ""),
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
         ),
@@ -1471,8 +1512,11 @@ def generate_project(
         + (_env_text(_BILLING_ENV) if "billing" in bundled else "")
         + (_env_text(_ADMIN_ENV) if "admin" in bundled else ""),
     }
+    # No bundled module (``--no-batteries``): nothing vouches for a tenant.
+    tenant_id = str(uuid.uuid4())
     example_ctx = {
         **ctx,
+        "tenancy": _single_tenant_env(tenant_id, local=False) if not bundled else "",
         "jwt_secret": "change_me_in_production_use_openssl_rand_hex_32",
         "open_internal": "# INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
         "log_links": _LOG_LINKS if "identity" in bundled else "",
@@ -1481,6 +1525,7 @@ def generate_project(
     # is never what a developer actually runs with.
     local_env_ctx = {
         **ctx,
+        "tenancy": _single_tenant_env(tenant_id, local=True) if not bundled else "",
         "jwt_secret": secrets.token_hex(32),
         "open_internal": "INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
         "log_links": _LOG_LINKS.replace("# NOTIFIER_LOG_LINKS", "NOTIFIER_LOG_LINKS")

@@ -36,6 +36,7 @@ from sandloom.core.tests._entry_points_support import installed_entry_points
 from sandloom.core.tests.test_claims_split_matrix import (
     ACME,
     ALL_401,
+    GATED,
     ID,
     OK,
     ROLES_401,
@@ -103,6 +104,27 @@ async def test_the_token_gets_exactly_the_rights_it_asks_for(mem_cache: Any) -> 
     plain = await statuses(core, _mint(policy).token)
     assert {gate: plain[gate] for gate in NO_ROLE} == NO_ROLE
     assert plain["/tenant"] != 200
+
+
+@pytest.mark.asyncio
+async def test_a_flagless_token_reaches_a_tenant_route_only_in_single_tenant_mode(
+    mem_cache: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An app without the tenancy battery (``sandloom new --no-batteries``):
+    no authority assigns tenants, so a token without flags binds none. Under
+    the default ``TENANCY_MODE=multi`` the tenant route refuses it (400); the
+    ``single`` mode the scaffold's ``.env`` writes binds the canonical tenant
+    and the same token reaches the route (200)."""
+    core = verifier({})
+    # the tenant gate reads the mode from the settings of the app's core
+    monkeypatch.setattr(GATED.state, "core", core, raising=False)
+    token = _mint(core.claim_authorities).token
+    assert (await statuses(core, token))["/tenant"] == 400
+    canonical = uuid4()
+    core.settings = settings.model_copy(
+        update={"tenancy_mode": "single", "single_tenant_id": canonical}
+    )
+    assert (await statuses(core, token))["/tenant"] == 200
 
 
 @pytest.mark.asyncio
