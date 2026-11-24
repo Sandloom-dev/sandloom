@@ -944,11 +944,14 @@ def free_app_port(preferred: int = 8000) -> int:
 class Step:
     """One setup command: ``label`` is what the person would type (``uv run
     …``), ``argv`` what runs. An ``attached`` step owns the terminal (it asks
-    its own questions); the others are captured to the log."""
+    its own questions); the others are captured to the log. A ``show`` step's
+    output (the set-password link of ``admin create --invite``) is kept for
+    the summary as well: the person needs it, the log is no place to look."""
 
     label: str
     argv: list[str]
     attached: bool = False
+    show: bool = False
 
 
 def stack_steps(uv: str) -> list[Step]:
@@ -987,7 +990,9 @@ def setup_steps(
             steps.append(admin_step(uv, admin_email))
         else:
             create.append("--invite")
-            steps.append(Step(f"uv run {shlex.join(create)}", [uv, "run", *create]))
+            steps.append(
+                Step(f"uv run {shlex.join(create)}", [uv, "run", *create], show=True)
+            )
     return steps
 
 
@@ -1018,6 +1023,8 @@ class Result:
     cancelled: bool = False
     #: Attached steps that did not finish (``admin create`` left with Ctrl-C).
     skipped: list[Step] = field(default_factory=list)
+    #: The output lines of the ``show`` steps that succeeded, in order.
+    shown: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1040,12 +1047,15 @@ class SetupRunner:
         self.log.parent.mkdir(parents=True, exist_ok=True)
         env = child_env(self.environ)
         skipped: list[Step] = []
+        shown: list[str] = []
         with self.log.open("a", encoding="utf-8") as log:
             for index, step in enumerate(steps):
                 log.write(f"$ {step.label}\n")
                 log.flush()
-                outcome = self._step(step, cwd=cwd, env=env, log=log)
+                kept: list[str] = []
+                outcome = self._step(step, cwd=cwd, env=env, log=log, kept=kept)
                 if outcome == "ok":
+                    shown += kept
                     continue
                 if outcome == "skipped":  # the attached last step: reported after
                     skipped.append(step)
@@ -1054,7 +1064,7 @@ class SetupRunner:
                     steps[index:], app_dir, cancelled=outcome == "cancelled"
                 )
                 return Result(False, index, outcome == "cancelled")
-        return Result(True, skipped=skipped)
+        return Result(True, skipped=skipped, shown=shown)
 
     def _continue_with(
         self, rest: Sequence[Step], app_dir: str, *, cancelled: bool
@@ -1066,7 +1076,17 @@ class SetupRunner:
         self.out.write(f"\n{head}:\n" + "".join(f"  {c}\n" for c in commands))
         self.out.flush()
 
-    def _step(self, step: Step, *, cwd: Path, env: dict[str, str], log: IO[str]) -> str:
+    def _step(
+        self,
+        step: Step,
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        log: IO[str],
+        kept: list[str],
+    ) -> str:
+        """Run one step; ``kept`` receives the stdout lines of a ``show``
+        step. The outcome: ok, failed, cancelled or skipped."""
         if step.attached:
             return self._attached(step, cwd=cwd, env=env)
         line = _ui.StepLine(self.style, self.out, step.label, width=self.width).start()
@@ -1080,9 +1100,14 @@ class SetupRunner:
             return "failed"
         readers = [
             threading.Thread(
-                target=self._pump, args=(stream, log, tail, line, sink), daemon=True
+                target=self._pump,
+                args=(stream, log, tail, line, sink, store),
+                daemon=True,
             )
-            for stream, sink in ((proc.stdout, None), (proc.stderr, errors))
+            for stream, sink, store in (
+                (proc.stdout, None, kept if step.show else None),
+                (proc.stderr, errors, None),
+            )
             if stream is not None
         ]
         try:
@@ -1122,12 +1147,15 @@ class SetupRunner:
         tail: deque[str],
         line: _ui.StepLine,
         errors: list[str] | None,
+        kept: list[str] | None = None,
     ) -> None:
         for raw in stream:
             text = raw.rstrip("\n")
             log.write(raw if raw.endswith("\n") else raw + "\n")
             log.flush()
             tail.append(text)
+            if kept is not None and text.strip():
+                kept.append(text)
             if errors is not None and text.strip():
                 # stderr: what the step says it is doing, under the spinner;
                 # a log line (the framework's, uvicorn's) is never shown there.
@@ -1719,6 +1747,14 @@ def create_administrator(
     return email if result.ok and not result.skipped else None
 
 
+def _write_shown(run: _Run, shown: Sequence[str]) -> None:
+    """The output of the setup's ``show`` steps: the set-password link of
+    ``admin create --invite`` (the log has it too, but nobody looks there),
+    written before "Next steps", which CI parses."""
+    if shown:
+        run.out.write("\n" + "".join(f"{line}\n" for line in shown))
+
+
 def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
     style = run.style
     initialised = _start_git(run, root, answers)
@@ -1728,10 +1764,12 @@ def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
         answers = _own_servers(run, plan, root, answers)
         servers_failed = requested and not answers.setup
     admin_created = False
+    shown: list[str] = []
     if answers.setup:
         result = _setup(run, root, answers)
         if not result.ok:
             return 130 if result.cancelled else 1
+        shown = result.shown
         if run.asking and "admin" in answers.batteries:
             created = create_administrator(run, root, plan.app, answers.admin_email)
             answers = dataclasses.replace(answers, admin_email=created)
@@ -1750,6 +1788,7 @@ def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
             run.out.write(f"  {style.ok('git repository with a first commit')}\n")
         else:
             run.out.write(f"  {style.ok('git repository')}\n  {style.muted(hint)}\n")
+    _write_shown(run, shown)
     if not run.asking:
         # CI parses this block (tools/smoke/quickstart_check.py): plain mode
         # prints nothing after it.
