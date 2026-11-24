@@ -1,0 +1,22 @@
+{
+  "mode": "app",
+  "tasks": 10,
+  "tasks_ran": 10,
+  "errored": [],
+  "passed": 10,
+  "dev_checks_failed": 2,
+  "tasks_free_of_dev_failures": 8,
+  "uncaught_deviations": 2,
+  "tasks_free_of_uncaught_deviation": 8,
+  "mean_tokens_total": 696243,
+  "mean_turns": 13.0,
+  "mean_tool_calls": 12.0,
+  "mean_wall_min": 4.7,
+  "mean_kernel_files_read": 0.2,
+  "kernel_reads_total": 2,
+  "framework_edits_total": 0,
+  "other_module_edits_total": 0,
+  "mean_edited_outside": 2.2,
+  "tasks_that_created_a_dotenv": 0,
+  "total_cost_usd": 3.04
+}
