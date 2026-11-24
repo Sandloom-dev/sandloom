@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from sandloom.core.archcheck.runner import Violation
-from sandloom.core.cli import check, run_tests
+from sandloom.core.cli import check, run_tests, skills
+from sandloom.core.cli.project import generate_project
 from sandloom.core.testing import families
 from sandloom.core.tests.test_testing_families import FakeFamily
 
@@ -313,3 +315,92 @@ def test_the_architecture_rules_run_once_per_sandloom_test(
     assert check.recorded_violations(tmp_path / "missing.json", manifest) is None
     (tmp_path / "bad.json").write_text("{not json")
     assert check.recorded_violations(tmp_path / "bad.json", manifest) is None
+
+
+# --- the notice that the app's agent files are older than the package's ------
+
+SKILL = ".agents/skills/sandloom-new-module/SKILL.md"
+CONTRACT = "probe/modules/AGENTS.md"
+
+
+def _recorded(root: Path) -> dict[str, str]:
+    """The record's ``{path: hash}``, as `sandloom new` wrote it."""
+    return skills.load_record(root)[1]
+
+
+def _rewrite_record(root: Path, mutate: Callable[[dict[str, str]], None]) -> None:
+    agents, files = skills.load_record(root)
+    assert agents
+    mutate(files)
+    skills.save_record(root, agents, files)
+
+
+@pytest.fixture
+def app(tmp_path: Path) -> Path:
+    generate_project("probe", tmp_path, sample_module="gadgets")
+    return tmp_path / "probe"
+
+
+def test_a_fresh_app_gets_no_notice(app: Path) -> None:
+    assert skills.outdated_files(app, "probe") == []
+    assert run_tests.agent_files_notice(app) is None
+
+
+@pytest.mark.parametrize("path", [SKILL, CONTRACT])
+def test_a_recorded_hash_that_differs_from_the_templates_is_the_notice(
+    app: Path, path: str
+) -> None:
+    """The record holds what an older sandloom wrote: a hash the installed
+    templates no longer produce, for a skill or for the module-author contract."""
+    assert path in _recorded(app)
+    _rewrite_record(app, lambda files: files.update({path: "0" * 64}))
+    assert skills.outdated_files(app, "probe") == [path]
+    assert run_tests.agent_files_notice(app) == (
+        "sandloom test: agent files are from an older sandloom: "
+        "run `sandloom add skills`"
+    )
+
+
+def test_a_skill_the_record_lacks_is_outdated(app: Path) -> None:
+    """An older sandloom shipped fewer skills: the record has no entry."""
+    _rewrite_record(app, lambda files: files.pop(SKILL))
+    assert skills.outdated_files(app, "probe") == [SKILL]
+
+
+def test_the_hint_clears_the_notice(app: Path) -> None:
+    """`sandloom add skills` (write_skills) rewrites the record: no notice after."""
+    _rewrite_record(app, lambda files: files.update({SKILL: "0" * 64}))
+    assert run_tests.agent_files_notice(app) is not None
+    agents = skills.load_record(app)[0]
+    assert agents
+    skills.write_skills(app, "probe", agents, modules="probe/modules")
+    assert run_tests.agent_files_notice(app) is None
+
+
+def test_no_record_or_no_manifest_is_no_notice(app: Path, tmp_path: Path) -> None:
+    (app / skills.RECORD).unlink()
+    assert run_tests.agent_files_notice(app) is None
+    assert run_tests.agent_files_notice(tmp_path / "nowhere") is None
+
+
+def test_an_unreadable_record_is_not_swallowed(app: Path) -> None:
+    """Only a missing manifest is skipped (`sandloom check` reports it); a
+    corrupt record still raises instead of printing nothing."""
+    (app / skills.RECORD).write_text("{not json", encoding="utf-8")
+    with pytest.raises(ValueError, match="Expecting"):
+        run_tests.agent_files_notice(app)
+
+
+def test_sandloom_test_prints_the_notice_once_and_still_passes(
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _rewrite_record(app, lambda files: files.update({SKILL: "0" * 64}))
+    monkeypatch.chdir(app)
+    monkeypatch.setattr(run_tests, "plan", lambda *args, **kwargs: [])
+    monkeypatch.setattr(run_tests, "load_project_test_env", lambda root: None)
+    assert run_tests.main([]) == 0
+    out = capsys.readouterr().out
+    assert out.count(skills.OUTDATED_NOTICE) == 1
+    assert "FAILED" not in out

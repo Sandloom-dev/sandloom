@@ -48,6 +48,11 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
 5. ``typing tests`` (``--full``, framework tree): the L1 typing proofs under
    mypy ``--strict`` and pyright (``tests/typing``).
 
+When the app's agent files (``.sandloom/agent-files.json``: the skills and the
+module-author contract) differ from the installed sandloom's templates, it prints
+one info line before the steps ("agent files are from an older sandloom: run
+`sandloom add skills`"); it is not a failure and makes no network call.
+
 Run it from the project root (the directory holding ``pyproject.toml`` /
 ``architecture_rules.yml``): the framework's ``backend/`` or an ``sandloom new``
 app. Tests need the project's test services and test env, like ``pytest``.
@@ -85,9 +90,10 @@ from pathlib import Path
 
 import sandloom.core.cli.generated as _generated_cli
 import sandloom.core.cli.migrate_drift as _migrate_drift
+import sandloom.core.cli.skills as _skills
 import sandloom.core.cli.tool_process as _tool_process
 import sandloom.core.testing.static_checks as _static_checks_cli
-from sandloom.core.archcheck.manifest import load_rules
+from sandloom.core.archcheck.manifest import ManifestError, load_rules
 from sandloom.core.cli import check as _check
 from sandloom.core.composition import (
     COMPOSITION_ROOT_ENV,
@@ -540,6 +546,28 @@ def _run_recording_the_rules(steps: list[Step], root: Path) -> list[Outcome]:
             _ARCH_RECORD.path = None
 
 
+def agent_files_notice(root: Path) -> str | None:
+    """The one info line when the app's agent files (skills, module-author
+    contract) are older than the installed sandloom's templates, else ``None``.
+
+    The record's hashes against the packaged templates: no network, no write, no
+    failure. An app without the record (a project that never ran ``sandloom new``
+    or ``sandloom add skills``) or without a readable manifest gets no line: the
+    ``sandloom check`` step reports the manifest."""
+    try:
+        app = load_rules(root / "architecture_rules.yml").modules_package.split(".")[0]
+    except ManifestError:
+        return None
+    if not app or not _skills.outdated_files(root, app):
+        return None
+    return f"sandloom test: {_skills.OUTDATED_NOTICE}"
+
+
+def _print_agent_files_notice(root: Path) -> None:
+    if (notice := agent_files_notice(root)) is not None:
+        print(notice)
+
+
 def summary(outcomes: list[Outcome]) -> str:
     lines = ["", "sandloom test summary", "----------------"]
     for o in outcomes:
@@ -630,6 +658,7 @@ def main(argv: list[str] | None = None) -> int:
             f"sandloom test: test order seed {seed} (replay: "
             f"sandloom test --seed {seed})"
         )
+    _print_agent_files_notice(root)
     outcomes = _run_recording_the_rules(steps, root)
     print(summary(outcomes))
     if slot_lost():
@@ -649,6 +678,7 @@ __all__ = [
     "XDIST_MISSING_NOTICE",
     "Outcome",
     "Step",
+    "agent_files_notice",
     "fresh_seed",
     "main",
     "plan",
