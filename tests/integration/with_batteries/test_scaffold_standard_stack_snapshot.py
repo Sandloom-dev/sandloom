@@ -50,6 +50,10 @@ NEW_RUNS: dict[str, list[str]] = {
 RANDOM_FILES = frozenset({".env"})
 
 
+#: A lean app's tenant is a random UUID per app (``SINGLE_TENANT_ID=``, live in
+#: ``.env`` and commented in ``.env.example``): masked like the secret.
+TENANT_LINE = re.compile(rb"(SINGLE_TENANT_ID=)[0-9a-f-]{36}")
+
 #: The checkout the code runs from: a source checkout's ``pyproject.toml`` of
 #: the new app names the framework by this absolute path, which differs on every
 #: machine (a developer's, CI's runner).
@@ -59,6 +63,7 @@ CHECKOUT = Path(_project.__file__).resolve().parents[4]
 def _digest(path: Path) -> str:
     data = path.read_bytes().replace(_project.FRAMEWORK_RANGE.encode(), b"<range>")
     data = data.replace(CHECKOUT.as_posix().encode(), b"<checkout>")
+    data = TENANT_LINE.sub(rb"\1<tenant>", data)
     return hashlib.sha256(data).hexdigest()
 
 
@@ -164,7 +169,8 @@ def test_the_env_file_is_the_same_on_both_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``.env`` is the one file the manifest leaves out (a random
-    ``JWT_SECRET``): with that line masked, both paths write the same bytes."""
+    ``JWT_SECRET``, a random ``SINGLE_TENANT_ID``): with those values masked,
+    both paths write the same bytes."""
     here, bare = tmp_path / "here", tmp_path / "bare"
     here.mkdir()
     bare.mkdir()
@@ -174,7 +180,8 @@ def test_the_env_file_is_the_same_on_both_paths(
 
     def masked(root: Path) -> str:
         text = (root / "snapapp" / ".env").read_text(encoding="utf-8")
-        return re.sub(r"JWT_SECRET=\S+", "JWT_SECRET=<secret>", text)
+        text = re.sub(r"JWT_SECRET=\S+", "JWT_SECRET=<secret>", text)
+        return re.sub(r"(SINGLE_TENANT_ID=)\S+", r"\1<tenant>", text)
 
     assert masked(bare) == masked(here)
     assert "@@STACK" not in masked(bare)

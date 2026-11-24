@@ -112,17 +112,22 @@ vouches for a role or a tenant: `--role` and `--tenant` are refused. A token
 without flags is still a valid login for routes that need nothing more.
 
 A tenant-scoped route, such as the generated module's, still has to know the
-tenant. With the default `TENANCY_MODE=multi` nothing can bind one for any
-token. Such a route answers `400 tenant_required`. When the request names a
-tenant in `X-Tenant-Id` it answers `403 tenant_not_authorized`, since no token
-lists one. For a first try set one tenant in `.env`:
+tenant. With `TENANCY_MODE=multi`, the default of the settings, nothing can
+bind one for any token. The route answers `400 tenant_required`. When the
+request names a tenant in `X-Tenant-Id`, it answers `403 tenant_not_authorized`,
+since no token lists one. So the generated `.env` of a `--no-batteries` app
+binds one tenant for every request:
 
 ```dotenv
 TENANCY_MODE=single
-SINGLE_TENANT_ID=00000000-0000-4000-8000-000000000001
+SINGLE_TENANT_ID=<a UUID generated for your app>
 ```
 
-Restart `uv run sandloom dev run`, and `uv run sandloom dev token` is enough.
+`uv run sandloom dev token` with no flag is enough, and the generated route
+answers `200`. `.env.example` carries the same two lines commented out, since a
+production deployment decides its own tenancy. An app made earlier sets the two
+lines itself, with any UUID. For several tenants, add the tenancy battery and
+set `TENANCY_MODE=multi`.
 
 ## The real flow
 
