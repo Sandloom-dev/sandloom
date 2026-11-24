@@ -2,7 +2,7 @@
 # contract: acme_idp.security.v1  fingerprint: 4e45d66a7bb0a0c2208846f3c8328bce
 # provider: oidc_identity.modules.acme_idp
 # class: oidc_identity.modules.acme_idp.contracts.AcmeSecurityContract
-# generator: format 2  digest ba2eb18d0a86b03d
+# generator: format 3  digest 6169ab0993bd1280
 """Contract ``acme_idp.security.v1``: the typed stub callers import.
 
 Generated from ``oidc_identity.modules.acme_idp.contracts.AcmeSecurityContract``.
@@ -10,7 +10,7 @@ Generated from ``oidc_identity.modules.acme_idp.contracts.AcmeSecurityContract``
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, TypedDict
 from uuid import UUID
 
 from oidc_identity.shared.contracts.acme_idp_dto import OperatorAccount, SessionsEnded
@@ -66,3 +66,19 @@ class AcmeIdpSecurityV1(Protocol):
 ACME_IDP_SECURITY_V1: ContractRef[AcmeIdpSecurityV1] = ContractRef(
     "acme_idp.security.v1", AcmeIdpSecurityV1
 )
+
+
+class AcmeIdpSecurityV1AppointPlatformAdminArgs(TypedDict):
+    """Arguments of ``appoint_platform_admin``, without ``operation_key``."""
+
+    user_id: UUID
+    reason: str
+    operator: str
+
+
+class AcmeIdpSecurityV1EndSessionsArgs(TypedDict):
+    """Arguments of ``end_sessions``, without ``operation_key``."""
+
+    user_ids: list[UUID]
+    reason: str
+    operator: str

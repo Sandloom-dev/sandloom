@@ -2,7 +2,7 @@
 # contract: identity.contact.v1  fingerprint: daa7e60fa4a234b4a4a6dbbfd5b5e037
 # contract: identity.security.v1  fingerprint: fed598e20f77c2fd4e99403c0ad7c2d1
 # provider: sandloom-identity (sandloom_identity)
-# generator: format 2  digest 91a1d99c3ed0ccc5
+# generator: format 3  digest 91a1d99c3ed0ccc5
 """Contract DTOs of module ``identity``: the wire-shape copies callers import.
 
 Generated from the provider's own classes in:

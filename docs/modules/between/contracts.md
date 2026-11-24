@@ -190,6 +190,9 @@ then `if not await quota.may_create_item(): ...`.
   is typed as the Protocol, so mypy checks every call. The stub is a
   generated file written by `sandloom generate`; `sandloom test` fails on a
   stale one ([SANDLOOM-T007](../../reference/error-codes.md#sandloom-t007)).
+  Each command also gets a `TypedDict` of its arguments without the
+  idempotency key (`XYV1MethodArgs`), which a saga step's `args` function
+  returns ([typed arguments](sagas.md#typed-arguments)).
 - **Declare it at module level.** `define_module` collects module-level
   `Contract(...)` objects into the module's `consumes` (name and `required`
   exact). The methods come from the direct `quota.<method>(` calls in that

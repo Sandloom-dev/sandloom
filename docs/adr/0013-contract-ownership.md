@@ -227,6 +227,19 @@ KB-22 writes into `guarantees.yml` unchanged:
 > import, wherever it is written; the kernel ships no generated stub or DTO copy. The stub names
 > the generated DTO copies, passes its Protocol, and is ruff format clean.
 
+Amendment (dx-sp-s3-typed-args, 2026-11-24): the stub also carries one `TypedDict` per command
+method, after the reference declaration. It lists the method's parameters without the idempotency
+parameter (a default is `NotRequired`) and is named from the Protocol name and the method
+(`PaymentsChargesV1ChargeArgs`). A saga step's `args` function returns it, so mypy checks the
+step's arguments (ADR-0008). Two commands whose names map to one class name, or a command whose
+class name is another name of the stub, get no class (neither command of a pair): a one-line comment
+stands in its place and `sandloom generate` prints one warning naming the pair. The stub is still
+generated, so a released contract with such a pair keeps generating; a saga's `args` for that
+command stays a `Mapping`. (Review round of dx-sp-s3-typed-args: the first version refused with
+`SANDLOOM-C012`, which blocked the stub of a published contract whose `.v1` cannot be renamed.)
+`GENERATOR_FORMAT` is 3: a
+consumer file of format 2 reads as a generator change with the contract fingerprint unchanged.
+
 Its tests change with it: `test_the_framework_tree_stubs_keep_the_kernel_home` is replaced by a
 test that the kernel wheel and `sandloom.shared` hold no generated file, and
 `test_an_application_stub_imports_the_public_home` gains the module-local home.
