@@ -3086,8 +3086,9 @@ def _import_roots(file_path: Path, level: int, top: str | None) -> list[Path]:
     """The directories an import is looked up in, within the importing file's own
     tree: a relative one (``level`` dots) is the file's directory ``level - 1``
     parents up, an absolute one every ancestor directory that holds its top
-    package or module ``top``. Empty for ``sqlalchemy`` and a library."""
-    here = file_path.resolve().parent
+    package or module ``top``. Empty for ``sqlalchemy`` and a library.
+    ``file_path`` is the importing file's resolved path."""
+    here = file_path.parent
     if level:
         ups = level - 1
         if ups > len(here.parents):
@@ -3105,14 +3106,14 @@ def _import_roots(file_path: Path, level: int, top: str | None) -> list[Path]:
 def _module_file(file_path: Path, roots: list[Path], parts: list[str]) -> Path | None:
     """The file of the module ``parts`` names under one of ``roots`` (an empty
     ``parts`` is the package of a relative import: its ``__init__.py``); never the
-    importing file itself."""
+    importing file itself (``file_path``, resolved)."""
     for root in roots:
         target = root.joinpath(*parts)
         candidates = [target / "__init__.py"]
         if parts:
             candidates.insert(0, target.with_name(f"{parts[-1]}.py"))
         for candidate in candidates:
-            if candidate.is_file() and candidate != file_path.resolve():
+            if candidate.is_file() and candidate != file_path:
                 return candidate
     return None
 
@@ -3190,12 +3191,13 @@ def _sibling_event_bindings(tree: ast.AST, file_path: Path) -> dict[str, set[str
       (``from . import helper`` or ``import pkg.helper as h``, then
       ``helper.ev.listen`` / ``h.ev.listen``)."""
     bound: dict[str, set[str]] = {}
+    me = file_path.resolve()  # once per file: every lookup below compares with it
     for node in ast.walk(tree):
         pairs: Iterator[tuple[str, frozenset[str]]] = iter(())
         if isinstance(node, ast.Import):
-            pairs = _import_bindings(file_path, node)
+            pairs = _import_bindings(me, node)
         elif isinstance(node, ast.ImportFrom):
-            pairs = _import_from_bindings(file_path, node)
+            pairs = _import_from_bindings(me, node)
         for name, paths in pairs:
             bound.setdefault(name, set()).update(paths)
     return bound

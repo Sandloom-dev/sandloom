@@ -49,9 +49,6 @@ NOQA_BASELINE: dict[str, int] = {
     "ASYNC240": 1,
     "BLE001": 175,  # -7 (idk-gated-tests-redis): Redis skips moved out of kernel tests to packages/sandloom-redis/tests; 182: -1 (idk-pkg-redis-harness2): a Redis harness swallow moved to packages/sandloom-redis; +2 pubsub_bus logs a swallowed driver/transport error by type, no traceback (low-batch-1: host/port/payload text stays out of the log; ruff accepts a swallow only with exc_info, and exc_info=(type, None, None) fails mypy's Logger stub and prints "NoneType: None": low-batch-2 tried it); the callback branch logs its traceback and carries no noqa (low-batch-2: -1), the lost-subscription branch lost its traceback and carries one (+1); 198: -8 streams error mapping (idk-streams-errors); -5 in the kernel and +1 in packages/sandloom-redis/src where the Redis cache driver moved (idk-pkg-redis-streams); -2 streams tests moved to packages/sandloom-redis/tests (idk-pkg-redis-eventbus-tests); -3 Redis skips moved out of kernel tests (idk-pkg-redis-eventbus-tests2)
     "C901": 79,
-    # 1 (archcheck-356-accident-only, review L6): the owner TODO above
-    # find_cursor_listeners is one line so that `grep` finds it verbatim.
-    "E501": 1,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
     # the `sandloom[redis]` extra and `sandloom test --help` must run in a
