@@ -30,11 +30,11 @@ import time
 import uuid
 import weakref
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from sqlalchemy import BigInteger, event, text
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.orm import Mapped, configure_mappers, mapped_column
+from sqlalchemy.orm import Mapped, Mapper, configure_mappers, mapped_column
 from sqlalchemy.sql.schema import CallableColumnDefault
 
 from sandloom.core.sql_alchemy.base import Base
@@ -189,7 +189,7 @@ def _id_attributes(cls: type) -> tuple[str, ...]:
         # what configures the mappers on a first construction: without this
         # the class has no attribute implementation to set yet.
         configure_mappers()
-        mapper = sa_inspect(cls)
+        mapper: Mapper[Any] = sa_inspect(cls)
         names = tuple(
             mapper.get_property_by_column(column).key
             for column in mapper.primary_key

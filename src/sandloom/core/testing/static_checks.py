@@ -422,7 +422,7 @@ def beginner_tier_findings(root: Path) -> list[tuple[Path, int, str]]:
 
 def beginner_tier_problems(root: Path) -> list[str]:
     """One line per finding of :func:`beginner_tier_findings`, with its code.
-    ``sandloom check`` reports them (``beginner_tier_diagnostics``)."""
+    ``sandloom check`` reports them (``static_gate_diagnostics``)."""
     return [
         f"{path}:{line}: {message} (SANDLOOM-T009)"
         for path, line, message in beginner_tier_findings(root)

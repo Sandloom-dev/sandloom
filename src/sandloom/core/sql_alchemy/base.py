@@ -5,7 +5,7 @@ defined at the bottom of the relational layer so the kernel's own tables
 (:mod:`sandloom.core.sql_alchemy.models`) do not import the public ORM surface.
 """
 
-from typing import Any, ClassVar
+from types import MappingProxyType
 
 from sqlalchemy.orm import DeclarativeBase
 
@@ -21,7 +21,7 @@ class Base(DeclarativeBase):
     too.
     """
 
-    __mapper_args__: ClassVar[dict[str, Any]] = {"eager_defaults": True}
+    __mapper_args__ = MappingProxyType({"eager_defaults": True})
 
 
 __all__ = ["Base"]

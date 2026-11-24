@@ -48,6 +48,7 @@ from sandloom.core.orm import (
     TenantScoped,
     UpdatedAt,
     UtcDateTime,
+    Versioned,
     WallClock,
     aggregate_list,
     disable_tenant_rls,
@@ -62,7 +63,6 @@ from sandloom.core.orm import (
     search_index,
     session_reads,
 )
-from sandloom.core.sql_alchemy.columns import Versioned
 from sandloom.sdk._prim.data import (
     MoneyLedger,
     conflict_insert,

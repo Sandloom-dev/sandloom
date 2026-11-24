@@ -178,21 +178,32 @@ def main(argv: list[str] | None = None, *, record: Path | None = None) -> int:
     if record is not None and only is None:
         _record(record, args.rules, violations)
 
-    gate = settings_gate_diagnostics(rules) if only is None else []
-    tier = beginner_tier_diagnostics(rules) if only is None else []
+    gate, tier = static_gate_diagnostics(rules) if only is None else ([], [])
     boot = boot_diagnostics(project_root=rules.root) if args.boot else []
     return _report(
         rules, violations, boot, boot_requested=bool(args.boot), gate=gate, tier=tier
     )
 
 
-def beginner_tier_diagnostics(rules: ArchRules) -> list[str]:
-    """Every advanced ``sandloom.sdk`` import without a ``# sandloom: advanced
-    <reason>`` marker in the application's modules (SANDLOOM-T009), rendered like
-    a startup problem. The framework's own tree reports none."""
-    from sandloom.core.testing import static_checks  # noqa: PLC0415 - cold: reads the sdk's tier lists from source; `--list-rules` and the other static commands stay light
+def static_gate_diagnostics(
+    rules: ArchRules, *, tier: bool = True
+) -> tuple[list[str], list[str]]:
+    """The static gates of ``sandloom test`` that ``sandloom check`` reports, as
+    ``(settings gate, beginner tier)``, rendered like a startup problem.
 
-    return [
+    The settings gate is SANDLOOM-B036 / SANDLOOM-T019. The beginner tier
+    (``tier=True``) lists every advanced ``sandloom.sdk`` import without a
+    ``# sandloom: advanced <reason>`` marker in the application's modules
+    (SANDLOOM-T009); the framework's own tree reports none."""
+    from sandloom.core.testing import static_checks  # noqa: PLC0415 - cold: the settings gate imports the application's modules and the tier reads the sdk's lists from source; `--list-rules` and the other static commands stay light
+
+    gate = []
+    for problem in static_checks.settings_gate_problems(rules.root):
+        code = "SANDLOOM-B036" if "SANDLOOM-B036" in problem else "SANDLOOM-T019"
+        gate.append(error_codes.render(code, problem))
+    if not tier:
+        return gate, []
+    return gate, [
         error_codes.render("SANDLOOM-T009", message, where=f"{path}:{line}")
         for path, line, message in static_checks.beginner_tier_findings(rules.root)
     ]
@@ -201,13 +212,7 @@ def beginner_tier_diagnostics(rules: ArchRules) -> list[str]:
 def settings_gate_diagnostics(rules: ArchRules) -> list[str]:
     """The settings gate's problems for the application ``rules`` describes,
     rendered like a startup problem (SANDLOOM-B036 / SANDLOOM-T019)."""
-    from sandloom.core.testing import static_checks  # noqa: PLC0415 - cold: the gate imports the application's modules; `--list-rules` and the other static commands stay light
-
-    out = []
-    for problem in static_checks.settings_gate_problems(rules.root):
-        code = "SANDLOOM-B036" if "SANDLOOM-B036" in problem else "SANDLOOM-T019"
-        out.append(error_codes.render(code, problem))
-    return out
+    return static_gate_diagnostics(rules, tier=False)[0]
 
 
 def _record(path: Path, manifest: Path, violations: list[Violation]) -> None:
