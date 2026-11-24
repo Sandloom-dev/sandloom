@@ -20,6 +20,7 @@ recipe <name>`.
 | a retried write that must not repeat | | recipe `retries` |
 | to tell, ask or react to another module | `sandloom add event`, `consumer`, `contract`, `contract-use`, `projection`, `saga` | skill `sandloom-cross-module` |
 | a job that runs later or on a schedule | `uv run sandloom add task <name> <task>` | skill `sandloom-background-tasks` |
+| to get right what no check enforces: a tenant table reached through a parent, an effect that can run twice, a password or role change, a side effect outside the database | | skill `sandloom-module-rules` |
 | to test a service or a task body | | recipe `test-service-or-task` |
 | a breaking change of an event | | skill `sandloom-event-version-roll` |
 | the module in its own service | `uv run sandloom add deploy <name>` | skill `sandloom-split-deploy` |

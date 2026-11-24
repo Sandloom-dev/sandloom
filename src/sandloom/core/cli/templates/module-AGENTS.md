@@ -85,25 +85,21 @@ To talk to another module:
 
 ## Rules no check enforces yet (get these right yourself)
 
-- **A row owned through another tenant row is tenant data:** `TenantScoped` on it
-  too, even with no `organization_id` column (C014 sees only tenant-like columns).
-- **Effects outside a durable consumer need their own dedupe** in the same
-  unit: a UNIQUE `operation_key(...)` on the effect's row, or
-  `durable_inbox("<m>@<x>").claim(db(), id)` (`sandloom.sdk.effects`).
-- **Events** are at-least-once and unordered: order by a per-aggregate
-  `version` field. A breaking change is a new `.v2` class, dual-published with
-  `publish_event_versions` until no `.v1` reader is left (skill `sandloom-event-version-roll`).
-- **Contract commands** are not atomic with the caller: design each as a saga
-  step. Cap list `limit`s (`Query(le=...)`).
-- **Security events:** on a password, role or membership change, call
-  `revoke_user_tokens_on_commit(user_id, reason=..., require_immediate=True)`
-  (`sandloom.sdk.security`) as the last fallible step; `record_audit(...)` it, no PII.
-- **Side effects outside the database** (email, cache) go through
-  `await on_commit(cb)`; a check that must hold at commit, `before_commit(cb)`.
-- **Tasks** (`sandloom add task`; `@task`, `@periodic(cron=, id=)`): an `async def`
-  body with `open_uow()` blocks, never `asyncio.run`; `await task.enqueue(payload)`;
-  a run can repeat: make it harmless. A periodic task needs one beat per
-  profile (SANDLOOM-T010; `--periodic` wires it).
+Skill `sandloom-module-rules` has an Incorrect and a Correct example for each
+(`rules/<name>.md`): open the one for the work at hand.
+
+- `tenant-row-through-parent`: a row owned through a tenant row is `TenantScoped`
+  too, even with no `organization_id` column (C014 misses it).
+- `effect-needs-dedupe`: an effect outside a durable consumer needs its own dedupe.
+- `event-order-by-version`: events are at-least-once and unordered.
+- `event-breaking-change-is-v2`: a breaking change is a `.v2` class, dual-published.
+- `contract-command-is-a-saga-step`: a contract command is not atomic with your unit.
+- `cap-list-limit`: cap a list route's `limit`.
+- `revoke-tokens-on-security-change`: a password, role or membership change revokes tokens.
+- `side-effect-on-commit`: an email or a cache write goes through `on_commit`.
+- `task-body-async-repeatable`: a task is an `async def` with `open_uow()` blocks,
+  never `asyncio.run`. It can run more than once for one enqueue (`at_least_once=True`,
+  a periodic slot sent twice): make a repeated run do no harm.
 
 ## Testing and gates (copy-paste examples: `reference/testing.md`)
 
