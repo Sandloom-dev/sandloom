@@ -87,9 +87,9 @@ a bearer token by default. To call one in development, run
 and `SINGLE_TENANT_ID=<uuid>` in `.env` first, as
 [your first access token](docs/modules/batteries/first-access-token.md#an-application-without-batteries)
 shows. For signup and login, use `--with identity` instead of `--no-batteries`
-when generating the app; add `tenancy` and `billing` when needed. After `uv sync`, run `uv run sandloom generate` to create snapshots,
-contract stubs and DTOs from the installed modules before testing or starting
-the app. See the
+when generating the app; add `tenancy` and `billing` when needed. After
+`uv sync`, run `uv run sandloom generate` to create snapshots, contract stubs
+and DTOs from the installed modules before testing or starting the app. See the
 [installation guide](docs/getting-started/installation.md) and
 [project structure](docs/getting-started/project-structure.md).
 

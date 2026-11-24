@@ -87,7 +87,5 @@
   "test_sdk_names": [
     "sandloom.sdk.tenant.bind_tenant"
   ],
-  "test_tier_misses": [
-    "sandloom.sdk.tenant.bind_tenant"
-  ]
+  "test_tier_misses": []
 }

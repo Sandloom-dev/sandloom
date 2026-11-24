@@ -35,6 +35,7 @@ from sandloom_identity.contracts import (
 )
 from sandloom_identity.events import BaseEvent
 from sandloom_identity.services import auth_service
+from sandloom_identity.services.operations import user_by_id
 
 EXPECTED_DESCRIPTOR = ModuleDescriptor(
     name="sandloom_identity",
@@ -94,13 +95,15 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
     # Critical: a failing contributor aborts minting (no privilege-less token).
     assert draft.claims_contributors == [(contribute_identity_claims, True, ())]
     # Outside prod the 2FA key falls back to the JWT secret: no guard task.
-    # Best-effort: the unknown-email timing equalizer's dummy argon2 hash is
-    # made before serving. Critical: the declared reads (GET /auth/me) are
-    # planned, so a declaration that does not match the schema fails the boot.
+    # Critical: the declared reads (GET /auth/me), found by discovery in
+    # ``services.operations``, are planned first, so a declaration that does not
+    # match the schema fails the boot. Best-effort: the unknown-email timing
+    # equalizer's dummy argon2 hash is made before serving.
     assert [(t.__name__, c) for t, c in draft.startup] == [
-        ("warm_dummy_password_hash", False),
         ("prepare_declared_operations", True),
+        ("warm_dummy_password_hash", False),
     ]
+    assert [ops for _module, ops in draft.operations] == [(user_by_id,)]
     assert draft.shutdown == [auth_service.drain_emails_on_shutdown]
     # A user's contact details (identity.contact.v1) and the operator
     # incident commands (sandloom security revoke-sessions / ...).
@@ -152,5 +155,10 @@ def test_missing_jwt_secret_refuses_registration(
     draft = ModuleRegistrationDraft()
     with pytest.raises(SystemExit, match="identity requires JWT_SECRET"):
         register(ModuleAPI(sandloom_app.state.core, draft=draft))
-    assert draft.startup == []
+    # discovery buffered the declared reads before ``setup`` refused; the draft
+    # is never applied, and nothing ``setup`` registers (the dummy-hash warm-up,
+    # the claims contributor) was reached
+    assert [t.__name__ for t, _critical in draft.startup] == [
+        "prepare_declared_operations"
+    ]
     assert draft.claims_contributors == []

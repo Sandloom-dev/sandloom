@@ -944,6 +944,7 @@ __all__ = [
     "find_untagged_sensitive",
     "iter_python",
     "per_file_rules",
+    "tier2_names_here",
 ]
 
 
@@ -1035,6 +1036,23 @@ def after_first_names(sdk_dir: Path) -> dict[str, dict[str, set[str]]]:
     }
 
 
+def tier2_names_here(
+    file_path: Path,
+    module: str,
+    after_first: dict[str, dict[str, set[str]]],
+    modules_path: Path,
+) -> set[str]:
+    """The names of ``module`` (a ``sandloom.sdk`` module) that tier 2 frees in
+    ``file_path``: those ``module`` lists for the file's name, when the file sits
+    at the top of a module's own directory (``<modules_path>/<module>/sagas.py``:
+    not ``<module>/api/sagas.py``, not ``<module>/tests/sagas.py``). Every other
+    file gets none. The one place this file rule lives: SANDLOOM-T009 and the DX
+    eval's tier metrics both ask it."""
+    if file_path.resolve().parent.parent != modules_path.resolve():
+        return set()
+    return after_first.get(module, {}).get(file_path.name, set())
+
+
 def find_beginner_tier_problems(
     file_path: Path,
     beginner: dict[str, set[str]],
@@ -1054,15 +1072,11 @@ def find_beginner_tier_problems(
             "find_beginner_tier_problems(after_first=...) needs modules_path: "
             "tier 2 is free only in a module's own top-level file"
         )
-    in_a_module_root = (
-        modules_path is not None
-        and file_path.resolve().parent.parent == modules_path.resolve()
-    )
 
     def later_here(module: str) -> set[str]:
-        if not in_a_module_root:
+        if after_first is None or modules_path is None:
             return set()
-        return (after_first or {}).get(module, {}).get(file_path.name, set())
+        return tier2_names_here(file_path, module, after_first, modules_path)
 
     lines = read_source(file_path).splitlines()
     found: list[str] = []

@@ -1,0 +1,3 @@
+### Changed
+
+- The DX eval's tier metrics (`benchmarks/dx/tiermetrics.py`) no longer count a tier 2 name (`__after_first__`) as a tier miss in the file of a module's own directory that the tier names for it (`sagas.py`, `projections.py`, `tasks.py`). The file rule lives in one function, `api10_rules.tier2_names_here`, which SANDLOOM-T009 and the metric both call. `dx-wave1-2026-11-24` is recomputed: its mean tier misses fall from 3.5 to 2.6. Of the 9 fewer misses over 10 runs, 6 are tier 2 names now counted in their own file; 3 are names that PR #364 added to tier 1 (`authz.Account`, `data.UpdatedAt`).

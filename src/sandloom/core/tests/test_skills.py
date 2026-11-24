@@ -70,18 +70,10 @@ def _tier2_names() -> set[str]:
     return names
 
 
-def problems(name: str, text: str) -> list[str]:
-    """What is wrong with the skill ``name`` whose text is ``text``."""
+def name_problems(name: str, text: str) -> list[str]:
+    """The recipes, commands, error codes and skills ``text`` (a shipped agent
+    file called ``name``) points at that the framework does not have."""
     found: list[str] = []
-    head = FRONTMATTER.match(text)
-    if head is None:
-        return [f"{name}: no `name` + `description` frontmatter"]
-    if head["name"] != name:
-        found.append(f"{name}: frontmatter name is {head['name']}")
-    if not head["desc"].startswith("Use when"):
-        found.append(f"{name}: the description is not a trigger (`Use when ...`)")
-    if len(text.splitlines()) > MAX_LINES:
-        found.append(f"{name}: over {MAX_LINES} lines")
     for recipe in sorted(_recipe_names(text)):
         if recipes._recipe(recipe) is None:
             found.append(f"{name}: recipe {recipe} does not exist")
@@ -102,6 +94,21 @@ def problems(name: str, text: str) -> list[str]:
     return found
 
 
+def problems(name: str, text: str) -> list[str]:
+    """What is wrong with the skill ``name`` whose text is ``text``."""
+    head = FRONTMATTER.match(text)
+    if head is None:
+        return [f"{name}: no `name` + `description` frontmatter"]
+    found: list[str] = []
+    if head["name"] != name:
+        found.append(f"{name}: frontmatter name is {head['name']}")
+    if not head["desc"].startswith("Use when"):
+        found.append(f"{name}: the description is not a trigger (`Use when ...`)")
+    if len(text.splitlines()) > MAX_LINES:
+        found.append(f"{name}: over {MAX_LINES} lines")
+    return found + name_problems(name, text)
+
+
 def test_app_skills_are_the_folders_of_the_templates() -> None:
     on_disk = {p.parent.name for p in TEMPLATES.glob("*/SKILL.md")}
     assert on_disk == set(APP_SKILLS)
@@ -111,6 +118,28 @@ def test_app_skills_are_the_folders_of_the_templates() -> None:
 @pytest.mark.parametrize("name", APP_SKILLS)
 def test_every_skill_is_a_short_router_of_names_that_exist(name: str) -> None:
     assert problems(name, _text(name)) == []
+
+
+#: The other agent files `sandloom new` ships: the module-author contract and
+#: the signature sheet appended to the app's AGENTS.md.
+OTHER_TEMPLATES = ("module-AGENTS.md", "api-cheatsheet.md")
+
+
+@pytest.mark.parametrize("name", OTHER_TEMPLATES)
+def test_the_other_shipped_agent_files_name_only_what_exists(name: str) -> None:
+    text = (TEMPLATES.parent / name).read_text(encoding="utf-8")
+    assert name_problems(name, text) == []
+
+
+def test_every_shipped_markdown_template_is_checked() -> None:
+    """A new Markdown template is either a skill or listed in ``OTHER_TEMPLATES``:
+    none ships unchecked."""
+    shipped = {
+        p.relative_to(TEMPLATES.parent).as_posix()
+        for p in TEMPLATES.parent.rglob("*.md")
+        if "skills" not in p.relative_to(TEMPLATES.parent).parts
+    }
+    assert shipped == set(OTHER_TEMPLATES)
 
 
 def test_the_new_module_router_routes_to_every_other_skill() -> None:
@@ -154,6 +183,24 @@ GOOD = (
 
 def test_a_good_text_has_no_problem() -> None:
     assert problems("sandloom-x", GOOD) == []
+
+
+@pytest.mark.parametrize(
+    ("broken", "expected"),
+    [
+        ("Run `sandloom add nothing`.\n", "`sandloom add nothing`"),
+        ("Run `sandloom frobnicate`.\n", "`sandloom frobnicate`"),
+        ("See SANDLOOM-T999.\n", "SANDLOOM-T999"),
+        ("Read recipe `no-such-recipe`.\n", "recipe no-such-recipe"),
+        ("Load `sandloom-no-such`.\n", "sandloom-no-such"),
+    ],
+)
+def test_a_template_without_frontmatter_is_checked_for_names(
+    broken: str, expected: str
+) -> None:
+    found = name_problems("module-AGENTS.md", broken)
+    assert any(expected in line for line in found), found
+    assert name_problems("module-AGENTS.md", "Run `sandloom test`.\n") == []
 
 
 @pytest.mark.parametrize(

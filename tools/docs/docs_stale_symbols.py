@@ -8,7 +8,8 @@ Scanned (tracked Markdown / text files only): ``docs/**`` except
 ``docs/adr/**``, ``docs/design/**`` and ``docs/archive/**`` (history keeps
 the old names); every ``AGENTS.md`` and ``CLAUDE.md``; ``.claude/**``; every
 ``README.md``; ``deploy/**``; ``benchmarks/dx/**`` except its recorded
-``results/`` and the frozen pre-1.0 competitor snapshot.
+``results/`` and the frozen pre-1.0 competitor snapshot; the agent files
+``sandloom new`` ships (``src/sandloom/core/cli/templates/**``, Markdown only).
 
 Waiver: a line that must keep a stale name (a migration note, a changelog
 line) carries ``<!-- stale-ok: <reason> -->``. The reason is required.
@@ -81,7 +82,11 @@ STALE: tuple[tuple[str, str, str], ...] = (
         "nothing: every authenticated route checks the session live (G-REVOKE-21)",
     ),
     # Appendix C, status renamed.
-    ("revocation_at_commit", _ident("revocation_at_commit"), "sandloom.sdk.web.at_commit()"),
+    (
+        "revocation_at_commit",
+        _ident("revocation_at_commit"),
+        "sandloom.sdk.web.at_commit()",
+    ),
     ("db_session", _ident("db_session"), "sandloom.sdk.data.open_uow()"),
     ("make_user_headers", _ident("make_user_headers"), "sandloom.sdk.testing.as_user"),
     ("deliver_event", _ident("deliver_event"), "sandloom.sdk.testing.deliver"),
@@ -118,7 +123,11 @@ STALE: tuple[tuple[str, str, str], ...] = (
         _DASHED.format(re.escape("sandloom-scaffold")),
         "sandloom add module <name>",
     ),
-    ("sandloom-migrate", _DASHED.format(re.escape("sandloom-migrate")), "sandloom migrate <command>"),
+    (
+        "sandloom-migrate",
+        _DASHED.format(re.escape("sandloom-migrate")),
+        "sandloom migrate <command>",
+    ),
     (
         "sandloom scaffold",
         r"(?<![\w-])sandloom scaffold\b",
@@ -149,6 +158,16 @@ EXEMPT_PREFIXES = (
     "changelog.d/",
 )
 EXEMPT_NAMES = {"CHANGELOG.md"}
+#: What the lint covers besides every AGENTS.md, CLAUDE.md and README.md. The
+#: templates are the agent files ``sandloom new`` ships to an application (the
+#: skills, the module-author contract): a stale name there is copied into every app.
+SCOPE_PREFIXES = (
+    "docs/",
+    ".claude/",
+    "deploy/",
+    "benchmarks/dx/",
+    "src/sandloom/core/cli/templates/",
+)
 
 
 @dataclass(frozen=True)
@@ -171,7 +190,7 @@ def in_scope(rel: str) -> bool:
         return False
     if p.name in {"AGENTS.md", "CLAUDE.md", "README.md"}:
         return True
-    return rel.startswith(("docs/", ".claude/", "deploy/", "benchmarks/dx/"))
+    return rel.startswith(SCOPE_PREFIXES)
 
 
 def tracked_files(root: Path) -> list[str]:
@@ -273,6 +292,9 @@ def self_test() -> int:
         "changelog.d/some-task.md": False,
         "benchmarks/dx/results/run1/report.md": False,
         "benchmarks/dx/tasks/t1_notes.md": True,
+        "src/sandloom/core/cli/templates/skills/sandloom-x/SKILL.md": True,
+        "src/sandloom/core/cli/templates/module-AGENTS.md": True,
+        "src/sandloom/core/cli/templates/deploy/gateway/nginx.conf": False,
     }
     for rel, expected_in in scope.items():
         if in_scope(rel) != expected_in:

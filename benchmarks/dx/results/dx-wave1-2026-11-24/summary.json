@@ -25,7 +25,7 @@
   "first_green_runs": 10,
   "t009_failures_total": 0,
   "advanced_markers_total": 29,
-  "mean_tier_misses": 3.5,
+  "mean_tier_misses": 2.6,
   "tasks_that_created_a_dotenv": 0,
   "total_cost_usd": 3.04,
   "per_task": {
@@ -173,10 +173,10 @@
       },
       "tier_misses": {
         "n": 1,
-        "mean": 4.0,
+        "mean": 2.0,
         "sd": null,
-        "min": 4.0,
-        "max": 4.0
+        "min": 2.0,
+        "max": 2.0
       }
     },
     "t2_welcome": {
@@ -548,10 +548,10 @@
       },
       "tier_misses": {
         "n": 1,
-        "mean": 8.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 8.0,
-        "max": 8.0
+        "min": 4.0,
+        "max": 4.0
       }
     },
     "t7_credits_event_v2": {
@@ -698,10 +698,10 @@
       },
       "tier_misses": {
         "n": 1,
-        "mean": 4.0,
+        "mean": 2.0,
         "sd": null,
-        "min": 4.0,
-        "max": 4.0
+        "min": 2.0,
+        "max": 2.0
       }
     },
     "t9_member_export": {
@@ -773,10 +773,10 @@
       },
       "tier_misses": {
         "n": 1,
-        "mean": 1.0,
+        "mean": 0.0,
         "sd": null,
-        "min": 1.0,
-        "max": 1.0
+        "min": 0.0,
+        "max": 0.0
       }
     }
   }
