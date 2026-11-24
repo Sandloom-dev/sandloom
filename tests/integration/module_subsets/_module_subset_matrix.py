@@ -89,6 +89,10 @@ REFUSAL_NAMES: dict[str, tuple[str, ...]] = {
 
 #: The environment every probe runs with: placeholders only, nothing listens.
 PROBE_ENV = {
+    # Not the default tier (``dev``): there a billing reconciler that never ran
+    # passes ``/health``, while the matrix pins the behaviour of every other
+    # environment (``billing_reconciler`` fails). One dev lane proves the pass.
+    "ENVIRONMENT": "test",
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
     # No ``INFRA``: the lean root selects no driver, and the matrix is about
     # what a subset's own capabilities ask for (B037 names the missing driver).

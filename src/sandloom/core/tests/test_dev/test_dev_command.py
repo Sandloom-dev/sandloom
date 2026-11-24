@@ -43,6 +43,7 @@ from sandloom.core.cli.dev.state import (
     save_registry,
     save_state,
 )
+from sandloom.core.cli.inspection.model import encode_index
 from sandloom.core.cli.project import generate_project
 from sandloom.core.composition import composition_root_name
 from sandloom.core.infra.errors import Unavailable
@@ -1649,6 +1650,123 @@ def test_dev_run_signals_the_app_to_set_a_stale_database_aside(
     assert commands.run(ctx, port=None, reload=False) == 0
     assert envs[0]["DB_RECREATE_ON_MODEL_CHANGE"] == "true"
     assert "DB_RECREATE_ON_MODEL_CHANGE" not in environ
+
+
+def _taskqueue_edge(
+    module: str, *, required: bool, features: list[str]
+) -> dict[str, Any]:
+    """A ``requires_capability`` record as ``sandloom generate`` writes it."""
+    return {
+        "capability": "taskqueue",
+        "features": features,
+        "id": f"edge:{module}",
+        "instance": "default",
+        "kind": "requires_capability",
+        "owner": f"module:{module}",
+        "required": required,
+        "source": f"module:{module}",
+        "target": "capability:taskqueue.default.v1",
+    }
+
+
+def _dev_run_output(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    index: str | None,
+) -> str:
+    """What ``dev run`` prints for a checkout whose inspection index is ``index``
+    (``None``: no index)."""
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    state = _state(ctx)
+    commands.checkout_row(ctx, state)
+    save_state(ctx.state_dir, state)
+    _reachable(monkeypatch, up=True)
+    monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
+    if index is not None:
+        (repo / ".sandloom").mkdir(exist_ok=True)
+        (repo / commands.INSPECTION_INDEX).write_text(index, encoding="utf-8")
+    assert commands.run(ctx, port=None, reload=False) == 0
+    return _text(ctx.out)
+
+
+def test_dev_run_names_the_worker_and_beat_when_a_composed_module_needs_them(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`dev run` starts only the web process: billing's reconciler is a
+    required periodic job, so the run says which two commands start it."""
+    edges = [
+        _taskqueue_edge("billing", required=True, features=["periodic", "redelivery"]),
+        _taskqueue_edge("identity", required=False, features=["periodic"]),
+    ]
+    out = _dev_run_output(repo, environ, monkeypatch, encode_index({"edges": edges}))
+    notes = [
+        line for line in out.splitlines() if "wait for a worker and a beat" in line
+    ]
+    assert notes == [commands.background_note(["billing"])]
+    assert "uv run sandloom worker" in notes[0] and "uv run sandloom beat" in notes[0]
+    assert "identity" not in notes[0]
+
+
+@pytest.mark.parametrize(
+    "edges",
+    [
+        # identity's token cleanup is an optional periodic need
+        [_taskqueue_edge("identity", required=False, features=["periodic"])],
+        # a required task queue with no periodic job: nothing for a beat to do
+        [_taskqueue_edge("notes", required=True, features=[])],
+        # another capability
+        [
+            {
+                **_taskqueue_edge("billing", required=True, features=["periodic"]),
+                "capability": "cache",
+            }
+        ],
+        [],
+    ],
+    ids=["optional", "no-periodic", "other-capability", "no-edges"],
+)
+def test_dev_run_says_nothing_about_a_worker_without_a_required_periodic_need(
+    edges: list[dict[str, Any]],
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _dev_run_output(repo, environ, monkeypatch, encode_index({"edges": edges}))
+    assert "sandloom worker" not in out and "sandloom beat" not in out
+
+
+@pytest.mark.parametrize(
+    "index",
+    [
+        None,
+        "not an inspection index\n",
+        '{"edges": 3}',
+        encode_index(
+            {
+                "edges": [
+                    {
+                        "kind": "requires_capability",
+                        "owner": "module:billing",
+                        "capability": "taskqueue",
+                        "required": True,
+                        "features": 3,
+                    }
+                ]
+            }
+        ),
+    ],
+)
+def test_dev_run_without_a_readable_composition_record_serves_without_the_line(
+    index: str | None,
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _dev_run_output(repo, environ, monkeypatch, index)
+    assert "sandloom dev run: http://127.0.0.1:" in out
+    assert "sandloom worker" not in out
 
 
 def test_dev_run_names_a_free_port_when_the_sticky_one_is_taken(

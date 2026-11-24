@@ -10,9 +10,11 @@ from httpx import AsyncClient
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom.sdk.infra import settings
 from sandloom_billing.models import BillingReconcilerRun, OperationIntent
 from sandloom_billing.services import intent_reconciler
 from sandloom_billing.services.reconciler_health import (
+    DEV_NEVER_RAN_NOTE,
     RECONCILER_HEALTH_CHECK,
     ReconcilerHealthCheck,
     last_reconciler_run,
@@ -29,7 +31,10 @@ _NOW = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
 
 
 def _check(
-    last: tuple[datetime, int] | None, *, failures: tuple[int, int] = (0, 0)
+    last: tuple[datetime, int] | None,
+    *,
+    failures: tuple[int, int] = (0, 0),
+    development: bool = False,
 ) -> ReconcilerHealthCheck:
     async def read() -> tuple[datetime, int] | None:
         return last
@@ -38,7 +43,10 @@ def _check(
         return failures
 
     return ReconcilerHealthCheck(
-        now=lambda: _NOW, read=read, compensations=compensations
+        now=lambda: _NOW,
+        read=read,
+        compensations=compensations,
+        development=lambda: development,
     )
 
 
@@ -63,6 +71,65 @@ async def test_restarting_the_web_process_never_grants_startup_grace() -> None:
         assert result.status == "fail"
         assert result.details["state"] == "never_ran"
         assert "worker and beat" in result.details["error"]
+
+
+async def test_in_development_a_reconciler_that_never_ran_does_not_fail_health() -> (
+    None
+):
+    """`sandloom dev run` starts no worker and no beat: the first look at a
+    fresh app is `never_ran`, reported with what to run, not as a failure."""
+    result = await _check(None, development=True)()
+
+    assert result.status == "ok"
+    assert result.details["state"] == "never_ran"
+    assert "error" not in result.details
+    assert result.details["note"] == DEV_NEVER_RAN_NOTE
+    assert "uv run sandloom worker" in DEV_NEVER_RAN_NOTE
+    assert "uv run sandloom beat" in DEV_NEVER_RAN_NOTE
+
+
+async def test_in_development_a_reconciler_that_went_silent_still_fails() -> None:
+    result = await _check(
+        (_NOW - timedelta(seconds=RECONCILE_MAX_SILENCE_SECONDS + 1), 3),
+        development=True,
+    )()
+
+    assert result.status == "fail"
+    assert result.details["state"] == "overdue"
+    assert "note" not in result.details
+
+
+@pytest.mark.parametrize("failures", [(1, 0), (0, 1)])
+async def test_in_development_open_compensation_fails_before_the_first_run_too(
+    failures: tuple[int, int],
+) -> None:
+    result = await _check(None, development=True, failures=failures)()
+
+    assert result.status == "fail"
+    assert result.details["state"] == "never_ran"
+    assert "compensation" in str(result.details["error"])
+    assert "note" not in result.details
+
+
+async def test_the_default_tier_is_the_settings_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No setting of its own: `never_ran` passes in `dev` only (test and prod
+    keep failing it)."""
+
+    async def read() -> tuple[datetime, int] | None:
+        return None
+
+    async def compensations() -> tuple[int, int]:
+        return (0, 0)
+
+    check = ReconcilerHealthCheck(read=read, compensations=compensations)
+    outcomes = {}
+    for environment in ("dev", "test", "prod"):
+        monkeypatch.setattr(settings, "environment", environment, raising=False)
+        outcomes[environment] = (await check()).status
+
+    assert outcomes == {"dev": "ok", "test": "fail", "prod": "fail"}
 
 
 async def test_fresh_progress_and_failed_compensations_are_reported_separately() -> (
