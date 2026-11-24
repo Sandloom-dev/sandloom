@@ -454,13 +454,14 @@ too.
 
 The `sandloom check` rules named here are static. They catch the mistakes of
 ordinary code, the ones a module author or an AI agent writes in good faith.
-They do not promise to stop a deliberate bypass. For most rules that is the job
-of the runtime cursor guard and of
-[Row-Level Security](#postgresql-row-level-security-optional).
+They do not promise to stop a deliberate bypass.
 
-SANDLOOM-C037 is the exception. An engine or a connection that a module opens
-itself never gets the cursor guard. Only Row-Level Security, where it is
-enabled, holds that case. The rule does not see a dynamic import of a name that
+For SANDLOOM-C037, SANDLOOM-C039 and the kernel-import rules (SANDLOOM-C002,
+SANDLOOM-C040, SANDLOOM-C042) the only boundary is
+[Row-Level Security](#postgresql-row-level-security-optional), on PostgreSQL and
+where it is enabled. An engine or a connection that a module opens itself never
+gets the cursor guard. A cursor listener runs around it. A kernel import has no
+runtime stop at all. The C037 rule does not see a dynamic import of a name that
 is not a constant. Nor does it see `getattr` with a variable name on
 `sqlalchemy`. It does not follow a name bound to `sqlalchemy` by unpacking. A
 container or a call result hides it as well. It does follow a plain assignment
@@ -480,7 +481,8 @@ a listener: the rule cannot be waived.
   `after_cursor_execute`, `do_execute`, `do_executemany`, `do_execute_no_params`
   and `do_setinputsizes`.
 - A listener on a pool or connect event is refused too, such as `connect` or
-  `checkout`. So are `handle_error` and `after_execute`. They hand out the raw
+  `checkout`. So is one on `engine_connect`. A listener on `handle_error` or
+  `after_execute` is refused as well. These events hand out the raw
   driver connection or its cursor. A listener on an ORM session
   (`event.listen(Session, "close", fn)`) stays allowed.
 - The rule reads the event name wherever the registration is written, under an

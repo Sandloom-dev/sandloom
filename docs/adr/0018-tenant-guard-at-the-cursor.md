@@ -530,8 +530,8 @@ setting is already the bound tenant.
   module alias before it assigns the same name is not reported for that read, and an alias that a
   function re-assigns to an unrelated value is still reported (so is a name re-bound later in the
   same function). These rules are a static layer that catches honest mistakes. The boundary differs
-  by rule: for C015 the runtime cursor guard and, where enabled, row-level security hold what the
-  scan misses. For C037 the cursor guard is no boundary, because an engine or a connection a module
+  by rule: for C015, `scoped()` and row-level security hold `text()`, and the cursor guard holds
+  Core table statements. For C037 the cursor guard is no boundary, because an engine or a connection a module
   opens itself never gets it; row-level security, where it is enabled (PostgreSQL only), is.
 
 ## Measured cost of the guard
