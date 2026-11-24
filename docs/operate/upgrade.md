@@ -281,6 +281,39 @@ message says so. The rule catches the mistakes of ordinary code. A deliberate by
 caught statically; row-level security, where enabled, is the boundary. Review a listener that
 has to exist like raw SQL, and register it outside module code (a driver, the startup, a test).
 
+## Upgrading an application: typed saga step arguments
+
+`sandloom generate` now writes one `TypedDict` per command into each contract stub. It holds
+the method's parameters without the idempotency key. Its name joins the contract version and
+the method: `PaymentsChargesV1ChargeArgs` is the `charge` command of `payments.charges.v1`.
+
+The stubs carry generator format 3. Every consumer file (stub, DTO copy, describe file) is
+rewritten once, and `sandloom generate --check` reports each as a generator change until you run it.
+
+1. Run `uv run sandloom generate` and commit the rewritten files. A stub without a command
+   changes in its header only.
+2. Optional: annotate each `args` / `compensate_args` function with the class of its
+   command, as the [saga guide](../modules/between/sagas.md#typed-arguments) shows. mypy then
+   checks the keys and their types. A function that returns `dict[str, object]` still passes.
+
+Nothing changes at runtime. The startup check, the idempotency key and the command log are
+the ones they were.
+
+The `args` parameter of `step` is now typed `Callable[[SagaContext[Any]], Mapping[str, Any]]`.
+A function whose parameter is not a `SagaContext` is now a type error, and any `Mapping`
+(not only a `dict`) is accepted as its result.
+
+Two command methods whose names differ only in capitals and separators (`a_b` and `aB`) give
+one class name. The generator writes no class for either. A one-line comment stands in its
+place in the stub, and `sandloom generate` prints a warning naming the pair. Everything else in
+the stub is generated as before. Saga `args` functions of the two return a plain `Mapping`.
+Nothing refuses, so a published contract keeps generating.
+
+To get the classes, rename one of the methods, only in a contract that no caller has used yet.
+A rename in a published contract removes the old method for its callers. Roll a new version
+instead: `uv run sandloom generate --new-major <name>` copies the contract to `.v2`, and you
+rename the method there. `.v1` stays as it is, with the comment, until you retire it.
+
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 
 Four answers of `TenantScope` have a stable `code`, and two of them new

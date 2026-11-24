@@ -2,7 +2,7 @@
 # contract: projects.read.v2  fingerprint: b74c966452eb9c3d89c4cc3470976c94
 # provider: projecthub.modules.projects
 # class: projecthub.modules.projects.contracts.ProjectsReadV2
-# generator: format 2  digest 4c44c2338ca9eeb9
+# generator: format 3  digest 4c44c2338ca9eeb9
 """Contract ``projects.read.v2``: the typed stub callers import.
 
 Generated from ``projecthub.modules.projects.contracts.ProjectsReadV2``.

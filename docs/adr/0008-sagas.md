@@ -512,6 +512,18 @@ ENROLL = Saga[EnrollInput](
   lambda reports as `<lambda>()`. A closure over request state is impure on a
   retry in either form. (Owner decision 2026-11-24: lambdas are allowed with
   this rule; the guide used to recommend against them.)
+- Arguments are **typed through the contract stub** (owner decision O1,
+  2026-11-24). `sandloom generate` writes one `TypedDict` per command method
+  into the stub, without the idempotency parameter, named from the contract
+  version and the method (`PaymentsChargesV1ChargeArgs`). An `args` function
+  annotated with it has its keys and value types checked by mypy. Nothing
+  changes at runtime: the `TypedDict` is a dict, the startup check still runs
+  `args` once and refuses a dict that holds the idempotency key, and the runtime
+  still injects the key. The `ArgsFn` of the L1 `step` is
+  `Callable[[SagaContext[Any]], Mapping[str, Any]]`, the L2 alias. The
+  alternative, a static `sandloom check` rule that reads the stub, was not
+  taken: the types come from the stub through the checker the author already runs.
+  The stubs carry generator format 3 for it (ADR-0013).
 - Keyword-only builders with defaults: `kind` defaults to `compensatable`
   before the pivot and `retriable` after it, so a typical step names only
   `call`, `args` and its compensation.

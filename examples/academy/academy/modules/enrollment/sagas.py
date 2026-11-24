@@ -13,16 +13,24 @@ ENROLL: reserve_seat -> charge -> grant_access (pivot) -> notify.
 
 Command steps name their command through the typed callers below (the
 generated stubs of ``academy.shared.contracts``), never a string. Argument
-functions are pure, named functions of ``c.input`` and the results; the
-runtime injects every command's ``operation_key``
-(``saga:enrollment.enroll:<id>:<step>:do|undo``). ``define_module``
+functions are pure, named functions of ``c.input`` and the results, each
+annotated with the command's argument ``TypedDict`` from the same stub (mypy
+checks the keys and their types); the runtime injects every command's
+``operation_key`` (``saga:enrollment.enroll:<id>:<step>:do|undo``). ``define_module``
 discovers ``ENROLL`` here and registers it.
 """
 
 from datetime import timedelta
 
-from academy.shared.contracts.notifications_mail_v1 import NOTIFICATIONS_MAIL_V1
-from academy.shared.contracts.payments_charges_v1 import PAYMENTS_CHARGES_V1
+from academy.shared.contracts.notifications_mail_v1 import (
+    NOTIFICATIONS_MAIL_V1,
+    NotificationsMailV1SendArgs,
+)
+from academy.shared.contracts.payments_charges_v1 import (
+    PAYMENTS_CHARGES_V1,
+    PaymentsChargesV1ChargeArgs,
+    PaymentsChargesV1RefundArgs,
+)
 from sandloom.sdk import Contract
 from sandloom.sdk.sagas import Saga, SagaContext, local_step, step
 
@@ -41,11 +49,11 @@ async def release_seat(c: SagaContext[EnrollInput]) -> str:
     return await Enrollments.cancel(c.input.enrollment_id)
 
 
-def charge_args(c: SagaContext[EnrollInput]) -> dict[str, object]:
+def charge_args(c: SagaContext[EnrollInput]) -> PaymentsChargesV1ChargeArgs:
     return {"customer_id": c.input.student_id, "amount": c.input.price}
 
 
-def refund_args(c: SagaContext[EnrollInput]) -> dict[str, object]:
+def refund_args(c: SagaContext[EnrollInput]) -> PaymentsChargesV1RefundArgs:
     return {"customer_id": c.input.student_id, "charge_key": c.key("charge")}
 
 
@@ -53,7 +61,7 @@ async def grant_access(c: SagaContext[EnrollInput]) -> str:
     return await Enrollments.activate(c.input.enrollment_id)
 
 
-def notify_args(c: SagaContext[EnrollInput]) -> dict[str, object]:
+def notify_args(c: SagaContext[EnrollInput]) -> NotificationsMailV1SendArgs:
     return {"recipient_id": c.input.student_id, "template": "enrolled"}
 
 

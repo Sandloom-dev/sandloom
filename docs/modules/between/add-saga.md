@@ -84,7 +84,9 @@ The stand-in provider (`contracts.py` of a module that had none):
    it is stored on the instance row.
 4. Keep every `args` / `compensate_args` function pure, named and at module
    level: it reads only `ctx.input` and `ctx.result(...)`. Arguments are
-   recomputed on every attempt; a drift parks the instance.
+   recomputed on every attempt; a drift parks the instance. Annotate its
+   return with the command's `...Args` class from the stub, so mypy checks the
+   keys ([typed arguments](sagas.md#typed-arguments)).
 5. Choose the kinds: compensatable steps first, at most one `pivot`, then
    retriable steps. Use `ctx.key("<step>")` to pass a step's operation key to
    its compensation.
