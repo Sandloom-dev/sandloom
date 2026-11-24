@@ -532,11 +532,29 @@ class Runner:
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode()
 
+    def single_tenant(self) -> str | None:
+        """The tenant a single-tenant app binds (``TENANCY_MODE=single`` and
+        ``SINGLE_TENANT_ID`` in its ``.env``, as ``--no-batteries`` writes):
+        a token for any other tenant answers 403 ``tenant_mismatch``."""
+        env = self.cwd / ".env"
+        if not env.is_file():
+            return None
+        values = dict(
+            line.split("=", 1)
+            for line in env.read_text(encoding="utf-8").splitlines()
+            if "=" in line and not line.lstrip().startswith("#")
+        )
+        if values.get("TENANCY_MODE", "").strip() != "single":
+            return None
+        return values.get("SINGLE_TENANT_ID", "").strip() or None
+
     def round_trip(self, module: str) -> None:
+        tenant = self.single_tenant()
+        tenant_expr = f"uuid.UUID({tenant!r})" if tenant else "uuid.uuid4()"
         auth = self.python(
             _TEST_AUTHORITY + "import uuid\n"
             "from sandloom.sdk.testing import as_user\n"
-            "print(as_user(tenant_id=uuid.uuid4())[1]['Authorization'])\n"
+            f"print(as_user(tenant_id={tenant_expr})[1]['Authorization'])\n"
         ).splitlines()[-1]
         headers = {"Authorization": auth, "Content-Type": "application/json"}
         path = f"/api/v1/{module}/items"
