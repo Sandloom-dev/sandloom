@@ -1,6 +1,6 @@
 ---
 name: sandloom-event-version-roll
-description: Roll one of this app's event channels from `<module>.<event>.v1` to `.v2` without breaking consumers in other services: add the v2 class, dual-publish with publish_event_versions, move the @on consumers, watch `sandloom streams consumers`, then retire v1. Use for any breaking payload change (a renamed, removed or retyped field, a new required field) or when asked to "bump the event version".
+description: Use when an event of this Sandloom app must change in a breaking way (a renamed, removed or retyped field, a new required field), or when asked to "bump the event version". It rolls the channel from `.v1` to `.v2` without breaking consumers in other services: add the v2 class, dual-publish, move the consumers, then retire v1.
 ---
 
 # Roll an event from v1 to v2
