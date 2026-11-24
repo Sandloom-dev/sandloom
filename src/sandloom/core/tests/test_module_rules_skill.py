@@ -20,6 +20,7 @@ from types import ModuleType
 import pytest
 
 import sandloom.core.cli.skills as _skills
+from sandloom.core.cli.project import generate_project
 from sandloom.core.tests.test_skills import problems
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -295,3 +296,46 @@ def test_a_waiver_is_what_lets_a_long_example_pass() -> None:
         text = re.sub(r"<!-- code-ok:.*?-->\n", "", path.read_text(encoding="utf-8"))
         rel = f"{REPO_TEMPLATES}skills/sandloom-module-rules/rules/{path.name}"
         assert {h.rule for h in code_check().check_text(rel, text)} == {"D4"}, path.name
+
+
+FRAMEWORK_SKILL = ROOT / ".claude" / "skills" / "sandloom-module-rules"
+
+
+def _framework_copy() -> dict[str, str]:
+    return {
+        p.relative_to(FRAMEWORK_SKILL).as_posix(): p.read_text(encoding="utf-8")
+        for p in sorted(FRAMEWORK_SKILL.rglob("*.md"))
+    }
+
+
+def _template_copy() -> dict[str, str]:
+    return {
+        p.relative_to(SKILL_DIR).as_posix(): p.read_text(encoding="utf-8").replace(
+            "<app>", "Sandloom"
+        )
+        for p in sorted(SKILL_DIR.rglob("*.md"))
+    }
+
+
+def test_the_framework_skill_is_the_template_skill() -> None:
+    """``.claude/rules/module-author.md`` sends a framework contributor to this
+    skill, so ``.claude/skills`` carries the same files (``<app>`` -> Sandloom).
+    Repair: copy the template folder over it, each ``<app>`` written as Sandloom."""
+    template = _template_copy()
+    assert len(template) == len(RULE_FILES) + 1
+    assert _framework_copy() == template
+    drifted = {**template, "rules/cap-list-limit.md": "stale\n"}
+    assert _framework_copy() != drifted  # the comparison bites on a drifted file
+    assert _framework_copy() != {k: v for k, v in template.items() if k != "SKILL.md"}
+
+
+def test_a_generated_project_carries_the_rule_files(tmp_path: Path) -> None:
+    generate_project("probe", tmp_path)
+    base = tmp_path / "probe" / ".claude" / "skills" / "sandloom-module-rules"
+    assert (base / "SKILL.md").is_file()
+    for path in RULE_FILES:
+        text = (base / "rules" / path.name).read_text(encoding="utf-8")
+        assert text == path.read_text(encoding="utf-8")
+    assert "Incorrect" in (base / "rules" / "cap-list-limit.md").read_text(
+        encoding="utf-8"
+    )

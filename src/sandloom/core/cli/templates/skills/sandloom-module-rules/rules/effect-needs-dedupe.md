@@ -6,7 +6,7 @@ tags: effects, idempotency, consumers
 
 An effect (a grant, a charge, a row) applied outside a durable consumer carries its own dedupe in the same unit: a UNIQUE `operation_key(...)` on its row, or `durable_inbox(...).claim(db(), id)`.
 
-A durable consumer is claimed once per envelope id. A route, a task, a saga step or a non-durable consumer is not, and a retry runs it again. Both helpers are in `sandloom.sdk.effects`; the inbox is named `"<module>@<channel>"`. Build the key from business ids (`operation_key` refuses a part with a colon or a space), never from a random value.
+A durable consumer is claimed once per envelope id. A route, a task or a non-durable consumer is not, and a retry runs it again. A saga command step is protected only for the command it sends (runtime key `saga:<type>:<id>:<step>:do`); an effect you apply yourself in the same code still needs its own dedupe. Both helpers are in `sandloom.sdk.effects`; the inbox is named `"<module>@<channel>"`. Build the key from business ids (`operation_key` refuses a part with a colon or a space), never from a random value.
 
 ## Incorrect
 

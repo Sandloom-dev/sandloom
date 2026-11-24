@@ -21,7 +21,7 @@ def send_digest(payload: DigestIn) -> None:
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
 ```python
-@task(at_least_once=True)
+@task()
 async def send_digest(payload: DigestIn) -> None:
     async with open_uow():  # one short unit
         await build_digest(payload)  # harmless when it runs twice
