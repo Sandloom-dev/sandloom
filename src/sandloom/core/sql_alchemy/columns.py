@@ -152,8 +152,10 @@ def _count_a_child_only_update(
     if len(mapper.tables) == 1 or not isinstance(target, Versioned):
         return
     state = sa_inspect(target)
+    if state is None or state.session is None:
+        return
     session = state.session
-    if session is None or state.attrs.version.history.has_changes():
+    if state.attrs.version.history.has_changes():
         return
     if session.is_modified(target, include_collections=False):
         set_attribute(target, "version", text("version + 1"))

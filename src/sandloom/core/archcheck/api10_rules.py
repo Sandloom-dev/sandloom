@@ -998,6 +998,7 @@ def _declarations(sdk_dir: Path) -> dict[str, dict[str, ast.expr | None]]:
             continue
         assigned: dict[str, ast.expr | None] = {}
         for node in ast.parse(py.read_text(encoding="utf-8")).body:
+            value: ast.expr | None
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
                 target, value = node.targets[0].id, node.value
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):

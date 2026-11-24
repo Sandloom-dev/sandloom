@@ -135,7 +135,7 @@ async def test_tombstone_prevents_old_rebuild_from_resurrecting_deleted_entity(
                 version_column="item_version",
                 incoming_version=2,
             )
-        async with _unit(sm) as session:
+        async with _unit(sm):
             assert not await monotonic_delete(
                 _ROWS,
                 key={"item_id": item},
@@ -186,7 +186,7 @@ async def test_upsert_requires_tenant_and_never_crosses_tenants(
 
     # A bound tenant cannot write another tenant's projection row.
     with bind_tenant(tenant_b):
-        async with _unit(sm) as s:
+        async with _unit(sm):
             with pytest.raises(TenantMismatchError):
                 await monotonic_upsert(
                     _ROWS,
@@ -223,7 +223,7 @@ async def test_update_is_scoped_to_bound_tenant(sm: async_sessionmaker) -> None:
     assert (await _row(sm, item_a)).group_name == "only-a"
     assert (await _row(sm, item_b)).group_name is None
     with bind_tenant(tenant_a):
-        async with _unit(sm) as s:
+        async with _unit(sm):
             with pytest.raises(TenantMismatchError):
                 await monotonic_update(
                     _ROWS,
