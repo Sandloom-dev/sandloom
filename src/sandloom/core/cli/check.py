@@ -58,6 +58,9 @@ the framework's own lives in ``backend/``) and runs every analyzer of
                            connection or pool access in a module: use its
                            session (anything of its own skips write
                            admission and the RLS session)
+    cursor-listener        no listener on a cursor-level event
+                           (before_cursor_execute, do_execute, ...) in a
+                           module: it runs around the cursor tenant check
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):

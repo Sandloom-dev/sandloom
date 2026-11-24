@@ -210,13 +210,76 @@ them. One that names its own keeps them.
 | A module or a test imports `sandloom.core.*` | `sandloom check` reports it (`framework-imports`, and SANDLOOM-C013 for a test). Move each import to its `sandloom.sdk` home: [the table of Public API 1.0](upgrade-1.0.md#imports-move-to-sandloomsdk) |
 
 Delete the entries first: with them in place the check cannot run and reports no import.
-Then run `uv run sandloom check` and fix the imports it reports. A file-scoped `allowlist`
-entry that names a `sandloom.core` import is a separate exception. Remove it once the
-import moves. C038 reads `public_api` only: the `allowlist`, `framework_packages` and
-`kernel_package` keys are not checked for a kernel entry.
+Then run `uv run sandloom check` and fix the imports it reports. An `allowlist` entry that
+names a `sandloom.core` import is refused too: move the import, then delete the entry. The
+other keys of the manifest that could admit the kernel are refused as well, as the next
+section says.
 
 The repository's `public_api_baseline.json` no longer records the six kernel modules: they
 are not public API.
+
+## Upgrading an application: no other way into the kernel
+
+`public_api` was one way for a module to reach `sandloom.core`. Three more were open, and
+each now stops `sandloom check`. Two are keys of `architecture_rules.yml` and one is
+`sys.modules`.
+
+Each manifest refusal comes before any module is scanned, with the exit code and the
+commands of C038. The message names the key and the entries.
+
+| Your manifest | After |
+| --- | --- |
+| `kernel_package` or `framework_packages` in an application | [SANDLOOM-C040](../reference/error-codes.md#sandloom-c040). Delete both keys. The import check skipped every package they named, so such a package could import `sandloom.core`. Only the framework's own tree may set them |
+| A package that is no business module | Put it in `exclude_modules`. The import check still reads it, so it imports `sandloom.sdk` only |
+| `test_api` lists `sandloom`, `sandloom.core` or a `sandloom.core.*` module other than the two test surfaces | [SANDLOOM-C041](../reference/error-codes.md#sandloom-c041). Delete the entry. The default keeps `sandloom.core.testing` and `sandloom.core.contract_testing`, and `sandloom.sdk.testing` is the rest |
+| `shared_api` lists any of those | [SANDLOOM-C041](../reference/error-codes.md#sandloom-c041). Delete the entry: the default is `sandloom.shared` |
+| An `allowlist` entry whose `imports` admit any kernel module: `["sandloom.core"]`, `["sandloom.core.database"]`, a glob such as `sandloom.cor?` or `sandloom.core*`, `*`, `sandloom.sdk._*` | [SANDLOOM-C042](../reference/error-codes.md#sandloom-c042). Move the import to `sandloom.sdk` and delete the entry. An application's `allowlist` excuses no kernel module |
+| An `allowlist` entry with no `file` glob, or no list of `imports` | Refused, without a code: both are required |
+| `allowlist: [{file: "acme/modules/orders/tests/*", imports: ["sandloom.core.database*"]}]` | Refused in an application, like every kernel entry. Only the framework's own tree may excuse one named kernel module under one business module's files |
+| A directory `sandloom/core` under `modules_path` that makes a manifest look like the framework's tree | Refused: the framework's tree is the real kernel directory, compared by resolved path |
+
+`framework-imports` ([SANDLOOM-C002](../reference/error-codes.md#sandloom-c002)) now reads
+`sys.modules` as an import. A read the check can name is reported like the import:
+`sys.modules["sandloom.core.x"]` is `import sandloom.core.x`, under the usual spellings of `sys`.
+A read it cannot follow is refused.
+
+| Your module | After |
+| --- | --- |
+| Reads `sys.modules["sandloom.core.x"]`, `getattr(sys, "modules")` or `from sys import modules` | Reported like the import. Import it from `sandloom.sdk` |
+| Looks a module up by a name in a variable: `sys.modules[name]` | Reported: the check cannot tell whether the name is the kernel. Write the name as a constant |
+| Lists or copies `sys.modules` (`.items()`, a loop, `dict(sys.modules)`) or hands it to another function | Reported: the check cannot follow it |
+| Reads `sys.modules[__name__]`, or a module of another package by its constant name | Nothing to do |
+| Imports `sandloom.sdk`, then reads `sandloom.core.x` as an attribute, or writes `from sandloom import *` | Reported like the import. Only `sandloom.sdk` and `sandloom.shared` are public |
+
+A read that has to stay is waived on its line with `# sandloom: allow framework-imports <reason>`.
+The rule catches the mistakes of ordinary code. It does not promise to stop a deliberate
+bypass. The check does not see `pkgutil.resolve_name`, `runpy`, `importlib.util.find_spec`,
+`eval` or `exec`, or a module's tests.
+
+`sandloom test` fails the architecture check of a root that has no manifest. Before, it
+skipped the check.
+
+## Upgrading an application: a module registers no listener at the cursor
+
+`sandloom check` has a new rule, `cursor-listener`
+([SANDLOOM-C039](../reference/error-codes.md#sandloom-c039)). It reports a listener that a
+module registers on a cursor-level event: `before_cursor_execute` and `do_execute` are two.
+It reports one on a pool or connect event too: `connect` and `checkout` are two. The rule
+scans every file of the module, migrations included. Such a listener runs around the
+cursor tenant check ([ADR-0018](../adr/0018-tenant-guard-at-the-cursor.md), decision 8).
+It can rewrite the statement the check read. It can also make SQLAlchemy skip the check.
+Nothing changes at runtime, and a module's tests are not scanned.
+
+| Your module | After |
+| --- | --- |
+| Registers a listener on `before_insert`, `load` or `do_orm_execute` | Nothing to do: the rule does not report other events |
+| Counts its queries with a `before_cursor_execute` listener | Register the listener in the module's test instead |
+| Passes the event name in a variable | Write the name as a string literal. The rule cannot read a variable and reports the call |
+
+The rule cannot be waived: a `# sandloom: allow` comment does not admit a listener, and the
+message says so. The rule catches the mistakes of ordinary code. A deliberate bypass is not
+caught statically; row-level security, where enabled, is the boundary. Review a listener that
+has to exist like raw SQL, and register it outside module code (a driver, the startup, a test).
 
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 

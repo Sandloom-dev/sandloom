@@ -37,7 +37,8 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
    rewrites source here: ``sandloom test`` writes nothing, so a violation
    fails and ``ruff check --fix`` is yours to run), ``ruff format
    --check``, ``mypy``,
-   ``sandloom check`` (architecture rules, SANDLOOM-Cnnn), the framework tree's
+   ``sandloom check`` (architecture rules, SANDLOOM-Cnnn; it FAILS when the root
+   holds no ``architecture_rules.yml``, it is never skipped), the framework tree's
    architecture tests (which reuse the rule run ``sandloom check`` recorded,
    :data:`ARCH_RECORD_ENV`), ``lint-imports`` (when the project has a
    ``.importlinter``), the contract snapshots (SANDLOOM-T004), the route
@@ -306,6 +307,20 @@ def _sandloom_check(argv: list[str]) -> int:
     return _check.main(argv, record=_ARCH_RECORD.path)
 
 
+def _manifest_missing(root: Path) -> int:
+    """The ``sandloom check`` step of a run whose root holds no manifest: it fails,
+    so deleting or misplacing ``architecture_rules.yml`` never turns the module
+    isolation gate off without a word."""
+    print(
+        f"sandloom test: {root / 'architecture_rules.yml'} not found, so the "
+        "architecture check (module isolation, SANDLOOM-Cnnn) cannot run. Run "
+        "`sandloom test` from the project root, or restore the manifest; "
+        "`--no-gates` runs the tests alone.",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def _contracts(argv: list[str]) -> int:
     from sandloom.core.cli.contracts import main  # noqa: PLC0415 - cold: configured command - builds settings; sandloom test loads .env.test first, the static steps stay settings-free
 
@@ -432,6 +447,8 @@ def _gate_steps(
     ]
     if (root / "architecture_rules.yml").is_file():
         steps.append(Step("sandloom check", call=_in_process(_sandloom_check, [])))
+    else:  # a gate that skips itself without its manifest is a gate to delete
+        steps.append(Step("sandloom check", call=lambda: _manifest_missing(root)))
     arch_tests = root / "tests" / "architecture"
     if arch_tests.is_dir():  # the framework tree's own architecture suite
         steps.append(

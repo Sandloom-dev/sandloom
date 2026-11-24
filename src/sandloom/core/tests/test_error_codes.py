@@ -11,7 +11,10 @@ import pytest
 from sandloom.core import error_codes
 from sandloom.core.archcheck import load_rules
 from sandloom.core.archcheck.manifest import (
+    CORE_IN_ALLOWLIST_CODE,
+    CORE_IN_API_LIST_CODE,
     CORE_IN_PUBLIC_API_CODE,
+    KERNEL_EXEMPT_PACKAGE_CODE,
     MANIFEST_REFUSAL_CODES,
     ManifestError,
 )
@@ -22,6 +25,9 @@ from sandloom.core.cli import explain
 #: A manifest text that makes ``load_rules`` raise each manifest refusal code.
 _MANIFEST_REFUSAL_TRIGGERS: dict[str, str] = {
     CORE_IN_PUBLIC_API_CODE: "public_api:\n  - sandloom.sdk\n  - sandloom.core.testing\n",
+    KERNEL_EXEMPT_PACKAGE_CODE: "kernel_package: m\n",
+    CORE_IN_API_LIST_CODE: "test_api:\n  - sandloom.core\n",
+    CORE_IN_ALLOWLIST_CODE: 'allowlist:\n  - {file: "*", imports: ["sandloom.core*"]}\n',
 }
 
 

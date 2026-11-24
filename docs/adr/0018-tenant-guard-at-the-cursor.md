@@ -11,7 +11,8 @@ title: "ADR-0018: The tenant guard at the cursor"
 - **Origin:** three red-team rounds of the tenant guard, the last with 29 open bypasses
 - **Implemented by:** the tm task `tenant-guard-read-paths` (PR #342, two fix rounds after review);
   decision 6 by `tenant-upsert-helper`; decision 7 by `tenant-orm-insert-gaps`; decision 8 by
-  `tenant-guard-cursor-listener`
+  `tenant-guard-cursor-listener`; the static refusal of the listener in module code (SANDLOOM-C039) by
+  `archcheck-cursor-listener`
 
 ## Context
 
@@ -334,7 +335,7 @@ base. A model with `sqlite_on_conflict="REPLACE"` drops it or uses a composite k
 maps `tenant_id` through a synonym, a hybrid or an expression maps the column itself. A tenant
 column type other than `Uuid` moves its conversion to a column that is not the tenant.
 
-### 8. A listener that acts at the cursor after the rule read the statement is a seam, named and not refused
+### 8. A listener that acts at the cursor after the rule read the statement is a seam, named, and refused in module code
 
 The cursor rule reads the compiled statement of the execution context, inside `dialect.do_execute`
 (and `do_executemany`, `do_execute_no_params`). Two kinds of listener run before that call.
@@ -357,17 +358,62 @@ The cursor rule reads the compiled statement of the execution context, inside `d
 three sites, and a Core read and a Core `executemany` insert that a dialect listener sends to the
 cursor.
 
-G-TENANT-25 lists them as not covered, beside `Connection.exec_driver_sql`. Both reach a tenant table
-as it does, with a statement the tenant rule has not read. A dialect listener also skips the other
-checks of the hook, which `exec_driver_sql` does not. They are not the same case for module code.
-`unsafe-tenant-sql` (SANDLOOM-C015) and `portable-sql` (SANDLOOM-C031) flag `exec_driver_sql` in a
-module. No static check flags `event.listen` on these events, and the listener runs in the process
-that runs the module code. A rule that refuses it in a module needs its own error code and is not
-part of this decision. A `before_execute` listener with `retval=True` is not part of the seam. It
-replaces the clause before it is compiled, so the rule reads the replacement, which no ORM guard
-approved, and refuses it. A test pins that too.
+G-TENANT-25 lists them as not covered at runtime, beside `Connection.exec_driver_sql`. Both reach a
+tenant table as it does, with a statement the tenant rule has not read. A dialect listener also
+skips the other checks of the hook, which `exec_driver_sql` does not. They are not the same case for
+module code. `unsafe-tenant-sql` (SANDLOOM-C015) and `portable-sql` (SANDLOOM-C031) flag
+`exec_driver_sql` in a module, and the listener runs in the process that runs the module code. A
+`before_execute` listener with `retval=True` is not part of the seam. It replaces the clause before
+it is compiled, so the rule reads the replacement, which no ORM guard approved, and refuses it. A
+test pins that too.
 
-No refusal is added. Two designs were measured or built:
+**Module code is refused the listener statically (SANDLOOM-C039, the `cursor-listener` rule of
+`sandloom check`, added by `archcheck-cursor-listener`).** The rule is a static check, so the runtime
+cost of the two designs below stays unpaid and the seam stays open to code that is not a module: a
+driver, the application's own startup, a test.
+
+**What the rule promises.** It catches the mistakes of ordinary code: what a module author, or an AI
+agent, writes in good faith. A deliberate bypass is not caught statically: a registrar reached
+through a container, a computed event name, `getattr` on `builtins` or `importlib`, `exec` and
+`eval`, the internals of `dispatch`. This decision adds no runtime refusal for a cursor listener, and
+the connection a module opens itself (SANDLOOM-C037) never gets the guard; row-level security, where
+it is enabled (PostgreSQL only), is the boundary, as the last paragraph of this decision says. The
+rule cannot be waived: a `# sandloom: allow` comment on the line does not admit a listener, and the
+message says so. The owner chose this scope on 2026-11-24 (option B, accident-only) over an
+allowlist of the forms a registration may take.
+
+TODO(owner, 2026-11-24): revisit — option B (accident-only) chosen over an allowlist of forms; review whether to tighten (tm: archcheck-revisit-allowed-forms)
+
+The rule is wider than the two kinds above, because the cursor-level events share one reach:
+
+- It refuses a registration for any cursor event: `before_cursor_execute`, `after_cursor_execute`,
+  `do_execute`, `do_executemany`, `do_execute_no_params` and `do_setinputsizes`, with or without
+  `retval`. A listener on `after_cursor_execute` and `do_setinputsizes` is handed the raw cursor
+  and cannot rewrite the statement, and it is refused too: it reads the bound tenant of every
+  statement, and the cursor is the object `exec_driver_sql` reaches.
+- It refuses a registration for a pool, connect or error event (`connect`, `checkout`, `do_connect`,
+  `handle_error`, `after_execute`, `engine_connect`, ...), whose listener is handed the raw DBAPI
+  connection, cursor or result, with the same reach as `.raw_connection()`. An ORM session as the
+  target (`event.listen(Session, "close", fn)`) stays allowed.
+- It reads the event name as a string wherever it stands, so an aliased `event` or `listen`,
+  `from sqlalchemy.event import listen as l`, the event module reached through another sqlalchemy
+  module (`from sqlalchemy.orm.events import event`), a name or a file imported from another file of
+  the same tree, one hop (`from .helper import ev`, `from . import event`, `from . import helper`
+  then `helper.ev.listen`, `import pkg.helper as h`), a name bound to the constant and a `getattr`
+  lookup are all seen. A name handed on through two files is not. A dict key and the module's own `self.do_execute` are not a registration. It
+  refuses a `listen` call whose event name it cannot read, and a use of the registrar
+  without a call. A dynamic import of `sqlalchemy.event`, a star import and the module passed around
+  are refused as well, because they hide the registrations. It refuses the listener lists
+  (`engine.dispatch.before_cursor_execute`) and an assignment to, or a read of, a dialect method
+  that holds the tenant check (`dialect.do_execute = ...`).
+- A listener on any other event stays allowed (`before_insert`, `load`, `after_flush`,
+  `do_orm_execute`, `before_execute`).
+- Migration files are scanned like every module file. A module's own tests are not.
+
+The list of what the rule does not see is in its explain text (`uv run sandloom explain
+SANDLOOM-C039`). The runtime seam is unchanged and G-TENANT-25 still names it.
+
+No runtime refusal is added. Two designs were measured or built:
 
 - **Refuse at startup.** A scan of `engine.dispatch.before_cursor_execute` takes 0.46 µs once, for two
   listeners, and no statement pays for it. It sees only the engine's list as it stands at the scan,
@@ -387,8 +433,8 @@ No refusal is added. Two designs were measured or built:
   the `before_cursor_execute` listeners and to `do_execute` (`Connection._exec_insertmany_context`),
   so the test would have to tell SQLAlchemy's rewrite from a listener's.
 
-None of them closes the seam, and the second puts a cost on every statement for a reach that
-`exec_driver_sql` already gives. Closing it would take a read of the final statement and the final
+None of them closes the seam at runtime, and the second puts a cost on every statement for a reach that
+`exec_driver_sql` already gives. Closing it for code that is not a module would take a read of the final statement and the final
 parameters at the cursor, and a refusal of a dialect listener that takes a statement over: a
 per-statement cost to measure on the cachegrind stand below and a decision of the owner. Row-level
 security is the boundary for it, as for the other seams, and for a dialect listener only when its
@@ -447,7 +493,9 @@ setting is already the bound tenant.
     or the `Engine` class), which runs after the cursor rule read the compiled statement and can
     replace the SQL text or the parameters the driver receives, and a dialect listener
     (`do_execute`, `do_executemany`, `do_execute_no_params`) that runs the cursor itself and
-    returns `True`, after which the rule does not run at all (decision 8);
+    returns `True`, after which the rule does not run at all (decision 8; module code is refused
+    the registration by `sandloom check`, SANDLOOM-C039, so the seam is open to a driver, the
+    application's startup and a test);
   - a `text()` passed straight to `session.execute`, which the ORM guard approves as the caller's:
     `scoped()`, the `unsafe-tenant-sql` check and row-level security hold it;
   - a column load of a stamped instance when no tenant is bound: the instance was read under a
@@ -480,8 +528,9 @@ setting is already the bound tenant.
   name that holds it (unpacking, a container, a call result).
 - C015 and C037 resolve a name by lexical scope, not by control flow. A class body that reads a
   module alias before it assigns the same name is not reported for that read, and an alias that a
-  function re-assigns to an unrelated value is still reported. The runtime cursor guard is the
-  boundary; these rules are a static layer.
+  function re-assigns to an unrelated value is still reported. These rules are a static layer
+  that catches honest mistakes; the runtime cursor guard and, where enabled, row-level security
+  are the boundary.
 
 ## Measured cost of the guard
 

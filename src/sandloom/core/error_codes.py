@@ -228,6 +228,38 @@ A business module may import only the public API (sandloom.sdk.*: web, data,
 events, contracts, authz, testing, ...), sandloom.shared.* and its own package.
 Importing a kernel module (sandloom.core.*) couples the module to code that
 changes without notice; every name a module needs is re-exported by sandloom.sdk.
+
+A read of `sys.modules` is an import that never says import, and the check
+judges it the same way. `sys.modules["sandloom.core.x"]` is reported like
+`import sandloom.core.x`, in the spellings ordinary code uses: `sys` under an
+alias, `from sys import modules`, `vars(sys)["modules"]`, `getattr(sys, "modules")`,
+`__import__("sys")`, a key folded from constants.
+
+A read the check cannot follow is refused:
+
+- a key that is not a constant, or may name the kernel (`sys.modules[name]`,
+  `f"sandloom.{x}"`);
+- the whole mapping: `.items()`, a loop, `dict(sys.modules)`, a copy;
+- `sys` or `sys.modules` handed to other code, or stored in a field;
+- the bare key `sys.modules["sandloom"]`, which hands out the package.
+
+The `sandloom` package object is judged like `sys`: after `import sandloom.sdk`
+or `__import__("sandloom.sdk")`, only the attributes `sdk` and `shared` are
+public. `sandloom.core.x` read as attributes is reported like
+`import sandloom.core.x`, and so is `from sandloom import *`, which hands out
+whatever the package has bound. A bare `import sandloom` (or a constant dynamic
+import of `sandloom`) is not followed here: SANDLOOM-C004 refuses it.
+
+`sys.modules[__name__]` and the keys of other packages pass. A deliberate read
+is waived on its line with `# sandloom: allow framework-imports <reason>`.
+
+The rule catches the mistakes of ordinary code, the ones a module author or an
+AI agent writes in good faith. A deliberate bypass is not caught statically, and
+nothing at runtime stops a module from importing the kernel. Not seen:
+`pkgutil.resolve_name("sandloom.core.x")`, `runpy`, `importlib.util.find_spec`,
+`getattr` on `builtins` or `importlib`, a module that `collections` or another
+standard module re-exports from `sys`, `eval` and `exec`, and a module's tests
+(the test-imports rule reads imports only).
 """,
     ),
     _entry(
@@ -859,8 +891,11 @@ database, the per-transaction tenant setting that row-level security reads.
 A connection a module opens itself gets none of them: its statements skip the
 cursor check and write admission, and the tenant setting is never set for it.
 
-sandloom check refuses, in any file of a business module, the capabilities
-that open such a connection, not one spelling of them:
+sandloom check refuses, in any file of a business module, the ways that open
+such a connection which ordinary code reaches for. It catches the mistakes a
+module author or an AI agent writes in good faith. A deliberate bypass is not
+caught statically, and the connection a module opens itself never gets the cursor
+guard; row-level security, where enabled, is the boundary. It reports:
 
 - a star import from sqlalchemy or one of its submodules;
 - `create_engine`, `create_async_engine`, `engine_from_config`,
@@ -876,7 +911,12 @@ that open such a connection, not one spelling of them:
   `aiosqlite`, including `importlib.import_module("psycopg")` with a constant
   name;
 - `.raw_connection()`, `.get_raw_connection()`, `.driver_connection`, and
-  `.pool` on an engine, a bind or a connection's engine.
+  `.pool` on an engine, a bind or a connection's engine;
+- the DBAPI connection and cursor under a SQLAlchemy connection:
+  `.connection.cursor()` and `.connection.execute()` (`conn.connection.cursor()`),
+  `session.connection().connection`, and a name bound to `<x>.connection` in the
+  same function (`raw = conn.connection`, then `raw.cursor()` or `raw.execute()`).
+  `self.connection.execute()` is the module's own object and is not reported.
 
 A method that only happens to be named `create_engine` on an object that is
 not sqlalchemy is not reported. A database a module needs is declared in INFRA
@@ -903,9 +943,174 @@ prefix, so each would let a module import the kernel). Every command that reads
 the manifest stops with this code: `sandloom check` before it scans any module
 (exit code 2), and `generate`, `test`, `add` and `add deploy`. The message names
 the entries to delete. A module's tests keep `sandloom.core.testing` and
-`sandloom.core.contract_testing` through `test_api`. The check reads
-`public_api` only: the `allowlist`, `framework_packages` and `kernel_package`
-keys are not covered.
+`sandloom.core.contract_testing` through `test_api`. The other keys that could
+admit the kernel are refused by SANDLOOM-C040 (`kernel_package`,
+`framework_packages`), SANDLOOM-C041 (`test_api`, `shared_api`) and
+SANDLOOM-C042 (`allowlist`).
+""",
+        docs="docs/operate/upgrade.md",
+    ),
+    _entry(
+        "SANDLOOM-C039",
+        "cursor-listener",
+        "check",
+        "a business module registers a listener at the cursor or on the pool "
+        "(before_cursor_execute, do_execute, connect, ...), or under an event name "
+        "the check cannot read",
+        "remove the listener: a module never rewrites or runs a statement at the "
+        "cursor, and a database is set up by its driver; a listener on another "
+        "event (`load`, `before_insert`, ...) stays allowed, written with a "
+        "string literal event name",
+        """
+The tenant check at the cursor runs inside the dialect's do_execute,
+do_executemany and do_execute_no_params, after every before_cursor_execute
+listener. A listener at the cursor gets around it in module code: a
+before_cursor_execute listener registered with retval=True hands the driver
+another SQL text or other parameters than the ones the check read, and a dialect
+listener (do_execute, do_executemany, do_execute_no_params) that runs the cursor
+itself and returns True makes SQLAlchemy skip the dialect method, so the tenant
+check, write admission, the owner check and the tenant_rls setting sync never
+run for that statement. after_cursor_execute and do_setinputsizes hand the
+listener the raw DBAPI cursor, and a pool or connect listener (connect,
+checkout, do_connect, ...) the raw DBAPI connection or its parameters; either
+runs a statement the check never reads. Row-level security still filters, by the
+setting an earlier statement of the transaction made. The reach is that of
+Connection.exec_driver_sql and .raw_connection(), which SANDLOOM-C015,
+SANDLOOM-C031 and SANDLOOM-C037 refuse in a module; ADR-0018 decision 8 has the
+seam this rule closes for module code.
+
+This rule catches the mistakes of ordinary code, the ones a module author or an
+AI agent writes in good faith. A deliberate bypass is not caught statically;
+row-level security, where enabled, is the boundary (ADR-0018 decision 8). No
+`# sandloom: allow` comment admits a hit:
+the rule cannot be waived, and the message says so when the comment is there.
+
+sandloom check refuses, in any file of a business module (migrations included;
+tests are not scanned):
+
+- a string that is, whole, the name of a cursor-level event
+  (before_cursor_execute, after_cursor_execute, do_execute, do_executemany,
+  do_execute_no_params, do_setinputsizes): `event.listen(engine,
+  "before_cursor_execute", fn)` and `@event.listens_for(...)` on an engine, a
+  connection, the Engine class or a dialect, with retval or not, under an
+  aliased import of event or of listen (`from sqlalchemy.event import listen
+  as l`), through the event module reached by another sqlalchemy module
+  (`from sqlalchemy.orm.events import event`), through a name or a file
+  imported from another file of the importing file's own tree, one hop (the
+  other file's own imports and plain re-bindings): `from .helper import ev`,
+  `from . import event` (bound in the package's `__init__.py`), `from . import
+  helper` then `helper.ev.listen(...)`, `import pkg.helper as h` then
+  `h.ev.listen(...)`; through `getattr(event, "listen")`, or a name bound to the
+  constant. A dict key and the module's own `self.do_execute` are not a
+  registration;
+- `listen` / `listens_for` called with a pool, connect or error event (connect,
+  first_connect, checkout, checkin, close, close_detached, detach, reset,
+  invalidate, soft_invalidate, do_connect, handle_error, after_execute,
+  engine_connect), unless the target is an ORM session (`event.listen(Session,
+  "close", fn)` stays allowed): those events hand out the raw DBAPI connection,
+  cursor or result;
+- `listen` / `listens_for` used other than as a direct call, or called with an
+  event name that is not a string literal (a variable, a call, a star
+  argument): an unreadable name could be any event, so it is refused;
+- the sqlalchemy event module passed to a function or stored in a field, a star
+  import from `sqlalchemy.event`, and a constant `import_module` of it;
+- `<x>.dispatch.before_cursor_execute`, and an attribute that replaces or calls
+  a dialect's do_execute family (`dialect.do_execute = fn`).
+
+A listener on another event (the ORM and mapper events, `before_insert`,
+`load`, `after_flush`) written with a literal event name stays allowed. Not
+seen, because they are deliberate and not a mistake: the event module reached
+through a container, a getattr on builtins or importlib, a name made by
+`str.join` or `getattr` on a computed string, a computed setattr on the
+dialect, `exec` / `eval`, the closure of a function, the internals of
+`dispatch`, and a listener attached outside module code (a driver, a test).
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
+    _entry(
+        "SANDLOOM-C040",
+        "kernel-exempt-package",
+        "check",
+        "architecture_rules.yml sets kernel_package or framework_packages outside "
+        "the framework's own tree",
+        "delete kernel_package and framework_packages from the manifest of an "
+        "application; see docs/operate/upgrade.md",
+        """
+`kernel_package` and `framework_packages` name packages under `modules_path`
+that are not business modules. The import check skips each one completely, and
+only the layer rules read the kernel package. In an application that is an
+exemption for any package of its own: with `kernel_package: orders`, the
+package `orders` imports `sandloom.core` freely.
+
+Only the framework's own tree may set them: top-level modules (`modules_package`
+empty), `kernel_package: sandloom` and the kernel itself (`sandloom/core`) under
+`modules_path`. The check compares the resolved paths with the kernel's real
+location (the directory of the `sandloom` package this process runs), so a
+directory `<modules_path>/sandloom/core` that an application makes by hand does
+not pass for it. A manifest that spells the first two without the kernel is an
+application dressed as the framework. The same refusal reaches the framework's
+own checkout when another checkout's environment runs the check (the kernel that
+process runs is not the `sandloom` under that tree's `modules_path`): the message
+says so, and the fix is to run the check with that checkout's own environment
+(`uv run sandloom check` from its root). Every other manifest that names either key
+is refused before any module is scanned, with the exit code and commands of
+SANDLOOM-C038. The message names the key.
+
+Not covered: `exclude_modules` drops a package from the per-module rules (not
+from this import check) and is not validated.
+""",
+        docs="docs/operate/upgrade.md",
+    ),
+    _entry(
+        "SANDLOOM-C041",
+        "core-in-api-list",
+        "check",
+        "architecture_rules.yml test_api or shared_api lists an entry that "
+        "covers the kernel (sandloom, sandloom.core, sandloom.core.*)",
+        "delete the entry from test_api / shared_api (tests import sandloom.sdk."
+        "testing, and the default test_api keeps sandloom.core.testing and "
+        "sandloom.core.contract_testing); see docs/operate/upgrade.md",
+        """
+`test_api` names the framework modules a module's tests may import on top of the
+public API, and `shared_api` names the framework prefixes they may import beyond
+it. The import checks match an entry by prefix. An entry `sandloom`,
+`sandloom.core` or `sandloom.core.<module>` would let a module's tests import
+the kernel, so `load_rules` refuses it.
+
+The test harness stays valid: entries under `sandloom.core.testing` and
+`sandloom.core.contract_testing`, the surfaces the default `test_api` lists.
+The refusal comes before any module is scanned, with the exit code and
+commands of SANDLOOM-C038. The message names the key and the entries to delete.
+""",
+        docs="docs/operate/upgrade.md",
+    ),
+    _entry(
+        "SANDLOOM-C042",
+        "core-in-allowlist",
+        "check",
+        "architecture_rules.yml allowlist of an application excuses the kernel "
+        "(any sandloom.core module, or a private sandloom.sdk layer)",
+        "delete the entry and import sandloom.sdk instead; an application's "
+        "allowlist excuses no kernel module; see docs/operate/upgrade.md",
+        """
+An `allowlist` entry, `{file: <glob>, imports: [<glob>, ...]}`, keeps an import
+the check would report in the files `file` matches. In an application, an entry
+whose `imports` admit any `sandloom.core` module, or the private layers
+`sandloom.sdk._*`, is refused: `["sandloom.core"]`, `["sandloom.core.database"]`,
+a glob such as `sandloom.cor?` or `sandloom.core*`, `*`, `sandloom*`. No kernel
+module is excused for an application, whatever the glob: a module imports
+`sandloom.sdk`.
+
+The framework's own tree (see SANDLOOM-C040) may excuse one named kernel module
+under the files of one business module: `file` starts with
+`<modules_path>/<module>/` with no glob in the module name, and no pattern
+matches a whole family (`*`, `sandloom*`, `sandloom.core*`, `sandloom.core.*`,
+`sandloom.sdk._*`). The check decides what is the framework's tree by the
+resolved path of the kernel, not by the manifest's spelling.
+
+An entry without a `file` glob and a list of `imports` is refused too, without a
+code. The refusal comes before any module is scanned, with the exit code and
+commands of SANDLOOM-C038. Entries for imports of other packages are unchanged.
 """,
         docs="docs/operate/upgrade.md",
     ),
