@@ -35,6 +35,7 @@ from sandloom.core.auth.dev_token import (
     DevTokenRefused,
     mint_dev_token,
 )
+from sandloom.core.cli.dev import errors as _errors
 from sandloom.core.cli.dev import token as _token
 from sandloom.core.cli.url_text import drop_urls
 from sandloom.core.composition import CompositionRootError, load_composition_core
@@ -98,7 +99,9 @@ def main(argv: Sequence[str]) -> int:
             "to see which setting is wrong"
         )
     problem = _token.local_refusal(
-        loaded.environment.value, loaded.database_url, os.environ.get("PGHOST")
+        loaded.environment.value,
+        loaded.database_url,
+        _errors.environment().get("PGHOST"),
     )
     if problem is not None:
         return _refuse(problem)

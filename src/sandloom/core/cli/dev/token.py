@@ -103,13 +103,12 @@ def database_hosts(url: str, pghost: str | None = None) -> list[str]:
     parameters. A PostgreSQL url that names none connects where ``PGHOST``
     says, so those hosts are ``pghost``'s. Empty for a file database or a
     default unix socket. ``ValueError`` for a url that does not parse."""
-    from sqlalchemy.engine import make_url  # noqa: PLC0415 - cold: the CLI loads this module for every `sandloom dev` command; only a token run reads a database url
-    from sqlalchemy.exc import ArgumentError  # noqa: PLC0415 - cold: same
+    import sqlalchemy as sa  # noqa: PLC0415 - cold: the CLI loads this module for every `sandloom dev` command; only a token run reads a database url
 
     try:
-        parsed = make_url(url)
+        parsed = sa.engine.make_url(url)
     except (
-        ArgumentError,
+        sa.exc.ArgumentError,
         ValueError,
     ) as exc:  # a multi-host list with ports, no scheme
         raise ValueError("does not parse") from exc
