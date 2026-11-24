@@ -470,13 +470,11 @@ Slug: `module-local-imports` · kind: check · status: active
 **What happened and why it matters**
 
 Function-local imports in modules hide dependencies and get copied by agents.
-Their causes are gone in 1.0: import-time settings are lazy (spec §2.4) and
+Their causes are gone in 1.0: import-time settings are lazy and
 discovery replaces lazy setup imports. What remains is a marked optional
 dependency (for example qrcode).
 
 **Fix:** import at module level; a genuinely optional dependency keeps its local import with `# sandloom: optional-import <reason>`; typing-only imports go under `if TYPE_CHECKING:`
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-C022
 
@@ -498,8 +496,6 @@ that says so (409 or 422), and the warning goes away.
 
 **Fix:** tag the owning effect with its risk (money / admin / security) at the source, or declare sensitive(risk) on the route
 
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
-
 ### SANDLOOM-C023
 
 **lists every allow_multi_db_write opt-out for review**
@@ -509,12 +505,10 @@ Slug: `multi-store-waivers` · kind: check · status: active
 **What happened and why it matters**
 
 allow_multi_db_write(secondaries=, reason=) is the reviewed best-effort 1PC
-opt-out of the one-writer rule (spec §4.4 rule 4). The check lists every
+opt-out of the one-writer rule. The check lists every
 waiver with its reason so a review sees all of them in one place.
 
 **Fix:** keep each waiver's reason current; remove a waiver whose route no longer writes to a second store
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-C024
 
@@ -529,8 +523,6 @@ every tenant's data. The check flags raw queries outside an explicit
 unscoped() block (the relational counterpart is SANDLOOM-C015).
 
 **Fix:** use the store's tenant-scoped operations, or run deliberate cross-tenant work inside `with unscoped():`
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-C025
 
@@ -548,8 +540,6 @@ producer owns a channel.
 
 **Fix:** make the view's fields a compatible subset of the producer schema; only the producing module publishes a channel
 
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
-
 ### SANDLOOM-C026
 
 **a contract signature uses an ambiguous union (information)**
@@ -563,8 +553,6 @@ hint only points at the faster fully typed codec (owner decision Q3).
 
 **Fix:** optional: use a discriminated type so the fully typed codec 2 applies; the union keeps working through codec 1
 
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
-
 ### SANDLOOM-C027
 
 **a route with an organization parameter gates an account atom with of=Account.user()**
@@ -575,14 +563,12 @@ Slug: `account-route-mismatch` · kind: check · status: active
 
 A route under /orgs/{org_id} that checks the caller's personal account (a
 subscription, credits, a quota) almost always meant the organization's account.
-The check refuses the combination unless the atom states why (spec §7.3). An
+The check refuses the combination unless the atom states why. An
 atom is an account atom when its generated __sandloom_atom__ literal binds an
 account (sandloom check reads the literal of the file the name is imported
 from, not the name).
 
 **Fix:** use of=Account.org(param=...) for an organization route, or state Account.user(reason="...") when the personal account is intended
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-C028
 
@@ -664,32 +650,16 @@ Slug: `portable-sql` · kind: check · status: active
 
 **What happened and why it matters**
 
-The driver in configuration decides which database runs a module, and a module
-never tests which one it is. SQLAlchemy writes func.&lt;name> verbatim, so a name
-only PostgreSQL knows (array_agg, greatest, jsonb_*) fails on SQLite when the
-statement first runs, and a name both know may answer differently: func.now()
-is the transaction's start on PostgreSQL and whole seconds on SQLite, outside
-the stored time format; lower and upper fold only ASCII on SQLite; avg is a
-Decimal on PostgreSQL and a float on SQLite. A module calls only the portable
-SQL functions (abs, char_length, coalesce, count, length, max, min, nullif,
-sum; each run by a test on every shipped database, value and type) and the
-forms of sandloom.sdk.data. Raw SQL (text(), literal_column(), DDL(),
-exec_driver_sql(), .op(), .bool_op(), and a string given to .prefix_with(),
-.suffix_with() or .with_hint()) reaches the database unread: a reviewed line
-carries `# sandloom: raw-sql <reason>` on the call, or alone on the line above
-it. A text that is only a number, a quoted string, NULL, TRUE or FALSE
-(server_default=text("0")) is every database's, and a PostgreSQL cast (::) is
-a finding the marker does not admit. Reading the database's name
-(x.dialect.name, dialect_name(x), url.get_backend_name()) is a finding too,
-and so is a database URL literal naming a backend ("postgresql://",
-"postgresql+asyncpg://", "sqlite+aiosqlite://", create_mock_engine of one):
-take the database from the configuration or the test's engine instead. Both
-are admitted only by the raw-sql marker. The check reads the module and its tests:
-a test or class decorated with skip_unless_db_feature(...), or a test file
-whose pytestmark carries it, runs only where its feature is, and its SQL is
-not reported. Migrations are exempt; the SQL strings of CheckConstraint and
-Computed are not read. Tenant admission is a separate question: raw SQL inside
-a function also needs unscoped() (SANDLOOM-C015).
+The database a module runs on is chosen by configuration, so a module cannot
+rely on what only one database does. Use the forms of sandloom.sdk.data
+instead of a function such as func.now() or array_agg, mark reviewed raw SQL
+`# sandloom: raw-sql <reason>`, never read the database's name or write a
+backend URL, and gate a test that needs one database with
+skip_unless_db_feature(...).
+The portable functions are abs, char_length, coalesce, count, length, max, min,
+nullif and sum. Raw SQL inside a function also needs unscoped() (SANDLOOM-C015).
+The portable forms, the marker rules and what the check exempts (migrations,
+CheckConstraint and Computed strings) are in the docs link below.
 
 **Fix:** use a portable form from sandloom.sdk.data (WallClock() for func.now(), aggregate_list(), json_path()), or declare a database feature form; mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test with skip_unless_db_feature(...) (a race test: skip_unless_db_feature("concurrent_writers")) or ask has_optimized_reads()
 
@@ -726,25 +696,15 @@ Slug: `undeclared-capability` · kind: check · status: active
 
 **What happened and why it matters**
 
-A module states the infrastructure it needs in define_module(capabilities=[...])
-and the deployment chooses the driver; startup checks that they match. Some
-needs are visible in the module's code, and the kernel derives them at load
-whether they are declared or not: a tasks.py (or tasks/ package), which the
-framework worker imports and runs, needs the taskqueue capability; a
-@periodic task in it needs the taskqueue feature "periodic", a driver that
-runs the module's periodic jobs at their cron slots in at least one process
-while the deployment runs, and a task declared at_least_once=True needs the
-feature "redelivery", a driver that redelivers it when its worker dies (a
-driver never has either for supporting send alone; only celery advertises
-them today). This check asks for the declaration, so a
-reader, an agent and the module snapshot see the need where every other need
-is stated. A declaration decides required or optional: the derived need only
-adds its feature to it, and a capability nobody declared is derived as
-required. The check reads tasks.py and the capabilities= of define_module (or
-ModuleDescriptor); an entry it cannot read statically decides nothing (that is
-a SANDLOOM-C030 finding). It does not claim to find every capability a module
-uses: a module that reaches one another way declares it itself, and the
-startup check stays the last line of defence.
+The module's code needs an infrastructure capability that define_module(
+capabilities=[...]) does not declare. Declare it, for example
+capabilities=["taskqueue"] for a tasks.py, plus the feature "periodic" for a
+@periodic task and "redelivery" for an at_least_once one.
+Startup matches the declared capabilities with the deployment's drivers, and
+the check asks for the declaration so a reader, an agent and the module
+snapshot see the need. It reads tasks.py and the capabilities= of
+define_module; a module that reaches a capability another way declares it
+itself. Which features a driver offers is in the docs link below.
 
 **Fix:** declare it in define_module: capabilities=["taskqueue"] for a tasks.py, CapabilityRequirement("taskqueue", features=frozenset({"periodic"})) for a @periodic task and the feature "redelivery" for an at_least_once one (required=False when the module works without its schedule), with CapabilityRequirement from sandloom.sdk.module
 
@@ -1026,8 +986,6 @@ public() without a reason, is ambiguous and refused at startup.
 
 **Fix:** authenticate the route (module_router() does it, or CurrentUser / CurrentService), or declare public(reason="..."); never both
 
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
-
 ### SANDLOOM-B009
 
 **a route injects several writable sessions without writes() or an opt-out**
@@ -1039,11 +997,9 @@ Slug: `write-store-ambiguous` · kind: boot · status: active
 The write store is inferred statically: DbSession / db() means the module's
 primary database, one Database("x") means x. With several writable sessions
 the route must name its write store, which also holds its idempotency,
-audit and outbox records (spec §6.1).
+audit and outbox records.
 
 **Fix:** declare writes("&lt;database>") on the route, or allow_multi_db_write(secondaries=..., reason=...)
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-B010
 
@@ -1080,13 +1036,11 @@ Slug: `projection-contract` · kind: boot · status: active
 
 **What happened and why it matters**
 
-Projections converge only under the model of spec §6.4: per-aggregate
+Projections converge only under one model: per-aggregate
 versions, one owning source group per column, full-state events, and delta
 events only where the durable inbox makes them exactly once.
 
 **Fix:** give the target the conditional_write feature, start the key with tenant_id, let one source group own each column, and use delta mappers only for an in-database projection under the durable inbox
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-B013
 
@@ -1096,12 +1050,10 @@ Slug: `multi-store-waiver` · kind: boot · status: active
 
 **What happened and why it matters**
 
-allow_multi_db_write is the reviewed best-effort 1PC opt-out (spec §4.4
-rule 4): secondaries commit first and the write store last.
+allow_multi_db_write is the reviewed best-effort 1PC opt-out:
+secondaries commit first and the write store last.
 
 **Fix:** list only secondary databases the route actually writes, never the write store itself, and give a reason
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-B014
 
@@ -1116,8 +1068,6 @@ there could commit without its dedupe record or be lost.
 
 **Fix:** move the money effect into the route's write store
 
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
-
 ### SANDLOOM-B015
 
 **an invalid Event class**
@@ -1128,7 +1078,7 @@ Slug: `event-definition` · kind: boot · status: active
 
 Event classes are checked when they are defined and registered at startup:
 the channel must be versioned, a channel has one producer and the producer
-lives in the module that owns the channel (spec §5.2).
+lives in the module that owns the channel.
 An event payload is plain data from a closed set of wire shapes, checked at
 every depth when the class is defined: str, int, finite float, bool, None,
 UUID, datetime, date, time, timedelta, Decimal, an Enum, a Literal, Any (an
@@ -1167,8 +1117,6 @@ that sets it, on a field or a nested model, is refused.
 
 **Fix:** use a versioned channel (&lt;module>.&lt;event>.vN), fields from the closed set of wire shapes (the error names the field path and the allowed alternative), one producer class per channel, defined in the producing module; rename a field called channel, meta, publish or wire_schema, or keep the wire key with an alias: via: str = Field(alias="channel")
 
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
-
 ### SANDLOOM-B016
 
 **an invalid @on consumer**
@@ -1179,11 +1127,9 @@ Slug: `consumer-definition` · kind: boot · status: active
 
 @on(E) registers through register_event_consumer with all its options; a
 handler whose parameter is not E, a duplicate consumer name or a tenant field
-that does not exist on E is refused (spec §5.4).
+that does not exist on E is refused.
 
 **Fix:** take exactly the event as the only parameter, use a unique name per module, and bind the tenant from a UUID tenant field
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-B017
 
@@ -1196,15 +1142,13 @@ Slug: `authz-subject-missing` · kind: boot · status: active
 An access check whose declaration binds an account (its generated class takes a
 required of=, and the atom's __sandloom_atom__ literal binds account_type /
 account_id or names a claim fact) cannot guess the account: a default could
-check another account than the one the route means (owner decision 1, spec
-§7.2). Billing's generated Subscribed, SubscriptionActive, Credits, Feature and
-WithinLimit are such checks today. The generated signature makes of= keyword-only
-and required: leaving it out is Python's TypeError naming of= (a type checker
-flags it first); a value that is not an Account raises this code.
+check another account than the one the route means. Billing's generated
+Subscribed, SubscriptionActive, Credits, Feature and WithinLimit are such
+checks today. The generated signature makes of= keyword-only and required:
+leaving it out is Python's TypeError naming of= (a type checker flags it
+first); a value that is not an Account raises this code.
 
 **Fix:** state the account: of=Account.user(), of=Account.org(param=...) (a route under /orgs/{...}) or of=Account.bound_tenant()
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-B018
 
@@ -1215,11 +1159,9 @@ Slug: `contract-definition` · kind: boot · status: active
 **What happened and why it matters**
 
 Contract providers are stateless classes registered with register_service;
-the same class serves local and remote calls (spec §5.3).
+the same class serves local and remote calls.
 
 **Fix:** keep the provider stateless (no __init__, no instance attributes), make members async, give every @command an idempotency_key, and inherit only from bases inside the module package
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-B019
 
@@ -1231,13 +1173,11 @@ Slug: `capability-replay` · kind: boot · status: active
 
 A token or a bearer URL must never be replayed from storage: those routes
 re-run authorization on every retry (mode X) and the effect's own record
-keeps the effect single (spec §4.6, §4.7). A money route never relies on a
+keeps the effect single. A money route never relies on a
 replay-only or fail-open guard: an ambiguous COMMIT would re-run the effect
 (the check that replaced the class-F one, ADR-0009).
 
 **Fix:** give token-issuer and operation-intent routes an explicit idempotency_guard(scope=..., fail_closed=True, store_response=False) (mode X); an intent route takes no request-session dependency; a money route (sensitive("money")) uses durable=True or that mode X guard
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-B021
 
@@ -1686,25 +1626,18 @@ Slug: `capability-unavailable` · kind: boot · status: active
 
 **What happened and why it matters**
 
-A module declares the capabilities it needs (define_module(capabilities=...)),
-and the application chooses the driver of each instance. At load, build-free,
-the kernel checks every required capability: an instance is configured, its
-driver is registered and advertises the requested features, and the packages
-the driver needs are installed (importlib.util.find_spec: nothing is imported,
-no connection is opened). A built-in driver is registered whether or not its
-package is installed, so this is what tells a registered driver from a usable
-one. Every unmet requirement of the module is refused at once, naming the
-module, the capability, the instance, the driver, the missing feature or
-package, and the install hint or the INFRA alternative. An optional
-requirement only warns. An instance INFRA selects on an uninstalled driver
-refuses startup the same way, and so does a dependency that fails to import
-while a driver is built (strict startup in production). A synthesized default
-instance nothing requires is neither opened nor probed; the instances the
-kernel uses (database, cache, event bus, and the security atomic store) stay
-required. The kernel names no driver for them: the composition selects them
-(create_app(default_infra=...)), or INFRA does. When neither does, startup
-refuses in every environment and names each instance with what to select;
-memory is never an automatic fallback.
+A module requires an infrastructure capability that the composition cannot
+serve: an instance is not configured, its driver is not registered, it lacks a
+required feature, or its package is not installed. Install the package the
+message names, select a driver in INFRA, or select one that advertises the
+features the module requires.
+The kernel checks this at load without importing a driver or opening a
+connection, and refuses every unmet requirement of the module at once. An
+optional requirement only warns. The instances the kernel itself uses
+(database, cache, event bus, security atomic store) are never filled in
+automatically: the composition or INFRA selects them, and startup names each
+one that is missing. The docs link below describes capabilities, drivers and
+features.
 
 **Fix:** install what the refusal names (pip install sandloom-celery, pip install sandloom-redis), select a driver for each instance the composition leaves unselected, or select in INFRA an installed driver that advertises the features the module requires
 
@@ -1980,11 +1913,9 @@ Slug: `multi-store-write` · kind: runtime · status: active
 
 One writer per request: the first unit that writes becomes the writer and a
 write by any other unit (later, concurrent, nested or in a child task) is
-refused before it reaches the cursor (spec §4.4).
+refused before it reaches the cursor.
 
 **Fix:** do all of the request's writes in its write store unit; a second store is written only under allow_multi_db_write(...)
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-R008
 
@@ -1997,15 +1928,13 @@ Slug: `nested-or-concurrent-unit` · kind: runtime · status: active
 Nested committing units, overlapping units in an operation-intent route, and
 any unit, read scope or checkout during an external_call() or
 release_check() are refused, so no transaction spans a PSP call or the
-authority re-read (spec §4.4 rule 5, §4.6). A window also refuses to open
+authority re-read. A window also refuses to open
 (503, Retry-After) after a remote contract call of the request got no answer
 from its provider for an attempt (a timeout, a transport failure): its
 provider unit may still be running. Retry the request with the same
 Idempotency-Key; the command replays or waits for the running one.
 
 **Fix:** finish the open unit before starting another (or before external_call / release_check); open no unit while an external call or the release check runs
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-R009
 
@@ -2029,11 +1958,9 @@ Slug: `idempotency-key-required` · kind: runtime · status: active
 
 **What happened and why it matters**
 
-A money write whose effect has no dedupe record answers 428 without an Idempotency-Key, so a retry can never repeat it (spec §4.2).
+A money write whose effect has no dedupe record answers 428 without an Idempotency-Key, so a retry can never repeat it.
 
 **Fix:** send an Idempotency-Key header with the request
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-R011
 
@@ -2043,11 +1970,9 @@ Slug: `step-up-required` · kind: runtime · status: active
 
 **What happened and why it matters**
 
-security routes require a recent authentication; the 401 carries the RFC 9470 challenge (spec §4.2, ADR-0009).
+security routes require a recent authentication; the 401 carries the RFC 9470 challenge.
 
 **Fix:** re-authenticate (step-up) and retry with the new token
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-R012
 
@@ -2060,11 +1985,9 @@ Slug: `intent-release-unchecked` · kind: runtime · status: active
 The release rule is enforced at response time: a 2xx that matches neither the
 issue case nor the issued-retry case is discarded, so a bearer URL never
 leaves without the re-check. An organization account needs the authority
-re-read (spec §4.6).
+re-read.
 
 **Fix:** call release_check(account, authority=...) after the last external call, then commit exactly one unit with one write (issue), or return the stored value without an external call (issued retry)
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-R013
 
@@ -2077,12 +2000,9 @@ Slug: `concurrent-session-use` · kind: runtime · status: active
 db() returns the session of the innermost unit and refuses a task that does
 not own it (complete rule). Passing a session object to another task is
 unsupported; session methods, sync_session methods, attribute assignments and
-cursor executions from such a task are detected on a best-effort basis
-(spec §4.3).
+cursor executions from such a task are detected on a best-effort basis.
 
 **Fix:** open the child task's own unit: `async with open_uow() as session:`
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-R014
 
@@ -2100,14 +2020,15 @@ SANDLOOM_DEBUG=1) to see the traceback.
 Usual causes:
 
 - the dev services are not running: `uv run sandloom dev up` starts them (it
-  never happens on its own);
+  never happens on its own; with `--services external` it starts nothing: start
+  your own servers and set DATABASE_URL and the INFRA urls);
 - `.env` points elsewhere: `sandloom dev up` writes this checkout's URLs into
   the marked block of `.env`, and a DATABASE_URL or INFRA
   exported in the shell wins over `.env` (the CLI warns when they differ);
 - the container runs but its port is not published to the host (seen with
   Docker Desktop): `sandloom dev up` checks from the host and recreates it.
 
-**Fix:** start the dev services: `uv run sandloom dev up` (then `uv run sandloom dev status` shows the ports and URLs)
+**Fix:** start the dev services: `uv run sandloom dev up` (then `uv run sandloom dev status` shows the ports and URLs), or start your own servers and set DATABASE_URL (and the INFRA urls) to them
 
 ### SANDLOOM-R016
 
@@ -2615,11 +2536,9 @@ Slug: `event-schema-compat` · kind: test · status: active
 
 **What happened and why it matters**
 
-Only a released event is checked: module.snapshot.json lists the released channels in its `released` map (`{channel: revision}`), and an application's exported shared/events/&lt;channel>.json carries `x-sandloom-released` (`0`: a draft). An event an existing snapshot does not mark is a draft: `sandloom generate` rewrites it freely, no T005. A draft is never inferred from a missing file: a module.snapshot.json written fresh (deleted, moved, never generated) records every event as released. Drafts come from the commands that create them (`sandloom new`'s sample, `add module`, `add event`), from an event added to an existing snapshot, and from `sandloom generate --draft <channel or module>` (written into the file, refused for a released one); `sandloom release` marks every contract and event of the project released. A snapshot written before the marks has no `released` key, so its events count as released. The events of an installed package always count as published: this application's exported copy of them is compared whatever the package marks, and a mark of the package that is not a revision is reported. A compatible change of a released event moves its revision up by one; `sandloom generate` computes the number. Compatibility is checked against the committed snapshot before `sandloom generate` writes anything, and by `sandloom test` (spec §5.2, §5.8), at every depth and in both directions (producers and consumers of one .vN deploy independently: a new reader accepts what an old producer sends, an old reader what a new producer sends). Any changed validation constraint is breaking: a narrowed one (a raised minimum, a new pattern) rejects an old producer's payload, a loosened one (a longer maxLength, a removed bound) a new producer's; so is a removed field, open model or not.
+Only a released event is checked: module.snapshot.json lists the released channels in its `released` map (`{channel: revision}`), and an application's exported shared/events/&lt;channel>.json carries `x-sandloom-released` (`0`: a draft). An event an existing snapshot does not mark is a draft: `sandloom generate` rewrites it freely, no T005. A draft is never inferred from a missing file: a module.snapshot.json written fresh (deleted, moved, never generated) records every event as released. Drafts come from the commands that create them (`sandloom new`'s sample, `add module`, `add event`), from an event added to an existing snapshot, and from `sandloom generate --draft <channel or module>` (written into the file, refused for a released one); `sandloom release` marks every contract and event of the project released. A snapshot written before the marks has no `released` key, so its events count as released. The events of an installed package always count as published: this application's exported copy of them is compared whatever the package marks, and a mark of the package that is not a revision is reported. A compatible change of a released event moves its revision up by one; `sandloom generate` computes the number. Compatibility is checked against the committed snapshot before `sandloom generate` writes anything, and by `sandloom test`, at every depth and in both directions (producers and consumers of one .vN deploy independently: a new reader accepts what an old producer sends, an old reader what a new producer sends). Any changed validation constraint is breaking: a narrowed one (a raised minimum, a new pattern) rejects an old producer's payload, a loosened one (a longer maxLength, a removed bound) a new producer's; so is a removed field, open model or not.
 
 **Fix:** add only optional fields to a released channel; anything else is a new major: restore `.vN` as released, run `sandloom generate --new-major <name>` (it copies the class to .v(N+1) beside it), then edit the copy (see the event-versioning guide)
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-T006
 
@@ -2629,11 +2548,9 @@ Slug: `migration-drift` · kind: test · status: active
 
 **What happened and why it matters**
 
-sandloom test compares the module's models with its chain head (spec §5.6): the migration drift step for every chain, and each module's `assert_migrations_match_models` test (types, server defaults, and indexes as the database reflects them: access method, operator classes, sort order, included columns, condition) on PostgreSQL. SQLite builds its schema from the models and runs no chain, so this is what keeps the two equal.
+sandloom test compares the module's models with its chain head: the migration drift step for every chain, and each module's `assert_migrations_match_models` test (types, server defaults, and indexes as the database reflects them: access method, operator classes, sort order, included columns, condition) on PostgreSQL. SQLite builds its schema from the models and runs no chain, so this is what keeps the two equal.
 
 **Fix:** run `sandloom migrate new <module> "<message>"` and review the revision
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-T007
 
@@ -2643,11 +2560,9 @@ Slug: `contract-stub-stale` · kind: test · status: active
 
 **What happened and why it matters**
 
-Contract stubs in the shared DTO package are written by `sandloom generate` and never hand-edited; `sandloom test` fails on a stale one (spec §5.3, §5.9).
+Contract stubs in the shared DTO package are written by `sandloom generate` and never hand-edited; `sandloom test` fails on a stale one.
 
 **Fix:** run `sandloom generate` to regenerate it (a compatible change) or make an incompatible change a new contract version
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-T008
 
@@ -2657,11 +2572,9 @@ Slug: `public-api-baseline` · kind: test · status: active
 
 **What happened and why it matters**
 
-public_api_baseline.json records every public name and signature (spec §2.1 rule 5, ledger gap G-KERNEL-11). Today the public-api pre-commit hook runs the same gate without this code.
+public_api_baseline.json records every public name and signature and the gate fails when one changes without a refreshed baseline.
 
 **Fix:** review the change and refresh public_api_baseline.json (`uv run python tools/packaging/check_public_api.py --update`)
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-T009
 
@@ -2671,11 +2584,9 @@ Slug: `beginner-tier` · kind: test · status: active
 
 **What happened and why it matters**
 
-Generators and examples teach the 26 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
+Generators and examples teach the 26 beginner names: the 20 code names of `sandloom.sdk`, the five test helpers of `sandloom.sdk.testing` and the `client` fixture of `sandloom.sdk.testing.plugin` (`sandloom docs sandloom.sdk`, `sandloom docs sandloom.sdk.testing` and `sandloom docs sandloom.sdk.testing.plugin` list them). An application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
 
 **Fix:** use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`
-
-**More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ### SANDLOOM-T010
 

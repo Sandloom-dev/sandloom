@@ -51,7 +51,7 @@ from sandloom.core.cli.dev import identity as _identity
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sandloom dev",
-        description="Local Postgres and keyed server for this repository and checkout",
+        description="Local Postgres and Redis for this repository and checkout",
     )
     sub = parser.add_subparsers(dest="action", required=True)
     up = sub.add_parser("up", help="start the services, write this checkout's .env")
@@ -77,7 +77,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=("docker", "external"),
         default=None,
         help="docker: the compose project (the default); external: PostgreSQL "
-        "and keyed server you already run (kept for the next commands)",
+        "and Redis you already run (kept for the next commands)",
     )
     # The keyed server is the stack's (Redis, from the sandloom-redis package).
     up.add_argument(
@@ -89,8 +89,8 @@ def _parser() -> argparse.ArgumentParser:
     up.add_argument(
         "--kv-url",
         default=None,
-        help="with --services external: your keyed server (the one the stack's "
-        "driver package describes; default: its local server on 127.0.0.1)",
+        help="with --services external: your Redis URL (default: the local "
+        "server on 127.0.0.1)",
     )
     status = sub.add_parser("status", help="services, ports, URLs")
     status.add_argument("--json", action="store_true", help="machine-readable")

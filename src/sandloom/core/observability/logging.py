@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any
 
+import sandloom.core.observability.log_level as _log_level
 import sandloom.core.observability.request_context as _request_context
 import sandloom.core.observability.tracing as _tracing
 from sandloom.core.config.settings import settings
@@ -167,8 +168,18 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
+def configured_level_name() -> str:
+    """``LOG_LEVEL`` when something sets it (the process environment or a
+    ``.env`` file), else the level a one-shot CLI command asked for
+    (:mod:`sandloom.core.observability.log_level`), else the setting's default."""
+    asked = _log_level.requested_default()
+    if asked is not None and "log_level" not in settings.model_fields_set:
+        return asked
+    return settings.log_level
+
+
 def init_logging() -> None:
-    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    level = getattr(logging, configured_level_name().upper(), logging.INFO)
     logging.basicConfig(level=level)
 
     formatter: logging.Formatter

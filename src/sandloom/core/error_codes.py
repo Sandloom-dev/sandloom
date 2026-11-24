@@ -64,9 +64,6 @@ def _entry(
     return ErrorCode(code, slug, kind, title, fix, explain.strip(), docs)
 
 
-_API10_SPEC = "tests/fixtures/specs/public-api-1.0-spec.md"
-
-
 def _planned(
     code: str,
     slug: str,
@@ -76,7 +73,7 @@ def _planned(
     explain: str,
     *,
     lands: str,
-    docs: str = _API10_SPEC,
+    docs: str | None = None,
 ) -> ErrorCode:
     """A reserved code whose check lands later (``lands``: hand-off, owner,
     spec section)."""
@@ -91,7 +88,7 @@ def _landed(
     fix: str,
     explain: str,
     *,
-    docs: str = _API10_SPEC,
+    docs: str | None = None,
 ) -> ErrorCode:
     """A Public API 1.0 code whose check raises it (the ``planned`` field of
     :func:`_planned` cleared when the check landed)."""
@@ -504,7 +501,7 @@ a client can act on a 200 before the write is visible.
         "imports go under `if TYPE_CHECKING:`",
         """
 Function-local imports in modules hide dependencies and get copied by agents.
-Their causes are gone in 1.0: import-time settings are lazy (spec §2.4) and
+Their causes are gone in 1.0: import-time settings are lazy and
 discovery replaces lazy setup imports. What remains is a marked optional
 dependency (for example qrcode).
 """,
@@ -537,7 +534,7 @@ that says so (409 or 422), and the warning goes away.
         "longer writes to a second store",
         """
 allow_multi_db_write(secondaries=, reason=) is the reviewed best-effort 1PC
-opt-out of the one-writer rule (spec §4.4 rule 4). The check lists every
+opt-out of the one-writer rule. The check lists every
 waiver with its reason so a review sees all of them in one place.
 """,
     ),
@@ -593,7 +590,7 @@ hint only points at the faster fully typed codec (owner decision Q3).
         """
 A route under /orgs/{org_id} that checks the caller's personal account (a
 subscription, credits, a quota) almost always meant the organization's account.
-The check refuses the combination unless the atom states why (spec §7.3). An
+The check refuses the combination unless the atom states why. An
 atom is an account atom when its generated __sandloom_atom__ literal binds an
 account (sandloom check reads the literal of the file the name is imported
 from, not the name).
@@ -681,32 +678,16 @@ an error. Tests and migrations are exempt.
         'skip_unless_db_feature("concurrent_writers")) or ask '
         "has_optimized_reads()",
         """
-The driver in configuration decides which database runs a module, and a module
-never tests which one it is. SQLAlchemy writes func.<name> verbatim, so a name
-only PostgreSQL knows (array_agg, greatest, jsonb_*) fails on SQLite when the
-statement first runs, and a name both know may answer differently: func.now()
-is the transaction's start on PostgreSQL and whole seconds on SQLite, outside
-the stored time format; lower and upper fold only ASCII on SQLite; avg is a
-Decimal on PostgreSQL and a float on SQLite. A module calls only the portable
-SQL functions (abs, char_length, coalesce, count, length, max, min, nullif,
-sum; each run by a test on every shipped database, value and type) and the
-forms of sandloom.sdk.data. Raw SQL (text(), literal_column(), DDL(),
-exec_driver_sql(), .op(), .bool_op(), and a string given to .prefix_with(),
-.suffix_with() or .with_hint()) reaches the database unread: a reviewed line
-carries `# sandloom: raw-sql <reason>` on the call, or alone on the line above
-it. A text that is only a number, a quoted string, NULL, TRUE or FALSE
-(server_default=text("0")) is every database's, and a PostgreSQL cast (::) is
-a finding the marker does not admit. Reading the database's name
-(x.dialect.name, dialect_name(x), url.get_backend_name()) is a finding too,
-and so is a database URL literal naming a backend ("postgresql://",
-"postgresql+asyncpg://", "sqlite+aiosqlite://", create_mock_engine of one):
-take the database from the configuration or the test's engine instead. Both
-are admitted only by the raw-sql marker. The check reads the module and its tests:
-a test or class decorated with skip_unless_db_feature(...), or a test file
-whose pytestmark carries it, runs only where its feature is, and its SQL is
-not reported. Migrations are exempt; the SQL strings of CheckConstraint and
-Computed are not read. Tenant admission is a separate question: raw SQL inside
-a function also needs unscoped() (SANDLOOM-C015).
+The database a module runs on is chosen by configuration, so a module cannot
+rely on what only one database does. Use the forms of sandloom.sdk.data
+instead of a function such as func.now() or array_agg, mark reviewed raw SQL
+`# sandloom: raw-sql <reason>`, never read the database's name or write a
+backend URL, and gate a test that needs one database with
+skip_unless_db_feature(...).
+The portable functions are abs, char_length, coalesce, count, length, max, min,
+nullif and sum. Raw SQL inside a function also needs unscoped() (SANDLOOM-C015).
+The portable forms, the marker rules and what the check exempts (migrations,
+CheckConstraint and Computed strings) are in the docs link below.
 """,
         docs="docs/modules/database/conventions.md",
     ),
@@ -747,25 +728,15 @@ never checked against what you call.
         "when the module works without its schedule), with CapabilityRequirement "
         "from sandloom.sdk.module",
         """
-A module states the infrastructure it needs in define_module(capabilities=[...])
-and the deployment chooses the driver; startup checks that they match. Some
-needs are visible in the module's code, and the kernel derives them at load
-whether they are declared or not: a tasks.py (or tasks/ package), which the
-framework worker imports and runs, needs the taskqueue capability; a
-@periodic task in it needs the taskqueue feature "periodic", a driver that
-runs the module's periodic jobs at their cron slots in at least one process
-while the deployment runs, and a task declared at_least_once=True needs the
-feature "redelivery", a driver that redelivers it when its worker dies (a
-driver never has either for supporting send alone; only celery advertises
-them today). This check asks for the declaration, so a
-reader, an agent and the module snapshot see the need where every other need
-is stated. A declaration decides required or optional: the derived need only
-adds its feature to it, and a capability nobody declared is derived as
-required. The check reads tasks.py and the capabilities= of define_module (or
-ModuleDescriptor); an entry it cannot read statically decides nothing (that is
-a SANDLOOM-C030 finding). It does not claim to find every capability a module
-uses: a module that reaches one another way declares it itself, and the
-startup check stays the last line of defence.
+The module's code needs an infrastructure capability that define_module(
+capabilities=[...]) does not declare. Declare it, for example
+capabilities=["taskqueue"] for a tasks.py, plus the feature "periodic" for a
+@periodic task and "redelivery" for an at_least_once one.
+Startup matches the declared capabilities with the deployment's drivers, and
+the check asks for the declaration so a reader, an agent and the module
+snapshot see the need. It reads tasks.py and the capabilities= of
+define_module; a module that reaches a capability another way declares it
+itself. Which features a driver offers is in the docs link below.
 """,
         docs="docs/modules/background/tasks.md",
     ),
@@ -1054,7 +1025,7 @@ public() without a reason, is ambiguous and refused at startup.
 The write store is inferred statically: DbSession / db() means the module's
 primary database, one Database("x") means x. With several writable sessions
 the route must name its write store, which also holds its idempotency,
-audit and outbox records (spec §6.1).
+audit and outbox records.
 """,
     ),
     _entry(
@@ -1091,7 +1062,7 @@ writes would carry none of the route's derived guarantees.
         "tenant_id, let one source group own each column, and use delta "
         "mappers only for an in-database projection under the durable inbox",
         """
-Projections converge only under the model of spec §6.4: per-aggregate
+Projections converge only under one model: per-aggregate
 versions, one owning source group per column, full-state events, and delta
 events only where the durable inbox makes them exactly once.
 """,
@@ -1104,8 +1075,8 @@ events only where the durable inbox makes them exactly once.
         "list only secondary databases the route actually writes, never the "
         "write store itself, and give a reason",
         """
-allow_multi_db_write is the reviewed best-effort 1PC opt-out (spec §4.4
-rule 4): secondaries commit first and the write store last.
+allow_multi_db_write is the reviewed best-effort 1PC opt-out:
+secondaries commit first and the write store last.
 """,
     ),
     _landed(
@@ -1133,7 +1104,7 @@ there could commit without its dedupe record or be lost.
         """
 Event classes are checked when they are defined and registered at startup:
 the channel must be versioned, a channel has one producer and the producer
-lives in the module that owns the channel (spec §5.2).
+lives in the module that owns the channel.
 An event payload is plain data from a closed set of wire shapes, checked at
 every depth when the class is defined: str, int, finite float, bool, None,
 UUID, datetime, date, time, timedelta, Decimal, an Enum, a Literal, Any (an
@@ -1181,7 +1152,7 @@ that sets it, on a field or a nested model, is refused.
         """
 @on(E) registers through register_event_consumer with all its options; a
 handler whose parameter is not E, a duplicate consumer name or a tenant field
-that does not exist on E is refused (spec §5.4).
+that does not exist on E is refused.
 """,
     ),
     _landed(
@@ -1195,11 +1166,11 @@ that does not exist on E is refused (spec §5.4).
 An access check whose declaration binds an account (its generated class takes a
 required of=, and the atom's __sandloom_atom__ literal binds account_type /
 account_id or names a claim fact) cannot guess the account: a default could
-check another account than the one the route means (owner decision 1, spec
-§7.2). Billing's generated Subscribed, SubscriptionActive, Credits, Feature and
-WithinLimit are such checks today. The generated signature makes of= keyword-only
-and required: leaving it out is Python's TypeError naming of= (a type checker
-flags it first); a value that is not an Account raises this code.
+check another account than the one the route means. Billing's generated
+Subscribed, SubscriptionActive, Credits, Feature and WithinLimit are such
+checks today. The generated signature makes of= keyword-only and required:
+leaving it out is Python's TypeError naming of= (a type checker flags it
+first); a value that is not an Account raises this code.
 """,
     ),
     _landed(
@@ -1212,7 +1183,7 @@ flags it first); a value that is not an Account raises this code.
         "inherit only from bases inside the module package",
         """
 Contract providers are stateless classes registered with register_service;
-the same class serves local and remote calls (spec §5.3).
+the same class serves local and remote calls.
 """,
     ),
     _landed(
@@ -1228,7 +1199,7 @@ the same class serves local and remote calls (spec §5.3).
         """
 A token or a bearer URL must never be replayed from storage: those routes
 re-run authorization on every retry (mode X) and the effect's own record
-keeps the effect single (spec §4.6, §4.7). A money route never relies on a
+keeps the effect single. A money route never relies on a
 replay-only or fail-open guard: an ambiguous COMMIT would re-run the effect
 (the check that replaced the class-F one, ADR-0009).
 """,
@@ -1696,25 +1667,18 @@ operator CLIs), naming both owners (ADR-0015 decision 3).
         "composition leaves unselected, or select in INFRA an installed driver "
         "that advertises the features the module requires",
         """
-A module declares the capabilities it needs (define_module(capabilities=...)),
-and the application chooses the driver of each instance. At load, build-free,
-the kernel checks every required capability: an instance is configured, its
-driver is registered and advertises the requested features, and the packages
-the driver needs are installed (importlib.util.find_spec: nothing is imported,
-no connection is opened). A built-in driver is registered whether or not its
-package is installed, so this is what tells a registered driver from a usable
-one. Every unmet requirement of the module is refused at once, naming the
-module, the capability, the instance, the driver, the missing feature or
-package, and the install hint or the INFRA alternative. An optional
-requirement only warns. An instance INFRA selects on an uninstalled driver
-refuses startup the same way, and so does a dependency that fails to import
-while a driver is built (strict startup in production). A synthesized default
-instance nothing requires is neither opened nor probed; the instances the
-kernel uses (database, cache, event bus, and the security atomic store) stay
-required. The kernel names no driver for them: the composition selects them
-(create_app(default_infra=...)), or INFRA does. When neither does, startup
-refuses in every environment and names each instance with what to select;
-memory is never an automatic fallback.
+A module requires an infrastructure capability that the composition cannot
+serve: an instance is not configured, its driver is not registered, it lacks a
+required feature, or its package is not installed. Install the package the
+message names, select a driver in INFRA, or select one that advertises the
+features the module requires.
+The kernel checks this at load without importing a driver or opening a
+connection, and refuses every unmet requirement of the module at once. An
+optional requirement only warns. The instances the kernel itself uses
+(database, cache, event bus, security atomic store) are never filled in
+automatically: the composition or INFRA selects them, and startup names each
+one that is missing. The docs link below describes capabilities, drivers and
+features.
 """,
         "docs/infrastructure/index.md",
     ),
@@ -1981,7 +1945,7 @@ cause; tests that assert a 500 opt out with
         """
 One writer per request: the first unit that writes becomes the writer and a
 write by any other unit (later, concurrent, nested or in a child task) is
-refused before it reaches the cursor (spec §4.4).
+refused before it reaches the cursor.
 """,
     ),
     _landed(
@@ -1996,7 +1960,7 @@ refused before it reaches the cursor (spec §4.4).
 Nested committing units, overlapping units in an operation-intent route, and
 any unit, read scope or checkout during an external_call() or
 release_check() are refused, so no transaction spans a PSP call or the
-authority re-read (spec §4.4 rule 5, §4.6). A window also refuses to open
+authority re-read. A window also refuses to open
 (503, Retry-After) after a remote contract call of the request got no answer
 from its provider for an attempt (a timeout, a transport failure): its
 provider unit may still be running. Retry the request with the same
@@ -2021,7 +1985,7 @@ Idempotency-Key; the command replays or waits for the running one.
         "a sensitive write was called without an Idempotency-Key (428)",
         "send an Idempotency-Key header with the request",
         "A money write whose effect has no dedupe record answers 428 without "
-        "an Idempotency-Key, so a retry can never repeat it (spec §4.2).",
+        "an Idempotency-Key, so a retry can never repeat it.",
     ),
     _landed(
         "SANDLOOM-R011",
@@ -2030,7 +1994,7 @@ Idempotency-Key; the command replays or waits for the running one.
         "a security-sensitive route needs a fresh authentication (401, RFC 9470)",
         "re-authenticate (step-up) and retry with the new token",
         "security routes require a recent authentication; the 401 carries the "
-        "RFC 9470 challenge (spec §4.2, ADR-0009).",
+        "RFC 9470 challenge.",
     ),
     _landed(
         "SANDLOOM-R012",
@@ -2045,7 +2009,7 @@ Idempotency-Key; the command replays or waits for the running one.
 The release rule is enforced at response time: a 2xx that matches neither the
 issue case nor the issued-retry case is discarded, so a bearer URL never
 leaves without the re-check. An organization account needs the authority
-re-read (spec §4.6).
+re-read.
 """,
     ),
     _landed(
@@ -2058,8 +2022,7 @@ re-read (spec §4.6).
 db() returns the session of the innermost unit and refuses a task that does
 not own it (complete rule). Passing a session object to another task is
 unsupported; session methods, sync_session methods, attribute assignments and
-cursor executions from such a task are detected on a best-effort basis
-(spec §4.3).
+cursor executions from such a task are detected on a best-effort basis.
 """,
     ),
     _entry(
@@ -2069,7 +2032,8 @@ cursor executions from such a task are detected on a best-effort basis
         "a sandloom command cannot reach a backing service (the database or an "
         "INFRA instance)",
         "start the dev services: `uv run sandloom dev up` (then `uv run sandloom "
-        "dev status` shows the ports and URLs)",
+        "dev status` shows the ports and URLs), or start your own servers and set "
+        "DATABASE_URL (and the INFRA urls) to them",
         """
 The command connected to the DATABASE_URL or the INFRA instance url (cache,
 broker) it was given and nothing answered, or the server refused the login.
@@ -2079,7 +2043,8 @@ SANDLOOM_DEBUG=1) to see the traceback.
 Usual causes:
 
 - the dev services are not running: `uv run sandloom dev up` starts them (it
-  never happens on its own);
+  never happens on its own; with `--services external` it starts nothing: start
+  your own servers and set DATABASE_URL and the INFRA urls);
 - `.env` points elsewhere: `sandloom dev up` writes this checkout's URLs into
   the marked block of `.env`, and a DATABASE_URL or INFRA
   exported in the shell wins over `.env` (the CLI warns when they differ);
@@ -2516,8 +2481,7 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "reported. A compatible change of a released event moves its "
         "revision up by one; `sandloom generate` computes the number. "
         "Compatibility is checked against the committed snapshot before "
-        "`sandloom generate` writes anything, and by `sandloom test` (spec "
-        "§5.2, §5.8), at every "
+        "`sandloom generate` writes anything, and by `sandloom test`, at every "
         "depth and in both directions (producers and consumers of one .vN "
         "deploy independently: a new reader accepts what an old producer "
         "sends, an old reader what a new producer sends). Any changed "
@@ -2532,8 +2496,8 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "test",
         "the models differ from the head of their migration chain",
         'run `sandloom migrate new <module> "<message>"` and review the revision',
-        "sandloom test compares the module's models with its chain head (spec "
-        "§5.6): the migration drift step for every chain, and each module's "
+        "sandloom test compares the module's models with its chain head: the "
+        "migration drift step for every chain, and each module's "
         "`assert_migrations_match_models` test (types, server defaults, and "
         "indexes as the database reflects them: access method, operator "
         "classes, sort order, included columns, condition) on PostgreSQL. "
@@ -2548,8 +2512,7 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "run `sandloom generate` to regenerate it (a compatible change) or make "
         "an incompatible change a new contract version",
         "Contract stubs in the shared DTO package are written by `sandloom "
-        "generate` and never hand-edited; `sandloom test` fails on a stale one "
-        "(spec §5.3, §5.9).",
+        "generate` and never hand-edited; `sandloom test` fails on a stale one.",
     ),
     _landed(
         "SANDLOOM-T008",
@@ -2559,8 +2522,7 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "review the change and refresh public_api_baseline.json "
         "(`uv run python tools/packaging/check_public_api.py --update`)",
         "public_api_baseline.json records every public name and signature "
-        "(spec §2.1 rule 5, ledger gap G-KERNEL-11). Today the public-api "
-        "pre-commit hook runs the same gate without this code.",
+        "and the gate fails when one changes without a refreshed baseline.",
     ),
     _landed(
         "SANDLOOM-T009",
@@ -2568,9 +2530,13 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "test",
         "a module imports an advanced sandloom.sdk name without a marker",
         "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
-        "Generators and examples teach the 26 beginner names (spec §2.2), and an "
-        "application's modules keep to them: the `schema & deploy` step of "
-        "`sandloom test` reports an advanced import that has no marker.",
+        "Generators and examples teach the 26 beginner names: the 20 code names of "
+        "`sandloom.sdk`, the five test helpers of `sandloom.sdk.testing` and the "
+        "`client` fixture of `sandloom.sdk.testing.plugin` (`sandloom docs "
+        "sandloom.sdk`, `sandloom docs sandloom.sdk.testing` and `sandloom docs "
+        "sandloom.sdk.testing.plugin` list them). An application's modules keep "
+        "to them: the `schema & deploy` step of `sandloom test` reports an advanced "
+        "import that has no marker.",
     ),
     _entry(
         "SANDLOOM-T010",

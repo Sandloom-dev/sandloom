@@ -778,8 +778,11 @@ def upgrade_module(
     descriptor: ModuleDescriptor,
     revision: str = "head",
     dry_run: bool = True,
-) -> None:
+) -> list[str]:
     """Upgrade a single module's migrations (expects Alembic layout in migrations_path).
+
+    Returns the databases it upgraded (a dry run: would upgrade), so a caller
+    can say what happened; empty when the module has no usable migration chain.
 
     Requirements for execution (non-dry-run):
     * migrations_path is set and valid
@@ -790,13 +793,13 @@ def upgrade_module(
         logger.debug(
             "[migrations] module=%s no migrations_path (skip)", descriptor.name
         )
-        return
+        return []
     path = descriptor.migrations_path
     if not _is_migration_dir(path):  # already validated earlier but double-check
         logger.warning(
             "[migrations] module=%s path=%s invalid structure", descriptor.name, path
         )
-        return
+        return []
     targets = sorted(descriptor.database_instances())
     if dry_run:
         logger.info(
@@ -806,7 +809,7 @@ def upgrade_module(
             path,
             ",".join(targets),
         )
-        return
+        return targets
     if not _has_env_script(path):  # pragma: no cover - defensive
         raise MigrationDependencyError(
             f"module={descriptor.name} path={path} missing env.py (cannot run)"
@@ -817,6 +820,7 @@ def upgrade_module(
         # ``migrations_database``, else its single required database, else
         # ``default``). An unknown instance raises (resolve_database_sync_url).
         version_table = version_table_for(descriptor)
+        upgraded: list[str] = []
         for db_name in targets:
             sync_url = resolve_database_sync_url(db_name)
             cfg = Config()
@@ -824,6 +828,7 @@ def upgrade_module(
             cfg.set_main_option("sqlalchemy.url", sync_url.replace("%", "%%"))
             cfg.set_main_option("version_table", version_table)
             command.upgrade(cfg, revision)
+            upgraded.append(db_name)
             logger.info(
                 "[migrations] module=%s upgraded to %s on database=%s",
                 descriptor.name,
@@ -834,6 +839,7 @@ def upgrade_module(
         # A failed migration must fail the deploy — never swallow it.
         logger.exception("[migrations] module=%s upgrade failed", descriptor.name)
         raise
+    return upgraded
 
 
 def revision_module(
@@ -910,8 +916,11 @@ def upgrade_all_modules(
     descriptors: Sequence[ModuleDescriptor],
     revision: str = "head",
     dry_run: bool = True,
-) -> None:
-    """Upgrade all modules that have valid migration dirs."""
+) -> dict[str, list[str]]:
+    """Upgrade all modules that have valid migration dirs.
+
+    Returns ``{module: databases}`` in the order it ran them (a dry run: would
+    run them), see :func:`upgrade_module`."""
     check_chain_collisions(descriptors)
     plan = build_plan(descriptors)
     # Map name -> descriptor for quick lookup
@@ -920,11 +929,13 @@ def upgrade_all_modules(
     valid_names = {e.module for e in plan.entries if e.valid}
 
     ordered = _order_by_dependencies(descriptor_map, valid_names)
+    upgraded: dict[str, list[str]] = {}
     for name in ordered:
         d = descriptor_map.get(name)
         if d is None:
             continue
-        upgrade_module(d, revision=revision, dry_run=dry_run)
+        upgraded[name] = upgrade_module(d, revision=revision, dry_run=dry_run)
+    return upgraded
 
 
 # -----------------------------
