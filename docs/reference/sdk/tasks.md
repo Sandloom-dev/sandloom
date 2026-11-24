@@ -44,9 +44,13 @@ def periodic(
 
 `@periodic(cron="0 3 * * *", id="identity.cleanup")`: a task without a
 payload, sent at the slots of `cron` (five fields, UTC) while a
-scheduler runs. `id` is unique in the deployment. A run may repeat, so
-the body tolerates a second run. The module needs the taskqueue feature
-`periodic` (derived at load).
+scheduler runs. `id` is unique in the deployment. The scheduler sends a
+slot twice only when its claim store is down or in the repeated
+daylight-saving hour, and a slot can be lost (a scheduler killed between
+claim and send): keep the body idempotent and let the next run catch up.
+A run is acknowledged when it starts, so a worker that dies mid-run loses
+it, unless `at_least_once=True` (the feature `redelivery`) redelivers
+it. The module needs the taskqueue feature `periodic` (derived at load).
 
 ### `task`
 
