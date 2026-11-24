@@ -1,5 +1,5 @@
 {
- "deploy/compose/microservices.yml": "2efc9060e7b9bef4b2a0ce671c0e7b578e48f4da7b3a34a00635cd345fc0d34b",
+ "deploy/compose/microservices.yml": "881fb3259b8f040f1e7c3091c4453f70864b8ee10fee334c1615585eefad15c6",
  "deploy/gateway/nginx.conf": "11300b4c624dfb45ddc69c903f9adcb1d6c8b5679a04ab432a95130a695151d3",
  "deploy/postgres/init-databases.sh": "6b7bf47ca17c590c6b346af0bc7d55e28619d665fd2d189e16c10fe8db27a433",
  "new_batteries/.agents/skills/sandloom-event-version-roll/SKILL.md": "ef10fa6e6e9e8cace4ef50ff1ff57209eabd178240c1f7d7223b33a482d12b91",

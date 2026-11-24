@@ -28,10 +28,11 @@ import re
 import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from difflib import get_close_matches
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from sandloom.core.config.removed_drivers import removed_driver_problem
 from sandloom.core.config.settings import settings
@@ -367,6 +368,40 @@ class ExperimentalCapabilityError(InstanceNotConfiguredError, DriverNotRegistere
 
 class ConfigSchemaError(CapabilityError):
     """An instance's options failed the capability's config schema."""
+
+
+class UnknownDriverOptionError(ConfigSchemaError):
+    """An instance carries an option its driver does not declare
+    (SANDLOOM-B042): the accepted keys and the nearest one are named."""
+
+
+def _unknown_option_error(
+    capability: str,
+    cfg: InstanceConfig,
+    schema: type[BaseModel],
+    unknown: list[str],
+    exc: ValidationError,
+) -> UnknownDriverOptionError:
+    accepted = sorted(
+        {field.alias or name for name, field in schema.model_fields.items()}
+    )
+    hints = []
+    for key in unknown:
+        near = get_close_matches(key, accepted, n=1)
+        hints.append(f"{key!r} (did you mean {near[0]!r}?)" if near else repr(key))
+    others = [
+        f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+        for item in exc.errors()
+        if item["type"] != "extra_forbidden"
+    ]
+    return UnknownDriverOptionError(
+        f"Unknown option {', '.join(hints)} for {capability}/{cfg.name} "
+        f"(driver={cfg.driver!r}); it accepts: {', '.join(accepted) or 'none'}"
+        + (f". Also invalid: {'; '.join(others)}" if others else "")
+        + " (sandloom explain SANDLOOM-B042)",
+        fix=f"correct INFRA[{capability!r}][{cfg.name!r}]: use an accepted key "
+        "or remove the unknown one",
+    )
 
 
 class TransactionalOutboxUnsupportedError(CapabilityError):
@@ -1496,6 +1531,22 @@ class InfraRegistry:
             return
         try:
             schema(**cfg.options)
+        except ValidationError as exc:
+            unknown = [
+                str(item["loc"][0])
+                for item in exc.errors()
+                if item["type"] == "extra_forbidden" and item["loc"]
+            ]
+            if unknown and isinstance(schema, type) and issubclass(schema, BaseModel):
+                raise _unknown_option_error(
+                    capability, cfg, schema, unknown, exc
+                ) from exc
+            raise ConfigSchemaError(
+                f"Invalid options for {capability}/{cfg.name} "
+                f"(driver={cfg.driver!r}): {exc}",
+                fix=f"correct INFRA[{capability!r}][{cfg.name!r}] to match the "
+                f"{schema.__name__} schema",
+            ) from exc
         except Exception as exc:  # normalize to a diagnostic
             raise ConfigSchemaError(
                 f"Invalid options for {capability}/{cfg.name} "
