@@ -100,7 +100,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 | `sandloom new … --plain` | No colour, no redrawn lines and typed answers, for screen readers and logs. `NO_COLOR` and `FORCE_COLOR` work too. |
 | `sandloom add module <name> [--entity NAME \| --empty] [--settings] [--no-tenant]` | Creates a module under the app's `modules` package with one example entity: a model, a route, an event, a baseline migration and tests. `--entity NAME` (snake_case) names the example in place of `item` (`--entity order`: `<Module>Order`, `<module>_orders`, `/orders`, `<module>.order.created.v1`). `--empty` writes no entity, only the package and its migration chain (an empty `migrations/versions/`); write your first model, then `sandloom migrate new <name> "<message>"`. `--entity` and `--empty` exclude each other, and `--empty` has no table for `--no-tenant` to change. An entity named `tenant` or `owner` is refused, because the example already has the columns `tenant_id` and `owner_id` (with `--no-tenant`, `tenant` is allowed). `--settings` also writes `settings.py` (`<MODULE>_DEFAULT_PAGE_SIZE`, read with `settings_of`); without it a module has none. The example table is `TenantScoped` with row-level security; `--no-tenant`, for an app without tenants, writes a plain table ([the scaffold is tenant-scoped](#the-scaffold-is-tenant-scoped)). |
 | `sandloom add event <module> <name> [--field NAME:TYPE ...] [--no-tenant]` | A typed `Event` in the module's `events.py`; its channel is `<module>.<entity>.<verb>.v1`, taken from the class name. `--field` repeats, once per payload field, and `TYPE` is one of `str`, `int`, `float`, `bool`, `UUID`, `datetime`, `date`, `Decimal`; any other type is refused. Without `--field` the event carries `<entity>_id: UUID` and `tenant_id: UUID`: a `--field` list replaces `<entity>_id`, and `tenant_id` is added to it unless you name it. With `--no-tenant` no `tenant_id` is added. |
-| `sandloom add consumer <module> <channel> [--field NAME:TYPE ...]` | A view of another module's event, an `@on` consumer of its channel and its test. `--field` is as for `add event`; without it the view takes the producer's own fields, read from its class or its exported schema. The consumer carries an explicit `name=` (the function name, written out): the consumer group is that name, so renaming the function without it replays the stream ([Events](../modules/between/events.md), "Do not rename a consumer"). The test, `tests/test_<handler>.py`, delivers one event twice with `deliver(event, times=2, session=db)`; add the assertion on the handler's effect. |
+| `sandloom add consumer <module> <channel> [--field NAME:TYPE ...] [--no-tenant]` | A view of another module's event, an `@on` consumer of its channel and its test. `--field` is as for `add event`; without it the view takes the producer's own fields, read from its class or its exported schema. With a producer found, the view always keeps the producer's required fields (`tenant_id` included, so the test event passes the channel's schema) and a producer class makes every field required, each written with the producer's default. A `--field` the producer does not send is refused (it would fail every payload of the channel). With no producer found, the view is the `--field`s plus `tenant_id: UUID`, as `add event` writes it; `--no-tenant` (an app without tenants) leaves it out. The consumer carries an explicit `name=` (the function name, written out): the consumer group is that name, so renaming the function without it replays the stream ([Events](../modules/between/events.md), "Do not rename a consumer"). The test, `tests/test_<handler>.py`, delivers one event twice with `deliver(event, times=2, session=db)`; add the assertion on the handler's effect. |
 | `sandloom add contract <module> <name>` | A `@contract` class and its DTO in the module's `schemas.py`; the stub and the DTO copy are generated. |
 | `sandloom add contract-use <module> <contract>` | Declares `consumes=[ContractRequirement("<contract>")]` in the module's `define_module` and writes the stub (and the DTO copies it names) from the importable provider at once. |
 | `sandloom add saga <module> <name>` | A saga with a typed command step, plus tests. |
@@ -130,17 +130,17 @@ says what each argument is.
 
 ### The scaffold is tenant-scoped
 
-`add module` and `add event` always scaffold tenant-scoped, and read no setting.
-A gitignored `.env` is per machine. A scaffold that followed it would write a
-table without row-level security into an app that is multi-tenant in
+`add module`, `add event` and `add consumer` always scaffold tenant-scoped, and read
+no setting. A gitignored `.env` is per machine. A scaffold that followed it would
+write a table without row-level security into an app that is multi-tenant in
 production. `--no-tenant` is the explicit choice for an app without tenants.
 
-| | `add module` | `add event` |
-|---|---|---|
-| default | The example table is `TenantScoped`: a `tenant_id` column, its index and row-level security in the baseline migration. The event, the service and the tests carry the tenant. | Adds `tenant_id: UUID` to the fields. |
-| `--no-tenant` | A plain table (`Base`): no `tenant_id`, no row-level security, and tests that use `as_user(tenant=False)`. | Adds no `tenant_id`: the default is `<entity>_id` alone, and a `--field tenant_id:UUID` you name is written as given. |
+| | `add module` | `add event` | `add consumer` |
+|---|---|---|---|
+| default | The example table is `TenantScoped`: a `tenant_id` column, its index and row-level security in the baseline migration. The event, the service and the tests carry the tenant. | Adds `tenant_id: UUID` to the fields. | A view built from `--field` alone, with no producer schema found, gets `tenant_id: UUID`. A view of a found producer keeps that producer's required fields, `tenant_id` among them. |
+| `--no-tenant` | A plain table (`Base`): no `tenant_id`, no row-level security, and tests that use `as_user(tenant=False)`. | Adds no `tenant_id`: the default is `<entity>_id` alone, and a `--field tenant_id:UUID` you name is written as given. | The view built from `--field` alone gets no `tenant_id`. A found producer's view is unchanged. |
 
-A tenant-less module or event is for an app without tenants. In that app
+A tenant-less scaffold is for an app without tenants. In that app
 (`TENANCY_MODE=single`) one canonical tenant, `SINGLE_TENANT_ID`, is bound and
 still filters a `TenantScoped` model you add yourself. A wrong default costs an extra `tenant_id`. A wrong
 `--no-tenant` in a multi-tenant app costs the isolation, so pass it only where the

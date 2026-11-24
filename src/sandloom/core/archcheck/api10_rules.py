@@ -681,6 +681,8 @@ class EventClass:
         self.role = role
         self.fields: dict[str, str] = {}
         self.optional: set[str] = set()
+        #: The default expression of each optional field (what ``= ...`` holds).
+        self.defaults: dict[str, ast.expr] = {}
         for cls in _lineage(node, classes or {}):
             for stmt in cls.body:
                 if (
@@ -692,8 +694,10 @@ class EventClass:
                     self.fields[name] = ast.unparse(stmt.annotation)
                     if stmt.value is not None:
                         self.optional.add(name)
+                        self.defaults[name] = stmt.value
                     else:
                         self.optional.discard(name)
+                        self.defaults.pop(name, None)
 
 
 def _lineage(

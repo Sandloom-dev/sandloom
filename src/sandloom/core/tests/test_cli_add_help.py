@@ -89,8 +89,8 @@ def test_every_type_the_help_lists_is_accepted_and_one_it_omits_is_refused() -> 
         add.parse_fields(["value:decimal128"])
 
 
-@pytest.mark.parametrize("generator", ["module", "event"])
-def test_no_tenant_is_a_flag_of_module_and_event_with_its_own_help(
+@pytest.mark.parametrize("generator", ["module", "event", "consumer"])
+def test_no_tenant_is_a_flag_of_module_event_and_consumer_with_its_own_help(
     generator: str,
 ) -> None:
     child = _subparsers(add._parser()).choices[generator]
@@ -98,7 +98,7 @@ def test_no_tenant_is_a_flag_of_module_and_event_with_its_own_help(
     assert "without tenants" in (flag.help or "")
     assert "TENANCY_MODE" not in child.format_help()
     assert flag.default is False
-    for other in ("contract", "consumer", "saga", "projection", "task"):
+    for other in ("contract", "saga", "projection", "task"):
         text = _subparsers(add._parser()).choices[other].format_help()
         assert "--no-tenant" not in text
 

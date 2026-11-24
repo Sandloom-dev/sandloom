@@ -30,6 +30,11 @@ at-least-once; there is no ordering guarantee between events.
 
   Otherwise you pass the fields yourself with `--field`, and the view is
   marked unverified.
+
+  The order of the two generators does not matter. `add event` gives the event
+  `tenant_id: UUID` unless you pass `--no-tenant`. A view built from `--field`
+  alone gets the same field, so its test passes once the event is added. An
+  app without tenants passes `--no-tenant` to both.
 - If `consumers.py` already exists, it must parse and import `Event, on`
   from `sandloom.sdk` (and the types the fields need).
 
@@ -61,14 +66,26 @@ Both runs above, in one file:
 ```
 
 - **A view, not a producer.** The channel's first segment (`notes`) is
-  another module, so the class is a *view* of that channel: it is not
-  registered as a schema, `.publish()` on it is refused, and payload fields
-  it does not declare are ignored. You may delete fields you do not need;
-  never add one the producer does not send.
+  another module, so the class is a *view* of that channel. It is not
+  registered as a schema and `.publish()` on it is refused. Payload fields it
+  does not declare are ignored. Never add a field the producer does not send.
+- **Keep the required fields.** `tenant_id` is one of them. The generated test
+  builds its event from the view's fields. `deliver` checks that event against
+  the channel's schema, which demands every required field. The schema of a
+  producer class requires all its fields, defaulted ones included, because
+  `publish` always sends them.
+- **Which fields.** With the producer found, the view keeps every required
+  field, and a defaulted one keeps the producer's default (a view field without
+  it is SANDLOOM-C025). So `--field` cannot narrow a producer class. A
+  `--field` the producer does not send is refused, and the error names the
+  producer's fields. Such a field would be required in the view and fail every
+  payload of the channel, so add it to the event first. A computed default
+  cannot be copied: the generator refuses, and you write the view by hand.
 - **Verified or not.** A view built from the producer's schema is checked
-  against it. A view built from `--field` carries the comment
-  `# unverified: no producer schema was found` and is reported as unverified
-  until the producer's schema file is available.
+  against it. A view built from `--field` alone carries the comment
+  `# unverified: no producer schema was found`. It gets `tenant_id: UUID`
+  unless you pass `--no-tenant` or name the field yourself. It stays reported
+  as unverified until the producer's schema file is available.
 - **The handler.** `@on(E, name="...")` registers the function as a durable
   consumer. Each delivery runs in its own unit of work; `db()` is that unit's
   session. The envelope id is claimed in the same unit, so a redelivered
