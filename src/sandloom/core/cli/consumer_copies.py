@@ -61,7 +61,8 @@ from sandloom.core.descriptors.module_names import installed_modules, module_nam
 from sandloom.core.module_api import contract_schema
 
 #: Bumped only when the rendered output changes (provenance header).
-GENERATOR_FORMAT = 2
+#: 3: a stub carries one argument ``TypedDict`` per command.
+GENERATOR_FORMAT = 3
 GENERATED = _provenance.GENERATED
 EXPECTATION_SUFFIX = _provenance.EXPECTATION_SUFFIX
 #: A consumed contract's copy cannot be generated or verified.

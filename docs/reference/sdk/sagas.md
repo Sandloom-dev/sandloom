@@ -175,6 +175,17 @@ step("charge", call=credits.spend,
 
 Identical to the L2 `step` with `call="billing.credits.v1.spend"`.
 
+To have mypy check the keys and their types, write `args` as a named
+function annotated with the command's argument `TypedDict`, which
+`sandloom generate` writes into the contract stub (the signature
+without the idempotency parameter, named from the contract version and
+the method: `PaymentsChargesV1ChargeArgs`):
+
+```python
+def charge_args(c: SagaContext[EnrollInput]) -> PaymentsChargesV1ChargeArgs:
+    return {"customer_id": c.input.student_id, "amount": c.input.price}
+```
+
 `args` runs again on every attempt, so it is pure: no clock, no
 randomness, no closure over request state (a drift changes the command's
 argument digest and parks the saga). A lambda suits a one-expression

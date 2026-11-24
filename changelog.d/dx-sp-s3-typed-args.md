@@ -1,0 +1,7 @@
+### Added
+
+- **A contract stub carries one `TypedDict` per command** (dx-sp-s3-typed-args). `sandloom generate` writes it after the `ContractRef` declaration: the command's parameters without the idempotency key, a parameter with a default as `NotRequired[...]`, named from the contract version and the method (`PaymentsChargesV1ChargeArgs` for `charge` of `payments.charges.v1`). A saga `args` / `compensate_args` function annotated with it makes mypy refuse a wrong key, a missing required key, a value of the wrong type and the idempotency key itself, where the startup check was the first to see them. Two commands whose names map to one class name, or a name that collides with a class of the stub, are refused with `SANDLOOM-C012` when the stub is rendered. The academy example's saga annotates its args functions with them. Runtime is unchanged: the startup check and the key injection stay.
+
+### Changed
+
+- **The generator format is 3, and the L1 `ArgsFn` is `Callable[[SagaContext[Any]], Mapping[str, Any]]`** (dx-sp-s3-typed-args). Every committed stub, DTO copy and describe file is rewritten by `sandloom generate` (`--check` reports each as a generator change, the fingerprint being unchanged). `ArgsFn` was `Callable[[Any], dict[str, Any]]`: a function that takes another context type, or returns a value that is not a mapping, is now a type error. Upgrade: run `uv run sandloom generate` and commit the result; optionally annotate each args function with the `...Args` class of its command ([upgrade note](docs/operate/upgrade.md)).

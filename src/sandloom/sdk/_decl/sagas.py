@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any, TypeVar
 
@@ -38,7 +38,12 @@ InputT = TypeVar("InputT", bound=BaseModel)
 #: A command: its ``"<contract>.<method>"`` name or a typed caller method
 #: (``credits.spend`` of ``credits = Contract(BILLING_CREDITS_V1)``).
 CommandRef = str | Callable[..., Awaitable[Any]]
-ArgsFn = Callable[[Any], dict[str, Any]]
+#: A step's arguments: ``fn(ctx)`` returns a mapping of the command's keyword
+#: arguments, without its idempotency parameter. The ``TypedDict`` that
+#: ``sandloom generate`` writes into a contract stub for each command (for
+#: example ``PaymentsChargesV1ChargeArgs``) is such a mapping, so annotating the
+#: function with it makes mypy check the keys and their types.
+ArgsFn = Callable[[SagaContext[Any]], Mapping[str, Any]]
 #: What a local step runs: ``async def apply(ctx)``, writing through ``db()``.
 LocalFn = Callable[[SagaContext[Any]], Awaitable[Any]]
 
@@ -150,6 +155,15 @@ def step(
              compensate=credits.grant)
 
     Identical to the L2 ``step`` with ``call="billing.credits.v1.spend"``.
+
+    To have mypy check the keys and their types, write ``args`` as a named
+    function annotated with the command's argument ``TypedDict``, which
+    ``sandloom generate`` writes into the contract stub (the signature
+    without the idempotency parameter, named from the contract version and
+    the method: ``PaymentsChargesV1ChargeArgs``)::
+
+        def charge_args(c: SagaContext[EnrollInput]) -> PaymentsChargesV1ChargeArgs:
+            return {"customer_id": c.input.student_id, "amount": c.input.price}
 
     ``args`` runs again on every attempt, so it is pure: no clock, no
     randomness, no closure over request state (a drift changes the command's

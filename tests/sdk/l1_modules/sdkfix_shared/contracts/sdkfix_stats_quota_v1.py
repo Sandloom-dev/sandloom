@@ -6,7 +6,7 @@ Generated from ``sdkfix_stats.contracts.Quota``.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
 
@@ -20,3 +20,15 @@ class SdkfixStatsQuotaV1(Protocol):
 SDKFIX_STATS_QUOTA_V1: ContractRef[SdkfixStatsQuotaV1] = ContractRef(
     "sdkfix_stats.quota.v1", SdkfixStatsQuotaV1
 )
+
+
+class SdkfixStatsQuotaV1ReleaseArgs(TypedDict):
+    """Arguments of ``release``, without ``operation_key``."""
+
+    amount: int
+
+
+class SdkfixStatsQuotaV1ReserveArgs(TypedDict):
+    """Arguments of ``reserve``, without ``operation_key``."""
+
+    amount: int

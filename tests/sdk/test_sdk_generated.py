@@ -1289,10 +1289,38 @@ def _stub_providers() -> dict[str, tuple[str, type]]:
         ) -> dict[str, _StubDtoWithAVeryLongNameNumberThree]:
             return {}
 
+    class Commands:
+        """Argument ``TypedDict``s at their own line-length edges."""
+
+        # a field that fits, one that overflows and is wrapped at its bracket,
+        # an optional one that overflows (``NotRequired[...]``); a command with
+        # only its key
+        @classmethod
+        @contract_method(command=True, idempotency_key="operation_key")
+        async def import_ledger_entries_in_batch(
+            cls,
+            first_entry_in_the_batch: dict[str, _StubDtoWithAVeryLongNameNumberThree],
+            second_entry_in_the_batch_to_import: dict[
+                str, _StubDtoWithAVeryLongNameNumberThree
+            ],
+            reconciliation_window_label_for_the_batch: tuple[
+                _StubDtoWithAVeryLongNameNumberOne, ...
+            ] = (),
+            *,
+            operation_key: str,
+        ) -> int:
+            return 0
+
+        @classmethod
+        @contract_method(command=True, idempotency_key="operation_key")
+        async def ping(cls, operation_key: str) -> None:
+            return None
+
     class NoMethods:
         """Only a docstring."""
 
     return {
+        "commands-with-argument-typeddicts": ("sdkgen.commands.v1", Commands),
         "documented-at-88": ("notifications.mail.v1", DocumentedAt88),
         "undocumented-at-88": ("sdkgen.undocumented.v1", Undocumented),
         "exploded-and-long-imports": (

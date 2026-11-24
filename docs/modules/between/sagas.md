@@ -54,15 +54,21 @@ Does the change touch ONE module's tables?
 ```python
 # <module>/sagas.py
 from datetime import timedelta
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from sandloom.sdk import Contract
 from sandloom.sdk.sagas import Saga, SagaContext, local_step, step
-from myapp.shared.contracts.payments_charges_v1 import PAYMENTS_CHARGES_V1
-from myapp.shared.contracts.notifications_mail_v1 import NOTIFICATIONS_MAIL_V1
+from myapp.shared.contracts.payments_charges_v1 import (
+    PAYMENTS_CHARGES_V1,
+    PaymentsChargesV1ChargeArgs,
+    PaymentsChargesV1RefundArgs,
+)
+from myapp.shared.contracts.notifications_mail_v1 import (
+    NOTIFICATIONS_MAIL_V1,
+    NotificationsMailV1SendArgs,
+)
 
 from .services import enrollments
 
@@ -76,16 +82,16 @@ class EnrollInput(BaseModel):
     price: int
 
 
-def charge_args(c: SagaContext[EnrollInput]) -> dict[str, Any]:
+def charge_args(c: SagaContext[EnrollInput]) -> PaymentsChargesV1ChargeArgs:
     return {"customer_id": c.input.student_id, "amount": c.input.price}
 
 
-def refund_args(c: SagaContext[EnrollInput]) -> dict[str, Any]:
+def refund_args(c: SagaContext[EnrollInput]) -> PaymentsChargesV1RefundArgs:
     return {"customer_id": c.input.student_id, "charge_key": c.key("charge")}
 
 
-def notify_args(c: SagaContext[EnrollInput]) -> dict[str, Any]:
-    return {"user_id": c.input.student_id, "template": "enrolled"}
+def notify_args(c: SagaContext[EnrollInput]) -> NotificationsMailV1SendArgs:
+    return {"recipient_id": c.input.student_id, "template": "enrolled"}
 
 
 async def grant_access(c: SagaContext[EnrollInput]) -> str:
@@ -139,6 +145,23 @@ ENROLL = Saga(
 
 `sandloom add saga <module> <name>` writes a definition, its input model and a
 stand-in ledger contract with its stub; it writes no tests and no route. See [Add a saga](add-saga.md).
+
+### Typed arguments
+
+`sandloom generate` writes a `TypedDict` into the stub for each command of a
+contract. It holds the method's parameters without the idempotency key. Its name
+comes from the contract version and the method: `PaymentsChargesV1ChargeArgs`
+for the `charge` command of `payments.charges.v1`. A parameter with a default
+is `NotRequired`. A new contract version gets new names.
+
+Annotate the `args` function with it, as `charge_args` does above. Then mypy
+checks the keys and their types: a misspelt key, a wrong type or a missing
+argument is an editor error. It shows before the startup check runs.
+
+The `TypedDict` is a plain dict at runtime. The startup check and the key the
+runtime injects are unchanged, and a function that returns the key still fails
+there. A lambda cannot carry the annotation, so mypy checks it only as a
+mapping. Use a named function where the types matter.
 
 ### Rules for authors
 

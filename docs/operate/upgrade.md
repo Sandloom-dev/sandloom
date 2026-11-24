@@ -281,6 +281,31 @@ message says so. The rule catches the mistakes of ordinary code. A deliberate by
 caught statically; row-level security, where enabled, is the boundary. Review a listener that
 has to exist like raw SQL, and register it outside module code (a driver, the startup, a test).
 
+## Upgrading an application: typed saga step arguments
+
+`sandloom generate` now writes one `TypedDict` per command into each contract stub. It holds
+the method's parameters without the idempotency key. Its name joins the contract version and
+the method: `PaymentsChargesV1ChargeArgs` is the `charge` command of `payments.charges.v1`.
+
+The stubs carry generator format 3. Every consumer file (stub, DTO copy, describe file) is
+rewritten once, and `sandloom generate --check` reports each as a generator change until you run it.
+
+1. Run `uv run sandloom generate` and commit the rewritten files. A stub without a command
+   changes in its header only.
+2. Optional: annotate each `args` / `compensate_args` function with the class of its
+   command, as the [saga guide](../modules/between/sagas.md#typed-arguments) shows. mypy then
+   checks the keys and their types. A function that returns `dict[str, object]` still passes.
+
+Nothing changes at runtime. The startup check, the idempotency key and the command log are
+the ones they were.
+
+The `args` parameter of `step` is now typed `Callable[[SagaContext[Any]], Mapping[str, Any]]`.
+A function that takes another context type, or returns a value that is not a mapping, is now
+a type error.
+
+Two command methods whose names differ only in capitals and separators (`a_b` and `aB`) give
+one class name. The generator refuses them with SANDLOOM-C012. Rename one of the methods.
+
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 
 Four answers of `TenantScope` have a stable `code`, and two of them new

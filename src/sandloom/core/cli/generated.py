@@ -83,7 +83,7 @@ from sandloom.core.contracts.schema_compatibility import (
 )
 from sandloom.core.descriptors.module_names import module_name
 from sandloom.core.infra.config import InfraConfigError
-from sandloom.core.module_api import contract_schema
+from sandloom.core.module_api import ContractMethodRuntime, contract_schema
 
 #: File name of a module's generated surface snapshot.
 MODULE_SNAPSHOT = "module.snapshot.json"
@@ -596,12 +596,76 @@ def _render_atoms(
     return atoms
 
 
+def args_name(protocol: str, method: str) -> str:
+    """``PaymentsChargesV1ChargeArgs``: the name of a command's argument
+    ``TypedDict`` (the Protocol name, the method in PascalCase, ``Args``), so
+    a new contract version gets new names."""
+    parts = method.split("_")
+    return protocol + "".join(p[:1].upper() + p[1:] for p in parts) + "Args"
+
+
+def _render_args(
+    protocol: str,
+    name: str,
+    runtime: ContractMethodRuntime,
+    imports: _Imports,
+    resolver: _dto_copies.Resolver | None,
+) -> str:
+    """The ``TypedDict`` of command ``name``'s arguments: the signature
+    without the idempotency parameter (the saga injects the key at runtime
+    and refuses one in a step's ``args``), a default as ``NotRequired``. It is
+    what a saga step's ``args`` function returns, so mypy checks the keys and
+    their types against the provider's signature; a dict at runtime."""
+    imports.need("typing", "TypedDict")
+    key = runtime.idempotency_key
+    fields: list[str] = []
+    for pname, param in runtime.signature.parameters.items():
+        if pname == key:
+            continue
+        text = render_annotation(runtime.annotations[pname], imports, resolver)
+        if param.default is not param.empty:
+            text = f"{imports.need('typing', 'NotRequired')}[{text}]"
+        fields.extend(_dto_copies.fit_lines(f"    {pname}: {text}"))
+    doc = docstring(f"Arguments of ``{name}``, without ``{key}``.", "    ")
+    head = f"class {args_name(protocol, name)}(TypedDict):\n{doc}\n"
+    return head + ("\n" + "\n".join(fields) + "\n" if fields else "")
+
+
+def _render_args_types(
+    contract: str,
+    protocol: str,
+    methods: Mapping[str, ContractMethodRuntime],
+    reserved: Collection[str],
+    imports: _Imports,
+    resolver: _dto_copies.Resolver | None,
+) -> list[str]:
+    """One argument ``TypedDict`` per command of the contract, by method name.
+    Two commands (or a command and the Protocol or an atom) that map to one
+    class name are refused: the second would silently replace the first."""
+    taken = set(reserved)
+    out: list[str] = []
+    for name, runtime in sorted(methods.items()):
+        if runtime.kind != "command":
+            continue
+        cls = args_name(protocol, name)
+        if cls in taken:
+            raise _dto_copies.CopyError(
+                f"{contract} {name}",
+                f"its argument class {cls} is already a class of this stub",
+                "rename the command method so its PascalCase name differs",
+            )
+        taken.add(cls)
+        out.append(_render_args(protocol, name, runtime, imports, resolver))
+    return out
+
+
 def render_stub(
     contract: str, provider: Any, resolver: _dto_copies.Resolver | None = None
 ) -> str:
     """The generated stub of contract ``contract`` provided by ``provider``
     (its DTOs imported from where ``resolver`` places them), followed by the
-    typed atoms of its access checks (ADR-0014 decision 8)."""
+    argument ``TypedDict`` of each of its commands and the typed atoms of its
+    access checks (ADR-0014 decision 8)."""
     _stem, protocol, ref = stub_names(contract)
     imports = _Imports()
     imports.need("typing", "Protocol")
@@ -609,7 +673,8 @@ def render_stub(
     imports.need(home, "ContractRef", marker)
     methods = []
     documented = False
-    for name, runtime in sorted(contract_schema(provider).methods.items()):
+    schema_methods = contract_schema(provider).methods
+    for name, runtime in sorted(schema_methods.items()):
         params = ["self"]
         for pname, param in runtime.signature.parameters.items():
             annotation = runtime.annotations[pname]
@@ -637,7 +702,13 @@ def render_stub(
     body = body or "    pass"
     declaration = _declaration(ref, protocol, json.dumps(contract))
     atoms = _render_atoms(contract, provider, imports, resolver)
-    tail = "".join(f"\n\n{atom}" for atom in atoms)
+    atom_classes = [
+        c for atom in atoms for c in re.findall(r"^class (\w+)", atom, re.M)
+    ]
+    arg_types = _render_args_types(
+        contract, protocol, schema_methods, [protocol, *atom_classes], imports, resolver
+    )
+    tail = "".join(f"\n\n{block}" for block in [*arg_types, *atoms])
     return (
         f'{HEADER}"""Contract ``{contract}``: the typed stub callers import.\n\n'
         f"Generated from ``{provider.__module__}.{provider.__qualname__}``.\n"
