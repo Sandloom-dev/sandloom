@@ -32,6 +32,9 @@ from sandloom.sdk import Conflict, NotFound, Refused
         (NotFound(), 404, "not_found", "Not Found"),
         (Conflict(), 409, "conflict", "Conflict"),
         (Refused(402), 402, None, "Payment Required"),
+        # a client status with no standard phrase (HTTPStatus has no 499): a
+        # fixed detail, not the ValueError of the lookup
+        (Refused(499), 499, None, "Client Error"),
         (Refused(422, "reason"), 422, None, "reason"),
         (Refused(403, code="needs_admin"), 403, "needs_admin", "Forbidden"),
         (NotFound("note gone", code="note_gone"), 404, "note_gone", "note gone"),

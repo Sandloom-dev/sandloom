@@ -21,7 +21,7 @@ from sqlalchemy import distinct, select
 
 from projecthub.shared.contracts.projects_read_v2 import PROJECTS_READ_V2
 from projecthub.shared.contracts.tasks_read_v1 import TASKS_READ_V1
-from sandloom.sdk import Contract
+from sandloom.sdk import Contract, db
 from sandloom.sdk.data import (
     open_uow,  # sandloom: advanced rebuild runs outside a request
 )
@@ -58,14 +58,13 @@ class TaskboardRebuilder:
         project_rows = await projects.list_for_tenant(tenant_id)
         task_rows = await tasks.list_for_tenant(tenant_id)
         rows = 0
-        async with open_uow() as session:
+        async with open_uow():
             # 1) Project snapshots first (version-guarded: a rebuild never
             #    rolls back a newer state live delivery already applied), then
             #    re-fan their CURRENT values over existing task rows — this is
             #    what repairs a row left with stale project fields.
             for project in project_rows:
                 await upsert_project_snapshot(
-                    session,
                     project_id=project.project_id,
                     tenant_id=tenant_id,
                     name=project.name,
@@ -73,10 +72,9 @@ class TaskboardRebuilder:
                     version=project.version,
                 )
                 snapshot = await lock_project_snapshot(
-                    session, project_id=project.project_id, tenant_id=tenant_id
+                    project_id=project.project_id, tenant_id=tenant_id
                 )
                 await refresh_task_rows(
-                    session,
                     project_id=project.project_id,
                     name=snapshot.name,
                     status=snapshot.status,
@@ -86,10 +84,9 @@ class TaskboardRebuilder:
             for task in task_rows:
                 project_id = UUID(task["project_id"])
                 snapshot = await lock_project_snapshot(
-                    session, project_id=project_id, tenant_id=tenant_id
+                    project_id=project_id, tenant_id=tenant_id
                 )
                 await monotonic_upsert(
-                    session,
                     ProjectTaskQueryIndex,
                     key={"task_id": UUID(task["task_id"])},
                     values={
@@ -113,11 +110,11 @@ class TaskboardRebuilder:
         # with no rows yet; this keeps the demo within the read contracts above.
         # A deliberate cross-tenant read of this module's OWN index (the table
         # is TenantScoped). Under tenant_rls it sees no rows: rebuild --tenant.
-        async with open_uow() as session:
+        async with open_uow():
             with unscoped():
                 tenant_ids = (
                     (
-                        await session.execute(
+                        await db().execute(
                             select(distinct(ProjectTaskQueryIndex.tenant_id))
                         )
                     )
@@ -141,10 +138,10 @@ class TaskboardRebuilder:
             # This read module can discover a cached entity's tenant from its
             # OWN index, without an unscoped query of another module's source.
             # A cold entity has no known tenant: rebuild its tenant explicitly.
-            async with open_uow() as session:
+            async with open_uow():
                 with unscoped():
                     tenants = (
-                        await session.scalars(
+                        await db().scalars(
                             select(ProjectTaskQueryIndex.tenant_id)
                             .where(ProjectTaskQueryIndex.project_id == UUID(raw))
                             .distinct()
@@ -163,9 +160,8 @@ class TaskboardRebuilder:
         project = await projects.get(UUID(raw))
         if project is None:
             return ProjectionRebuildResult(projection=PROJECTION_NAME, rows=0)
-        async with open_uow() as session:
+        async with open_uow():
             await upsert_project_snapshot(
-                session,
                 project_id=UUID(raw),
                 tenant_id=project.tenant_id,
                 name=project.name,
@@ -173,10 +169,9 @@ class TaskboardRebuilder:
                 version=project.version,
             )
             snapshot = await lock_project_snapshot(
-                session, project_id=UUID(raw), tenant_id=project.tenant_id
+                project_id=UUID(raw), tenant_id=project.tenant_id
             )
             rows = await refresh_task_rows(
-                session,
                 project_id=UUID(raw),
                 name=snapshot.name,
                 status=snapshot.status,

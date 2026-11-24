@@ -721,32 +721,59 @@ def test_migrate_new_adds_row_level_security_to_new_tenant_tables(
 
 def _tier_problems(paths: list[Path]) -> list[str]:
     beginner = api10_rules.beginner_names(SDK)
+    after_first = api10_rules.after_first_names(SDK)
     return [
         f"{py}: {problem}"
         for py in api10_rules.iter_python(paths)
-        for problem in api10_rules.find_beginner_tier_problems(py, beginner)
+        for problem in api10_rules.find_beginner_tier_problems(
+            py, beginner, after_first
+        )
     ]
 
 
-def test_the_beginner_tier_is_the_42_names() -> None:
-    """27 names of the 1.0 spec (26 since KB-34: 20 code and 6 testing), plus ``new_id`` and ``CreatedAt``: the id
-    and timestamp idiom every generated model uses (owner, 2026-10-27), plus
-    ``UtcDateTime``, the type SANDLOOM-C029 asks for on every other time
-    column (owner, 2026-11-05), less the four domain atoms (``Subscribed``,
-    ``SubscriptionActive``, ``Credits``, ``OrgRole``) that the consumer's
-    generated stub carries since KB-34; 42 since dx-module-less-boilerplate:
-    ``NotFound``, ``Conflict``, ``Refused``, ``UpdatedAt`` and ``bind_tenant``
-    join the root (25 code names), and the tiers of ``sandloom.sdk.sagas`` (5)
-    and ``sandloom.sdk.projections`` (6) are no longer empty."""
+def test_the_beginner_tier_is_the_29_names() -> None:
+    """Tier 1 is 29 names (owner, 2026-11-24): 24 code names and 5 for tests.
+
+    The 1.0 spec taught 27 (26 since KB-34, which moved the four domain atoms
+    ``Subscribed``, ``SubscriptionActive``, ``Credits`` and ``OrgRole`` into the
+    consumer's generated stub), plus ``new_id`` and ``CreatedAt`` (the id and
+    timestamp idiom of every generated model, 2026-10-27) and ``UtcDateTime``
+    (the type SANDLOOM-C029 asks for on every other time column, 2026-11-05).
+    dx-module-less-boilerplate added ``NotFound``, ``Conflict``, ``Refused``,
+    ``UpdatedAt``, ``bind_tenant`` and ``Account``, and took ``Owner``,
+    ``authorize_resource`` and ``fake_access_fact`` out again: each is used in
+    too few modules to be free anywhere. Sagas, projections and tasks are tier 2
+    (free in the file made for them), not tier 1."""
     beginner = api10_rules.beginner_names(SDK)
     code = beginner["sandloom.sdk"]
     testing = beginner["sandloom.sdk.testing"] | beginner["sandloom.sdk.testing.plugin"]
-    sagas = beginner["sandloom.sdk.sagas"]
-    projections = beginner["sandloom.sdk.projections"]
-    assert len(code) == 25 and len(testing) == 6
-    assert len(sagas) == 5 and len(projections) == 6
+    assert len(code) == 24 and len(testing) == 5
+    assert len(code | testing) == 29
+    assert testing == {"client", "as_user", "published", "deliver", "fake_contract"}
     assert {"new_id", "CreatedAt", "UtcDateTime"} <= code
     assert {"NotFound", "Conflict", "Refused", "UpdatedAt", "bind_tenant"} <= code
+    assert "Account" in code
+    assert not {"Owner", "authorize_resource", "fake_access_fact"} & (code | testing)
+    for module in ("sagas", "projections", "tasks"):
+        assert beginner[f"sandloom.sdk.{module}"] == set()
+
+
+def test_tier_2_is_the_twelve_names_of_the_three_files_that_add_writes() -> None:
+    after_first = api10_rules.after_first_names(SDK)
+    flat = {
+        (file, name)
+        for files in after_first.values()
+        for file, names in files.items()
+        for name in names
+    }
+    assert flat == {
+        ("sagas.py", name)
+        for name in ("Saga", "SagaContext", "step", "local_step", "start_saga")
+    } | {
+        ("projections.py", name)
+        for name in ("Projection", "SourceGroup", "full_state", "tombstone")
+    } | {("tasks.py", name) for name in ("task", "periodic", "open_uow")}
+    assert len(flat) == 12
 
 
 def test_generated_code_uses_only_the_beginner_tier(tmp_path: Path) -> None:
@@ -771,11 +798,15 @@ def test_the_pin_reports_an_unmarked_advanced_name(tmp_path: Path) -> None:
         "from sandloom.sdk import db, define_module\n"
         "from sandloom.sdk.web import DbSession\n"
         "from sandloom.sdk.data import open_uow  # sandloom: advanced a block unit\n"
+        "from sandloom.sdk.sagas import Saga\n"
         "import sandloom.sdk.tenant\n"
     )
     problems = _tier_problems([py])
-    assert len(problems) == 2
-    assert "DbSession" in problems[0] and "sandloom.sdk.tenant" in problems[1]
+    assert len(problems) == 3
+    assert "DbSession" in problems[0]
+    # tier 2 outside the module file made for it: named as such
+    assert "Saga" in problems[1] and "tier 2" in problems[1]
+    assert "sandloom.sdk.tenant" in problems[2]
 
 
 # --------------------------------------------------------------------------- #

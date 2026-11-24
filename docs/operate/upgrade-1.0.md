@@ -289,6 +289,38 @@ write ([Module internals](../advanced/module-internals.md)).
 | a session passed to `asyncio.gather` children | each child opens `open_uow()` ([SANDLOOM-R013](../reference/error-codes.md#sandloom-r013)) |
 | a second writing session in one request | refused at its first write ([SANDLOOM-R007](../reference/error-codes.md#sandloom-r007)); `writes("x")` or `allow_multi_db_write(...)` |
 
+### Session parameters leave the author surface
+
+`db()` is the one spelling. Five forms that took the session as a parameter
+are removed, with no deprecated second form. Each now fails with a
+`TypeError` that names the rewrite, in the place where the function is
+declared, not when a request first runs it.
+
+| Old form | Now | Rewrite |
+| --- | --- | --- |
+| `local_step("s", apply=fn)` with `async def fn(session, ctx)` (and `compensate=`) | `TypeError: local_step(apply=...) takes async def f(ctx) and writes through db(); ...` when the saga module is imported | `async def fn(ctx)`; read and write through `db()` |
+| `authorize_resource(loader=load, ...)` with `async def load(id, session)` | `TypeError: authorize_resource(loader=...) takes async def load(id) ...` when the route's dependency is built | `async def load(id)` reading through `db()` |
+| a projection consumer handler `async def h(session, envelope)` | `TypeError: consumer '<name>': handler takes async def f(envelope) ...` when the descriptor is built | `async def h(envelope)`, write through `db()` |
+| `monotonic_upsert(session, Row, key=..., ...)`, and `monotonic_update`, `monotonic_delete` | Python's own `TypeError: ... takes 1 positional argument but 2 were given` | `monotonic_upsert(Row, key=..., values=..., version_column=..., incoming_version=...)`; the same keywords as before |
+| `await projection.apply(session, group, event, mapper)` | `TypeError` for the extra positional argument | `await projection.apply(group, event, mapper)` inside a unit |
+
+The kernel's own runtimes keep `(session, ...)` internally and adapt the
+author's function, so nothing else changes for a module. A raw L2 consumer
+registered with `register_event_consumer(channel, handler)` stays
+session-shaped on purpose: `async def handler(session, envelope)`.
+
+The tier of names changed in the same release. `sandloom.sdk` exports 24
+names: `Owner` and `authorize_resource` left the root
+(`from sandloom.sdk import Owner` is an `ImportError`) and `Account` joined it.
+
+| Old | New |
+| --- | --- |
+| `from sandloom.sdk import Owner, authorize_resource` | `from sandloom.sdk.authz import Owner, authorize_resource  # sandloom: advanced <reason>` |
+| `from sandloom.sdk.authz import Account  # sandloom: advanced ...` | `from sandloom.sdk import Account` (the marker is no longer needed) |
+| `Saga`, `step`, `Projection`, `task` and the other tier 2 names with a marker in their own file | no marker in `sagas.py`, `projections.py` or `tasks.py`; a marker in any other file |
+| `View`, `ProjectionView` imported with no marker | `# sandloom: advanced <reason>`: [SANDLOOM-T009](../reference/error-codes.md#sandloom-t009) |
+| `fake_access_fact` imported with no marker | `# sandloom: advanced <reason>` |
+
 ### Idempotency
 
 Every authenticated write that carries `Idempotency-Key` is deduplicated

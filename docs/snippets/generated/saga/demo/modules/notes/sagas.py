@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from demo.shared.contracts.notes_onboarding_ledger_v1 import NOTES_ONBOARDING_LEDGER_V1
 from sandloom.sdk import Contract
-from sandloom.sdk.sagas import Saga, local_step, step  # sandloom: advanced sagas
+from sandloom.sdk.sagas import Saga, local_step, step
 
 ledger = Contract(NOTES_ONBOARDING_LEDGER_V1)
 
@@ -26,7 +26,7 @@ def _amount(ctx: Any) -> dict[str, Any]:
     return {"amount": ctx.input.amount}
 
 
-async def _confirm(session: Any, ctx: Any) -> dict[str, str]:
+async def _confirm(ctx: Any) -> dict[str, str]:
     return {"owner_id": str(ctx.input.owner_id)}
 
 

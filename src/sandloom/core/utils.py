@@ -13,31 +13,22 @@ def safe_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 
-def takes(fn: Callable[..., Any], count: int, *, follow_wrapped: bool = True) -> bool:
-    """Whether ``fn`` takes ``count`` positional arguments: it requires that
-    many, or accepts any number (``*args``).
+def takes_one_argument(fn: Callable[..., Any]) -> bool:
+    """Whether ``fn`` can be called with one positional argument.
 
-    How an API that takes a callable in two shapes (with or without a leading
-    session, the session being ``db()``) tells which one it was given. Only a
-    required parameter counts: ``load(id, include_archived=False)`` takes one
-    argument, so its second parameter is never handed the session. A function
-    that fits both shapes (``*args``) fits any count.
-    ``follow_wrapped=False`` reads the signature of a wrapper itself, not of
-    what it wraps.
+    How an API that hands its callable one value (a loader gets the id, a
+    projection handler the envelope) refuses the earlier form that also took
+    the session first: ``load(id, session)`` needs two arguments, so it is
+    refused where it is declared, with the rewrite in the message. A defaulted
+    option (``load(id, include_archived=False)``) keeps its default.
+
+    Both signatures are read, the one a decorator shows (``__wrapped__``
+    followed) and the function's own: a decorated ``load(id, session)`` is
+    refused, and so is a framework adapter that needs the session first.
     """
-    signature = inspect.signature(fn, follow_wrapped=follow_wrapped)
-    try:
-        signature.bind(*([None] * count))
-    except TypeError:
-        return False
-    parameters = signature.parameters.values()
-    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters):
-        return True
-    required = sum(
-        1
-        for p in parameters
-        if p.kind
-        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        and p.default is inspect.Parameter.empty
-    )
-    return required == count
+    for follow_wrapped in (True, False):
+        try:
+            inspect.signature(fn, follow_wrapped=follow_wrapped).bind(None)
+        except TypeError:
+            return False
+    return True

@@ -5,8 +5,9 @@
   the bundled modules and examples has a public home, and every home exists;
 - L1 is built only from public L2 (``test_l1_uses_only_public_l2``);
 - every public module declares ``__all__`` and ``__beginner__``, and the
-  root re-exports exactly the 20 beginner code names (26 with the five
-  testing helpers and the ``client`` fixture); the domain atoms
+  root re-exports exactly the 24 beginner code names (29 with the four
+  testing helpers and the ``client`` fixture); a module may also declare
+  ``__after_first__`` (tier 2, ``{module file: names}``); the domain atoms
   (``Subscribed``, ``OrgRole``, ...) are generated into the consumer's stub,
   never re-exported by the kernel (KB-34);
 - the names new in 1.0 whose kernel mechanism has not landed yet are typed
@@ -117,20 +118,42 @@ def test_every_public_module_declares_its_tiers() -> None:
             assert hasattr(module, name), f"{module.__name__}.{name}"
 
 
+def test_every_public_module_declares_tier_2_as_a_file_map() -> None:
+    """``__after_first__`` (when declared) is ``{module file: names}``: each name
+    is exported by the module that declares it and is not also tier 1 (a name
+    in both tiers would make the file rule meaningless)."""
+    seen = 0
+    for module in _public_sdk_modules():
+        declared = getattr(module, "__after_first__", None)
+        if declared is None:
+            continue
+        assert isinstance(declared, dict) and declared, module.__name__
+        for file, names in declared.items():
+            assert file.endswith(".py") and "/" not in file, (module.__name__, file)
+            assert isinstance(names, tuple) and names, (module.__name__, file)
+            assert set(names) <= set(module.__all__), (module.__name__, file)
+            assert not set(names) & set(module.__beginner__), (module.__name__, file)
+            seen += len(names)
+    assert seen == 12
+
+
 def test_root_reexports_the_beginner_code_names() -> None:
     assert sorted(sandloom.sdk.__all__) == sorted(
         [
             "define_module", "module_router", "public", "CurrentUser", "Base",
             "TenantScoped", "db", "Event", "on", "contract", "command",
-            "Contract", "require", "Owner", "authorize_resource",
-            "record_audit", "on_commit", "new_id", "CreatedAt", "UtcDateTime",
+            "Contract", "require", "Account", "record_audit", "on_commit",
+            "new_id", "CreatedAt", "UpdatedAt", "UtcDateTime", "NotFound",
+            "Conflict", "Refused", "bind_tenant",
         ]
     )  # fmt: skip
-    assert len(sandloom.sdk.__all__) == 20
+    assert len(sandloom.sdk.__all__) == 24
     testing = importlib.import_module("sandloom.sdk.testing")
     assert set(testing.__beginner__) == {
-        "as_user", "published", "deliver", "fake_contract", "fake_access_fact",
+        "as_user", "published", "deliver", "fake_contract",
     }  # fmt: skip
+    plugin = importlib.import_module("sandloom.sdk.testing.plugin")
+    assert set(plugin.__beginner__) == {"client"}
 
 
 def _stub_calls() -> list[tuple[str, Any]]:

@@ -7,7 +7,7 @@ per column.
 from uuid import UUID
 
 from sandloom.sdk import Event
-from sandloom.sdk.projections import (  # sandloom: advanced projections
+from sandloom.sdk.projections import (
     Projection,
     SourceGroup,
     full_state,

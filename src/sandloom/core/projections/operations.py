@@ -50,6 +50,7 @@ from sandloom.core.sql_alchemy.projection_watermarks import (
 )
 from sandloom.core.tenant_context import current_tenant_id_optional
 from sandloom.core.unit_of_work import db_session
+from sandloom.core.unit_of_work.request import db
 from sandloom.core.unit_of_work.scope import _OUTBOX_PENDING_KEY
 
 
@@ -214,13 +215,13 @@ def watermark_guarded(
     are atomic with respect to a purge, for a relational model and a store
     target alike (the store write runs inside the locked unit). A purge thus
     never deletes a tombstone between an apply's check and its write."""
-    handler = descriptor.apply
+    handler = descriptor.handler
     projection = descriptor.projection
 
     @functools.wraps(handler)
-    async def guarded(session: Any, envelope: Any) -> None:
-        check_watermark(await locked_watermark(session, projection), envelope)
-        await handler(session, envelope)
+    async def guarded(envelope: Any) -> None:
+        check_watermark(await locked_watermark(db(), projection), envelope)
+        await handler(envelope)
 
     return dataclasses.replace(descriptor, handler=guarded)
 

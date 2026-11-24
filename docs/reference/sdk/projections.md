@@ -13,18 +13,16 @@ and helpers.
 Public API 1.0 (spec §2.2, Appendix C). A name whose mechanism lands at a
 later hand-off raises `NotImplementedError` naming it.
 
-`from sandloom.sdk.projections import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.projections import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
-## Start with (beginner)
+## After the first module (in `projections.py`)
 
 | Name | Kind | Summary |
 | --- | --- | --- |
 | [`full_state`](#full_state) | function | A mapper of full-state events: every owned field, replaced iff the stored version is NULL or older (convergent under any interleaving). |
 | [`Projection`](#projection) | class | A declared read model (spec §6.4), registered by `define_module` from the module's `projections` submodule. |
-| [`ProjectionView`](#projectionview) | class | Reads one projection (`Annotated[ProjectionView[R], View(...)]`). |
 | [`SourceGroup`](#sourcegroup) | class | The channels of ONE aggregate feeding a projection, with its version. |
 | [`tombstone`](#tombstone) | function | A mapper of delete events: a versioned tombstone in the owning group (§6.4 item 5); reads filter it. |
-| [`View`](#view) | function | The dependency resolving a `ProjectionView` of projection `name`: |
 
 ## Advanced
 
@@ -44,14 +42,16 @@ later hand-off raises `NotImplementedError` naming it.
 | [`ProjectionRebuilder`](#projectionrebuilder_1) | class | Reconstructs a projection from its source modules (idempotently). |
 | [`ProjectionRebuildResult`](#projectionrebuildresult) | class | Outcome of a rebuild run (rows written + whether the index was cleared). |
 | [`ProjectionRegistryError`](#projectionregistryerror) | exception | A projection/consumer registration conflicts with existing state. |
+| [`ProjectionView`](#projectionview) | class | Reads one projection (`Annotated[ProjectionView[R], View(...)]`). |
 | [`purge_tombstones`](#purge_tombstones) | async function | Purge tombstones behind the watermark that refuses older replays. |
 | [`QueryProjectionDescriptor`](#queryprojectiondescriptor) | class | A denormalised cross-module read model owned by one module. |
 | [`QueryProjectionRegistry`](#queryprojectionregistry) | class | Holds query-projection descriptors, consumers and rebuilders by name. |
 | [`read_token`](#read_token) | function | The token of `header`; `None` for a missing, malformed, expired, unknown-kid or other-tenant token (never an error). |
 | [`rebuild`](#rebuild) | async function | Rebuild projection `name` from its source (§6.4): one tenant, or every tenant. Purges refuse while it runs; the purge watermark is kept.... |
 | [`start_projection_consumers`](#start_projection_consumers) | async function | Subscribe every registered projection consumer to the event bus. |
+| [`View`](#view) | function | The dependency resolving a `ProjectionView` of projection `name`: |
 
-## Beginner names
+## After-first names
 
 ### `full_state`
 
@@ -138,64 +138,11 @@ def rebuilder(self) -> ProjectionRebuilderFromContract | None
 #### `Projection.apply`
 
 ```python
-async def apply(
-    self,
-    session: Any,
-    group: SourceGroup,
-    event: Event,
-    mapper: Mapper[Any],
-) -> bool
+async def apply(self, group: SourceGroup, event: Event, mapper: Mapper[Any]) -> bool
 ```
 
-Apply one event to the projection in `session` (the consumer's unit).
-
-### `ProjectionView`
-
-```python
-class ProjectionView(Generic)(
-    projection: Projection,
-    row: type[R],
-    session: Any,
-    *,
-    on_stale: Literal['serve', 'source'] = 'serve',
-    wait_ms: int | None = None,
-    token: ConsistencyToken | None = None,
-    response: Response | None = None,
-) -> None
-```
-
-Reads one projection (`Annotated[ProjectionView[R], View(...)]`).
-
-Rows whose tombstone is set are never returned. With a consistency token
-(`SANDLOOM-Consistency-Token`) a read waits up to `wait_ms` for the rows
-the caller's write produces; then it serves anyway with `stale = True`
-and `SANDLOOM-Projection-Stale: true` (`on_stale="serve"`), or reads the
-entity from its source through `rebuild_from` (`on_stale="source"`,
-`get` only). Never an error status.
-
-#### `ProjectionView.get`
-
-```python
-async def get(self, key: Mapping[str, Any]) -> R | None
-```
-
-#### `ProjectionView.query`
-
-```python
-async def query(
-    self,
-    *,
-    filter: Mapping[str, Any] | None = None,
-    limit: int = 50,
-    cursor: str | None = None,
-) -> Page[R]
-```
-
-#### `ProjectionView.search`
-
-```python
-async def search(self, q: str, *, limit: int = 50) -> list[R]
-```
+Apply one event to the projection through `db()` (the consumer's
+unit).
 
 ### `SourceGroup`
 
@@ -220,24 +167,6 @@ def tombstone(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]
 
 A mapper of delete events: a versioned tombstone in the owning group
 (§6.4 item 5); reads filter it.
-
-### `View`
-
-```python
-def View(
-    name: str,
-    row: type[R],
-    *,
-    on_stale: Literal['serve', 'source'] = 'serve',
-    wait_ms: int | None = None,
-) -> params.Depends
-```
-
-The dependency resolving a `ProjectionView` of projection `name`:
-
-```python
-tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
-```
 
 ## Advanced names
 
@@ -382,7 +311,8 @@ Maps an event to the projection fields its group owns.
 
 ```python
 async def monotonic_delete(
-    *args: Any,
+    target: Any,
+    *,
     key: dict[str, Any],
     version_column: str,
     incoming_version: int,
@@ -395,8 +325,7 @@ async def monotonic_delete(
 
 Persist a versioned tombstone, including when deletion arrives first.
 
-The session is `db()` unless the earlier
-`monotonic_delete(session, Model, ...)` form passes one.
+Writes through `db()`, the unit the consumer runs in.
 
 A physical DELETE discards the version and lets a delayed older upsert
 resurrect the row. This helper retains it using the same tenant/version
@@ -415,7 +344,8 @@ incomplete source listing.
 
 ```python
 async def monotonic_update(
-    *args: Any,
+    target: Any,
+    *,
     match: dict[str, Any],
     values: dict[str, Any],
     version_column: str,
@@ -425,8 +355,7 @@ async def monotonic_update(
 
 Update every projection row matching `match`, guarded by source version.
 
-The session is `db()` unless the earlier
-`monotonic_update(session, Model, ...)` form passes one.
+Writes through `db()`, the unit the consumer runs in.
 
 For denormalised fields that fan out across many rows (e.g. a project's name
 copied onto every task row): updates the matched rows whose stored
@@ -447,7 +376,8 @@ the projecthub taskboard `ProjectSnapshot`.
 
 ```python
 async def monotonic_upsert(
-    *args: Any,
+    target: Any,
+    *,
     key: dict[str, Any],
     values: dict[str, Any],
     version_column: str,
@@ -458,9 +388,8 @@ async def monotonic_upsert(
 
 Insert-or-update a single projection row, guarded by source version.
 
-`monotonic_upsert(Model, key=..., ...)` writes through `db()`, the unit
-the consumer runs in; the earlier `monotonic_upsert(session, Model, ...)`
-still works.
+Writes through `db()`, the unit the consumer runs in; `target` is the
+model or table (positional or `target=`).
 
 Inserts the row (`key` + `values` + `insert_only` + the version) when
 absent; on a primary-key/unique conflict it updates `values` and the
@@ -483,7 +412,7 @@ class ProjectionConsumerDescriptor(
     name: str,
     source_channel: str,
     projection: str,
-    handler: ProjectionHandlerFn,
+    handler: ProjectionHandler,
     durable: bool = True,
     required: bool = True,
     module: str | None = None,
@@ -519,8 +448,9 @@ unavailable projection.
 apply  (property)
 ```
 
-The handler in the runtime's `(session, envelope)` form, the one
-`__post_init__` stored whichever shape the author passed.
+The handler in the runtime's `(session, envelope)` form: the
+session the consumer callback opened is `db()` already, so the
+handler is run on the envelope alone.
 
 #### `ProjectionConsumerDescriptor.group_name`
 
@@ -601,6 +531,54 @@ class ProjectionRegistryError(RuntimeError)
 ```
 
 A projection/consumer registration conflicts with existing state.
+
+### `ProjectionView`
+
+```python
+class ProjectionView(Generic)(
+    projection: Projection,
+    row: type[R],
+    session: Any,
+    *,
+    on_stale: Literal['serve', 'source'] = 'serve',
+    wait_ms: int | None = None,
+    token: ConsistencyToken | None = None,
+    response: Response | None = None,
+) -> None
+```
+
+Reads one projection (`Annotated[ProjectionView[R], View(...)]`).
+
+Rows whose tombstone is set are never returned. With a consistency token
+(`SANDLOOM-Consistency-Token`) a read waits up to `wait_ms` for the rows
+the caller's write produces; then it serves anyway with `stale = True`
+and `SANDLOOM-Projection-Stale: true` (`on_stale="serve"`), or reads the
+entity from its source through `rebuild_from` (`on_stale="source"`,
+`get` only). Never an error status.
+
+#### `ProjectionView.get`
+
+```python
+async def get(self, key: Mapping[str, Any]) -> R | None
+```
+
+#### `ProjectionView.query`
+
+```python
+async def query(
+    self,
+    *,
+    filter: Mapping[str, Any] | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> Page[R]
+```
+
+#### `ProjectionView.search`
+
+```python
+async def search(self, q: str, *, limit: int = 50) -> list[R]
+```
 
 ### `purge_tombstones`
 
@@ -769,6 +747,24 @@ Returns the number of consumers wired through the canonical supervised
 runtime. Duplicate groups and missing required projections fail startup;
 repeated calls do not add duplicate handlers. `session_opener` defaults
 to `unit_of_work.db_session` and is injectable for tests.
+
+### `View`
+
+```python
+def View(
+    name: str,
+    row: type[R],
+    *,
+    on_stale: Literal['serve', 'source'] = 'serve',
+    wait_ms: int | None = None,
+) -> params.Depends
+```
+
+The dependency resolving a `ProjectionView` of projection `name`:
+
+```python
+tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
+```
 
 ## Examples and related guides
 

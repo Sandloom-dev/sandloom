@@ -11,17 +11,61 @@ Background tasks: `@task` and `@periodic` for `<module>/tasks.py`.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.tasks import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.tasks import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+
+## After the first module (in `tasks.py`)
+
+| Name | Kind | Summary |
+| --- | --- | --- |
+| [`periodic`](#periodic) | function | `@periodic(cron="0 3 * * *", id="identity.cleanup")`: a task without a payload, sent at the slots of `cron` (five fields, UTC) while a sc... |
+| [`task`](#task) | function | `@task` / `@task(queue=..., at_least_once=True)`. |
 
 ## Advanced
 
 | Name | Kind | Summary |
 | --- | --- | --- |
 | [`PayloadlessTask`](#payloadlesstask) | class | A declared task that takes no payload. |
-| [`periodic`](#periodic) | function | `@periodic(cron="0 3 * * *", id="identity.cleanup")`: a task without a payload, sent at the slots of `cron` (five fields, UTC) while a sc... |
 | [`PeriodicTask`](#periodictask) | class | A task the scheduler sends at the slots of its cron expression. |
-| [`Task`](#task) | class | A declared task: call it inline, or enqueue it. |
-| [`task`](#task_1) | function | `@task` / `@task(queue=..., at_least_once=True)`. |
+| [`Task`](#task_1) | class | A declared task: call it inline, or enqueue it. |
+
+## After-first names
+
+### `periodic`
+
+```python
+def periodic(
+    *,
+    cron: str,
+    id: str,
+    queue: str = 'default',
+    at_least_once: bool = False,
+) -> Callable[[Callable[[], R]], PeriodicTask[R]]
+```
+
+`@periodic(cron="0 3 * * *", id="identity.cleanup")`: a task without a
+payload, sent at the slots of `cron` (five fields, UTC) while a
+scheduler runs. `id` is unique in the deployment. A run may repeat, so
+the body tolerates a second run. The module needs the taskqueue feature
+`periodic` (derived at load).
+
+### `task`
+
+```python
+def task(
+    fn: Callable[..., Any] | None = None,
+    /,
+    *,
+    queue: str = 'default',
+    at_least_once: bool = False,
+) -> Any
+```
+
+`@task` / `@task(queue=..., at_least_once=True)`.
+
+`at_least_once=True` redelivers the task when its worker dies mid-run:
+only for a task whose second run is harmless (it needs the taskqueue
+feature `redelivery`, derived at load). Its effects still need a
+DB-atomic dedupe (`durable_inbox` or a UNIQUE operation key).
 
 ## Advanced names
 
@@ -43,24 +87,6 @@ async def enqueue(
     idempotency_key: str | None = None,
 ) -> str
 ```
-
-### `periodic`
-
-```python
-def periodic(
-    *,
-    cron: str,
-    id: str,
-    queue: str = 'default',
-    at_least_once: bool = False,
-) -> Callable[[Callable[[], R]], PeriodicTask[R]]
-```
-
-`@periodic(cron="0 3 * * *", id="identity.cleanup")`: a task without a
-payload, sent at the slots of `cron` (five fields, UTC) while a
-scheduler runs. `id` is unique in the deployment. A run may repeat, so
-the body tolerates a second run. The module needs the taskqueue feature
-`periodic` (derived at load).
 
 ### `PeriodicTask`
 
@@ -95,25 +121,6 @@ Send the task to the taskqueue; returns the task id.
 `delay` needs the taskqueue feature `delay`. With
 `idempotency_key` a repeat returns the first task id (a different
 payload under one key conflicts).
-
-### `task`
-
-```python
-def task(
-    fn: Callable[..., Any] | None = None,
-    /,
-    *,
-    queue: str = 'default',
-    at_least_once: bool = False,
-) -> Any
-```
-
-`@task` / `@task(queue=..., at_least_once=True)`.
-
-`at_least_once=True` redelivers the task when its worker dies mid-run:
-only for a task whose second run is harmless (it needs the taskqueue
-feature `redelivery`, derived at load). Its effects still need a
-DB-atomic dedupe (`durable_inbox` or a UNIQUE operation key).
 
 ## Examples and related guides
 

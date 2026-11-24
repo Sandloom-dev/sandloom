@@ -16,8 +16,15 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine, MetaData, create_engine, inspect, select
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy import Engine, ForeignKey, MetaData, create_engine, inspect, select
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    registry,
+    relationship,
+)
 from sqlalchemy.orm.exc import StaleDataError
 
 from sandloom.core.sql_alchemy.base import Base
@@ -109,6 +116,41 @@ class Tagged(_Models):
     __tablename__ = "dx_eager_tagged"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+
+
+class _Joined(Base):
+    """A metadata of its own for the joined-table models."""
+
+    __abstract__ = True
+    metadata = MetaData()
+
+
+class Asset(Versioned, _Joined):
+    """A joined-table parent: ``version`` lives in ``dx_eager_assets``."""
+
+    __tablename__ = "dx_eager_assets"
+    __mapper_args__ = {
+        "polymorphic_on": "kind",
+        "polymorphic_identity": "asset",
+        "version_id_col": Versioned.version,
+        "version_id_generator": False,
+    }
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    kind: Mapped[str]
+    title: Mapped[str]
+
+
+class Video(Asset):
+    """Its child: ``duration`` lives in ``dx_eager_videos``, another table."""
+
+    __tablename__ = "dx_eager_videos"
+    __mapper_args__ = {"polymorphic_identity": "video"}
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dx_eager_assets.id"), primary_key=True
+    )
+    duration: Mapped[int]
 
 
 @pytest.fixture
@@ -338,6 +380,84 @@ def test_a_unit_that_reads_after_the_other_committed_publishes_the_whole_state(
             "closed",
             3,
         )
+
+
+@pytest.mark.parametrize(
+    "column", ["duration", "title"], ids=["child_table_only", "parent_table_only"]
+)
+def test_a_joined_table_update_counts_the_version_whichever_table_changed(
+    column: str,
+) -> None:
+    """``version`` lives in the parent table: an update that changes only the
+    child's own columns sends the parent table no statement, so the database
+    never counted it (and no stale-write check ran)."""
+    engine = create_engine("sqlite://")
+    _Joined.metadata.create_all(engine)
+    with Session(engine) as session:
+        video = Video(title="clip", duration=1)
+        session.add(video)
+        session.flush()
+        assert video.version == 1
+        setattr(video, column, 2 if column == "duration" else "cut")
+        session.flush()
+        assert "version" not in _unloaded(video)  # read back with the update
+        assert video.version == 2
+        session.expire(video)
+        assert video.version == 2
+        session.flush()  # nothing changed since
+        assert video.version == 2
+
+
+def test_a_stale_child_only_update_of_a_joined_table_is_refused(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path}/joined.db")
+    _Joined.metadata.create_all(engine)
+    video_id = new_id()
+    with Session(engine) as seed:
+        seed.add(Video(id=video_id, title="clip", duration=1))
+        seed.commit()
+    with Session(engine) as first, Session(engine) as second:
+        cut = first.get(Video, video_id)
+        trimmed = second.get(Video, video_id)
+        assert cut is not None and trimmed is not None
+        cut.duration = 5
+        first.commit()
+        trimmed.duration = 9
+        with pytest.raises(StaleDataError):
+            second.flush()
+    with Session(engine) as check:
+        row = check.get(Video, video_id)
+        assert row is not None
+        assert (row.duration, row.version) == (5, 2)
+
+
+def test_constructing_a_model_does_not_configure_an_unrelated_registry() -> None:
+    """Another registry with a class still being declared (a relationship to a
+    name not defined yet) must not fail this construction: only the model's
+    own registry is configured."""
+    partial = registry()
+
+    @partial.mapped
+    class Half:
+        __tablename__ = "dx_eager_half"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+        other = relationship("NotDeclaredYet")
+
+    class _Isolated(Base):
+        __abstract__ = True
+        metadata = MetaData()
+
+    class Whole(_Isolated):
+        __tablename__ = "dx_eager_whole"
+
+        id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+
+    try:
+        assert isinstance(Whole().id, uuid.UUID)
+    finally:
+        partial.dispose()
 
 
 def test_a_versioned_model_that_drops_the_check_is_refused_when_declared() -> None:

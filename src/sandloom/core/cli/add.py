@@ -24,8 +24,9 @@ Rules every generator keeps:
 - it never rewrites a hand-written file: ``sandloom add event`` (and a second
   ``contract`` / ``consumer``) only APPEND to their file, refusing a file
   that does not parse; any other existing target is written as ``*.new``;
-- the code uses only the beginner tier of ``sandloom.sdk`` (SANDLOOM-T009); an
-  advanced name carries ``# sandloom: advanced <reason>``;
+- the code uses only the beginner tier of ``sandloom.sdk`` (SANDLOOM-T009), and
+  tier 2 in the file named for it (``sagas.py``, ``projections.py``,
+  ``tasks.py``); any other advanced name carries ``# sandloom: advanced <reason>``;
 - ``module`` and ``event`` scaffold tenant-scoped (a ``TenantScoped`` table,
   ``tenant_id`` on the event); ``--no-tenant`` drops both, for an app without
   tenants. The choice is the developer's, never read from the environment or
@@ -1291,8 +1292,7 @@ def add_saga(module: str, name: str, where: Layout) -> list[Path]:
         sorted(
             [
                 "from sandloom.sdk import Contract",
-                "from sandloom.sdk.sagas import Saga, local_step, step  "
-                "# sandloom: advanced sagas",
+                "from sandloom.sdk.sagas import Saga, local_step, step",
                 f"from {where.generated_home(module)[1]}.{stem} import {ref}",
             ]
         )
@@ -1323,7 +1323,7 @@ def _amount(ctx: Any) -> dict[str, Any]:
     return {{"amount": ctx.input.amount}}
 
 
-async def _confirm(session: Any, ctx: Any) -> dict[str, str]:
+async def _confirm(ctx: Any) -> dict[str, str]:
     return {{"owner_id": str(ctx.input.owner_id)}}
 
 
@@ -1408,7 +1408,7 @@ per column.
 from uuid import UUID
 
 from sandloom.sdk import Event
-from sandloom.sdk.projections import (  # sandloom: advanced projections
+from sandloom.sdk.projections import (
     Projection,
     SourceGroup,
     full_state,
@@ -1508,15 +1508,14 @@ def downgrade() -> None:
 # sandloom add task
 # --------------------------------------------------------------------------- #
 
-_OPEN_UOW_IMPORT = (
-    "from sandloom.sdk.data import open_uow  # sandloom: advanced task unit"
-)
+# Tier 2 (``__after_first__`` of ``sandloom.sdk.tasks`` and ``.data``): no
+# marker in a module's ``tasks.py``, the file these imports are written in.
+_OPEN_UOW_IMPORT = "from sandloom.sdk.data import open_uow"
 _TASKS_MODULE = "sandloom.sdk.tasks"
-_TASKS_COMMENT = "  # sandloom: advanced tasks"
 
 
 def _tasks_import(*names: str) -> str:
-    return f"from {_TASKS_MODULE} import {', '.join(sorted(names))}{_TASKS_COMMENT}"
+    return f"from {_TASKS_MODULE} import {', '.join(sorted(names))}"
 
 
 def _task_block(module: str, name: str, schedule: str | None) -> str:

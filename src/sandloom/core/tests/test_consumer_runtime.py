@@ -866,7 +866,7 @@ async def test_projection_consumers_share_the_supervised_runtime() -> None:
     core.set_event_bus(bus)
     seen: list[str] = []
 
-    async def handler(_session: Any, envelope: Any) -> None:
+    async def handler(envelope: Any) -> None:
         seen.append(envelope["payload"]["name"])
 
     core.register_query_projection(

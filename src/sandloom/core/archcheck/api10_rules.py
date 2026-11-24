@@ -925,6 +925,7 @@ def iter_python(paths: Iterable[Path]) -> Iterator[Path]:
 
 
 __all__ = [
+    "after_first_names",
     "beginner_names",
     "find_beginner_tier_problems",
     "MONEY_VERBS",
@@ -971,16 +972,31 @@ def _literal_names(node: ast.expr | None, names: dict[str, list[str]]) -> list[s
     return []
 
 
-def beginner_names(sdk_dir: Path) -> dict[str, set[str]]:
-    """``{sandloom.sdk module: its __beginner__ names}``, read statically."""
-    out: dict[str, set[str]] = {}
+def _literal_files(node: ast.expr | None) -> dict[str, list[str]]:
+    """``{"tasks.py": ["task", ...]}`` of a dict literal of name tuples."""
+    if not isinstance(node, ast.Dict):
+        return {}
+    return {
+        key.value: _literal_names(value, {})
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    }
+
+
+_TIER_DECLARATIONS = ("__all__", "__beginner__", "__after_first__")
+
+
+def _declarations(sdk_dir: Path) -> dict[str, dict[str, ast.expr | None]]:
+    """``{sandloom.sdk module: {declaration: the value it assigns}}`` for
+    ``__all__``, ``__beginner__`` and ``__after_first__``, read statically (a
+    declaration the module does not assign is absent)."""
+    out: dict[str, dict[str, ast.expr | None]] = {}
     for py in sorted(sdk_dir.rglob("*.py")):
         rel = py.relative_to(sdk_dir.parent.parent).with_suffix("")
         parts = [p for p in rel.parts if p != "__init__"]
         if any(p.startswith("_") for p in parts):
             continue
-        assigned: dict[str, list[str]] = {}
-        value: ast.expr | None
+        assigned: dict[str, ast.expr | None] = {}
         for node in ast.parse(py.read_text(encoding="utf-8")).body:
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
                 target, value = node.targets[0].id, node.value
@@ -988,16 +1004,49 @@ def beginner_names(sdk_dir: Path) -> dict[str, set[str]]:
                 target, value = node.target.id, node.value
             else:
                 continue
-            if target in ("__all__", "__beginner__"):
-                assigned[target] = _literal_names(value, assigned)
-        out[".".join(parts)] = set(assigned.get("__beginner__", []))
+            if target in _TIER_DECLARATIONS:
+                assigned[target] = value
+        out[".".join(parts)] = assigned
     return out
 
 
+def beginner_names(sdk_dir: Path) -> dict[str, set[str]]:
+    """``{sandloom.sdk module: its __beginner__ names}``, read statically: tier
+    1, importable anywhere with no marker."""
+    out: dict[str, set[str]] = {}
+    for module, assigned in _declarations(sdk_dir).items():
+        names = {"__all__": _literal_names(assigned.get("__all__"), {})}
+        out[module] = set(_literal_names(assigned.get("__beginner__"), names))
+    return out
+
+
+def after_first_names(sdk_dir: Path) -> dict[str, dict[str, set[str]]]:
+    """``{sandloom.sdk module: {file name: names}}`` of its ``__after_first__``
+    dict, read statically: tier 2. The names import with no marker in the
+    module file named there (``"sagas.py"``: the file ``sandloom add saga``
+    writes), and need ``# sandloom: advanced <reason>`` anywhere else."""
+    return {
+        module: {
+            file: set(names)
+            for file, names in _literal_files(assigned.get("__after_first__")).items()
+        }
+        for module, assigned in _declarations(sdk_dir).items()
+    }
+
+
 def find_beginner_tier_problems(
-    file_path: Path, beginner: dict[str, set[str]]
+    file_path: Path,
+    beginner: dict[str, set[str]],
+    after_first: dict[str, dict[str, set[str]]] | None = None,
 ) -> list[str]:
-    """``sandloom.sdk`` names outside the beginner tier without a marker (T009)."""
+    """``sandloom.sdk`` names outside the beginner tier without a marker (T009).
+
+    A tier 2 name (``after_first``) needs no marker in the file its module
+    names for it (``sagas.py``), and one everywhere else."""
+
+    def later_here(module: str) -> set[str]:
+        return (after_first or {}).get(module, {}).get(file_path.name, set())
+
     lines = read_source(file_path).splitlines()
     found: list[str] = []
     for node in ast.walk(parse_file(file_path)):
@@ -1009,7 +1058,7 @@ def find_beginner_tier_problems(
             "sandloom.sdk"
         ):
             module = node.module or ""
-            allowed = beginner.get(module, set())
+            allowed = beginner.get(module, set()) | later_here(module)
             advanced = [a.name for a in node.names if a.name not in allowed]
         elif isinstance(node, ast.Import):
             module = "sandloom.sdk"
@@ -1021,9 +1070,19 @@ def find_beginner_tier_problems(
         end = getattr(node, "end_lineno", None) or node.lineno
         if any(_ADVANCED in lines[i - 1] for i in range(node.lineno, end + 1)):
             continue
+        files = sorted(
+            file
+            for file, names in (after_first or {}).get(module, {}).items()
+            if all(name in names for name in advanced)
+        )
+        where = (
+            f"is tier 2, used with no marker only in a module's {files[0]}"
+            if files
+            else "is not in the beginner tier"
+        )
         found.append(
-            f"Line {node.lineno}: {', '.join(advanced)} from {module} is not in "
-            "the beginner tier — use a beginner name, or mark the line "
+            f"Line {node.lineno}: {', '.join(advanced)} from {module} {where} — "
+            "use a beginner name, or mark the line "
             "`# sandloom: advanced <reason>`"
         )
     return found

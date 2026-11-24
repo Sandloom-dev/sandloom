@@ -8,6 +8,8 @@ any route serves (spec Appendix A).
 
 from __future__ import annotations
 
+from http import HTTPStatus
+
 from fastapi import HTTPException
 
 
@@ -20,11 +22,14 @@ class Refused(HTTPException):
     other exception, which the framework masks as a 500). It is an
     ``HTTPException``, so a route answers ``{"detail": ..., "code": ...}`` with
     that status and rolls the unit back; a contract caller receives it as a
-    ``ContractCallError`` with the same status; a saga local step is refused
-    for good on 400, 402, 403, 404, 410 and 422 (any other status is retried
-    until the saga's deadline).
+    ``ContractCallError`` with the same status. A saga local step classifies
+    the status by default: refused for good on 400, 402, 403, 404, 410 and 422;
+    401 parks the saga as misconfigured; any other status is retried until the
+    saga's deadline (a command step can widen the refused set with
+    ``refuse_on``).
 
-    ``detail`` defaults to the status phrase ("Payment Required"); ``code`` is a
+    ``detail`` defaults to the status phrase ("Payment Required"; "Client
+    Error" for a status with no standard phrase, such as 499); ``code`` is a
     stable machine-readable name a client can branch on; ``headers`` go out with
     the response.
     """
@@ -46,6 +51,11 @@ class Refused(HTTPException):
                 f"Refused takes a client status 400-499, not {status}: a server "
                 "fault is a plain exception, which the framework answers as a 500"
             )
+        if detail is None:
+            try:
+                detail = HTTPStatus(status).phrase
+            except ValueError:  # a 400-499 status with no standard phrase (499)
+                detail = "Client Error"
         super().__init__(status_code=status, detail=detail, headers=headers)
         if code is not None:
             self.code = code
@@ -85,7 +95,7 @@ class Conflict(Refused):
     """The request clashes with the current state (409): a duplicate slug, a
     stale version. ``raise Conflict("slug already taken")``. A saga local step
     retries a 409 until its deadline; a step that must refuse for good raises
-    ``Refused(422, ...)``."""
+    ``Refused(422, ...)`` (or another definitive status, see ``Refused``)."""
 
     code = "conflict"
 

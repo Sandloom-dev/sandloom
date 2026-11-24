@@ -106,15 +106,17 @@ def test_the_l2_form_is_one_consumer_per_channel() -> None:
 
 
 @pytest_asyncio.fixture
-async def index_db(db: Any) -> AsyncIterator[Any]:
+async def index_db(db_uow: Any) -> AsyncIterator[Any]:
+    """The test's ``db``, bound as the unit: ``apply`` writes through ``db()``."""
+
     def create(sync: Any) -> None:
         with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
             FixtureBase.metadata.create_all(
                 sync.connection(), tables=[NoteIndex.__table__]
             )
 
-    await db.run_sync(create)
-    yield db
+    await db_uow.run_sync(create)
+    yield db_uow
 
 
 async def _row(db: Any, tenant: UUID, note: UUID) -> Any:
@@ -137,7 +139,7 @@ async def test_full_state_converges_under_shuffles_and_duplicates(
         with bind_tenant(tenant):
             for event in events:
                 await NOTE_INDEX.apply(
-                    index_db, SAVED_GROUP, event, SAVED_GROUP.events[NoteSaved]
+                    SAVED_GROUP, event, SAVED_GROUP.events[NoteSaved]
                 )
             row = await _row(index_db, tenant, note)
         assert (row.title, row.note_version) == ("v5", 5)
@@ -149,13 +151,11 @@ async def test_a_tombstone_beats_a_late_older_upsert(index_db: Any) -> None:
     deleted = SAVED_GROUP.events[NoteDeleted]
     with bind_tenant(tenant):
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteDeleted(note_id=note, tenant_id=tenant, version=3),
             deleted,
         )
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteSaved(note_id=note, tenant_id=tenant, title="old", version=2),
             saved,
@@ -163,7 +163,6 @@ async def test_a_tombstone_beats_a_late_older_upsert(index_db: Any) -> None:
         row = await _row(index_db, tenant, note)
         assert row.deleted_at is not None and row.note_version == 3
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteSaved(note_id=note, tenant_id=tenant, title="new", version=4),
             saved,
@@ -178,7 +177,6 @@ async def test_deltas_increment_and_versions_never_go_back(index_db: Any) -> Non
     with bind_tenant(tenant):
         for version in (2, 1, 3):
             await NOTE_INDEX.apply(
-                index_db,
                 LIKES_GROUP,
                 NoteLiked(note_id=note, tenant_id=tenant, version=version),
                 liked,
@@ -201,13 +199,11 @@ async def test_views_skip_tombstones_and_page(index_db: Any) -> None:
     with bind_tenant(tenant):
         for i, note in enumerate(notes):
             await NOTE_INDEX.apply(
-                index_db,
                 SAVED_GROUP,
                 NoteSaved(note_id=note, tenant_id=tenant, title=f"t{i}", version=1),
                 saved,
             )
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteDeleted(note_id=notes[1], tenant_id=tenant, version=2),
             SAVED_GROUP.events[NoteDeleted],

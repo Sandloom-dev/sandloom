@@ -116,7 +116,7 @@ to the bound tenant and never return tombstoned rows:
 ```python
 from typing import Annotated
 from sandloom.sdk.data import Page
-from sandloom.sdk.projections import ProjectionView, View
+from sandloom.sdk.projections import ProjectionView, View  # sandloom: advanced the read side of a route
 
 @router.get("/boards")
 async def list_boards(

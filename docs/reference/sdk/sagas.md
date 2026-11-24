@@ -11,9 +11,9 @@ Sagas (ADR-0008): definitions, steps, start and status.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.sagas import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.sagas import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
-## Start with (beginner)
+## After the first module (in `sagas.py`)
 
 | Name | Kind | Summary |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`StepKind`](#stepkind) | class | The kind of a saga step (Garcia-Molina & Salem; Richardson). |
 | [`synthetic_instance`](#synthetic_instance) | function | An instance of `model` built from its schema alone (no validation). |
 
-## Beginner names
+## After-first names
 
 ### `local_step`
 
@@ -65,10 +65,13 @@ local_step("reserve", apply=reserve_seat, compensate=release_seat)
 ```
 
 `db()` is the transition's session (a savepoint: raising rolls the step's
-writes back). Raise `Refused(402, ...)` / `NotFound(...)` for a
-definitive refusal; anything else is retried. The earlier
-`async def f(session, ctx)` form still works. The returned value (JSON)
-is persisted as the step's result.
+writes back). A function that takes the session (`async def f(session,
+ctx)`) is refused with a `TypeError` when the step is declared. Raise
+`NotFound(...)` or `Refused(status, ...)` with status 400, 402, 403,
+404, 410 or 422 for a definitive refusal; `Refused(401, ...)` parks the
+saga as misconfigured; any other status is retried until the saga's
+deadline (`Conflict`, 409, included), as is any other exception. The
+returned value (JSON) is persisted as the step's result.
 
 ### `Saga`
 

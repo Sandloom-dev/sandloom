@@ -32,6 +32,7 @@ from sandloom.core.projections.operations import watermark_guarded
 from sandloom.core.projections.purge import PurgeFloor, purge_tombstones
 from sandloom.core.sql_alchemy.models.projection_watermark import ProjectionWatermark
 from sandloom.core.sql_alchemy.projection_watermarks import RelationalWatermarkStore
+from sandloom.core.testing import bind_test_uow
 from sandloom.sdk.projections import Projection
 from sandloom.sdk.tenant import bind_tenant, unscoped
 
@@ -67,8 +68,10 @@ async def units(db_engine: Any) -> AsyncIterator[Opener]:
 
     @asynccontextmanager
     async def open_unit() -> AsyncIterator[AsyncSession]:
+        # the session is bound as the unit: the handlers write through ``db()``
         async with maker() as session, session.begin():
-            yield session
+            with bind_test_uow(session):
+                yield session
 
     yield open_unit
 
@@ -102,10 +105,10 @@ async def _race(
     checked, resume = asyncio.Event(), asyncio.Event()
     inner = consumer.handler
 
-    async def between_check_and_write(session: Any, envelope: Any) -> None:
+    async def between_check_and_write(envelope: Any) -> None:
         checked.set()
         await resume.wait()
-        await inner(session, envelope)
+        await inner(envelope)
 
     guarded = watermark_guarded(
         dataclasses.replace(consumer, handler=between_check_and_write)
@@ -133,7 +136,7 @@ async def _race(
                 )
             )
             with bind_tenant(tenant):
-                await guarded.handler(session, envelope)
+                await guarded.handler(envelope)
 
     applying = asyncio.create_task(apply())
     await asyncio.wait_for(checked.wait(), 10)
@@ -182,10 +185,9 @@ async def test_a_purge_racing_an_apply_never_resurrects_a_relational_row(
     assert purge is not None
     tenant, note = uuid4(), uuid4()
     try:
-        async with units() as session:
+        async with units():
             with bind_tenant(tenant):
                 await projection.apply(
-                    session,
                     SAVED_GROUP,
                     NoteDeleted(note_id=note, tenant_id=tenant, version=2),
                     SAVED_GROUP.events[NoteDeleted],
@@ -227,7 +229,6 @@ async def test_a_purge_racing_an_apply_never_resurrects_a_store_row(
     try:
         with bind_tenant(tenant):
             await projection.apply(
-                None,
                 SAVED_GROUP,
                 NoteDeleted(note_id=note, tenant_id=tenant, version=2),
                 SAVED_GROUP.events[NoteDeleted],

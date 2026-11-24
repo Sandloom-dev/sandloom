@@ -15,7 +15,7 @@ Public API 1.0 (spec §2.2, §5.7, Appendix C):
 app = create_app(default_modules=app_modules("helpdesk.modules"))
 ```
 
-`from sandloom.sdk.app import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.app import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
 ## Advanced
 

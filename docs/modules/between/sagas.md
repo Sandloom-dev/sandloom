@@ -111,13 +111,14 @@ ENROLL = Saga(
   through its durable command log). **Local steps**,
   `local_step(apply=fn, compensate=fn)`, run `await fn(ctx)` in the
   transition's own transaction (a savepoint). `db()` is that session, and the
-  writes commit with the instance's move to the next step. The earlier form
-  `fn(session, ctx)` still works; a function that fits neither is refused when
-  the step is declared. A local step refuses definitively by raising
+  writes commit with the instance's move to the next step. The step is refused
+  when it is declared with a function that takes the session
+  (`fn(session, ctx)`). A local step refuses definitively by raising
   `NotFound(...)`, `Refused(402, ...)` or any exception whose `http_status` is
-  400, 402, 403, 404, 410 or 422. Anything else is retried, `Conflict` (409)
-  included: a step that must refuse for good raises `Refused(422, ...)`. Its
-  JSON-able return value is stored as the step's result.
+  400, 402, 403, 404, 410 or 422. Status 401 parks the saga as misconfigured. Anything else is
+  retried until the saga's deadline, `Conflict` (409) included: a step that
+  must refuse for good raises `Refused(422, ...)`. Its JSON-able return value
+  is stored as the step's result.
 - **Kinds.** `compensatable` (before the pivot; needs a compensation),
   `pivot` (the go/no-go point, at most one), `retriable` (after the pivot; it
   must eventually succeed). A step usually names only `call`, `args` and its
@@ -166,7 +167,7 @@ stand-in ledger contract with its stub; it writes no tests and no route. See [Ad
 
 ```python
 from sandloom.sdk import CurrentUser
-from sandloom.sdk.sagas import start_saga
+from sandloom.sdk.sagas import start_saga  # sandloom: advanced start a saga in the request unit
 
 @router.post("/enrollments", status_code=202)
 async def enroll(body: EnrollIn, user: CurrentUser) -> EnrollAccepted:

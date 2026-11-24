@@ -1129,16 +1129,18 @@ def test_agents_are_detected_and_asked() -> None:
 def test_an_unmarked_advanced_import_fails_the_app_gate(tmp_path: Path) -> None:
     """SANDLOOM-T009 holds in an application, not only in the framework's
     generators: the ``schema & deploy`` step of ``sandloom test`` reports it."""
+    from sandloom.core.archcheck.manifest import load_rules
     from sandloom.core.testing.static_checks import beginner_tier_problems
 
     generate_project("probe", tmp_path, sample_module="gadgets")
     root = tmp_path / "probe"
+    rules = load_rules(root / "architecture_rules.yml")
     services = root / "probe" / "modules" / "gadgets" / "services.py"
-    assert beginner_tier_problems(root) == []
+    assert beginner_tier_problems(rules) == []
     services.write_text(
         services.read_text() + "\nfrom sandloom.sdk.web import DbSession\n"
     )
-    problems = beginner_tier_problems(root)
+    problems = beginner_tier_problems(rules)
     assert len(problems) == 1
     assert "probe/modules/gadgets/services.py:" in problems[0]
     assert "DbSession" in problems[0] and "SANDLOOM-T009" in problems[0]
@@ -1147,7 +1149,7 @@ def test_an_unmarked_advanced_import_fails_the_app_gate(tmp_path: Path) -> None:
             "import DbSession", "import DbSession  # sandloom: advanced a typed dep"
         )
     )
-    assert beginner_tier_problems(root) == []
+    assert beginner_tier_problems(rules) == []
 
 
 _UNMIGRATED_MODEL = '''"""A model added without a revision."""

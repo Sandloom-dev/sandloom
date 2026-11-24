@@ -49,7 +49,7 @@ from sandloom.sdk._decl._owner import OWNER_ATTR, caller_module
 from sandloom.sdk._decl.errors import ProjectionDefinitionError
 from sandloom.sdk._decl.events import Event, from_wire, is_concrete, wire_name
 from sandloom.sdk._prim.contracts import service
-from sandloom.sdk._prim.data import Page, TenantScoped, conflict_insert
+from sandloom.sdk._prim.data import Page, TenantScoped, conflict_insert, db
 from sandloom.sdk._prim.events import EventEnvelope
 from sandloom.sdk._prim.infra import CapabilityRef, capability
 from sandloom.sdk._prim.projections import (
@@ -491,9 +491,10 @@ class Projection:
         }
 
     async def apply(
-        self, session: Any, group: SourceGroup, event: Event, mapper: Mapper[Any]
+        self, group: SourceGroup, event: Event, mapper: Mapper[Any]
     ) -> bool:
-        """Apply one event to the projection in ``session`` (the consumer's unit)."""
+        """Apply one event to the projection through ``db()`` (the consumer's
+        unit)."""
         key, values, version = self._row(group, event, mapper)
         if self.store is not None:
             return await self._apply_store(key, values, group, version, event, mapper)
@@ -503,7 +504,6 @@ class Projection:
             if tombstones:
                 values[self.deleted_column] = None
             return await monotonic_upsert(
-                session,
                 model,
                 key=key,
                 values=values,
@@ -513,7 +513,6 @@ class Projection:
             )
         if mapper.kind == "tombstone":
             return await monotonic_delete(
-                session,
                 model,
                 key=key,
                 version_column=group.version_column,
@@ -522,7 +521,7 @@ class Projection:
                 insert_only=self._seed(event) or None,
                 deleted_column=self.deleted_column,
             )
-        return await self._apply_delta(session, key, values, group, version, event)
+        return await self._apply_delta(key, values, group, version, event)
 
     async def _apply_store(
         self,
@@ -565,7 +564,6 @@ class Projection:
 
     async def _apply_delta(
         self,
-        session: Any,
         key: dict[str, Any],
         values: dict[str, Any],
         group: SourceGroup,
@@ -581,6 +579,7 @@ class Projection:
                 "does not match the bound tenant"
             )
         row = {**key, **self._seed(event), **values, group.version_column: version}
+        session = db()
         stmt = conflict_insert(table, session=session).values(**row)
         update = {c: table.c[c] + stmt.excluded[c] for c in values}
         # The larger of the stored and the incoming version, written with no
@@ -604,10 +603,10 @@ class Projection:
 
     def _handler(
         self, group: SourceGroup, event_cls: type[Event], mapper: Mapper[Any]
-    ) -> Callable[[Any, EventEnvelope], Awaitable[None]]:
-        async def apply_event(session: Any, envelope: EventEnvelope) -> None:
+    ) -> Callable[[EventEnvelope], Awaitable[None]]:
+        async def apply_event(envelope: EventEnvelope) -> None:
             event = from_wire(event_cls, envelope.get("payload") or {})
-            await self.apply(session, group, event, mapper)
+            await self.apply(group, event, mapper)
 
         apply_event.__qualname__ = f"Projection({self.name}).{event_cls.__name__}"
         apply_event.__module__ = str(getattr(self, OWNER_ATTR))
@@ -674,16 +673,14 @@ class ProjectionRebuilderFromContract:
         rows = 0
         with bind_tenant(tenant_id):
             items = await call(tenant_id)
-            async with self._open() as session:
+            async with self._open():
                 for item in items:
                     group, event, mapper = self._decode(item)
                     if aggregate is not None and (
                         str(getattr(event, group.aggregate_key)) != aggregate
                     ):
                         continue
-                    rows += int(
-                        await self.projection.apply(session, group, event, mapper)
-                    )
+                    rows += int(await self.projection.apply(group, event, mapper))
         return ProjectionRebuildResult(projection=self.projection.name, rows=rows)
 
     async def _tenants(self) -> list[UUID]:

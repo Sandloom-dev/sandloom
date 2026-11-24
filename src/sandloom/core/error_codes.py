@@ -2532,16 +2532,23 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "beginner-tier",
         "test",
         "a module imports an advanced sandloom.sdk name without a marker",
-        "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
-        "Generators and examples teach the 42 beginner names: the 25 code names of "
-        "`sandloom.sdk` (`sandloom docs sandloom.sdk`), the five of "
-        "`sandloom.sdk.sagas` and the six of `sandloom.sdk.projections` (what "
-        "`sandloom add saga` and `sandloom add projection` write), the five test "
-        "helpers of `sandloom.sdk.testing` (`sandloom docs sandloom.sdk.testing`) "
-        "and the `client` fixture, which lives in `sandloom.sdk.testing.plugin` "
-        "(`sandloom docs sandloom.sdk.testing.plugin`). An application's modules "
-        "keep to them: `sandloom check` (which `sandloom test` runs) reports an "
-        "advanced import that has no marker.",
+        "use a tier 1 name, or in the module file made for it a tier 2 name, or "
+        "mark the line `# sandloom: advanced <reason>`",
+        "Two tiers need no marker. Tier 1, 29 names, is free in any file: the 24 "
+        "code names of `sandloom.sdk` (`sandloom docs sandloom.sdk`), the four "
+        "test helpers of `sandloom.sdk.testing` (`sandloom docs "
+        "sandloom.sdk.testing`) and the `client` fixture, which lives in "
+        "`sandloom.sdk.testing.plugin` (`sandloom docs "
+        "sandloom.sdk.testing.plugin`). Tier 2, 12 names, is free only in the "
+        "module file `sandloom add` writes for it: `Saga`, `SagaContext`, `step`, "
+        "`local_step` and `start_saga` of `sandloom.sdk.sagas` in `sagas.py`; "
+        "`Projection`, `SourceGroup`, `full_state` and `tombstone` of "
+        "`sandloom.sdk.projections` in `projections.py`; `task` and `periodic` of "
+        "`sandloom.sdk.tasks` and `open_uow` of `sandloom.sdk.data` in `tasks.py`. "
+        "The same name in another file needs the marker, and so does every name "
+        "outside both tiers. An application's modules keep to this: `sandloom "
+        "check` (which `sandloom test` runs) reports an import that has no marker "
+        "and says which file a tier 2 name is free in.",
     ),
     _entry(
         "SANDLOOM-T010",

@@ -16,7 +16,7 @@ import functools
 import inspect
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from datetime import timedelta
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -39,59 +39,42 @@ InputT = TypeVar("InputT", bound=BaseModel)
 #: (``credits.spend`` of ``credits = Contract(BILLING_CREDITS_V1)``).
 CommandRef = str | Callable[..., Awaitable[Any]]
 ArgsFn = Callable[[Any], dict[str, Any]]
-#: What a local step runs: ``async def apply(ctx)``, the session being
-#: ``db()``, or the earlier ``async def apply(session, ctx)``.
-LocalFn = (
-    Callable[[SagaContext[Any]], Awaitable[Any]]
-    | Callable[[Any, SagaContext[Any]], Awaitable[Any]]
-)
+#: What a local step runs: ``async def apply(ctx)``, writing through ``db()``.
+LocalFn = Callable[[SagaContext[Any]], Awaitable[Any]]
 
 
-KernelLocalFn = Callable[[Any, SagaContext[Any]], Awaitable[Any]]
+def _takes_context_only(fn: LocalFn) -> bool:
+    """Whether ``fn`` can be called with the context alone. Both signatures
+    are read, the one a decorator shows (``__wrapped__`` followed) and the
+    function's own, so a decorated ``apply(session, ctx)`` is refused and so
+    is the adapter of a step already built (it needs the session first).
+    (The kernel's ``sandloom.core.utils.takes_one_argument`` is the same
+    rule; this layer imports no kernel module.)"""
+    for follow_wrapped in (True, False):
+        try:
+            inspect.signature(fn, follow_wrapped=follow_wrapped).bind(None)
+        except TypeError:
+            return False
+    return True
 
 
-def _takes(signature: inspect.Signature, count: int) -> bool:
-    """Whether the function takes ``count`` positional arguments: it requires
-    that many, or accepts any number (``*args``). Only a required parameter
-    counts, so ``apply(ctx, dry_run=False)`` takes the context alone and its
-    second parameter is never handed the session. (The kernel's
-    ``sandloom.core.utils.takes`` is the same rule; this layer imports no
-    kernel module.)"""
-    try:
-        signature.bind(*([None] * count))
-    except TypeError:
-        return False
-    parameters = signature.parameters.values()
-    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters):
-        return True
-    required = sum(
-        1
-        for p in parameters
-        if p.kind
-        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        and p.default is inspect.Parameter.empty
-    )
-    return required == count
-
-
-def _with_session(fn: LocalFn, *, what: str) -> KernelLocalFn:
-    """``fn`` as the kernel's ``(session, ctx)`` function: a function that
-    takes only the context runs on ``db()``, which is the transition's session
-    inside a local step. A function that fits neither shape is refused; one
-    that fits both (``*args``) keeps the earlier ``(session, ctx)`` form."""
-    signature = inspect.signature(fn)
-    if _takes(signature, 2):
-        return cast(KernelLocalFn, fn)
-    if not _takes(signature, 1):
+def _with_session(fn: LocalFn, *, what: str) -> Callable[..., Awaitable[Any]]:
+    """``fn`` as the kernel's ``(session, ctx)`` function: the runtime hands a
+    local step the transition's session first, which is ``db()`` already, so
+    the author's function runs on the context alone. A function that needs the
+    session as well is refused here, when the step is declared, not retried
+    forever at run time."""
+    if not _takes_context_only(fn):
         raise TypeError(
-            f"local_step({what}=...) takes `async def f(ctx)` (the session is "
-            f"`db()`) or `async def f(session, ctx)`, not {fn!r}"
+            f"local_step({what}=...) takes `async def f(ctx)` and writes through "
+            "`db()`; a function that takes the session "
+            f"(`async def f(session, ctx)`) is refused, not {fn!r}: drop the "
+            "`session` parameter and call `db()` instead"
         )
-    ctx_only = cast(Callable[[SagaContext[Any]], Awaitable[Any]], fn)
 
     @functools.wraps(fn)
     async def run(_session: Any, ctx: SagaContext[Any]) -> Any:
-        return await ctx_only(ctx)
+        return await fn(ctx)
 
     return run
 
@@ -113,10 +96,13 @@ def local_step(
         local_step("reserve", apply=reserve_seat, compensate=release_seat)
 
     ``db()`` is the transition's session (a savepoint: raising rolls the step's
-    writes back). Raise ``Refused(402, ...)`` / ``NotFound(...)`` for a
-    definitive refusal; anything else is retried. The earlier
-    ``async def f(session, ctx)`` form still works. The returned value (JSON)
-    is persisted as the step's result.
+    writes back). A function that takes the session (``async def f(session,
+    ctx)``) is refused with a ``TypeError`` when the step is declared. Raise
+    ``NotFound(...)`` or ``Refused(status, ...)`` with status 400, 402, 403,
+    404, 410 or 422 for a definitive refusal; ``Refused(401, ...)`` parks the
+    saga as misconfigured; any other status is retried until the saga's
+    deadline (``Conflict``, 409, included), as is any other exception. The
+    returned value (JSON) is persisted as the step's result.
     """
     return _local_step(
         name,

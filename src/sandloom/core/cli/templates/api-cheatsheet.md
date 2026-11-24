@@ -1,6 +1,6 @@
 ## Public API cheat-sheet (`sandloom.sdk`; any other signature: `uv run sandloom docs <name>`)
 
-The 25 beginner names of `sandloom.sdk`, the 5 of `sandloom.sdk.sagas` and the 6 of `sandloom.sdk.projections` (42 with the test helpers and the `client` fixture), exact signatures; any other name's import carries `# sandloom: advanced <reason>`.
+Two tiers need no marker. Tier 1, 29 names, free in any file: the 24 of `sandloom.sdk` and the 5 test helpers (`client`, `as_user`, `published`, `deliver`, `fake_contract`). Tier 2, 12 names, free in the module file made for them: `sandloom.sdk.sagas` (`Saga`, `SagaContext`, `step`, `local_step`, `start_saga`) in `sagas.py`, `sandloom.sdk.projections` (`Projection`, `SourceGroup`, `full_state`, `tombstone`) in `projections.py`, `sandloom.sdk.tasks` (`task`, `periodic`) with `open_uow` of `sandloom.sdk.data` in `tasks.py`. Any other import, or a tier 2 name in another file, carries `# sandloom: advanced <reason>`.
 
 ```python
 # from sandloom.sdk import ...
@@ -22,25 +22,25 @@ await NoteCreated(...).publish(*, database=None)   # outbox of the running unit
 quota = Contract(STATS_QUOTA_V1)           # REF from the generated <app>.shared.contracts.<name>
 Contract(REF, optional=True).client() -> P | None          # None only when not deployed
 require(policy, *, status_code=None)       # dependencies=[Depends(require(OrgRole("admin")))]
-Owner(get_owner: Callable[[Any], UUID | None])   # a resource policy, used with authorize_resource
+Account.user() | Account.org(param="org_id") | Account.bound_tenant()   # the subject a policy atom reads (`of=`)
 # Generated, not sdk names (`sandloom generate`): from <app>.shared.contracts.billing_entitlements_v1 import
 #   Subscribed(statuses=None, *, of), SubscriptionActive(*, of), Credits(minimum, *, of), Feature, WithinLimit;
 #   from <app>.shared.contracts.tenancy_membership_v1 import OrgRole(minimum, *, org_param="org_id")
-#   of= is required: Account.user() | Account.org(param="org_id") | Account.bound_tenant()
-authorize_resource(*, loader, by: str, policy, cast=None, not_found_detail="Not found", status_code=None)   # loader: async (id) -> entity | None, reads db()
+#   of= is required: pass an Account form
 record_audit(action, *, actor_id=None, actor_type="user", resource_type=None, resource_id=None, data=None, required=None, database=None)   # sync, in a unit
 await on_commit(callback, *, database=None)                 # runs only after COMMIT
-# from sandloom.sdk.sagas / .projections import ...   (`sandloom add saga` / `sandloom add projection`)
+# tier 2, in the file `sandloom add saga` / `projection` / `task` writes: from sandloom.sdk.sagas / .projections / .tasks import ...
 ENROLL = Saga(name, *, version, input: type[BaseModel], deadline: timedelta, steps=[...])
 step(name, *, call=contract.method, args=fn(ctx) -> dict, compensate=None, kind=None, refuse_on=(), deadline=None)
 local_step(name, *, apply, compensate=None, kind=None, deadline=None)   # apply: async def f(ctx: SagaContext[In]), reads db()
 start_saga(ENROLL, *, saga_id, input) -> SagaHandle      # in the request's unit
 Projection(name, *, key, groups=[SourceGroup(events={E: full_state(fn) | tombstone(fn)}, aggregate_key, version_field, version_column, owns, tenant_from="tenant_id")], model=Row, ...)
-rows: Annotated[ProjectionView[Row], View(name, Row, *, on_stale="serve", wait_ms=None)]   # the read side
+@task(*, queue="default", at_least_once=False)   # async def f(payload: Model): `async with open_uow():` (sandloom.sdk.data), then db(); `await f.enqueue(payload, delay=None, idempotency_key=None)`
+@periodic(*, cron: str, id: str, queue="default", at_least_once=False)   # a task without a payload, on a schedule (UTC)
 # from sandloom.sdk.testing import ...   (`client` is a fixture of -p sandloom.sdk.testing.plugin)
 as_user(user_id=None, tenant_id=None, *, email="", email_verified=True, tenant=True, **claims) -> tuple[UUID, dict[str, str]]   # (user_id, auth headers)
 await deliver(event: str | Event, payload=None, *, times=1, event_id=None, session=None, core=None) -> int   # drives the real consumer runtime
-published(E) -> list[E];   with fake_contract(REF, impl): ...;   with fake_access_fact(name, value=True, *, owner, deny_category=None, core=None): ...
+published(E) -> list[E];   with fake_contract(REF, impl): ...
 ```
 
 Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists them):
@@ -50,8 +50,8 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | `sandloom.sdk.web` | `TenantId`, `TenantScope`, `DbSession`, `Database`, `idempotency_guard`, `no_idempotency`, `replay_safe`, `sensitive`, `at_commit`, `operation_intent`, `writes`, `CurrentService`, `rate_limiter` |
 | `sandloom.sdk.data` / `.tenant` | `open_uow`, `Versioned` (a `version` the database counts up), `MoneyLedger`, `enable_tenant_rls`, the read planner, the portable SQL forms (`CaseInsensitiveText`, `partial_index`, `search_index`, `conflict_insert`, `transaction_lock`; C028), `tenant_upsert` (the upsert of a `TenantScoped` model: `conflict_insert` is refused there outside `unscoped()`), `WallClock` for `func.now()` (only portable `func.<name>`, raw SQL marked: C031), the feature forms (`Array`, `fulltext_index`, `matches`, `json_path`, `json_contains`, `transaction_lock`, `aggregate_list`: declare the feature, C030) / `unscoped`, `current_tenant_id`, `tenant_kind` |
 | `sandloom.sdk.events` / `.effects` | `EventMeta`, `publish_event_versions` (dual-publish) / `before_commit`, `durable_inbox`, `operation_key`, `run_async`, `sensitive_effect` |
-| `sandloom.sdk.contracts` / `.authz` | `ContractRef`, `service`, `contract_method`, the provider runtime / `Account`, `Role`, `Perm`, `Not`, `authorize`, access facts |
-| `sandloom.sdk.sagas` / `.projections` | `SagaStep`, `saga_status`, `SagaHandle` / `monotonic_upsert` (L2 handlers), `QueryProjectionDescriptor`, `ProjectionConsumerDescriptor` |
+| `sandloom.sdk.contracts` / `.authz` | `ContractRef`, `service`, `contract_method`, the provider runtime / `Owner` and `authorize_resource` (a resource policy; the loader is `async (id)`), `Role`, `Perm`, `Not`, `authorize`, access facts |
+| `sandloom.sdk.sagas` / `.projections` | `SagaStep`, `saga_status`, `SagaHandle` / `View`, `ProjectionView` (the read side: `rows: Annotated[ProjectionView[Row], View(name, Row, *, on_stale="serve", wait_ms=None)]`), `monotonic_upsert` (L2 handlers), `QueryProjectionDescriptor`, `ProjectionConsumerDescriptor` |
 | `sandloom.sdk.module` / `.app` / `.migrations` | `ModuleAPI`, `ContractRequirement` / `create_app` / `run_module_migrations` |
 | `sandloom.sdk.infra` / `.security` / `.errors` | `cache`, `notifier`, `settings` / tokens, revocation, keys / every exception |
-| `sandloom.sdk.testing` | `capture_effects`, `assert_contract_conformance`, `boot_module_alone`, harness helpers |
+| `sandloom.sdk.testing` | `capture_effects`, `assert_contract_conformance`, `boot_module_alone`, `fake_access_fact`, harness helpers |

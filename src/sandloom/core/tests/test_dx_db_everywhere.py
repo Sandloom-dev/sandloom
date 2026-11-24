@@ -1,18 +1,19 @@
-"""``db()`` works where a session parameter used to be the only way in: the
+"""``db()`` is the one way in where a session parameter used to be: the
 ``local_step`` apply, the ``authorize_resource`` loader, an L2 projection
 handler and ``monotonic_upsert`` / ``monotonic_update`` / ``monotonic_delete``.
 
-Each keeps its earlier form (the session as a parameter) and refuses a
-function that fits neither form when it is declared, not at the first run. The
-parameter is documented as the earlier form, never a ``DeprecationWarning``
-(the framework carries no deprecated API).
+The earlier form (the session as a parameter) is gone: a function that takes it
+is refused with a ``TypeError`` when it is declared, naming the rewrite, not at
+the first run. The framework carries no deprecated API: the old form is not a
+``DeprecationWarning``, it is an error.
 """
 
 from __future__ import annotations
 
-import inspect
+import functools
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -30,9 +31,9 @@ from sandloom.core.projections import operations as projection_operations
 from sandloom.core.projections.descriptors import ProjectionConsumerDescriptor
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
 from sandloom.core.tests.saga_fixtures import EnrollInput, enroll_input
-from sandloom.core.utils import takes
+from sandloom.core.utils import takes_one_argument
 from sandloom.sdk import db as unit_db  # the fixture `db` below keeps its name
-from sandloom.sdk._decl.sagas import _takes as sagas_takes
+from sandloom.sdk._decl.sagas import _takes_context_only
 from sandloom.sdk.authz import Owner
 from sandloom.sdk.sagas import SagaContext, local_step
 from sandloom.shared.authz import authorize_resource
@@ -51,10 +52,6 @@ async def _with_session(session: Any, ctx: Any) -> dict[str, Any]:
     return {"session": session, "price": ctx.input.price}
 
 
-async def _greedy(*args: Any) -> dict[str, Any]:
-    return {"args": len(args)}
-
-
 _CTX = SimpleNamespace(input=SimpleNamespace(price=7))
 
 
@@ -63,20 +60,6 @@ async def test_a_ctx_only_apply_is_called_with_the_context_alone() -> None:
     assert await step.apply("session", _CTX) == {"ctx_only": 7}
     assert step.compensate is not None
     assert await step.compensate("session", _CTX) == {"ctx_only": 7}
-
-
-async def test_the_earlier_session_and_ctx_form_still_gets_both() -> None:
-    step = local_step("reserve", apply=_with_session)
-    assert await step.apply("the-session", _CTX) == {
-        "session": "the-session",
-        "price": 7,
-    }
-    assert step.compensate is None
-
-
-async def test_a_function_that_fits_both_shapes_keeps_the_earlier_form() -> None:
-    step = local_step("reserve", apply=_greedy)
-    assert await step.apply("s", "c") == {"args": 2}
 
 
 async def test_a_defaulted_second_parameter_is_not_the_session() -> None:
@@ -95,12 +78,57 @@ async def test_a_defaulted_second_parameter_is_not_the_session() -> None:
     }
 
 
+def test_the_session_form_of_a_local_step_is_refused_when_declared() -> None:
+    with pytest.raises(
+        TypeError, match=r"local_step\(apply=\.\.\.\) takes `async def f\(ctx\)`"
+    ) as caught:
+        local_step("reserve", apply=_with_session)
+    assert "drop the `session` parameter and call `db()`" in str(caught.value)
+    with pytest.raises(TypeError, match=r"local_step\(compensate=\.\.\.\) takes"):
+        local_step("reserve", apply=_ctx_only, compensate=_with_session)
+
+
+def test_a_decorated_session_form_is_still_refused() -> None:
+    """A decorator that hides the signature (``*args``) does not hide the form:
+    the function behind it is read too."""
+
+    @functools.wraps(_with_session)
+    async def decorated(*args: Any) -> dict[str, Any]:
+        return await _with_session(*args)
+
+    with pytest.raises(TypeError, match=r"local_step\(apply=\.\.\.\) takes"):
+        local_step("reserve", apply=decorated)
+
+
+def test_a_step_function_already_adapted_is_not_adapted_again() -> None:
+    """``step.apply`` is the runtime's ``(session, ctx)`` adapter; passing it to
+    another ``local_step`` is refused, not wrapped into a function that would
+    hand the context in as the session."""
+    step = local_step("reserve", apply=_ctx_only)
+    with pytest.raises(TypeError, match=r"local_step\(apply=\.\.\.\) takes"):
+        local_step("again", apply=step.apply)
+
+
+def test_the_inspection_names_the_authors_function_of_a_local_step() -> None:
+    """``step.apply`` is the framework's adapter (its code lives in
+    ``sandloom/sdk/_decl/sagas.py``, outside any project root): the inspection
+    index follows ``functools.wraps`` to the author's function. Without that it
+    would record no source for the step at all."""
+    from sandloom.core.cli.inspection.processes import _location
+
+    here = Path(__file__).resolve()
+    step = local_step("reserve", apply=_ctx_only, compensate=_ctx_only)
+    expected = {"path": here.name, "function": "_ctx_only"}
+    assert _location(step.apply, here.parent) == expected
+    assert _location(step.compensate, here.parent) == expected
+
+
 @pytest.mark.parametrize(
     "bad",
     [lambda: None, lambda a, b, c: None, lambda *, ctx: None],
     ids=["no-parameter", "three-parameters", "keyword-only"],
 )
-def test_a_function_that_fits_neither_shape_is_refused_when_declared(bad: Any) -> None:
+def test_a_function_that_fits_no_shape_is_refused_when_declared(bad: Any) -> None:
     with pytest.raises(TypeError, match=r"local_step\(apply=\.\.\.\) takes"):
         local_step("reserve", apply=bad)
     with pytest.raises(TypeError, match=r"local_step\(compensate=\.\.\.\) takes"):
@@ -108,8 +136,7 @@ def test_a_function_that_fits_neither_shape_is_refused_when_declared(bad: Any) -
 
 
 async def test_db_is_the_transitions_session_in_a_local_step(saga_harness: Any) -> None:
-    """The real runtime: a ctx-only step reads through ``db()``, and in the
-    earlier form ``db()`` is the very session the step was handed."""
+    """The real runtime: a ctx-only step reads and writes through ``db()``."""
 
     async def reserve(ctx: SagaContext[EnrollInput]) -> dict[str, Any]:
         return {"one": (await unit_db().execute(select(1))).scalar_one()}
@@ -117,8 +144,8 @@ async def test_db_is_the_transitions_session_in_a_local_step(saga_harness: Any) 
     async def release(ctx: SagaContext[EnrollInput]) -> dict[str, Any]:
         return {}
 
-    async def grant(session: Any, ctx: SagaContext[EnrollInput]) -> dict[str, Any]:
-        return {"same_session": unit_db() is session}
+    async def grant(ctx: SagaContext[EnrollInput]) -> dict[str, Any]:
+        return {"two": (await unit_db().execute(select(2))).scalar_one()}
 
     saga = Saga[EnrollInput](
         "dx_db_everywhere",
@@ -133,7 +160,7 @@ async def test_db_is_the_transitions_session_in_a_local_step(saga_harness: Any) 
     run = await saga_harness.run(saga, input=enroll_input())
     assert run.status == "completed"
     assert run.results["reserve"] == {"one": 1}
-    assert run.results["grant"] == {"same_session": True}
+    assert run.results["grant"] == {"two": 2}
 
 
 # --------------------------------------------------------------------------- #
@@ -141,7 +168,6 @@ async def test_db_is_the_transitions_session_in_a_local_step(saga_harness: Any) 
 # --------------------------------------------------------------------------- #
 
 _OWNER = uuid.uuid4()
-_REQUEST_SESSION = "the-request-session"
 
 
 async def _authorize(loader: Any) -> Any:
@@ -149,7 +175,7 @@ async def _authorize(loader: Any) -> Any:
         loader=loader, by="id", policy=Owner(lambda note: note["owner"])
     )
     request = SimpleNamespace(path_params={"id": "n1"}, state=SimpleNamespace())
-    return await guard(request, UserContext(user_id=_OWNER), _REQUEST_SESSION)
+    return await guard(request, UserContext(user_id=_OWNER), "the-request-session")
 
 
 async def test_a_one_argument_loader_reads_through_db(ambient_uow: Any) -> None:
@@ -162,17 +188,6 @@ async def test_a_one_argument_loader_reads_through_db(ambient_uow: Any) -> None:
     note = await _authorize(load)
     assert note["id"] == "n1"
     assert seen == [ambient_uow]
-
-
-async def test_the_earlier_two_argument_loader_gets_the_request_session() -> None:
-    got: list[Any] = []
-
-    async def load(note_id: str, session: Any) -> dict[str, Any]:
-        got.append(session)
-        return {"id": note_id, "owner": _OWNER}
-
-    await _authorize(load)
-    assert got == [_REQUEST_SESSION]
 
 
 async def test_a_loader_with_a_defaulted_second_parameter_takes_the_id_alone(
@@ -199,16 +214,27 @@ async def test_a_loader_that_returns_nothing_is_a_404(ambient_uow: Any) -> None:
     assert caught.value.status_code == 404
 
 
+def test_the_two_argument_loader_is_refused_at_declaration() -> None:
+    async def load(note_id: str, session: Any) -> dict[str, Any]:
+        return {"id": note_id, "owner": _OWNER}
+
+    with pytest.raises(
+        TypeError, match=r"takes `async def load\(id\)` and reads through `db\(\)`"
+    ) as caught:
+        authorize_resource(loader=load, by="id", policy=Owner(lambda note: note))
+    assert "drop the `session` parameter and call `db()`" in str(caught.value)
+
+
 @pytest.mark.parametrize(
     "bad", [lambda: None, lambda a, b, c: None], ids=["no-parameter", "three"]
 )
-def test_a_loader_that_fits_neither_form_is_refused_at_declaration(bad: Any) -> None:
+def test_a_loader_that_fits_no_shape_is_refused_at_declaration(bad: Any) -> None:
     with pytest.raises(TypeError, match=r"takes `async def load\(id\)`"):
         authorize_resource(loader=bad, by="id", policy=Owner(lambda note: note))
 
 
 # --------------------------------------------------------------------------- #
-# L2 projection handlers: apply(envelope), the session being db()
+# L2 projection handlers: handler(envelope), the session being db()
 # --------------------------------------------------------------------------- #
 
 
@@ -224,63 +250,76 @@ def _descriptor(handler: Any) -> ProjectionConsumerDescriptor:
 async def test_an_envelope_only_handler_runs_on_db(ambient_uow: Any) -> None:
     seen: list[Any] = []
 
-    async def apply(envelope: Any) -> None:
+    async def handle(envelope: Any) -> None:
         seen.append((envelope, unit_db()))
 
-    await _descriptor(apply).apply("ignored-session", "envelope")
+    # the consumer callback hands the runtime form the unit's session first
+    await _descriptor(handle).apply("ignored-session", "envelope")
     assert seen == [("envelope", ambient_uow)]
-
-
-async def test_the_earlier_session_and_envelope_handler_gets_both() -> None:
-    seen: list[Any] = []
-
-    async def apply(session: Any, envelope: Any) -> None:
-        seen.append((session, envelope))
-
-    await _descriptor(apply).apply("s", "e")
-    assert seen == [("s", "e")]
 
 
 async def test_a_handler_with_a_defaulted_second_parameter_takes_the_envelope_alone(
     ambient_uow: Any,
 ) -> None:
-    """``apply(envelope, retries=3)``: the option keeps its default, it is
+    """``handle(envelope, retries=3)``: the option keeps its default, it is
     never handed the session."""
     seen: list[Any] = []
 
-    async def apply(envelope: Any, retries: int = 3) -> None:
+    async def handle(envelope: Any, retries: int = 3) -> None:
         seen.append((envelope, retries))
 
-    await _descriptor(apply).apply("the-session", "e")
+    await _descriptor(handle).apply("the-session", "e")
     assert seen == [("e", 3)]
+
+
+def test_the_session_form_of_a_handler_is_refused_when_declared() -> None:
+    async def handle(session: Any, envelope: Any) -> None:
+        return None
+
+    with pytest.raises(
+        TypeError, match=r"handler takes `async def f\(envelope\)`"
+    ) as caught:
+        _descriptor(handle)
+    assert "drop the `session` parameter and call `db()`" in str(caught.value)
 
 
 @pytest.mark.parametrize(
     "bad", [lambda: None, lambda a, b, c: None], ids=["no-parameter", "three"]
 )
-def test_a_handler_that_fits_neither_form_is_refused_when_declared(bad: Any) -> None:
+def test_a_handler_that_fits_no_shape_is_refused_when_declared(bad: Any) -> None:
     with pytest.raises(TypeError, match="handler takes"):
         _descriptor(bad)
 
 
-async def test_watermark_guarded_keeps_the_shape_of_an_envelope_only_handler(
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_descriptor_built_from_an_adapted_handler_is_refused() -> None:
+    """``descriptor.apply`` is the runtime's two-parameter adapter: it is not a
+    handler, and is refused as one."""
+
+    async def handle(envelope: Any) -> None:
+        return None
+
+    with pytest.raises(TypeError, match="handler takes"):
+        _descriptor(_descriptor(handle).apply)
+
+
+async def test_watermark_guarded_keeps_an_envelope_only_handler(
+    monkeypatch: pytest.MonkeyPatch, ambient_uow: Any
 ) -> None:
-    """The guard wraps a handler the descriptor already adapted: the new
-    descriptor reads the wrapper's own two-parameter shape, not the
-    one-parameter function ``functools.wraps`` points at."""
+    """The guard wraps the handler in a handler of the same shape that reads the
+    watermark through ``db()``; the new descriptor is accepted as it stands."""
     seen: list[Any] = []
 
-    async def apply(envelope: Any) -> None:
+    async def handle(envelope: Any) -> None:
         seen.append(envelope)
 
     async def no_watermark(session: Any, projection: str) -> None:
+        assert session is ambient_uow
         return None
 
     monkeypatch.setattr(projection_operations, "locked_watermark", no_watermark)
     monkeypatch.setattr(projection_operations, "check_watermark", lambda *_: None)
-    guarded = projection_operations.watermark_guarded(_descriptor(apply))
-    await guarded.apply("session", "envelope")
+    guarded = projection_operations.watermark_guarded(_descriptor(handle))
+    await guarded.handler("envelope")
     assert seen == ["envelope"]
 
 
@@ -362,109 +401,65 @@ async def test_monotonic_helpers_write_through_db_without_a_session(
     assert rows["b"][0] == "gone" and rows["b"][3] is not None
 
 
-async def test_the_earlier_session_form_writes_through_the_given_session(
-    db: Any,
-) -> None:
-    """No unit is bound here: a helper that fell back to ``db()`` would raise
-    (SANDLOOM-R002), so this proves the explicit session is the one used."""
-    await _create_table(db)
-    assert await monotonic_upsert(
-        db,
-        _ROWS,
-        key={"item_id": "a"},
-        values={"title": "t1", "group_id": "g"},
-        version_column="item_version",
-        incoming_version=1,
-    )
-    assert (
-        await monotonic_update(
-            db,
-            _ROWS,
-            match={"group_id": "g"},
-            values={"group_name": "G"},
-            version_column="group_version",
-            incoming_version=2,
-        )
-        == 1
-    )
-    assert await monotonic_delete(
-        db,
-        _ROWS,
-        key={"item_id": "b"},
-        values={"title": "gone", "group_id": "g"},
-        version_column="item_version",
-        incoming_version=5,
-        deleted_at=datetime(2026, 1, 1, tzinfo=UTC),
-    )
-    assert set(await _rows(db)) == {"a", "b"}
-
-
-@pytest.mark.parametrize("count", [0, 3])
+@pytest.mark.parametrize("count", [0, 2])
 @pytest.mark.parametrize(
     "helper", [monotonic_upsert, monotonic_update, monotonic_delete]
 )
-async def test_a_wrong_positional_count_is_refused(helper: Any, count: int) -> None:
+async def test_the_earlier_session_form_is_refused(helper: Any, count: int) -> None:
+    """``helper(session, table, ...)`` has two positional arguments and no
+    ``db()`` is read: it is a ``TypeError`` on the call, never ``target=session``."""
     kwargs: dict[str, Any] = {
         "values": {},
         "version_column": "v",
         "incoming_version": 1,
     }
     kwargs["match" if helper is monotonic_update else "key"] = {}
-    with pytest.raises(TypeError, match="positional arguments"):
+    with pytest.raises(TypeError, match="positional argument"):
         await helper(*(["x"] * count), **kwargs)
 
 
 # --------------------------------------------------------------------------- #
-# The shape rule: only a required parameter counts
+# The shape rule: a function that can be called with one argument
 # --------------------------------------------------------------------------- #
 
-#: ``(function, positional count, takes it)``: the kernel's ``takes`` and the
-#: declarative level's copy of it (it imports no kernel module) must agree.
+#: ``(function, takes one positional argument)``: the kernel's
+#: ``takes_one_argument`` and the declarative level's copy of it (it imports no
+#: kernel module) must agree.
 _SHAPES = [
-    (lambda a: None, 1, True),
-    (lambda a: None, 2, False),
-    (lambda a, b: None, 2, True),
-    (lambda a, b: None, 1, False),
-    (lambda a, b=1: None, 1, True),
-    (lambda a, b=1: None, 2, False),
-    (lambda a, /, b=1: None, 1, True),
-    (lambda a=1, b=2: None, 1, False),
-    (lambda a=1, b=2: None, 2, False),
-    (lambda *a: None, 1, True),
-    (lambda *a: None, 2, True),
-    (lambda a, *rest: None, 1, True),
-    (lambda a, *rest: None, 2, True),
-    (lambda a, *, flag: None, 1, False),
-    (lambda a, *, flag=False: None, 1, True),
+    (lambda: None, False),
+    (lambda a: None, True),
+    (lambda a, b: None, False),
+    (lambda a, b, c: None, False),
+    (lambda a, b=1: None, True),
+    (lambda a, /, b=1: None, True),
+    (lambda a=1, b=2: None, True),
+    (lambda *a: None, True),
+    (lambda a, *rest: None, True),
+    (lambda a, *, flag: None, False),
+    (lambda a, *, flag=False: None, True),
 ]
 _SHAPE_IDS = [
-    "one-one",
-    "one-two",
-    "two-two",
-    "two-one",
-    "default-one",
-    "default-two",
-    "positional-only-default-one",
-    "all-default-one",
-    "all-default-two",
-    "star-one",
-    "star-two",
-    "rest-one",
-    "rest-two",
+    "none",
+    "one",
+    "two",
+    "three",
+    "default-second",
+    "positional-only-default-second",
+    "all-default",
+    "star",
+    "rest",
     "required-keyword",
     "optional-keyword",
 ]
 
 
-@pytest.mark.parametrize(("fn", "count", "expected"), _SHAPES, ids=_SHAPE_IDS)
-def test_takes_counts_only_required_parameters(
-    fn: Any, count: int, expected: bool
-) -> None:
-    assert takes(fn, count) is expected
+@pytest.mark.parametrize(("fn", "expected"), _SHAPES, ids=_SHAPE_IDS)
+def test_takes_one_argument_counts_what_can_be_bound(fn: Any, expected: bool) -> None:
+    assert takes_one_argument(fn) is expected
 
 
-@pytest.mark.parametrize(("fn", "count", "expected"), _SHAPES, ids=_SHAPE_IDS)
+@pytest.mark.parametrize(("fn", "expected"), _SHAPES, ids=_SHAPE_IDS)
 def test_the_declarative_levels_copy_of_the_rule_agrees(
-    fn: Any, count: int, expected: bool
+    fn: Any, expected: bool
 ) -> None:
-    assert sagas_takes(inspect.signature(fn), count) is expected
+    assert _takes_context_only(fn) is expected

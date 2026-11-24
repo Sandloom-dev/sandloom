@@ -19,7 +19,7 @@ Each term has one meaning across this documentation.
 | **Kernel** | The framework runtime: transactions, access checks, outbox, routing. Modules reach it only through the SDK. See [Architecture](../advanced/index.md). |
 | **SDK** | `sandloom.sdk`, the public Python API for modules. Apart from the driver kit below, everything else in the framework is private. [Reference](../reference/sdk/index.md). |
 | **Driver kit** | `sandloom.driverkit`, the separate API for driver packages. Modules may not import it. [Reference](../infrastructure/driverkit.md). |
-| **Beginner names, advanced names** | The 26 SDK names that cover ordinary modules (20 from `sandloom.sdk` and six test helpers from `sandloom.sdk.testing`), and every other public name. An advanced import states its reason in a comment. [Modules](../advanced/module-internals.md#the-beginner-tier). |
+| **Beginner names, advanced names** | The 29 SDK names that cover ordinary modules (24 from `sandloom.sdk` and five test helpers from `sandloom.sdk.testing`), 12 more that need no marker in the module file `sandloom add` writes them into, and every other public name. An advanced import states its reason in a comment. [Modules](../advanced/module-internals.md#the-beginner-tier). |
 
 ## How modules talk
 

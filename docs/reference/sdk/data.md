@@ -16,7 +16,7 @@ database feature (`Array`, `fulltext_index` / `matches`, `json_path`,
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.data import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.data import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
 ## Start with (beginner)
 
@@ -29,6 +29,12 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`TenantScoped`](#tenantscoped) | class | Mixin marking a model as tenant-owned (adds the indexed `tenant_id`). |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
 | [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
+
+## After the first module (in `tasks.py`)
+
+| Name | Kind | Summary |
+| --- | --- | --- |
+| [`open_uow`](#open_uow) | function | Open a unit of work on `database` (today `db_session`, §4.3): |
 
 ## Advanced
 
@@ -56,7 +62,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`make_db_dependency`](#make_db_dependency) | callable | Build a request dependency yielding a session for a NAMED database. |
 | [`matches`](#matches) | function | `column` (or a list of columns) matches the search `query` (feature `fulltext_search`): |
 | [`MoneyLedger`](#moneyledger) | class | Model mixin of a money ledger: names its unique operation-key column. |
-| [`open_uow`](#open_uow) | function | Open a unit of work on `database` (today `db_session`, §4.3): |
 | [`Page`](#page) | class | One page of a `ListOperation`: the DTOs and the next cursor. |
 | [`PageLimitError`](#pagelimiterror) | exception | `limit` missing, &lt; 1 or above the operation's page cap (400). |
 | [`partial_index`](#partial_index) | function | An index over the rows `where` selects, for `__table_args__`. |
@@ -233,6 +238,40 @@ def process_result_value(
 ```
 
 A loaded value with UTC attached when the database kept no offset.
+
+## After-first names
+
+### `open_uow`
+
+```python
+def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSession]
+```
+
+Open a unit of work on `database` (today `db_session`, §4.3):
+
+```python
+async with open_uow() as session:
+    session.add(row)          # committed when the block exits
+```
+
+One transaction, committed on success and rolled back on an exception,
+with the transactional outbox for the events it publishes.
+
+Without `database` the unit opens on the primary database of the module
+that calls `open_uow` (the one its migration chain lives on, as its
+contracts' units do). Code that belongs to no loaded module, such as a
+script, gets `"default"`; so does a module whose `define_module(name=)`
+differs from its package: pass the database name there.
+
+A module that requires several databases, `default` not among them, and
+declares no `migrations_database` has no primary one: `open_uow()`
+then raises `MigrationTargetError` on entering the block; pass
+`database`. A module that requires `default` and another database gets
+`default`.
+
+The database of a call without `database` is resolved when the block is
+entered, against the core active then (as `db_session` does), not when
+`open_uow()` is called.
 
 ## Advanced names
 
@@ -741,38 +780,6 @@ class MoneyLedger
 
 Model mixin of a money ledger: names its unique operation-key column.
 
-### `open_uow`
-
-```python
-def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSession]
-```
-
-Open a unit of work on `database` (today `db_session`, §4.3):
-
-```python
-async with open_uow() as session:
-    session.add(row)          # committed when the block exits
-```
-
-One transaction, committed on success and rolled back on an exception,
-with the transactional outbox for the events it publishes.
-
-Without `database` the unit opens on the primary database of the module
-that calls `open_uow` (the one its migration chain lives on, as its
-contracts' units do). Code that belongs to no loaded module, such as a
-script, gets `"default"`; so does a module whose `define_module(name=)`
-differs from its package: pass the database name there.
-
-A module that requires several databases, `default` not among them, and
-declares no `migrations_database` has no primary one: `open_uow()`
-then raises `MigrationTargetError` on entering the block; pass
-`database`. A module that requires `default` and another database gets
-`default`.
-
-The database of a call without `database` is resolved when the block is
-entered, against the core active then (as `db_session` does), not when
-`open_uow()` is called.
-
 ### `Page`
 
 ```python
@@ -1075,7 +1082,8 @@ Read the version after `flush()`: the new value comes back with the
 UPDATE (`eager_defaults`), so no `refresh` is needed. Events carry it
 so a consumer can drop a stale or repeated one. A statement that updates
 no column leaves the version as it was; `version` itself is never set by
-hand.
+hand. On a joined-table model the version counts whichever table's columns
+the update changed.
 
 The update is checked, so the version never goes out with a stale row: the
 ORM writes `WHERE version = <the version this unit loaded>`. When another

@@ -32,15 +32,10 @@ import weakref
 from datetime import datetime
 from typing import Annotated, Any
 
-from sqlalchemy import BigInteger, event, text
+from sqlalchemy import BigInteger, Connection, event, text
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.orm import (
-    Mapped,
-    Mapper,
-    configure_mappers,
-    declared_attr,
-    mapped_column,
-)
+from sqlalchemy.orm import Mapped, Mapper, declared_attr, mapped_column
+from sqlalchemy.orm.attributes import set_attribute
 from sqlalchemy.sql.schema import CallableColumnDefault
 
 from sandloom.core.sql_alchemy.base import Base
@@ -106,7 +101,8 @@ class Versioned:
     UPDATE (``eager_defaults``), so no ``refresh`` is needed. Events carry it
     so a consumer can drop a stale or repeated one. A statement that updates
     no column leaves the version as it was; ``version`` itself is never set by
-    hand.
+    hand. On a joined-table model the version counts whichever table's columns
+    the update changed.
 
     The update is checked, so the version never goes out with a stale row: the
     ORM writes ``WHERE version = <the version this unit loaded>``. When another
@@ -141,6 +137,26 @@ def _versioned_is_checked(mapper: Mapper[Any], class_: type) -> None:
             "dropped the stale-write check; name "
             "`version_id_col=<Model>.version, version_id_generator=False` there"
         )
+
+
+@event.listens_for(Base, "before_update", propagate=True)
+def _count_a_child_only_update(
+    mapper: Mapper[Any], connection: Connection, target: object
+) -> None:
+    """A joined-table child whose update changes only the child's own columns
+    sends no UPDATE to the parent table, where ``version`` lives: the database's
+    ``onupdate`` and the stale-write check would both be skipped. Name the count
+    in the statement, so the parent row is updated (``version = version + 1``,
+    ``WHERE version = <the version this unit loaded>``) whichever table's
+    columns changed."""
+    if len(mapper.tables) == 1 or not isinstance(target, Versioned):
+        return
+    state = sa_inspect(target)
+    session = state.session
+    if session is None or state.attrs.version.history.has_changes():
+        return
+    if session.is_modified(target, include_collections=False):
+        set_attribute(target, "version", text("version + 1"))
 
 
 # --------------------------------------------------------------------------- #
@@ -222,9 +238,12 @@ def _id_attributes(cls: type) -> tuple[str, ...]:
     if names is None:
         # This listener runs before the mapper's own `init` hook, which is
         # what configures the mappers on a first construction: without this
-        # the class has no attribute implementation to set yet.
-        configure_mappers()
+        # the class has no attribute implementation to set yet. Only the
+        # class's own registry (and the ones it names by relationship) is
+        # configured, never every registry of the process: another one with a
+        # class still being declared must not fail this construction.
         mapper: Mapper[Any] = sa_inspect(cls)
+        mapper.registry.configure(cascade=True)
         names = tuple(
             mapper.get_property_by_column(column).key
             for column in mapper.primary_key

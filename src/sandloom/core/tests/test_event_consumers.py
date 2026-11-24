@@ -30,6 +30,10 @@ async def _noop(session: object, envelope: object) -> None:  # pragma: no cover
     return None
 
 
+async def _noop_projection_handler(envelope: object) -> None:  # pragma: no cover
+    return None
+
+
 def test_module_registration_applies_event_consumer(core_facade: CoreFacade) -> None:
     with core_facade.module_registration("notifier") as api:
         api.register_event_consumer(
@@ -52,7 +56,7 @@ def test_consumer_name_unique_across_event_and_projection(
                 name="dup",
                 source_channel="a.b.c.v1",
                 projection="proj",
-                handler=_noop,
+                handler=_noop_projection_handler,
             )
         )
     with pytest.raises(ModuleRegistrationConflict, match="read_mod:dup"):

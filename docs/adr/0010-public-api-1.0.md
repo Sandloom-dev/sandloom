@@ -73,10 +73,11 @@ the public API and the transaction rules the rest of the reduction needs.
 - Each module declares `__all__` and `__beginner__`; 27 beginner names were
   taught at acceptance (30 before KB-34; 26 after it: 20 code names in
   `sandloom.sdk.__all__`, the five `sandloom.sdk.testing` names and the
-  `client` fixture, see the amendment; 42 after dx-module-less-boilerplate:
-  25 code names, 5 of `sandloom.sdk.sagas`, 6 of `sandloom.sdk.projections`
-  and the six testing names, see the second amendment) and are taught by the generators, the tutorial and the agent cheat sheet. The
-  surface is snapshotted.
+  `client` fixture, see the amendment; 29 after dx-module-less-boilerplate:
+  24 code names in `sandloom.sdk.__all__` and the five testing names, plus a
+  second tier of 12 names that need no marker in the one module file made for
+  them, see the second amendment) and are taught by the generators, the
+  tutorial and the agent cheat sheet. The surface is snapshotted.
 - Importing `sandloom.sdk` reads no environment and performs no I/O: settings
   become a lazy proxy forced by every entry point, and an import audit
   removes the remaining import-time effects.
@@ -321,7 +322,8 @@ from testing: `sandloom test` never writes a generated file).
   ordinary write route carries no policy line; a new module touches no file
   outside its package except generated contract stubs and event schemas.
 - **Surface:** 27 beginner names at acceptance (26 after the four atoms move in
-  KB-34, see the amendment); every capability keeps a public home and
+  KB-34, see the amendment; 29 and a 12-name second tier after
+  dx-module-less-boilerplate, see the second amendment); every capability keeps a public home and
   its parameters; `help()` works without an environment.
 - **Guarantees:** none weakens. Stronger: authentication presence, write
   admission, compatibility checked before writes, derived labels, explicit
@@ -426,7 +428,9 @@ approved migration of the public `sdk` contract and beginner DX.
    | `Subscribed` | `<generated>.billing_entitlements_v1` (claim tier, from billing's `AccessFact`) |
 
    `Account`, `Role`, `Perm`, `Owner`, `require`, `authorize_resource` and
-   the other beginner names stay in `sandloom.sdk`. The beginner tier is
+   the other beginner names stay in `sandloom.sdk` (the second amendment moves
+   `Owner` and `authorize_resource` out of the root and the beginner tier,
+   and `Account` in). The beginner tier is
    recounted in the surface snapshot (SANDLOOM-T009) and the agent cheat
    sheet. **Applied by KB-34 (2026-11-09):** `sandloom.sdk.__all__` goes from
    24 names to 20 (`Subscribed`, `SubscriptionActive`, `Credits` and `OrgRole`
@@ -445,17 +449,70 @@ approved migration of the public `sdk` contract and beginner DX.
    **Second amendment (dx-module-less-boilerplate, 2026-11-24):** the module
    contract sends authors to sagas and projections, the models to `UpdatedAt`,
    the services to a refusal and the tasks to `bind_tenant`, and a marker on
-   each of those imports was noise. The beginner tier is 42 names: 25 in
-   `sandloom.sdk.__all__` (the 20 plus `NotFound`, `Conflict`, `Refused`,
-   `UpdatedAt` and `bind_tenant`), the five of `sandloom.sdk.sagas` (`Saga`,
-   `SagaContext`, `local_step`, `start_saga`, `step`), the six of
-   `sandloom.sdk.projections` (`Projection`, `ProjectionView`, `SourceGroup`,
-   `View`, `full_state`, `tombstone`) and the six testing names. The list is
-   a proposal that the owner confirms or trims when the change merges;
-   `Versioned` stays advanced (`sandloom.sdk.data`), and so does everything
-   else of the two modules. `sandloom check` reports T009, and `sandloom test`
-   runs it in its `sandloom check` step; the schema step of `sandloom test` no
-   longer reports it.
+   each of those imports was noise. The first draft of the change put 42
+   names in the tier, with names nobody used inside it (`Owner`,
+   `authorize_resource`, `fake_access_fact`, `ProjectionView`, `View`) and a
+   name every billing gate needs outside it (`Account`). The owner replaced
+   it with a measured criterion and two tiers.
+
+   **The criterion.** Each candidate name carries three numbers, kept in this
+   table: S, `sandloom add module` writes it into a file the author edits
+   (models, api, services, events, tests; migrations, `env.py` and generated
+   stubs do not count); T, in how many of the ten DX tasks of
+   `benchmarks/dx` the straightforward solution imports it (the recipes the
+   agent reads for the task plus the examples); C, how many concepts it adds
+   beyond Python, FastAPI, SQLAlchemy and pytest. **Tier 1 is S, or T of 3 or
+   more with C of 1 or less.** A name needed only after `sandloom add
+   consumer`, `projection`, `saga` or `task` is tier 2. Everything else is
+   advanced and needs the marker.
+
+   | names | S | T | C | decision |
+   |---|---|---|---|---|
+   | `define_module`, `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt`, `module_router`, `CurrentUser`, `Event` | yes | n/a | n/a | tier 1: the scaffold writes them |
+   | `UtcDateTime` | no | 2 | 0 | tier 1 by rule C029: it is the only column type for a time other than `CreatedAt` / `UpdatedAt` |
+   | `UpdatedAt` | no | 1 | 0 | tier 1: pairs with `CreatedAt` ("who changed it and when") |
+   | `NotFound` | no | 4 | 0 | tier 1 |
+   | `Conflict`, `Refused` | no | 2, 1 | 0 | tier 1 as one family with `NotFound` (below the T bar, an exception on purpose: one idiom for refusing, no FastAPI import) |
+   | `public`, `require`, `on`, `contract`, `command`, `Contract`, `record_audit`, `on_commit` | no | 3 or more, or named by the module contract | n/a | tier 1 |
+   | `bind_tenant` | no | 5 imports across the recipes | 1 | tier 1 |
+   | `Account` | no | 2 tasks (every billing gate passes `of=`), 7 example files | 1 | tier 1, added |
+   | `Owner`, `authorize_resource` | no | 0 | 2 | advanced: a resource policy and its loader are two concepts, and `TenantScoped` already isolates rows |
+   | `fake_access_fact` | no | 0 | n/a | advanced: org-gate tests fake the contracts |
+   | `client`, `as_user`, `published`, `deliver`, `fake_contract` | no | the tests of the tasks | n/a | tier 1: the test harness |
+   | `Saga`, `SagaContext`, `step`, `local_step`, `start_saga` | the saga scaffold | 0 (one example app) | n/a | tier 2 |
+   | `Projection`, `SourceGroup`, `full_state`, `tombstone` | the projection scaffold | 1 | n/a | tier 2 |
+   | `task`, `periodic`, `open_uow` | the task scaffold | 1 | n/a | tier 2 |
+   | `View`, `ProjectionView`, `unscoped`, `Versioned` | no | 0 | n/a | advanced: the recipe reads its table with `db()`; the marker on `unscoped` is a review signal |
+
+   **Tier 1 is 29 names:** the 24 of `sandloom.sdk.__all__` (the 20 of the
+   first amendment, less `Owner` and `authorize_resource`, plus `Account`,
+   `NotFound`, `Conflict`, `Refused`, `UpdatedAt` and `bind_tenant`) and the
+   five testing names (`client` is the fixture of
+   `sandloom.sdk.testing.plugin`). It is free in any file. `Owner` and
+   `authorize_resource` leave the root with the tier: they are imported from
+   `sandloom.sdk.authz` with a marker.
+
+   **Tier 2 is 12 names, with a file rule:** each module declares
+   `__after_first__ = {file: names}`, and a name needs no marker in a module
+   file of that name (`sagas.py`, `projections.py`, `tasks.py`) and needs one
+   in any other file, so a route that starts a saga from `services.py` marks
+   the import. Tier 2 is what the matching `sandloom add` writes: the
+   scaffold output stays marker-free. A decision that departs from the first
+   draft and from the bar above, recorded here: `Conflict` and `Refused` are
+   in tier 1 below the T bar, and `open_uow` is a `sandloom.sdk.data` name
+   declared for `tasks.py`.
+
+   **The author forms are `db()`-only.** A loader of `authorize_resource` is
+   `async (id)`, a `local_step` `apply` is `async (ctx)`, `Projection.apply`
+   is `(group, event, mapper)` and the `monotonic_*` helpers take their
+   target first, all reading `db()`: the session-parameter forms are removed
+   (no deprecated second form, and no argument-count detection to tell the
+   two apart), and the kernel runtimes keep `(session, ...)` internally
+   behind adapters.
+   `sandloom check` reports T009, and `sandloom test` runs it in its
+   `sandloom check` step; the schema step of `sandloom test` no longer
+   reports it. The upgrade guide gives the error each removed form raises and
+   its rewrite.
 3. **Generation.** A route policy that uses a generated atom adds the
    atom's contract to the module's `consumes` (it already does for the
    kernel's live atoms), so `sandloom generate` writes the stub and the

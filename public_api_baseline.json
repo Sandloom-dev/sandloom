@@ -2141,6 +2141,19 @@
     }
   },
   "sandloom.sdk": {
+    "Account": {
+      "kind": "class",
+      "members": [
+        "bound_tenant",
+        "describe",
+        "kind",
+        "org",
+        "param",
+        "reason",
+        "user"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|AccountKind, param:POSITIONAL_OR_KEYWORD|str | None=None, reason:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
     "Base": {
       "kind": "class",
       "members": [
@@ -2218,23 +2231,6 @@
       ],
       "signature": "(detail:POSITIONAL_OR_KEYWORD|str | None=None, code:KEYWORD_ONLY|str | None=None, headers:KEYWORD_ONLY|dict[str, str] | None=None) -> None"
     },
-    "Owner": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(get_owner:POSITIONAL_OR_KEYWORD|Callable[[Any], UUID | None]) -> None"
-    },
     "Refused": {
       "kind": "class",
       "members": [
@@ -2298,10 +2294,6 @@
         "with_variant"
       ],
       "signature": "(args:VAR_POSITIONAL|Any, kwargs:VAR_KEYWORD|Any)"
-    },
-    "authorize_resource": {
-      "kind": "function",
-      "signature": "(loader:KEYWORD_ONLY|ResourceLoader, by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
     },
     "bind_tenant": {
       "kind": "function",
@@ -2759,7 +2751,7 @@
     },
     "authorize_resource": {
       "kind": "function",
-      "signature": "(loader:KEYWORD_ONLY|ResourceLoader, by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+      "signature": "(loader:KEYWORD_ONLY|Callable[[Any], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
     },
     "claim_atom": {
       "kind": "function",
@@ -4539,7 +4531,7 @@
         "source_channel",
         "start_from"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, source_channel:POSITIONAL_OR_KEYWORD|str, projection:POSITIONAL_OR_KEYWORD|str, handler:POSITIONAL_OR_KEYWORD|ProjectionHandlerFn, durable:POSITIONAL_OR_KEYWORD|bool=True, required:POSITIONAL_OR_KEYWORD|bool=True, module:POSITIONAL_OR_KEYWORD|str | None=None, group:POSITIONAL_OR_KEYWORD|str | None=None, start_from:POSITIONAL_OR_KEYWORD|str='earliest', bind_tenant_from:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, source_channel:POSITIONAL_OR_KEYWORD|str, projection:POSITIONAL_OR_KEYWORD|str, handler:POSITIONAL_OR_KEYWORD|ProjectionHandler, durable:POSITIONAL_OR_KEYWORD|bool=True, required:POSITIONAL_OR_KEYWORD|bool=True, module:POSITIONAL_OR_KEYWORD|str | None=None, group:POSITIONAL_OR_KEYWORD|str | None=None, start_from:POSITIONAL_OR_KEYWORD|str='earliest', bind_tenant_from:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
     },
     "ProjectionHandler": {
       "kind": "callable",
@@ -4640,15 +4632,15 @@
     },
     "monotonic_delete": {
       "kind": "function",
-      "signature": "(args:VAR_POSITIONAL|Any, key:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, values:KEYWORD_ONLY|dict[str, Any] | None=None, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None, deleted_column:KEYWORD_ONLY|str='deleted_at', deleted_at:KEYWORD_ONLY|datetime | None=None) -> bool"
+      "signature": "(target:POSITIONAL_OR_KEYWORD|Any, key:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, values:KEYWORD_ONLY|dict[str, Any] | None=None, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None, deleted_column:KEYWORD_ONLY|str='deleted_at', deleted_at:KEYWORD_ONLY|datetime | None=None) -> bool"
     },
     "monotonic_update": {
       "kind": "function",
-      "signature": "(args:VAR_POSITIONAL|Any, match:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int) -> int"
+      "signature": "(target:POSITIONAL_OR_KEYWORD|Any, match:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int) -> int"
     },
     "monotonic_upsert": {
       "kind": "function",
-      "signature": "(args:VAR_POSITIONAL|Any, key:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None) -> bool"
+      "signature": "(target:POSITIONAL_OR_KEYWORD|Any, key:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None) -> bool"
     },
     "purge_tombstones": {
       "kind": "function",
@@ -6187,7 +6179,7 @@
     },
     "authorize_resource": {
       "kind": "function",
-      "signature": "(loader:KEYWORD_ONLY|ResourceLoader, by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+      "signature": "(loader:KEYWORD_ONLY|Callable[[Any], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
     },
     "claim_atom": {
       "kind": "function",

@@ -18,7 +18,8 @@ generated contract stubs and DTOs, and their own package (`sandloom check` rule
 
 ## The kit at a glance
 
-The six beginner names. Everything else in `sandloom.sdk.testing` is advanced.
+The five beginner names. Everything else in `sandloom.sdk.testing` is advanced,
+`fake_access_fact` included: its import carries `# sandloom: advanced <reason>`.
 
 | Name | What it does |
 | --- | --- |
@@ -27,7 +28,11 @@ The six beginner names. Everything else in `sandloom.sdk.testing` is advanced.
 | `published(E)` | the `E` events the code under test published with `E(...).publish()`, in order |
 | `await deliver(event, payload=None, *, times=1, event_id=None, session=None, core=None)` | runs every consumer of the event's channel through the real consumer runtime; returns how many consumers ran |
 | `fake_contract(REF, impl)` | serves contract `REF` from `impl` for a `with` block |
-| `fake_access_fact(name, value=True, *, owner, deny_category=None, core=None)` | answers the access fact `owner` registers under `name` (`Entitled(name, owner=...)`) without loading the owner; only a policy naming the same owner sees it. A generated atom is faked with `fake_contract` |
+
+Advanced: `fake_access_fact(name, value=True, *, owner, deny_category=None, core=None)`
+answers the access fact `owner` registers under `name` (`Entitled(name, owner=...)`)
+without loading the owner. Only a policy naming the same owner sees it. A generated
+atom is faked with `fake_contract`.
 
 ## Activate the plugin
 

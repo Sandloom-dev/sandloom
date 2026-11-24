@@ -6,9 +6,10 @@ consume the framework's public API, `sandloom.sdk` (Public API 1.0), exactly as
 any external project would (and, for one of them, the installed module packages
 `sandloom-identity`, `sandloom-tenancy` and `sandloom-billing`). Each
 was scaffolded by the CLI and then filled in with a real domain. Agents copy
-them, so they stay in the **beginner tier**: module code imports the 42
-beginner names, and an advanced name carries `# sandloom: advanced <reason>` on
-its import line (SANDLOOM-T009).
+them, so they stay in the **beginner tier**: module code imports the 29
+beginner names (and, in `sagas.py`, `projections.py` and `tasks.py`, the 12
+tier 2 names made for that file), and any other name carries
+`# sandloom: advanced <reason>` on its import line (SANDLOOM-T009).
 
 | App | Generated with | Stresses |
 | --- | --- | --- |

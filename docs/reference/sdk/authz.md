@@ -14,14 +14,13 @@ provider's `access_check` declarations; they are not in this module.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
-`from sandloom.sdk.authz import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
+`from sandloom.sdk.authz import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones every module uses; after-first names (a saga, a projection, a task) need no marker in the module file `sandloom add` writes for them; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
 ## Start with (beginner)
 
 | Name | Kind | Summary |
 | --- | --- | --- |
-| [`authorize_resource`](#authorize_resource) | function | Load a resource by path id, authorize, and return it to the endpoint. |
-| [`Owner`](#owner) | class | Subject owns the request resource. |
+| [`Account`](#account) | class | The account an access check targets (`of=`); build it with `user`, `org` or `bound_tenant`. |
 | [`require`](#require) | function | Return a dependency enforcing `policy` (no request resource). |
 
 ## Advanced
@@ -33,9 +32,9 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`AccessDenied`](#accessdenied) | exception | Raised by `enforce` (and the HTTP guards) when a policy is not satisfied. |
 | [`AccessFact`](#accessfact) | class | Declarative binding of a fact name to its three resolution paths. |
 | [`AccessUnknown`](#accessunknown) | exception | An access check's provider has no source for the answer (501). |
-| [`Account`](#account) | class | The account an access check targets (`of=`); build it with `user`, `org` or `bound_tenant`. |
 | [`And`](#and) | class | Conjunction: all operands must hold. Short-circuits on first non-allow. |
 | [`authorize`](#authorize) | async function | Inline check over an already-loaded `resource`; raises on failure. |
+| [`authorize_resource`](#authorize_resource) | function | Load a resource by path id, authorize, and return it to the endpoint. |
 | [`AuthzContext`](#authzcontext) | class | Inputs available to a `Requirement` during evaluation. |
 | [`Category`](#category) | class | Mandatory denial categories (TZ §10.2). |
 | [`claim_atom`](#claim_atom) | function | Declare `name`, the claim-tier atom of the access check below it. |
@@ -58,6 +57,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`MODE_PROJECTION`](#mode_projection) | constant |  |
 | [`Not`](#not) | class | Negation of a single requirement. |
 | [`Or`](#or) | class | Disjunction: any operand may hold. Short-circuits on first allow. |
+| [`Owner`](#owner) | class | Subject owns the request resource. |
 | [`Perm`](#perm) | class | Subject holds the fine-grained permission `perm`. |
 | [`PolicyIndeterminate`](#policyindeterminate) | exception | Raised by an atom's `evaluate` when it cannot answer at all. |
 | [`register_authz_projection`](#register_authz_projection) | function | Register an authorization projection, its consumers and rebuilder. |
@@ -76,65 +76,55 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 ## Beginner names
 
-### `authorize_resource`
+### `Account`
 
 ```python
-def authorize_resource(
-    *,
-    loader: ResourceLoader,
-    by: str,
-    policy: Requirement,
-    cast: Callable[[str], Any] | None = None,
-    not_found_detail: str = 'Not found',
-    status_code: int | None = None,
-) -> Callable[..., Awaitable[Any]]
+class Account(
+    kind: AccountKind,
+    param: str | None = None,
+    reason: str | None = None,
+) -> None
 ```
 
-Load a resource by path id, authorize, and return it to the endpoint.
+The account an access check targets (`of=`); build it with
+`user`, `org` or `bound_tenant`.
 
-**Args:**
-
-- `loader`: `async (id_value) -> entity | None`, reading through `db()` — the module supplies its own loader (keeps `shared` free of ORM imports). The earlier `async (id_value, session)` form still works. Only a required parameter counts: a defaulted second one (`include_archived=False`) is not the session.
-- `by`: name of the path parameter holding the resource id.
-- `policy`: requirement to enforce; resource atoms (`Owner`) read the loaded entity.
-- `cast`: optional converter applied to the raw path value before `loader` (e.g. `UUID`). Defaults to passing the raw string.
-- `not_found_detail`: 404 message when the loader returns `None`.
-- `status_code`: explicit status override for a definite denial (default: the decision's own status).
-
-The resource is fetched **once**: claim atoms evaluate first, so a failing
-cheap check raises without ever loading; otherwise the entity loaded for
-the ownership check is the same one returned to the endpoint.
-
-### `Owner`
+#### `Account.user`
 
 ```python
-class Owner(Requirement)(get_owner: Callable[[Any], UUID | None]) -> None
+@staticmethod
+def user(*, reason: str | None = None) -> Account
 ```
 
-Subject owns the request resource.
+The caller's personal account. `reason=` waives SANDLOOM-C027 on a
+route that carries an organization parameter.
 
-`get_owner` maps the loaded resource to its owner id; it is supplied by
-the module declaring the policy (e.g. `lambda post: post.author_id`), so
-the atom never needs to know the resource's type.
-
-#### `Owner.evaluate`
+#### `Account.org`
 
 ```python
-async def evaluate(self, ctx: AuthzContext) -> bool
+@staticmethod
+def org(*, param: str | None = 'org_id') -> Account
 ```
 
-Return True iff the subject satisfies this requirement.
+An organization account: `param` (path, then query), else the
+`X-Tenant-Id` header, else the bound tenant (`param=None`: header
+or bound tenant only).
 
-Raise `PolicyIndeterminate` (never return `False`) when the
-requirement cannot be evaluated at all.
+#### `Account.bound_tenant`
 
-#### `Owner.describe`
+```python
+@staticmethod
+def bound_tenant() -> Account
+```
+
+The account of the bound tenant, by its kind (personal or
+organization; canonical / unknown are indeterminate).
+
+#### `Account.describe`
 
 ```python
 def describe(self) -> str
 ```
-
-Human-readable label used in 403 detail messages.
 
 ### `require`
 
@@ -404,56 +394,6 @@ the algebra, so `Not` never allows and `Or` allows only on another
 branch that reliably allowed. `detail` says what is missing; the same
 class reaches a local and a remote caller.
 
-### `Account`
-
-```python
-class Account(
-    kind: AccountKind,
-    param: str | None = None,
-    reason: str | None = None,
-) -> None
-```
-
-The account an access check targets (`of=`); build it with
-`user`, `org` or `bound_tenant`.
-
-#### `Account.user`
-
-```python
-@staticmethod
-def user(*, reason: str | None = None) -> Account
-```
-
-The caller's personal account. `reason=` waives SANDLOOM-C027 on a
-route that carries an organization parameter.
-
-#### `Account.org`
-
-```python
-@staticmethod
-def org(*, param: str | None = 'org_id') -> Account
-```
-
-An organization account: `param` (path, then query), else the
-`X-Tenant-Id` header, else the bound tenant (`param=None`: header
-or bound tenant only).
-
-#### `Account.bound_tenant`
-
-```python
-@staticmethod
-def bound_tenant() -> Account
-```
-
-The account of the bound tenant, by its kind (personal or
-organization; canonical / unknown are indeterminate).
-
-#### `Account.describe`
-
-```python
-def describe(self) -> str
-```
-
 ### `And`
 
 ```python
@@ -574,6 +514,35 @@ The escape hatch for cases that don't fit `authorize_resource`
 interleaved with business logic). The endpoint owns the single fetch.
 Raises `AccessDenied` with the decision's status (or the explicit
 `status_code` override for a definite denial).
+
+### `authorize_resource`
+
+```python
+def authorize_resource(
+    *,
+    loader: Callable[[Any], Awaitable[Any]],
+    by: str,
+    policy: Requirement,
+    cast: Callable[[str], Any] | None = None,
+    not_found_detail: str = 'Not found',
+    status_code: int | None = None,
+) -> Callable[..., Awaitable[Any]]
+```
+
+Load a resource by path id, authorize, and return it to the endpoint.
+
+**Args:**
+
+- `loader`: `async (id_value) -> entity | None`, reading through `db()` — the module supplies its own loader (keeps `shared` free of ORM imports). A loader that takes the session as a second argument (`async (id_value, session)`) is refused with a `TypeError` when the dependency is built: read through `db()`.
+- `by`: name of the path parameter holding the resource id.
+- `policy`: requirement to enforce; resource atoms (`Owner`) read the loaded entity.
+- `cast`: optional converter applied to the raw path value before `loader` (e.g. `UUID`). Defaults to passing the raw string.
+- `not_found_detail`: 404 message when the loader returns `None`.
+- `status_code`: explicit status override for a definite denial (default: the decision's own status).
+
+The resource is fetched **once**: claim atoms evaluate first, so a failing
+cheap check raises without ever loading; otherwise the entity loaded for
+the ownership check is the same one returned to the endpoint.
 
 ### `AuthzContext`
 
@@ -1452,6 +1421,37 @@ The framework risks a gate enforcing this requirement carries
 `Or` carries its branches' risks; a `Not` grants no authority.
 
 #### `Or.describe`
+
+```python
+def describe(self) -> str
+```
+
+Human-readable label used in 403 detail messages.
+
+### `Owner`
+
+```python
+class Owner(Requirement)(get_owner: Callable[[Any], UUID | None]) -> None
+```
+
+Subject owns the request resource.
+
+`get_owner` maps the loaded resource to its owner id; it is supplied by
+the module declaring the policy (e.g. `lambda post: post.author_id`), so
+the atom never needs to know the resource's type.
+
+#### `Owner.evaluate`
+
+```python
+async def evaluate(self, ctx: AuthzContext) -> bool
+```
+
+Return True iff the subject satisfies this requirement.
+
+Raise `PolicyIndeterminate` (never return `False`) when the
+requirement cannot be evaluated at all.
+
+#### `Owner.describe`
 
 ```python
 def describe(self) -> str

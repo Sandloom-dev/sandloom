@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any
-from typing import cast as _cast
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -38,7 +37,7 @@ from sandloom.core.di import (
     get_db,
     sensitive_effect,
 )
-from sandloom.core.utils import takes
+from sandloom.core.utils import takes_one_argument
 from sandloom.shared.authz.account import bind_authz_request
 from sandloom.shared.authz.algebra import Requirement
 from sandloom.shared.authz.context import AuthzContext
@@ -219,32 +218,9 @@ async def authorize(
         raise _denied(decision, status_code)
 
 
-#: A resource loader: ``async def load(id)`` reading through ``db()``, or the
-#: earlier ``async def load(id, session)``.
-ResourceLoader = (
-    Callable[[Any], Awaitable[Any]] | Callable[[Any, AsyncSession], Awaitable[Any]]
-)
-
-
-def _loader_takes_session(loader: ResourceLoader) -> bool:
-    """Whether ``loader`` is the earlier ``(id, session)`` form. One that fits
-    both shapes (``*args``) keeps that form; one that fits neither is refused
-    when the dependency is built, not at the first request. Only a required
-    parameter counts: ``load(id, include_archived=False)`` takes the id alone,
-    its second parameter is never handed the session."""
-    if takes(loader, 2):
-        return True
-    if takes(loader, 1):
-        return False
-    raise TypeError(
-        "authorize_resource(loader=...) takes `async def load(id)` (read through "
-        f"`db()`) or `async def load(id, session)`, not {loader!r}"
-    )
-
-
 def authorize_resource(
     *,
-    loader: ResourceLoader,
+    loader: Callable[[Any], Awaitable[Any]],
     by: str,
     policy: Requirement,
     cast: Callable[[str], Any] | None = None,
@@ -256,9 +232,9 @@ def authorize_resource(
     Args:
         loader: ``async (id_value) -> entity | None``, reading through
             ``db()`` — the module supplies its own loader (keeps ``shared``
-            free of ORM imports). The earlier ``async (id_value, session)``
-            form still works. Only a required parameter counts: a defaulted
-            second one (``include_archived=False``) is not the session.
+            free of ORM imports). A loader that takes the session as a second
+            argument (``async (id_value, session)``) is refused with a
+            ``TypeError`` when the dependency is built: read through ``db()``.
         by: name of the path parameter holding the resource id.
         policy: requirement to enforce; resource atoms (``Owner``) read the
             loaded entity.
@@ -272,7 +248,13 @@ def authorize_resource(
     cheap check raises without ever loading; otherwise the entity loaded for
     the ownership check is the same one returned to the endpoint.
     """
-    with_session = _loader_takes_session(loader)
+    if not takes_one_argument(loader):
+        raise TypeError(
+            "authorize_resource(loader=...) takes `async def load(id)` and reads "
+            "through `db()`; a loader that takes the session "
+            f"(`async def load(id, session)`) is refused, not {loader!r}: "
+            "drop the `session` parameter and call `db()` instead"
+        )
 
     async def _guard(
         request: Request,
@@ -294,14 +276,7 @@ def authorize_resource(
             ) from exc
 
         async def _load(_az: AuthzContext) -> Any:
-            if with_session:
-                entity = await _cast(
-                    Callable[[Any, AsyncSession], Awaitable[Any]], loader
-                )(resource_id, db)
-            else:
-                entity = await _cast(Callable[[Any], Awaitable[Any]], loader)(
-                    resource_id
-                )
+            entity = await loader(resource_id)
             if entity is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, detail=not_found_detail)
             return entity

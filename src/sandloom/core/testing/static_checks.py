@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 import sandloom.core.testing.deploy_profile as _deploy_profile
 import sandloom.core.testing.settings_gate as _settings_gate
 from sandloom.core.archcheck import api10_rules
-from sandloom.core.archcheck.manifest import ManifestError, load_rules
+from sandloom.core.archcheck.manifest import ArchRules, ManifestError, load_rules
 from sandloom.core.composition import load_composition_core
 from sandloom.core.descriptors import MigrationTargetError
 from sandloom.core.migrations.migrations import list_database_instances
@@ -396,36 +396,35 @@ def deploy_profiles(root: Path) -> list[Path]:
 # --------------------------------------------------------------------------- #
 
 
-def beginner_tier_findings(root: Path) -> list[tuple[Path, int, str]]:
+def beginner_tier_findings(rules: ArchRules) -> list[tuple[Path, int, str]]:
     """``(file, line, message)`` of every advanced ``sandloom.sdk`` import in
-    the modules ``root``'s ``architecture_rules.yml`` names that has no marker
-    (SANDLOOM-T009); the file is shown relative to ``root``."""
-    rules_file = root / "architecture_rules.yml"
+    the modules of ``rules`` (the manifest ``sandloom check --rules`` loaded)
+    that has no marker (SANDLOOM-T009); the file is shown relative to the
+    manifest's root."""
+    root = rules.root
     spec = importlib.util.find_spec("sandloom.sdk")
-    if not rules_file.is_file() or spec is None or spec.origin is None:
+    if spec is None or spec.origin is None:
         return []
     if (root / "src" / "sandloom" / "sdk").is_dir():
         return []  # the framework tree: its standard modules are not taught code
-    try:
-        modules = load_rules(rules_file).modules_path
-    except ManifestError:
-        return []  # sandloom check reports a broken manifest
-    beginner = api10_rules.beginner_names(Path(spec.origin).parent)
+    sdk_dir = Path(spec.origin).parent
+    beginner = api10_rules.beginner_names(sdk_dir)
+    after_first = api10_rules.after_first_names(sdk_dir)
     findings: list[tuple[Path, int, str]] = []
-    for py in api10_rules.iter_python([modules]):
+    for py in api10_rules.iter_python([rules.modules_path]):
         shown = py.relative_to(root) if py.is_relative_to(root) else py
-        for found in api10_rules.find_beginner_tier_problems(py, beginner):
+        for found in api10_rules.find_beginner_tier_problems(py, beginner, after_first):
             line, _, message = found.partition(": ")
             findings.append((shown, int(line.removeprefix("Line ")), message))
     return findings
 
 
-def beginner_tier_problems(root: Path) -> list[str]:
+def beginner_tier_problems(rules: ArchRules) -> list[str]:
     """One line per finding of :func:`beginner_tier_findings`, with its code.
     ``sandloom check`` reports them (``static_gate_diagnostics``)."""
     return [
         f"{path}:{line}: {message} (SANDLOOM-T009)"
-        for path, line, message in beginner_tier_findings(root)
+        for path, line, message in beginner_tier_findings(rules)
     ]
 
 

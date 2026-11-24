@@ -79,11 +79,12 @@ saw. To wait for the other transaction instead of failing, read the row with
 - **In a task or script** open a unit with `open_uow()`; inside the block
   `db()` returns its session ([Background tasks](../background/tasks.md)).
 
-Four forms took the session as a parameter: `local_step` `fn(session, ctx)`,
-the `authorize_resource` loader `(id, session)`, the projection handler
-`(session, envelope)` and `monotonic_upsert(session, Row, ...)`. They are the
-earlier spelling and still work, with no warning. A function that fits neither
-spelling is refused when it is declared.
+There is one spelling: `db()`. Four forms that took the session as a
+parameter are gone: `local_step` `fn(session, ctx)`, the `authorize_resource`
+loader `(id, session)`, the projection handler `(session, envelope)` and
+`monotonic_upsert(session, Row, ...)`. A function with one of those shapes is
+refused when it is declared or called. The error names the rewrite
+([upgrade guide](../../operate/upgrade-1.0.md#session-parameters-leave-the-author-surface)).
 
 `open_uow(database=None)` opens a unit on the module's primary database, or
 on a named one. The module is the one whose package holds the calling code.

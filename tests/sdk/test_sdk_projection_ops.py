@@ -41,6 +41,7 @@ from sandloom.core.projections.tokens import (
     read_token,
 )
 from sandloom.core.sql_alchemy.models.projection_watermark import ProjectionWatermark
+from sandloom.core.testing import bind_test_uow
 from sandloom.core.unit_of_work.scope import _OUTBOX_PENDING_KEY, _PendingEvent
 from sandloom.sdk._decl._owner import OWNER_ATTR
 from sandloom.sdk.errors import ProjectionDefinitionError
@@ -118,12 +119,12 @@ async def test_a_store_projection_converges_and_reads_skip_tombstones(
             event = NoteSaved(
                 note_id=kept, tenant_id=tenant, title=f"v{version}", version=version
             )
-            await projection.apply(None, group, event, saved)
+            await projection.apply(group, event, saved)
         await projection.apply(
-            None, group, NoteDeleted(note_id=gone, tenant_id=tenant, version=5), deleted
+            group, NoteDeleted(note_id=gone, tenant_id=tenant, version=5), deleted
         )
         late = NoteSaved(note_id=gone, tenant_id=tenant, title="late", version=4)
-        assert await projection.apply(None, group, late, saved) is False
+        assert await projection.apply(group, late, saved) is False
         view: ProjectionView[NoteRow] = ProjectionView(projection, NoteRow, None)
         assert await view.get({"note_id": kept}) == NoteRow(note_id=kept, title="v3")
         assert await view.get({"note_id": gone}) is None
@@ -157,19 +158,16 @@ async def test_an_independent_group_never_resurrects_a_store_tombstone(
     tenant, note = uuid4(), uuid4()
     with bind_tenant(tenant):
         await projection.apply(
-            None,
             title,
             NoteSaved(note_id=note, tenant_id=tenant, title="t", version=1),
             title.events[NoteSaved],
         )
         await projection.apply(
-            None,
             title,
             NoteDeleted(note_id=note, tenant_id=tenant, version=2),
             title.events[NoteDeleted],
         )
         assert await projection.apply(
-            None,
             likes,
             NoteLiked(note_id=note, tenant_id=tenant, version=1),
             likes.events[NoteLiked],
@@ -178,7 +176,6 @@ async def test_an_independent_group_never_resurrects_a_store_tombstone(
         assert await view.get({"note_id": note}) is None
         assert (await view.query()).items == []
         await projection.apply(
-            None,
             title,
             NoteSaved(note_id=note, tenant_id=tenant, title="back", version=3),
             title.events[NoteSaved],
@@ -211,9 +208,9 @@ async def test_a_store_row_of_another_tenant_is_refused_and_reads_are_per_tenant
     mine, other, note = uuid4(), uuid4(), uuid4()
     foreign = NoteSaved(note_id=note, tenant_id=other, title="x", version=1)
     with bind_tenant(mine), pytest.raises(ProjectionDefinitionError, match="tenant"):
-        await projection.apply(None, group, foreign, saved)
+        await projection.apply(group, foreign, saved)
     with bind_tenant(other):
-        await projection.apply(None, group, foreign, saved)
+        await projection.apply(group, foreign, saved)
     with bind_tenant(mine):
         view: ProjectionView[NoteRow] = ProjectionView(projection, NoteRow, None)
         assert await view.get({"note_id": note}) is None
@@ -269,7 +266,7 @@ async def test_a_store_without_conditional_writes_is_refused(
         bind_tenant(tenant),
         pytest.raises(ProjectionDefinitionError, match="conditional_write"),
     ):
-        await projection.apply(None, group, event, group.events[NoteSaved])
+        await projection.apply(group, event, group.events[NoteSaved])
 
 
 async def test_a_store_purge_deletes_old_tombstones_only(
@@ -280,7 +277,6 @@ async def test_a_store_purge_deletes_old_tombstones_only(
     tenant = uuid4()
     with bind_tenant(tenant):
         await projection.apply(
-            None,
             group,
             NoteDeleted(note_id=uuid4(), tenant_id=tenant, version=1),
             group.events[NoteDeleted],
@@ -296,15 +292,17 @@ async def test_a_store_purge_deletes_old_tombstones_only(
 
 
 @pytest_asyncio.fixture
-async def index_db(db: Any) -> AsyncIterator[Any]:
+async def index_db(db_uow: Any) -> AsyncIterator[Any]:
+    """The test's ``db``, bound as the unit: ``apply`` writes through ``db()``."""
+
     def create(sync: Any) -> None:
         with unscoped():  # the DDL names a tenant table: system work (ADR-0018)
             FixtureBase.metadata.create_all(
                 sync.connection(), tables=[NoteIndex.__table__]
             )
 
-    await db.run_sync(create)
-    yield db
+    await db_uow.run_sync(create)
+    yield db_uow
 
 
 async def test_the_relational_purge_deletes_tombstones_older_than_the_cutoff(
@@ -313,13 +311,11 @@ async def test_the_relational_purge_deletes_tombstones_older_than_the_cutoff(
     tenant, gone, kept = uuid4(), uuid4(), uuid4()
     with bind_tenant(tenant):
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteDeleted(note_id=gone, tenant_id=tenant, version=2),
             SAVED_GROUP.events[NoteDeleted],
         )
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteSaved(note_id=kept, tenant_id=tenant, title="t", version=1),
             SAVED_GROUP.events[NoteSaved],
@@ -494,7 +490,6 @@ async def test_a_read_waits_for_the_token_then_serves_stale(index_db: Any) -> No
     saved = SAVED_GROUP.events[NoteSaved]
     with bind_tenant(tenant):
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteSaved(note_id=note, tenant_id=tenant, title="v1", version=1),
             saved,
@@ -508,7 +503,6 @@ async def test_a_read_waits_for_the_token_then_serves_stale(index_db: Any) -> No
         assert response.headers["SANDLOOM-Projection-Stale"] == "true"
 
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteSaved(note_id=note, tenant_id=tenant, title="v2", version=2),
             saved,
@@ -539,14 +533,12 @@ async def test_a_token_of_one_group_is_not_satisfied_by_another_groups_version(
     liked_group = NOTE_INDEX.groups[1]
     with bind_tenant(tenant):
         await NOTE_INDEX.apply(
-            index_db,
             SAVED_GROUP,
             NoteSaved(note_id=note, tenant_id=tenant, title="old", version=1),
             SAVED_GROUP.events[NoteSaved],
         )
         for version in range(1, 101):
             await NOTE_INDEX.apply(
-                index_db,
                 liked_group,
                 NoteLiked(note_id=note, tenant_id=tenant, version=version),
                 liked_group.events[NoteLiked],
@@ -594,13 +586,11 @@ async def test_a_store_token_compares_its_own_groups_version(
     assert isinstance(token, ConsistencyToken)
     with bind_tenant(tenant):
         await projection.apply(
-            None,
             title,
             NoteSaved(note_id=note, tenant_id=tenant, title="old", version=1),
             title.events[NoteSaved],
         )
         await projection.apply(
-            None,
             likes,
             NoteDeleted(note_id=note, tenant_id=tenant, version=100),
             likes.events[NoteDeleted],
@@ -631,11 +621,11 @@ async def test_a_waiting_read_rereads_until_its_group_catches_up(
     async def later_v2() -> None:
         await asyncio.sleep(0.01)
         v2 = NoteSaved(note_id=note, tenant_id=tenant, title="v2", version=2)
-        await projection.apply(None, group, v2, saved)
+        await projection.apply(group, v2, saved)
 
     with bind_tenant(tenant):
         v1 = NoteSaved(note_id=note, tenant_id=tenant, title="v1", version=1)
-        await projection.apply(None, group, v1, saved)
+        await projection.apply(group, v1, saved)
         view: ProjectionView[NoteRow] = ProjectionView(
             projection, NoteRow, None, wait_ms=WAIT_MS, token=token, response=Response()
         )
@@ -695,12 +685,12 @@ async def test_a_waiting_relational_read_reloads_the_rows_it_already_holds(
 
     async def commit(version: int, delay: float = 0.0) -> None:
         await asyncio.sleep(delay)
-        async with sessions() as writer:
+        async with sessions() as writer, bind_test_uow(writer):
             with bind_tenant(tenant):
                 event = NoteSaved(
                     note_id=note, tenant_id=tenant, title=f"v{version}", version=version
                 )
-                await NOTE_INDEX.apply(writer, SAVED_GROUP, event, saved)
+                await NOTE_INDEX.apply(SAVED_GROUP, event, saved)
             await writer.commit()
 
     await commit(1)

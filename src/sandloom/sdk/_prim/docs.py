@@ -68,18 +68,34 @@ def doc_page(module: str) -> str:
     return f"docs/reference/sdk/{tail}.md"
 
 
+def _after_first(module: ModuleType) -> dict[str, tuple[str, ...]]:
+    """Tier 2 of ``module``: ``{module file: names}`` of its
+    ``__after_first__`` (names that need no ``# sandloom: advanced`` marker in
+    that file of a business module), only the ones it exports."""
+    names = set(getattr(module, "__all__", ()))
+    declared: dict[str, tuple[str, ...]] = getattr(module, "__after_first__", {})
+    return {
+        file: tuple(n for n in listed if n in names)
+        for file, listed in declared.items()
+    }
+
+
 def reference_block(module: ModuleType) -> str:
     """The generated reference block of ``module`` (names by tier, doc page)."""
     names = list(getattr(module, "__all__", ()))
     beginner = [n for n in getattr(module, "__beginner__", ()) if n in names]
-    advanced = [n for n in names if n not in beginner]
+    after_first = _after_first(module)
+    later = {n for listed in after_first.values() for n in listed}
+    advanced = [n for n in names if n not in beginner and n not in later]
 
-    def wrap(label: str, items: list[str]) -> list[str]:
+    def wrap(label: str, items: list[str] | tuple[str, ...]) -> list[str]:
         text = ", ".join(sorted(items)) or "-"
         return textwrap.wrap(f"{label}: {text}", width=_WIDTH, subsequent_indent="    ")
 
     lines = [BEGIN]
     lines += wrap("beginner", beginner)
+    for file, listed in sorted(after_first.items()):
+        lines += wrap(f"after first, in {file}", listed)
     lines += wrap("advanced", advanced)
     lines.append(f"docs: {doc_page(module.__name__)}; signatures: sandloom docs <name>")
     lines.append(END)
@@ -170,11 +186,13 @@ def describe(name: str) -> str:
             out.append(f"{home} (module) — {doc_page(home)}")
             out.append(reference_block(obj))
             continue
-        tier = (
-            "beginner"
-            if home.rsplit(".", 1)[-1] in getattr(module, "__beginner__", ())
-            else "advanced"
-        )
+        short = home.rsplit(".", 1)[-1]
+        tier = "advanced"
+        if short in getattr(module, "__beginner__", ()):
+            tier = "beginner"
+        for file, listed in _after_first(module).items():
+            if short in listed:
+                tier = f"after first (no marker in a module's {file})"
         if get_origin(obj) is Annotated:  # a type: ``x: Mapped[CreatedAt]``
             signature = f" = Annotated[{get_args(obj)[0].__name__}, ...] (a type)"
         else:

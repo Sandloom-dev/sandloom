@@ -300,17 +300,18 @@ CRUD, events and cross-module calls:
 | refusals | `NotFound`, `Conflict`, `Refused` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Owner`, `authorize_resource` |
+| authorization | `require`, `Account` |
 | effects | `record_audit`, `on_commit`, `bind_tenant` |
-| sagas | `Saga`, `SagaContext`, `step`, `local_step`, `start_saga` |
-| projections | `Projection`, `ProjectionView`, `SourceGroup`, `View`, |
-| | `full_state`, `tombstone` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, |
-| | `deliver`, `fake_contract`, `fake_access_fact` |
+| | `deliver`, `fake_contract` |
 
-The sagas and projections rows import from `sandloom.sdk.sagas` and
-`sandloom.sdk.projections`. Other SDK names are advanced: mark the import
-`# sandloom: advanced <reason>`.
+These 29 names need no marker in any file. Twelve more need none in the file
+`sandloom add` writes them into: `Saga`, `SagaContext`, `step`, `local_step`,
+`start_saga` (`sandloom.sdk.sagas`) in `sagas.py`; `Projection`, `SourceGroup`,
+`full_state`, `tombstone` (`sandloom.sdk.projections`) in `projections.py`;
+`task`, `periodic` (`sandloom.sdk.tasks`) and `open_uow` (`sandloom.sdk.data`)
+in `tasks.py`. Any other SDK name, or one of these in another file, is advanced:
+mark the import `# sandloom: advanced <reason>`.
 The billing and tenancy gates (`Subscribed`, `SubscriptionActive`, `Credits`,
 `OrgRole`) are not sdk names: `sandloom generate` writes them beside the
 consumer's contract stub, and a route imports them from
@@ -328,7 +329,7 @@ the commit-time session check, automatic idempotency and the audit of
 sensitive effects from the framework (there is no per-route class). A billing
 gate names the account it checks, `require(Subscribed(of=Account.user()))` or
 `of=Account.org(param="org_id")` on an organization route
-(`from sandloom.sdk.authz import Account  # sandloom: advanced billing account`).
+(`from sandloom.sdk import Account`).
 
 How-tos with tested code: `uv run sandloom docs recipes`. What you can call:
 `uv run sandloom docs contracts`, `... events`, `... <contract or channel>`.

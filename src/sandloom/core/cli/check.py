@@ -88,7 +88,10 @@ profiles (a wrong module name in ``SANDLOOM_MODULES``, a name set for a module
 the service does not load, a literal value its declaration refuses). It runs
 with the full rule set only, as does the beginner-tier check (SANDLOOM-T009): an
 application module's ``sandloom.sdk`` import outside the beginner tier needs
-``# sandloom: advanced <reason>`` on its line.
+``# sandloom: advanced <reason>`` on its line, except a tier 2 name (a saga,
+projection or task name) in the module file ``sandloom add`` writes for it
+(``sagas.py``, ``projections.py``, ``tasks.py``). The check reads the modules
+of the manifest ``--rules`` names.
 
 ``--boot`` additionally builds the application (``SANDLOOM_COMPOSITION_ROOT``,
 default ``sandloom.main``) through ``create_app`` — no server, no I/O — and reports
@@ -205,7 +208,7 @@ def static_gate_diagnostics(
         return gate, []
     return gate, [
         error_codes.render("SANDLOOM-T009", message, where=f"{path}:{line}")
-        for path, line, message in static_checks.beginner_tier_findings(rules.root)
+        for path, line, message in static_checks.beginner_tier_findings(rules)
     ]
 
 

@@ -141,7 +141,7 @@ migration. See [Add a projection](add-projection.md).
 ```python
 from typing import Annotated
 from sandloom.sdk.data import Page
-from sandloom.sdk.projections import ProjectionView, View
+from sandloom.sdk.projections import ProjectionView, View  # sandloom: advanced the read side of a route
 
 @router.get("/boards")
 async def list_boards(
@@ -217,9 +217,10 @@ list` shows the registered projections.
     `ProjectionRebuilder` when `rebuild_from` is given. These L2 names stay
     public in `sandloom.sdk.projections`, with `monotonic_update` for a match-based
     fan-out. A handler is `async def apply(envelope)`. It writes through `db()`,
-    as the helpers do: `monotonic_upsert(Row, key=..., ...)`. The earlier
-    `apply(session, envelope)` and `monotonic_upsert(session, Row, ...)` still
-    work. The helpers issue Core statements and enforce tenancy themselves.
+    as the helpers do: `monotonic_upsert(Row, key=..., ...)`. A handler that
+    takes the session (`apply(session, envelope)`) is refused when the
+    descriptor is built, and so is `monotonic_upsert(session, Row, ...)` when
+    it is called. The helpers issue Core statements and enforce tenancy themselves.
     `monotonic_upsert` requires the row's `tenant_id`. `monotonic_update` is
     scoped to the bound tenant when one is bound and cannot change `tenant_id`.
 

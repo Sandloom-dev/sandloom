@@ -17,7 +17,7 @@ A module and its tests import only public `sandloom.sdk` modules, the generated 
 and DTO copies (`<app>.shared.contracts.*`, `<module>._generated.contracts.*`,
 `CONTRACT_DTO_PACKAGES`) and their own package, all at module level (C001, C002, C005, C013, C021);
 an installed module package (`sandloom_identity`) is another module. Generated code and examples
-use the 42 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
+use the 29 beginner names, plus 12 more in `sagas.py`, `projections.py` and `tasks.py`; any other import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
 
 To talk to another module:
 
@@ -116,7 +116,7 @@ To talk to another module:
   The `client` fixture shares the rolled-back `db`; `real_uow_client` commits.
   `_, headers = as_user(tenant_id=tid)`; `assert len(published(NoteCreated)) == 1`;
   `await deliver(NoteCreated(...), times=2)` drives the real consumer runtime;
-  `with fake_contract(STATS_QUOTA_V1, Fake()):`; `fake_access_fact(name, value, owner=...)`.
+  `with fake_contract(STATS_QUOTA_V1, Fake()):`.
 - `uv run sandloom generate` after a declaration change (`sandloom test` never writes);
   `sandloom test <module>` (its tests, the fast suite, every gate); `--full` last.
 
