@@ -1,0 +1,3 @@
+### Changed
+
+- **Planner refusals print an error code** (planner-errors-codes). Every `PlanningError` the kernel raises is now a subclass with its own catalogue entry, so `sandloom explain` has a why and a fix for it: `InvalidOperation` (SANDLOOM-R023), `OperationSchemaMismatch` (SANDLOOM-R024, also the code of a bare `PlanningError`), `NoExecutionAdapter` (SANDLOOM-R025), `InvalidReadScope` (SANDLOOM-R026) and `UnencodableCursorValue` (SANDLOOM-R027). Each subclasses `PlanningError`, so `except PlanningError` and `pytest.raises(PlanningError)` keep working; only code that compares `type(exc).__name__` to `"PlanningError"` sees the new class name. Messages are unchanged.

@@ -24,6 +24,15 @@ operation at boot, also inside a tuple or a dict one level down, and registers
 it: nothing goes into `setup=`. The startup task validates and prepares each
 operation. `/diagnostics/core` lists its executor and selection reason. Invalid
 declarations fail startup; unsupported optimization uses the general executor.
+Every planner refusal is a `PlanningError` subclass that prints a code:
+
+- `InvalidOperation` (SANDLOOM-R023): the arguments of a declaration contradict each other.
+- `OperationSchemaMismatch` (SANDLOOM-R024): the declaration does not fit its entity.
+- `NoExecutionAdapter` (SANDLOOM-R025): the database has no planner adapter.
+- `InvalidReadScope` (SANDLOOM-R026): a read handle is used outside its scope.
+- `UnencodableCursorValue` (SANDLOOM-R027): a page cursor cannot carry an order value.
+
+`uv run sandloom explain <code>` gives the fix.
 
 An operation that no module declares is refused at its first read with a
 `UndeclaredOperation` (a `PlanningError`, SANDLOOM-R022) that names this fix. So

@@ -27,7 +27,7 @@ from sandloom.core.planner import (
     JoinRead,
     ListOperation,
     Plan,
-    PlanningError,
+    OperationSchemaMismatch,
     ReadOperation,
 )
 from sandloom.core.sql_alchemy.dbapi import RAW_EXECUTOR, dbapi_adapter_of
@@ -137,24 +137,24 @@ class _PlannerCompiler:
         mapper = _mapper(op, op.entity)
         is_tenant = isinstance(op.entity, type) and issubclass(op.entity, TenantScoped)
         if op.tenant_scoped is not None and op.tenant_scoped != is_tenant:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: declared tenant_scoped={op.tenant_scoped} but "
                 f"{op.entity.__name__} is {'' if is_tenant else 'not '}TenantScoped"
             )
         fields = tuple(getattr(op.result, "model_fields", {}))
         if not fields:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: result {op.result!r} is not a pydantic model"
             )
         columns = {p.key: p for p in mapper.attrs if isinstance(p, ColumnProperty)}
         for name in op.by:
             if name not in columns:
-                raise PlanningError(
+                raise OperationSchemaMismatch(
                     f"{op.name}: key {name!r} is not a column attribute"
                 )
         for name in fields:
             if not hasattr(op.entity, name):
-                raise PlanningError(
+                raise OperationSchemaMismatch(
                     f"{op.name}: result field {name!r} has no attribute on "
                     f"{op.entity.__name__}"
                 )
@@ -191,13 +191,13 @@ class _PlannerCompiler:
         sides = _list_sides(op)
         is_tenant = sides.scoped_e or sides.scoped_j
         if op.tenant_scoped is not None and op.tenant_scoped != is_tenant:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: declared tenant_scoped={op.tenant_scoped} but the "
                 f"read is {'' if is_tenant else 'not '}tenant-scoped"
             )
         fields = tuple(getattr(op.result, "model_fields", {}))
         if not fields:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: result {op.result!r} is not a pydantic model"
             )
         opt = _list_filters(op, sides)
@@ -318,12 +318,12 @@ class _PlannerCompiler:
             pinned |= {cols_j[c].columns[0] for c in op.join_where}
             uniques = unique_keys(m_j)
             if not any(u and u <= pinned for u in uniques):
-                raise PlanningError(
+                raise OperationSchemaMismatch(
                     f"{op.name}: {jn.__name__}.{op.via} + join_by/join_where "
                     "do not cover a unique key: the join could repeat rows"
                 )
         else:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: via={op.via!r} is no declared ForeignKey between "
                 f"{ent.__name__} and {jn.__name__} (no guessed joins)"
             )
@@ -507,7 +507,7 @@ class _PlannerCompiler:
                 return ""
         wanted = ", ".join([*(c.name for c in eq), *(c.name for c in order)])
         if op.require_index:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: no index of {table.name} has the leading columns "
                 f"({wanted}) — the equality filters then the order; a page would "
                 "sort every matching row. Add the index, or declare "
@@ -523,13 +523,13 @@ class _PlannerCompiler:
         ent, jn, m_join = sides.ent, sides.jn, sides.m_j
         is_tenant = sides.scoped_e or sides.scoped_j
         if op.tenant_scoped is not None and op.tenant_scoped != is_tenant:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: declared tenant_scoped={op.tenant_scoped} but the "
                 f"join is {'' if is_tenant else 'not '}tenant-scoped"
             )
         fields = tuple(getattr(op.result, "model_fields", {}))
         if not fields:
-            raise PlanningError(
+            raise OperationSchemaMismatch(
                 f"{op.name}: result {op.result!r} is not a pydantic model"
             )
         _join_key_columns(op, sides)
