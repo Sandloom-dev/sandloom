@@ -96,7 +96,9 @@ def duplicate_revision_problem(versions: Path, key: str) -> str | None:
         problems.append(
             f"the migration chain {key!r} declares revision id {revision!r} in "
             f"{len(files)} files ({names}): two branches each added the next "
-            "revision, and Alembic keeps only one of them. " + "; ".join(steps)
+            "revision, and Alembic keeps only one of them. Renumber the file your "
+            "branch added, never one already applied to a database; for example: "
+            + "; ".join(steps)
         )
     return "\n".join(problems) if problems else None
 
