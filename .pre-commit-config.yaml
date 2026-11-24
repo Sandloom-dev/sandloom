@@ -143,6 +143,16 @@ repos:
         files: (\.md$|^src/|^tools/docs/docs_stale_symbols)
         pass_filenames: false
 
+    # The docs CI step's code check (D1-D4), over docs/** and the agent files
+    # `sandloom new` ships (src/sandloom/core/cli/templates/**/*.md). D2 imports
+    # the code, so it runs in the uv environment; the baseline is D4 only.
+    -   id: docs-code-check
+        name: docs-code-check
+        entry: uv run --locked python tools/docs/docs_code_check.py
+        language: system
+        files: (\.md$|^src/|^tools/docs/docs_code_check)
+        pass_filenames: false
+
     # Heavy checks mirror the CI jobs and run once per push, not once per
     # commit — and not at all when a FULL local CI run (tools/ci/ci_local.sh)
     # already passed on the exact tree being pushed (tools/ci/unless_ci_passed.sh;

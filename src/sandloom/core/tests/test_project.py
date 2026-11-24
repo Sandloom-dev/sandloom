@@ -966,6 +966,30 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
         conn.close()
 
 
+def beginner_table_names(agents: str) -> set[str]:
+    """The names in the second column of the AGENTS.md beginner table (the rows
+    after its ``| need | names ... |`` header)."""
+    rows = agents.partition("| need | names")[2].splitlines()[1:]
+    names: set[str] = set()
+    for row in rows:
+        if not row.startswith("|"):
+            break
+        if set(row) <= set("| -"):
+            continue  # the `| --- | --- |` rule under the header
+        names.update(re.findall(r"`(\w+)`", row.split("|")[2]))
+    return names
+
+
+def test_the_beginner_table_reader_sees_an_extra_and_a_missing_name() -> None:
+    table = (
+        "| need | names (`from sandloom.sdk import ...`) |\n| --- | --- |\n"
+        "| a module | `define_module` |\n| refusals | `NotFound`, `Extra` |\n\n"
+        "| later | `Other` |\n"
+    )
+    assert beginner_table_names(table) == {"define_module", "NotFound", "Extra"}
+    assert beginner_table_names("no table\n") == set()
+
+
 def test_generated_project_ships_the_agent_contract(tmp_path: Path) -> None:
     """``sandloom new`` writes the 1.0 agent map at the project root (and a
     CLAUDE.md importing it): the commands and the beginner names of
@@ -979,12 +1003,11 @@ def test_generated_project_ships_the_agent_contract(tmp_path: Path) -> None:
     agents = (root / "AGENTS.md").read_text()
     for command in ("sandloom add module", "sandloom migrate new", "sandloom test"):
         assert command in agents
-    for name in [
+    assert beginner_table_names(agents) == {
         *sandloom.sdk.__beginner__,
         *sandloom.sdk.testing.__beginner__,
         "client",
-    ]:
-        assert f"`{name}`" in agents, name
+    }
     assert "probe/modules" in agents
     assert (root / "CLAUDE.md").read_text() == "@AGENTS.md\n"
     # One module-author contract covers every module, not a copy per module.
