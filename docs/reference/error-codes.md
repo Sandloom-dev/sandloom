@@ -68,7 +68,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C039`](#sandloom-c039) | `cursor-listener` | check | a business module registers a listener at the cursor or on the pool (before_cursor_execute, do_execute, connect, ...), or under an event name the check cannot read | active |
 | [`SANDLOOM-C040`](#sandloom-c040) | `kernel-exempt-package` | check | architecture_rules.yml sets kernel_package or framework_packages outside the framework's own tree | active |
 | [`SANDLOOM-C041`](#sandloom-c041) | `core-in-api-list` | check | architecture_rules.yml test_api or shared_api lists an entry that covers the kernel (sandloom, sandloom.core, sandloom.core.*) | active |
-| [`SANDLOOM-C042`](#sandloom-c042) | `core-in-allowlist` | check | architecture_rules.yml allowlist excuses the kernel (or a private sandloom.sdk layer) for more than named modules of one business module | active |
+| [`SANDLOOM-C042`](#sandloom-c042) | `core-in-allowlist` | check | architecture_rules.yml allowlist of an application excuses the kernel (any sandloom.core module, or a private sandloom.sdk layer) | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -195,11 +195,21 @@ A read the check cannot follow is refused:
 - `sys` or `sys.modules` handed to other code, or stored in a field;
 - the bare key `sys.modules["sandloom"]`, which hands out the package.
 
+The `sandloom` package object is judged like `sys`: after `import sandloom`,
+`import sandloom.sdk` or `__import__("sandloom.sdk")`, only the attributes `sdk`
+and `shared` are public. `sandloom.core.x` read as attributes is reported like
+`import sandloom.core.x`, and so is `from sandloom import *`, which hands out
+whatever the package has bound.
+
 `sys.modules[__name__]` and the keys of other packages pass. A deliberate read
-is waived on its line with `# sandloom: allow framework-imports <reason>`. Not
-seen: `pkgutil.resolve_name("sandloom.core.x")`, `importlib.util.find_spec`,
-`eval` and `exec`, and a module's tests (the test-imports rule reads imports
-only).
+is waived on its line with `# sandloom: allow framework-imports <reason>`.
+
+The rule catches the mistakes of ordinary code, the ones a module author or an
+AI agent writes in good faith; a deliberate bypass is not its job. Not seen:
+`pkgutil.resolve_name("sandloom.core.x")`, `runpy`, `importlib.util.find_spec`,
+`getattr` on `builtins` or `importlib`, a module that `collections` or another
+standard module re-exports from `sys`, `eval` and `exec`, and a module's tests
+(the test-imports rule reads imports only).
 
 **Fix:** import only sandloom.sdk.* (the public API), sandloom.shared.* and your own package
 
@@ -847,8 +857,11 @@ database, the per-transaction tenant setting that row-level security reads.
 A connection a module opens itself gets none of them: its statements skip the
 cursor check and write admission, and the tenant setting is never set for it.
 
-sandloom check refuses, in any file of a business module, the capabilities
-that open such a connection, not one spelling of them:
+sandloom check refuses, in any file of a business module, the ways that open
+such a connection which ordinary code reaches for. It catches the mistakes a
+module author or an AI agent writes in good faith; it does not promise to stop a
+deliberate bypass, which the runtime cursor guard and the database's row-level
+security stop. It reports:
 
 - a star import from sqlalchemy or one of its submodules;
 - `create_engine`, `create_async_engine`, `engine_from_config`,
@@ -864,7 +877,9 @@ that open such a connection, not one spelling of them:
   `aiosqlite`, including `importlib.import_module("psycopg")` with a constant
   name;
 - `.raw_connection()`, `.get_raw_connection()`, `.driver_connection`, and
-  `.pool` on an engine, a bind or a connection's engine.
+  `.pool` on an engine, a bind or a connection's engine;
+- `.connection.cursor()`, the DBAPI cursor under a SQLAlchemy connection
+  (`conn.connection.cursor()`, `session.connection().connection.cursor()`).
 
 A method that only happens to be named `create_engine` on an object that is
 not sqlalchemy is not reported. A database a module needs is declared in INFRA
@@ -926,8 +941,14 @@ Connection.exec_driver_sql and .raw_connection(), which SANDLOOM-C015,
 SANDLOOM-C031 and SANDLOOM-C037 refuse in a module; ADR-0018 decision 8 has the
 seam this rule closes for module code.
 
+This rule catches the mistakes of ordinary code, the ones a module author or an
+AI agent writes in good faith. It does not promise to stop a deliberate bypass:
+that is the job of the runtime cursor guard and of the database's row-level
+security (ADR-0018 decision 8). No `# sandloom: allow` comment admits a hit:
+the rule cannot be waived, and the message says so when the comment is there.
+
 sandloom check refuses, in any file of a business module (migrations included;
-tests are not scanned), the capability and not one spelling:
+tests are not scanned):
 
 - a string that is, whole, the name of a cursor-level event
   (before_cursor_execute, after_cursor_execute, do_execute, do_executemany,
@@ -935,10 +956,17 @@ tests are not scanned), the capability and not one spelling:
   "before_cursor_execute", fn)` and `@event.listens_for(...)` on an engine, a
   connection, the Engine class or a dialect, with retval or not, under an
   aliased import of event or of listen (`from sqlalchemy.event import listen
-  as l`), through `getattr(event, "listen")`, or a name bound to the constant;
-- `listen` / `listens_for` called with a pool or connect event (connect,
+  as l`), through the event module reached by another sqlalchemy module
+  (`from sqlalchemy.orm.events import event`), through a name imported from a
+  sibling file of the module that binds one (`from .helper import ev`),
+  through `getattr(event, "listen")`, or a name bound to the constant. A dict
+  key and the module's own `self.do_execute` are not a registration;
+- `listen` / `listens_for` called with a pool, connect or error event (connect,
   first_connect, checkout, checkin, close, close_detached, detach, reset,
-  invalidate, soft_invalidate, do_connect);
+  invalidate, soft_invalidate, do_connect, handle_error, after_execute,
+  engine_connect), unless the target is an ORM session (`event.listen(Session,
+  "close", fn)` stays allowed): those events hand out the raw DBAPI connection,
+  cursor or result;
 - `listen` / `listens_for` used other than as a direct call, or called with an
   event name that is not a string literal (a variable, a call, a star
   argument): an unreadable name could be any event, so it is refused;
@@ -948,12 +976,12 @@ tests are not scanned), the capability and not one spelling:
   a dialect's do_execute family (`dialect.do_execute = fn`).
 
 A listener on another event (the ORM and mapper events, `before_insert`,
-`load`, `after_flush`) written with a literal event name stays allowed. A
-deliberate exception is waived on its line with `# sandloom: allow
-cursor-listener &lt;reason>`. Not seen: the event module re-exported through
-another file of the module and called there with a name built at run time, a
-name made by `str.join` or `getattr` on a computed string, and a listener
-attached outside module code (a driver, a test).
+`load`, `after_flush`) written with a literal event name stays allowed. Not
+seen, because they are deliberate and not a mistake: the event module reached
+through a container, a getattr on builtins or importlib, a name made by
+`str.join` or `getattr` on a computed string, a computed setattr on the
+dialect, `exec` / `eval`, the closure of a function, the internals of
+`dispatch`, and a listener attached outside module code (a driver, a test).
 
 **Fix:** remove the listener: a module never rewrites or runs a statement at the cursor, and a database is set up by its driver; a listener on another event (`load`, `before_insert`, ...) stays allowed, written with a string literal event name
 
@@ -975,7 +1003,10 @@ package `orders` imports `sandloom.core` freely.
 
 Only the framework's own tree may set them: top-level modules (`modules_package`
 empty), `kernel_package: sandloom` and the kernel itself (`sandloom/core`) under
-`modules_path`. A manifest that spells the first two without the kernel is an
+`modules_path`. The check compares the resolved paths with the kernel's real
+location (the directory of the `sandloom` package this process runs), so a
+directory `<modules_path>/sandloom/core` that an application makes by hand does
+not pass for it. A manifest that spells the first two without the kernel is an
 application dressed as the framework. Every other manifest that names either key
 is refused before any module is scanned, with the exit code and commands of
 SANDLOOM-C038. The message names the key.
@@ -1012,30 +1043,32 @@ commands of SANDLOOM-C038. The message names the key and the entries to delete.
 
 ### SANDLOOM-C042
 
-**architecture_rules.yml allowlist excuses the kernel (or a private sandloom.sdk layer) for more than named modules of one business module**
+**architecture_rules.yml allowlist of an application excuses the kernel (any sandloom.core module, or a private sandloom.sdk layer)**
 
 Slug: `core-in-allowlist` · kind: check · status: active
 
 **What happened and why it matters**
 
 An `allowlist` entry, `{file: <glob>, imports: [<glob>, ...]}`, keeps an import
-the check would report in the files `file` matches. An entry whose `imports`
-admit `sandloom.core` modules or the private layers `sandloom.sdk._*` is
-refused in two cases:
+the check would report in the files `file` matches. In an application, an entry
+whose `imports` admit any `sandloom.core` module, or the private layers
+`sandloom.sdk._*`, is refused: `["sandloom.core"]`, `["sandloom.core.database"]`,
+a glob such as `sandloom.cor?` or `sandloom.core*`, `*`, `sandloom*`. No kernel
+module is excused for an application, whatever the glob: a module imports
+`sandloom.sdk`.
 
-- a pattern matches a whole family: `*`, `sandloom*`, `sandloom.core*`,
-  `sandloom.core.*` or `sandloom.sdk._*`, not one module and its submodules;
-- `file` is not under one business module: it must start with
-  `<modules_path>/<module>/` and hold no glob in the module name.
+The framework's own tree (see SANDLOOM-C040) may excuse one named kernel module
+under the files of one business module: `file` starts with
+`<modules_path>/<module>/` with no glob in the module name, and no pattern
+matches a whole family (`*`, `sandloom*`, `sandloom.core*`, `sandloom.core.*`,
+`sandloom.sdk._*`). The check decides what is the framework's tree by the
+resolved path of the kernel, not by the manifest's spelling.
 
-`{file: "*", imports: ["sandloom.core*"]}` would exempt every module, so it is
-refused. `{file: "acme/modules/orders/tests/*", imports:
-["sandloom.core.database*"]}` stays valid: one module, one named kernel module.
 An entry without a `file` glob and a list of `imports` is refused too, without a
 code. The refusal comes before any module is scanned, with the exit code and
 commands of SANDLOOM-C038. Entries for imports of other packages are unchanged.
 
-**Fix:** list the specific sandloom.core.&lt;module> imports under the files of one business module, or import sandloom.sdk instead; see docs/operate/upgrade.md
+**Fix:** delete the entry and import sandloom.sdk instead; an application's allowlist excuses no kernel module; see docs/operate/upgrade.md
 
 **More:** `docs/operate/upgrade.md`
 

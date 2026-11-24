@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import textwrap
 from pathlib import Path
 
@@ -27,6 +28,7 @@ import pytest
 
 from sandloom.core import error_codes
 from sandloom.core.archcheck import load_rules, run_checks
+from sandloom.core.archcheck import manifest as manifest_module
 from sandloom.core.archcheck.analyzers import sys_modules_reads
 from sandloom.core.archcheck.manifest import (
     CORE_IN_ALLOWLIST_CODE,
@@ -330,6 +332,106 @@ def test_a_refusal_carries_its_line() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# The scan: the ``sandloom`` package object is judged like ``sys``
+# --------------------------------------------------------------------------- #
+# ``import sandloom.sdk`` binds ``sandloom``, and ``sandloom.core.x`` is then an
+# attribute away: no import statement, no ``sys.modules`` key. Only ``.sdk`` and
+# ``.shared`` are public. The rule catches the code a module author writes by
+# mistake; a deliberate bypass is the runtime's and the database's to stop.
+
+_CORE = "`sandloom.core` is the kernel"
+_GETATTR = "getattr reads an attribute of sandloom by a name"
+_HANDED_PACKAGE = "the sandloom package is handed to code the check cannot follow"
+
+#: ``(source, a fragment of the refusal)``: each is refused, on its own line.
+_PACKAGE_REFUSED: dict[str, tuple[str, str]] = {
+    "core_attribute": ("import sandloom.sdk\nsandloom.core.database\n", _CORE),
+    "core_call": ("import sandloom.sdk\nsandloom.core.database.engine()\n", _CORE),
+    "after_the_shared_import": ("import sandloom.shared\nsandloom.core.x\n", _CORE),
+    "another_private_attribute": (
+        "import sandloom.sdk\nsandloom.cli\n",
+        "`sandloom.cli` is the kernel",
+    ),
+    "alias_of_the_package": ("import sandloom.sdk\nm = sandloom\nm.core.x\n", _CORE),
+    "alias_chain": ("import sandloom.sdk\nb = a\na = sandloom\nb.core.x\n", _CORE),
+    "walrus": ("import sandloom.sdk\n(m := sandloom).core.x\n", _CORE),
+    "dunder_import": ('__import__("sandloom.sdk").core.x\n', _CORE),
+    "dunder_import_shared": ('__import__("sandloom.shared").core.x\n', _CORE),
+    "dunder_import_alias": ('p = __import__("sandloom.sdk")\np.core.x\n', _CORE),
+    "dunder_import_stored": (
+        'self.p = __import__("sandloom.sdk")\n',
+        _HANDED_PACKAGE,
+    ),
+    "getattr_core": (
+        'import sandloom.sdk\ngetattr(sandloom, "core")\n',
+        _GETATTR,
+    ),
+    "getattr_variable": ("import sandloom.sdk\ngetattr(sandloom, name)\n", _GETATTR),
+    "getattr_built_name": (
+        'import sandloom.sdk\ngetattr(sandloom, "co" + x)\n',
+        _GETATTR,
+    ),
+    "handed_on": ("import sandloom.sdk\nf(sandloom)\n", _HANDED_PACKAGE),
+    "stored": ("import sandloom.sdk\nself.p = sandloom\n", _HANDED_PACKAGE),
+    "in_a_list": ("import sandloom.sdk\nx = [sandloom]\n", _HANDED_PACKAGE),
+    "returned": (
+        "import sandloom.sdk\ndef f():\n    return sandloom\n",
+        _HANDED_PACKAGE,
+    ),
+    "star_import": ("from sandloom import *\n", "a star import from sandloom"),
+    "star_import_with_code": (
+        "from sandloom import *\nx = 1\n",
+        "a star import from sandloom",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(_PACKAGE_REFUSED))
+def test_a_use_of_the_sandloom_package_that_may_reach_the_kernel_is_refused(
+    name: str,
+) -> None:
+    source, fragment = _PACKAGE_REFUSED[name]
+    reads, refused = _scan(source)
+    assert reads == [], reads
+    assert len(refused) == 1, refused
+    assert fragment in refused[0], (fragment, refused)
+    assert re.match(r"Line \d+: ", refused[0]), refused
+    assert (
+        "(the sandloom package: only `sandloom.sdk` and `sandloom.shared`"
+        in (refused[0])
+    )
+
+
+#: The same shapes with the one thing that makes them legitimate.
+_PACKAGE_OK: dict[str, str] = {
+    "sdk_attribute": "import sandloom.sdk\nsandloom.sdk.web.route\n",
+    "sdk_itself": "import sandloom.sdk\nsandloom.sdk\n",
+    "shared_attribute": "import sandloom.shared\nsandloom.shared.authz\n",
+    "both_imports": "import sandloom.sdk\nimport sandloom.shared\nsandloom.shared.x\n",
+    "an_imported_submodule": "import sandloom.sdk.web\nsandloom.sdk.web.route\n",
+    "the_alias_of_a_submodule": "import sandloom.sdk as s\ns.web\n",
+    "alias_of_the_package_then_sdk": "import sandloom.sdk\nm = sandloom\nm.sdk.web\n",
+    "dunder_import_then_sdk": '__import__("sandloom.sdk").sdk.web\n',
+    "dunder_import_as_a_statement": '__import__("sandloom.sdk")\n',
+    "dunder_import_with_a_fromlist": '__import__("sandloom.sdk", fromlist=["web"]).web\n',
+    "getattr_sdk": 'import sandloom.sdk\ngetattr(sandloom, "sdk")\n',
+    "getattr_shared_default": 'import sandloom.sdk\ngetattr(sandloom, "shared", None)\n',
+    "hasattr": 'import sandloom.sdk\nhasattr(sandloom, "core")\n',
+    "from_import_of_sdk": "from sandloom import sdk\nsdk.web\n",
+    "from_import_of_a_submodule": "from sandloom.sdk import *\n",
+    "another_package": "import django.core\ndjango.core.x\n",
+    "a_local_named_sandloom": "sandloom = object()\nsandloom.core\n",
+}
+
+
+@pytest.mark.parametrize("name", list(_PACKAGE_OK))
+def test_a_use_of_the_sandloom_package_that_stays_public_is_left_alone(
+    name: str,
+) -> None:
+    assert _scan(_PACKAGE_OK[name]) == ([], [])
+
+
+# --------------------------------------------------------------------------- #
 # The scan: what it leaves alone
 # --------------------------------------------------------------------------- #
 
@@ -382,7 +484,17 @@ def _app(tmp_path: Path, files: dict[str, str], manifest: str = "") -> Path:
     return path
 
 
-def _framework_tree(tmp_path: Path, files: dict[str, str]) -> Path:
+def _framework_tree(
+    tmp_path: Path, files: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """A tree shaped like the framework checkout. ``<tmp>/src/sandloom`` is the
+    kernel of this test: the manifest module's idea of where the running kernel
+    lives is pointed at it, as it points at ``src/sandloom`` in the real checkout."""
+    monkeypatch.setattr(
+        manifest_module,
+        "_kernel_dir",
+        lambda: (tmp_path / "src" / "sandloom").resolve(),
+    )
     (tmp_path / "src" / "sandloom" / "core").mkdir(parents=True)
     (tmp_path / "src" / "sandloom" / "__init__.py").write_text("")
     (tmp_path / "src" / "sandloom" / "core" / "__init__.py").write_text("")
@@ -437,8 +549,12 @@ def test_a_read_of_a_kernel_module_is_reported_like_the_import(tmp_path: Path) -
     assert codes == {"SANDLOOM-C002"}
 
 
-def test_a_read_in_the_framework_tree_is_reported_too(tmp_path: Path) -> None:
-    manifest = _framework_tree(tmp_path, {"sandloom_orders/service.py": _READ_KERNEL})
+def test_a_read_in_the_framework_tree_is_reported_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _framework_tree(
+        tmp_path, {"sandloom_orders/service.py": _READ_KERNEL}, monkeypatch
+    )
     assert _check(manifest) == [
         (
             "service.py",
@@ -449,13 +565,16 @@ def test_a_read_in_the_framework_tree_is_reported_too(tmp_path: Path) -> None:
     ]
 
 
-def test_the_kernel_itself_reads_sys_modules_freely(tmp_path: Path) -> None:
+def test_the_kernel_itself_reads_sys_modules_freely(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manifest = _framework_tree(
         tmp_path,
         {
             "sandloom/core/loader.py": "import sys\nm = sys.modules.items()\n",
             "sandloom_orders/ok.py": "import sys\nsys.modules[__name__]\n",
         },
+        monkeypatch,
     )
     assert _check(manifest) == []
 
@@ -507,6 +626,27 @@ def test_an_unreadable_read_is_a_framework_imports_violation(tmp_path: Path) -> 
     assert all("(sys_modules: " in v.message for v in found)
 
 
+def test_the_kernel_through_the_sandloom_package_is_a_framework_imports_violation(
+    tmp_path: Path,
+) -> None:
+    manifest = _app(
+        tmp_path,
+        {
+            "attr.py": "import sandloom.sdk\n\nx = sandloom.core.database\n",
+            "dunder.py": '__import__("sandloom.sdk").core.database\n',
+            "star.py": "from sandloom import *\n",
+            "fine.py": "import sandloom.sdk\n\nx = sandloom.sdk.web\n",
+        },
+    )
+    found = run_checks(load_rules(manifest), only=["framework-imports"])
+    assert sorted((v.file.name, v.line, v.code) for v in found) == [
+        ("attr.py", 3, "SANDLOOM-C002"),
+        ("dunder.py", 1, "SANDLOOM-C002"),
+        ("star.py", 1, "SANDLOOM-C002"),
+    ]
+    assert all("(the sandloom package: only `sandloom.sdk`" in v.message for v in found)
+
+
 def test_tests_and_migrations_are_not_scanned_for_reads(tmp_path: Path) -> None:
     manifest = _app(
         tmp_path,
@@ -532,17 +672,42 @@ def test_a_waiver_on_the_line_admits_one_read(tmp_path: Path) -> None:
     assert [name for name, _line, _message in _check(manifest)] == ["other.py"]
 
 
-def test_an_allowlist_entry_for_one_module_excuses_its_read(tmp_path: Path) -> None:
+def test_an_allowlist_entry_for_one_module_excuses_its_read_in_the_framework_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _framework_tree(
+        tmp_path,
+        {
+            "sandloom_orders/read.py": _READ_KERNEL,
+            "sandloom_orders/other.py": _READ_KERNEL,
+        },
+        monkeypatch,
+    )
+    manifest.write_text(
+        manifest.read_text() + 'allowlist:\n  - {file: "src/sandloom_orders/read.py", '
+        'imports: ["sandloom.core.database*"]}\n'
+    )
+    assert [name for name, _line, _message in _check(manifest)] == ["other.py"]
+
+
+def test_an_application_allowlist_excuses_no_read_of_the_kernel(
+    tmp_path: Path,
+) -> None:
+    """The same entry in an application is refused before any file is read: the
+    allowlist of an application keeps imports of other packages only."""
     allow = (
         "allowlist:\n"
         '  - {file: "acme/modules/orders/read.py", imports: ["sandloom.core.database*"]}\n'
     )
     manifest = _app(
         tmp_path,
-        {"read.py": _READ_KERNEL, "other.py": _READ_KERNEL},
+        {"read.py": _READ_KERNEL},
         manifest="public_api:\n  - sandloom.sdk\n" + allow,
     )
-    assert [name for name, _line, _message in _check(manifest)] == ["other.py"]
+    message = _refused(manifest, CORE_IN_ALLOWLIST_CODE)
+    assert (
+        "file 'acme/modules/orders/read.py' admits sandloom.core.database*" in message
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -597,11 +762,59 @@ def test_a_manifest_that_only_spells_the_framework_tree_is_refused(
     application's disguise."""
     body = 'modules_path: acme/modules\nmodules_package: ""\nkernel_package: sandloom\n'
     message = _refused(_manifest(tmp_path, body), KERNEL_EXEMPT_PACKAGE_CODE)
-    assert "`sandloom/core` under `modules_path`" in message
+    assert "the running kernel itself as `sandloom` under `modules_path`" in message
 
 
-def test_the_exempting_keys_stay_open_to_the_framework_tree(tmp_path: Path) -> None:
-    manifest = _framework_tree(tmp_path, {})
+def test_a_made_up_kernel_directory_does_not_make_an_application_the_framework(
+    tmp_path: Path,
+) -> None:
+    """``mkdir <modules_path>/sandloom/core`` is what a disguised application
+    adds to look like the framework tree. The check compares the resolved path
+    with the kernel this process runs, not the names under ``modules_path``."""
+    body = (
+        'modules_path: acme/modules\nmodules_package: ""\nkernel_package: sandloom\n'
+        "framework_packages: [orders]\n"
+    )
+    manifest = _manifest(tmp_path, body, "acme/modules/sandloom/core")
+    (tmp_path / "acme" / "modules" / "sandloom" / "__init__.py").write_text("")
+    message = _refused(manifest, KERNEL_EXEMPT_PACKAGE_CODE)
+    assert "`kernel_package: sandloom` and `framework_packages: [orders]`" in message
+
+
+def test_the_real_framework_manifest_is_the_framework_tree() -> None:
+    """The control of the two tests above: the checkout's own manifest names
+    ``src/sandloom``, which resolves to the kernel this process runs."""
+    rules = load_rules(BACKEND / "architecture_rules.yml")
+    assert rules.kernel_package == "sandloom" and rules.is_framework_tree
+
+
+def test_the_kernel_is_compared_by_its_resolved_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An editable install makes ``src/sandloom`` a link to the checkout: it is
+    the kernel when the link resolves to the running kernel, and not otherwise."""
+    real = tmp_path / "checkout" / "sandloom"
+    (real / "core").mkdir(parents=True)
+    tree = tmp_path / "tree"
+    (tree / "src").mkdir(parents=True)
+    (tree / "src" / "sandloom").symlink_to(real, target_is_directory=True)
+    manifest = tree / "architecture_rules.yml"
+    manifest.write_text(
+        'modules_path: src\nmodules_package: ""\nsource_root: src\n'
+        "kernel_package: sandloom\n"
+    )
+    monkeypatch.setattr(manifest_module, "_kernel_dir", lambda: real.resolve())
+    assert load_rules(manifest).is_framework_tree
+    monkeypatch.setattr(
+        manifest_module, "_kernel_dir", lambda: (tmp_path / "elsewhere").resolve()
+    )
+    _refused(manifest, KERNEL_EXEMPT_PACKAGE_CODE)
+
+
+def test_the_exempting_keys_stay_open_to_the_framework_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _framework_tree(tmp_path, {}, monkeypatch)
     rules = load_rules(manifest)
     assert rules.kernel_package == "sandloom" and rules.is_framework_tree
     manifest.write_text(manifest.read_text() + "framework_packages: [sdk]\n")
@@ -692,46 +905,65 @@ def _allowlist(file: str, imports: list[str]) -> str:
 _ORDERS = "acme/modules/orders/service.py"
 
 
+#: ``imports`` that match several kernel modules (a family of them).
+_FAMILIES = {
+    "core-star": ["sandloom.core*"],
+    "package-star": ["sandloom*"],
+    "star": ["*"],
+    "core-dot-star": ["sandloom.core.*"],
+    "wild-first-segment": ["*.core.*"],
+    "wild-both-segments": ["s*.core.d*"],
+    "several-d-modules": ["sandloom.core.d*"],
+    "character-class": ["sandloom.core.[a-z]*"],
+    "private-sdk": ["sandloom.sdk._*"],
+    "one-of-two": ["sqlalchemy*", "sandloom.core*"],
+}
+#: ``imports`` that name or match ONE kernel module (and its submodules).
+_ONE_KERNEL_MODULE = {
+    "core-itself": ["sandloom.core"],
+    "core-with-a-question-mark": ["sandloom.cor?"],
+    "core-with-a-class": ["sandloom.cor[e]"],
+    "a-module": ["sandloom.core.database"],
+    "a-module-and-its-children": ["sandloom.core.database*"],
+    "a-module-and-another": ["sandloom.core.database.*", "sandloom.core.di"],
+    "one-private-layer": ["sandloom.sdk._prim*"],
+    # one private layer (``_decl`` and the modules inside it) is one unit
+    "one-private-layer-and-its-modules": ["sandloom.sdk._decl._*"],
+    "a-module-not-there-yet": ["sandloom.core.nothing_yet"],
+}
+
+
 @pytest.mark.parametrize(
     "imports",
-    [
-        ["sandloom.core*"],
-        ["sandloom*"],
-        ["*"],
-        ["sandloom.core.*"],
-        ["sandloom.core"],
-        ["*.core.*"],
-        ["s*.core.d*"],
-        ["sandloom.core.d*"],
-        ["sandloom.core.[a-z]*"],
-        ["sandloom.sdk._*"],
-        ["sqlalchemy*", "sandloom.core*"],
-    ],
-    ids=[
-        "core-star",
-        "package-star",
-        "star",
-        "core-dot-star",
-        "core-itself",
-        "wild-first-segment",
-        "wild-both-segments",
-        "several-d-modules",
-        "character-class",
-        "private-sdk",
-        "one-of-two",
-    ],
+    [*_FAMILIES.values(), *_ONE_KERNEL_MODULE.values()],
+    ids=[*_FAMILIES, *_ONE_KERNEL_MODULE],
 )
-def test_an_allowlist_entry_may_not_excuse_a_family_of_kernel_modules(
+def test_an_application_allowlist_excuses_no_kernel_module(
     tmp_path: Path, imports: list[str]
 ) -> None:
-    # even in the files of one module, a pattern that matches several is refused;
-    # ``sandloom.core`` alone is one module, so it is judged by its file below.
-    manifest = _manifest(tmp_path, _APP + _allowlist(_ORDERS, imports))
-    if imports == ["sandloom.core"]:
-        assert load_rules(manifest).allowlist
-        return
-    message = _refused(manifest, CORE_IN_ALLOWLIST_CODE)
+    """Whatever the pattern and whatever the file, even the files of one module:
+    an application's allowlist keeps imports of other packages only. The text
+    says so, not that one module's named imports would have been fine."""
+    message = _refused(
+        _manifest(tmp_path, _APP + _allowlist(_ORDERS, imports)), CORE_IN_ALLOWLIST_CODE
+    )
     assert f"file {_ORDERS!r} admits" in message
+    assert "which an application's manifest may not do for any file" in message
+    assert "delete the entry" in message
+    assert "for more than the named modules" not in message
+
+
+@pytest.mark.parametrize("imports", list(_FAMILIES.values()), ids=list(_FAMILIES))
+def test_a_framework_tree_allowlist_may_not_excuse_a_family_of_kernel_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, imports: list[str]
+) -> None:
+    # even in the files of one module, a pattern that matches several is refused
+    manifest = _framework_tree(tmp_path, {}, monkeypatch)
+    manifest.write_text(
+        manifest.read_text() + _allowlist("src/sandloom_orders/service.py", imports)
+    )
+    message = _refused(manifest, CORE_IN_ALLOWLIST_CODE)
+    assert "for more than the named modules of one business module" in message
 
 
 @pytest.mark.parametrize(
@@ -739,26 +971,54 @@ def test_an_allowlist_entry_may_not_excuse_a_family_of_kernel_modules(
     [
         "*",
         "**",
-        "acme/*",
-        "acme/modules/*",
-        "acme/modules/*/tests/*",
-        "acme/modules/or*/service.py",
-        "acme/modules/orders",
-        "acme/modules/orders*",
-        "acme/modules/[o]rders/service.py",
-        "acme/modules/o?ders/service.py",
-        "acme/modules/../modules/orders/service.py",
-        "other/orders/service.py",
-        "/acme/modules/orders/service.py",
-        "acme/modules/",
+        "src/*",
+        "src/*/tests/*",
+        "src/sandloom_or*/service.py",
+        "src/sandloom_orders",
+        "src/sandloom_orders*",
+        "src/[s]andloom_orders/service.py",
+        "src/sandloom_o?ders/service.py",
+        "src/../src/sandloom_orders/service.py",
+        "other/sandloom_orders/service.py",
+        "/src/sandloom_orders/service.py",
+        "src/",
     ],
 )
-def test_an_allowlist_entry_for_a_kernel_module_must_name_one_business_module(
-    tmp_path: Path, file: str
+def test_a_framework_tree_allowlist_entry_for_a_kernel_module_names_one_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, file: str
 ) -> None:
-    body = _APP + _allowlist(file, ["sandloom.core.database*"])
-    message = _refused(_manifest(tmp_path, body), CORE_IN_ALLOWLIST_CODE)
+    manifest = _framework_tree(tmp_path, {}, monkeypatch)
+    manifest.write_text(
+        manifest.read_text() + _allowlist(file, ["sandloom.core.database*"])
+    )
+    message = _refused(manifest, CORE_IN_ALLOWLIST_CODE)
     assert f"file {file!r} admits sandloom.core.database*" in message
+
+
+@pytest.mark.parametrize(
+    ("file", "imports"),
+    [
+        (
+            "src/sandloom_orders/tests/*",
+            _ONE_KERNEL_MODULE["a-module-and-its-children"],
+        ),
+        ("src/sandloom_orders/service.py", _ONE_KERNEL_MODULE["core-itself"]),
+        ("src/sandloom_orders/service.py", _ONE_KERNEL_MODULE["a-module"]),
+        ("src/sandloom_orders/*", _ONE_KERNEL_MODULE["a-module-and-another"]),
+        ("src/sandloom_orders/service.py", _ONE_KERNEL_MODULE["one-private-layer"]),
+        (
+            "src/sandloom_orders/service.py",
+            _ONE_KERNEL_MODULE["one-private-layer-and-its-modules"],
+        ),
+        ("src/sandloom_orders/api/*", ["sandloom.core.nothing_yet*"]),
+    ],
+)
+def test_a_framework_tree_allowlist_entry_for_one_module_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, file: str, imports: list[str]
+) -> None:
+    manifest = _framework_tree(tmp_path, {}, monkeypatch)
+    manifest.write_text(manifest.read_text() + _allowlist(file, imports))
+    assert load_rules(manifest).allowlist == [{"file": file, "imports": imports}]
 
 
 @pytest.mark.parametrize(
@@ -766,51 +1026,32 @@ def test_an_allowlist_entry_for_a_kernel_module_must_name_one_business_module(
     [["sandloom.sdk._prim*"], ["sandloom.sdk._decl._*"], ["sandloom.core.nothing_yet"]],
 )
 def test_a_private_layer_or_a_named_kernel_module_needs_its_file_too(
-    tmp_path: Path, imports: list[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, imports: list[str]
 ) -> None:
-    body = _APP + _allowlist("acme/modules/*", imports)
-    _refused(_manifest(tmp_path, body), CORE_IN_ALLOWLIST_CODE)
+    manifest = _framework_tree(tmp_path, {}, monkeypatch)
+    manifest.write_text(manifest.read_text() + _allowlist("src/*", imports))
+    _refused(manifest, CORE_IN_ALLOWLIST_CODE)
 
 
 @pytest.mark.parametrize(
     ("file", "imports"),
     [
-        ("acme/modules/orders/tests/*", ["sandloom.core.database*"]),
-        ("acme/modules/orders/service.py", ["sandloom.core.database"]),
-        ("acme/modules/orders/*", ["sandloom.core.database.*", "sandloom.core.di"]),
-        ("acme/modules/orders/service.py", ["sandloom.sdk._prim*"]),
-        # one private layer (``_decl`` and the modules inside it) is one unit
-        ("acme/modules/orders/service.py", ["sandloom.sdk._decl._*"]),
-        ("acme/modules/orders/api/*", ["sandloom.core.nothing_yet*"]),
-        # not the kernel: a wide file or a wide pattern is fine
         ("*", ["sqlalchemy*"]),
         ("acme/modules/*", ["acme.modules.shared*"]),
         ("acme/*", ["sandloom.shared*"]),
         ("*", ["sandloom.driverkit*"]),
         ("acme/modules/orders/*", ["sandloom_billing*"]),
         ("*", ["sandloom_*"]),
+        ("acme/modules/orders/*", ["sandloom.coredump"]),
+        ("acme/modules/orders/*", ["sandloom.corex*"]),
     ],
 )
-def test_an_allowlist_entry_that_stays_in_bounds_loads(
+def test_an_application_allowlist_entry_for_another_package_loads(
     tmp_path: Path, file: str, imports: list[str]
 ) -> None:
+    """Not the kernel: a wide file or a wide pattern is fine."""
     rules = load_rules(_manifest(tmp_path, _APP + _allowlist(file, imports)))
     assert rules.allowlist == [{"file": file, "imports": imports}]
-
-
-def test_an_allowlist_entry_in_the_framework_tree_names_one_module_too(
-    tmp_path: Path,
-) -> None:
-    manifest = _framework_tree(tmp_path, {})
-    manifest.write_text(
-        manifest.read_text() + _allowlist("src/*", ["sandloom.core.database*"])
-    )
-    _refused(manifest, CORE_IN_ALLOWLIST_CODE)
-    manifest.write_text(
-        manifest.read_text().split("allowlist:")[0]
-        + _allowlist("src/sandloom_orders/service.py", ["sandloom.core.database*"])
-    )
-    assert load_rules(manifest).allowlist
 
 
 @pytest.mark.parametrize(
@@ -858,6 +1099,8 @@ _REFUSALS = {
     "test_api: [sandloom]\n": CORE_IN_API_LIST_CODE,
     "shared_api: [sandloom.core]\n": CORE_IN_API_LIST_CODE,
     _allowlist("*", ["sandloom.core*"]): CORE_IN_ALLOWLIST_CODE,
+    _allowlist(_ORDERS, ["sandloom.core"]): CORE_IN_ALLOWLIST_CODE,
+    _allowlist(_ORDERS, ["sandloom.cor?"]): CORE_IN_ALLOWLIST_CODE,
 }
 
 

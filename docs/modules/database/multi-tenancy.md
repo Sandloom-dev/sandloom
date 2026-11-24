@@ -452,30 +452,39 @@ the new row. Use primary keys that are not reused across tenants, such as UUIDs
 or sequences that do not recycle values. Row-Level Security holds this case
 too.
 
-The `sandloom check` rules are static and miss some spellings. SANDLOOM-C037
-does not see a dynamic import of a name that is not a constant, or `getattr` with
-a variable name on `sqlalchemy`. It does not follow a name bound to `sqlalchemy`
-by unpacking, a container or a call result either. It does follow a plain
-assignment of a name that holds it, however long the chain.
+The `sandloom check` rules named here are static. They catch the mistakes of
+ordinary code, the ones a module author or an AI agent writes in good faith.
+They do not promise to stop a deliberate bypass. That is the job of the runtime
+cursor guard and of
+[Row-Level Security](#postgresql-row-level-security-optional). SANDLOOM-C037
+does not see a dynamic import of a name that is not a constant. Nor does it see
+`getattr` with a variable name on `sqlalchemy`. It does not follow a name bound
+to `sqlalchemy` by unpacking. A container or a call result hides it as well. It
+does follow a plain assignment of a name that holds it, however long the chain.
 
 A module registers no listener at the cursor. `sandloom check` refuses one in a
-module's files. Its tests are not scanned.
+module's files. Its tests are not scanned. No `# sandloom: allow` comment admits
+a listener: the rule cannot be waived.
 
 - The refused events are the cursor ones: `before_cursor_execute`,
   `after_cursor_execute`, `do_execute`, `do_executemany`, `do_execute_no_params`
   and `do_setinputsizes`.
 - A listener on a pool or connect event is refused too, such as `connect` or
-  `checkout`. It gets the raw driver connection.
+  `checkout`. So are `handle_error` and `after_execute`. They hand out the raw
+  driver connection or its cursor. A listener on an ORM session
+  (`event.listen(Session, "close", fn)`) stays allowed.
 - The rule reads the event name wherever the registration is written, under an
-  aliased `event` or `listen` as well.
+  aliased `event` or `listen` as well. It also follows the event module reached
+  through another sqlalchemy module. A name that a sibling file of the module
+  imports is followed too.
 - It refuses a `listen` call whose name it cannot read. Write the event name as a
   string literal.
 - A listener on another event stays allowed: `before_insert`, `load` or
   `do_orm_execute`.
 
-See [SANDLOOM-C039](../../reference/error-codes.md#sandloom-c039) for the full
-list and what the rule does not see. A module that counts its queries registers
-that listener in a test.
+[SANDLOOM-C039](../../reference/error-codes.md#sandloom-c039) has the full list
+and what the rule does not see. A module that counts its queries registers that
+listener in a test.
 
 Cross-tenant work uses `unscoped()`.
 

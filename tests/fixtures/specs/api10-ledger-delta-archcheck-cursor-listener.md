@@ -2,8 +2,9 @@
 
 A listener on a cursor-level event runs around the cursor tenant check: it can rewrite the statement
 the check read, or make SQLAlchemy skip the check. `sandloom check` now reports the registration in a
-business module, whatever its spelling, with `SANDLOOM-C039` (rule `cursor-listener`; ADR-0018,
-decision 8). The runtime seam is unchanged.
+business module in the forms ordinary code writes it, with `SANDLOOM-C039` (rule `cursor-listener`;
+ADR-0018, decision 8). The rule catches mistakes and no waiver admits a hit; a deliberate bypass is
+not its job. The runtime seam is unchanged.
 
 | Id | Disposition |
 | --- | --- |

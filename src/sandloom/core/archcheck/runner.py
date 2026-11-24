@@ -11,7 +11,7 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -173,6 +173,10 @@ PENDING_RULES.update({k: _catalogue_line(k, v) for k, v in PENDING_RULES.items()
 
 #: Inline waiver: ``# sandloom: allow <rule-id|code> <reason>`` on the reported line.
 _WAIVER = re.compile(r"#\s*sandloom:\s*allow\s+(\S+)\s+\S")
+#: Rules no inline waiver admits. A listener at the cursor (SANDLOOM-C039) is a
+#: trust rule: a deliberate exception is the runtime cursor guard's and row-level
+#: security's business (ADR-0018 decision 8), never a comment in module code.
+NON_WAIVABLE_RULES = frozenset({"cursor-listener"})
 
 
 def iter_module_test_files(rules: ArchRules, module: str) -> Iterator[Path]:
@@ -648,7 +652,7 @@ def run_checks(  # noqa: C901
                     Violation("schema-orm-imports", py, d)
                     for d in az.find_schema_orm_imports(py)
                 ]
-    return [v for v in violations if not _waived(v)]
+    return [_unwaivable_note(v) for v in violations if not _waived(v)]
 
 
 def _api10_tree_checks(rules: ArchRules, selected: set[str]) -> list[Violation]:
@@ -731,23 +735,51 @@ def _module_level_checks(
     return out
 
 
-def _waived(violation: Violation) -> bool:
-    """A ``# sandloom: allow <rule|code> <reason>`` comment on the reported line."""
+def _waiver_comment(violation: Violation) -> str | None:
+    """The rule id or code a ``# sandloom: allow <rule|code> <reason>`` comment on
+    the reported line names, if the line carries one."""
     line = violation.line
     if line is None or not violation.file.is_file():
-        return False
+        return None
     try:
         text = az.read_source(violation.file).splitlines()[line - 1]
     except (IndexError, OSError):
-        return False
+        return None
     match = _WAIVER.search(text)
-    if match is None:
-        return False
-    return match.group(1) in {violation.rule, violation.code}
+    return None if match is None else match.group(1)
+
+
+def _waived(violation: Violation) -> bool:
+    """A ``# sandloom: allow <rule|code> <reason>`` comment on the reported line,
+    for a rule that can be waived (:data:`NON_WAIVABLE_RULES` cannot)."""
+    named = _waiver_comment(violation)
+    return (
+        violation.rule not in NON_WAIVABLE_RULES
+        and named is not None
+        and named in {violation.rule, violation.code}
+    )
+
+
+def _unwaivable_note(violation: Violation) -> Violation:
+    """A violation of a rule that cannot be waived whose line carries a waiver
+    comment for it says so, instead of looking ignored."""
+    named = _waiver_comment(violation)
+    if (
+        violation.rule in NON_WAIVABLE_RULES
+        and named is not None
+        and named in {violation.rule, violation.code}
+    ):
+        return replace(
+            violation,
+            detail=f"{violation.detail} (the `# sandloom: allow` comment on this "
+            "line does not apply: this rule cannot be waived)",
+        )
+    return violation
 
 
 __all__ = [
     "API10_RULES",
+    "NON_WAIVABLE_RULES",
     "PENDING_RULES",
     "RULES",
     "Violation",

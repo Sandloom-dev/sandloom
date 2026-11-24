@@ -370,19 +370,36 @@ test pins that too.
 **Module code is refused the listener statically (SANDLOOM-C039, the `cursor-listener` rule of
 `sandloom check`, added by `archcheck-cursor-listener`).** The rule is a static check, so the runtime
 cost of the two designs below stays unpaid and the seam stays open to code that is not a module: a
-driver, the application's own startup, a test. The rule is wider than the two kinds above, because
-the cursor-level events share one reach:
+driver, the application's own startup, a test.
+
+**What the rule promises.** It catches the mistakes of ordinary code: what a module author, or an AI
+agent, writes in good faith. It does not promise to stop a deliberate bypass: a registrar reached
+through a container, a computed event name, `getattr` on `builtins` or `importlib`, `exec` and
+`eval`, the internals of `dispatch`. A deliberate bypass is stopped, as far as the guard reaches, by
+the runtime cursor guard (decision 1), and for the seam this decision names by row-level security,
+as the last paragraph of this decision says. The rule cannot be waived: a `# sandloom: allow` comment
+on the line does not admit a listener, and the message says so. The owner chose this scope on
+2026-11-24 (option B, accident-only) over an allowlist of the forms a registration may take.
+
+TODO(owner, 2026-11-24): revisit — option B (accident-only) chosen over an allowlist of forms; review whether to tighten (tm: archcheck-revisit-allowed-forms)
+
+The rule is wider than the two kinds above, because the cursor-level events share one reach:
 
 - It refuses a registration for any cursor event: `before_cursor_execute`, `after_cursor_execute`,
   `do_execute`, `do_executemany`, `do_execute_no_params` and `do_setinputsizes`, with or without
   `retval`. A listener on `after_cursor_execute` and `do_setinputsizes` is handed the raw cursor
   and cannot rewrite the statement, and it is refused too: it reads the bound tenant of every
   statement, and the cursor is the object `exec_driver_sql` reaches.
-- It refuses a registration for a pool or connect event (`connect`, `checkout`, `do_connect`, ...),
-  whose listener is handed the raw DBAPI connection, with the same reach as `.raw_connection()`.
+- It refuses a registration for a pool, connect or error event (`connect`, `checkout`, `do_connect`,
+  `handle_error`, `after_execute`, `engine_connect`, ...), whose listener is handed the raw DBAPI
+  connection, cursor or result, with the same reach as `.raw_connection()`. An ORM session as the
+  target (`event.listen(Session, "close", fn)`) stays allowed.
 - It reads the event name as a string wherever it stands, so an aliased `event` or `listen`,
-  `from sqlalchemy.event import listen as l`, a name bound to the constant and a `getattr` lookup are
-  all seen. It refuses a `listen` call whose event name it cannot read, and a use of the registrar
+  `from sqlalchemy.event import listen as l`, the event module reached through another sqlalchemy
+  module (`from sqlalchemy.orm.events import event`), a name imported from a sibling file of the
+  module that binds one (`from .helper import ev`), a name bound to the constant and a `getattr`
+  lookup are all seen. A dict key and the module's own `self.do_execute` are not a registration. It
+  refuses a `listen` call whose event name it cannot read, and a use of the registrar
   without a call. A dynamic import of `sqlalchemy.event`, a star import and the module passed around
   are refused as well, because they hide the registrations. It refuses the listener lists
   (`engine.dispatch.before_cursor_execute`) and an assignment to, or a read of, a dialect method

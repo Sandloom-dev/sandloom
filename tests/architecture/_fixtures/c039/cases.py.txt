@@ -7,7 +7,9 @@
 # from the analyzer fails its own cases); ``ok`` sections must not be reported.
 #
 #   string      a cursor-level event name, whole, as a string
-#   connection  a listener on a pool or connect event
+#   connection  a listener on a pool, connect or connection-context event (it is
+#               handed the raw DBAPI connection or cursor), unless the target is
+#               an ORM session
 #   uncalled    listen / listens_for used without being called
 #   unreadable  listen / listens_for called with an event name not readable
 #   module      the sqlalchemy event module passed around or stored
@@ -194,6 +196,68 @@ alias = sa
 def attach(engine):
     alias.event.listen(engine, "do_execute", run)
 
+# === bad[string]: event_reexported_by_the_orm_events_module
+from sqlalchemy.orm.events import event
+
+
+def attach(engine):
+    event.listen(engine, "before_cursor_execute", rewrite, retval=True)
+
+# === bad[string]: event_reexported_by_the_schema_module
+from sqlalchemy.sql.schema import event
+
+
+def attach(engine):
+    event.listen(engine, "do_execute", run)
+
+# === bad[string]: event_reexported_by_the_mutable_extension
+from sqlalchemy.ext.mutable import event
+
+
+@event.listens_for(engine, "do_executemany")
+def run(cursor, statement, parameters, context, executemany):
+    return True
+
+# === bad[string]: event_reexported_and_aliased
+from sqlalchemy.orm.events import event as ev
+
+
+def attach(engine):
+    ev.listen(engine, "after_cursor_execute", seen)
+
+# === bad[string]: reexport_reached_by_a_dotted_alias
+import sqlalchemy.orm.events as oe
+
+
+def attach(engine):
+    oe.event.listen(engine, "do_execute", run)
+
+# === bad[string]: reexport_reached_by_the_plain_dotted_import
+import sqlalchemy.orm.events
+
+
+def attach(engine):
+    sqlalchemy.orm.events.event.listen(engine, "do_execute", run)
+
+# === bad[uncalled]: listen_of_a_reexport_stored
+from sqlalchemy.orm.events import event
+
+register = event.listen
+
+# === bad[module]: reexport_passed_to_a_function
+from sqlalchemy.sql.schema import event
+
+
+def attach(engine):
+    helper(event, engine)
+
+# === bad[unreadable]: reexport_with_a_variable_name
+from sqlalchemy.orm.events import event
+
+
+def attach(engine, name):
+    event.listen(engine, name, run)
+
 # === bad[string]: getattr_lookup_of_listen
 from sqlalchemy import event
 
@@ -231,8 +295,8 @@ from sqlalchemy import event
 def attach(engine):
     event.listen(target=engine, identifier="do_execute", fn=run)
 
-# === bad[string]: identifier_collected_in_a_table
-EVENTS = {"do_execute": run}
+# === bad[string]: identifier_collected_as_a_table_value
+EVENTS = {"identifier": "do_execute", "fn": run}
 
 # === bad[string]: name_read_by_setattr
 def patch(dialect):
@@ -296,6 +360,43 @@ from sqlalchemy import event
 
 def attach(engine):
     event.listen(engine, "invalidate", on_invalidate)
+
+# === bad[connection]: handle_error
+from sqlalchemy import event
+
+
+def attach(engine):
+    event.listen(engine, "handle_error", on_error)
+
+# === bad[connection]: after_execute
+from sqlalchemy import event
+
+
+def attach(engine):
+    event.listen(engine, "after_execute", on_executed)
+
+# === bad[connection]: engine_connect
+from sqlalchemy import event
+
+
+def attach(engine):
+    event.listen(engine, "engine_connect", on_connection)
+
+# === bad[connection]: after_execute_decorated_on_the_engine_class
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+
+
+@event.listens_for(Engine, "after_execute")
+def on_executed(conn, clauseelement, multiparams, params, execution_options, result):
+    return None
+
+# === bad[connection]: handle_error_on_a_name_that_only_ends_like_a_session
+from sqlalchemy import event
+
+
+def attach(sessions_engine):
+    event.listen(sessions_engine, "handle_error", on_error)
 
 # === bad[unreadable]: name_is_a_variable
 from sqlalchemy import event
@@ -681,6 +782,43 @@ class Runner:
 
 def go():
     return Runner().do_execute()
+
+# === ok: a_module_s_own_dispatch_of_do_execute
+class Router:
+    def do_execute(self, command):
+        return command
+
+    def route(self, command):
+        return self.dispatch.do_execute(command)
+
+
+class Registry:
+    @classmethod
+    def make(cls, command):
+        return cls.dispatch.do_execute_no_params(command)
+
+# === ok: a_cursor_event_name_as_a_dict_key
+HANDLERS = {"do_execute": run, "before_cursor_execute": other}
+
+# === ok: a_session_close_listener
+from sqlalchemy import event
+from sqlalchemy.orm import Session, sessionmaker
+
+
+def attach(factory):
+    event.listen(Session, "close", on_close)
+    event.listen(sessionmaker(), "close", on_close)
+    event.listen(factory.session, "close", on_close)
+
+# === ok: a_session_listener_named_like_a_connection_event
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+
+def attach(async_session, SessionLocal):
+    event.listen(async_session, "handle_error", on_error)
+    event.listen(SessionLocal, "engine_connect", on_connect)
+    event.listen(async_sessionmaker, "after_execute", on_executed)
 
 # === ok: the_event_names_in_prose
 """A module never registers a before_cursor_execute or do_execute listener."""

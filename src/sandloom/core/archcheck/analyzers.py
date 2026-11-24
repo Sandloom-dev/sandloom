@@ -2828,6 +2828,22 @@ def _engine_import_findings(line: int, module: str, name: str | None) -> list[st
     return []
 
 
+def _is_attribute(expr: ast.expr, name: str) -> bool:
+    return isinstance(expr, ast.Attribute) and expr.attr == name
+
+
+def _is_connection_call(expr: ast.expr) -> bool:
+    """``<x>.connection()`` / ``<x>.connect()``, awaited or not: a SQLAlchemy
+    ``Connection``, whose ``.connection`` is the DBAPI connection."""
+    if isinstance(expr, ast.Await):
+        expr = expr.value
+    return (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr in {"connection", "connect"}
+    )
+
+
 def _engine_attribute_findings(
     node: ast.Attribute, bound: frozenset[str], sa_imports: set[int], allowed: set[int]
 ) -> list[str]:
@@ -2845,6 +2861,13 @@ def _engine_attribute_findings(
         reason = "is the connection pool of an engine, which skips the engine's checks"
     elif node.attr == "__dict__" and from_sqlalchemy:
         reason = "reads sqlalchemy's engine factories by name"
+    elif node.attr == "cursor" and _is_attribute(node.value, "connection"):
+        reason = (
+            "opens a raw DBAPI cursor on a connection, which skips the cursor "
+            "tenant check"
+        )
+    elif node.attr == "connection" and _is_connection_call(node.value):
+        reason = "is the DBAPI connection of a connection, under no engine check"
     else:
         return []
     return [f"Line {node.lineno}: `.{node.attr}` {reason}"]
@@ -2856,13 +2879,18 @@ def find_engine_constructors(file_path: Path) -> list[str]:
 
     An engine the framework builds carries ``install_write_admission`` and the
     tenant_rls session setup; anything a module opens itself carries neither.
-    The rule asks which capability an import or access gives, so no spelling
-    gets around it: the engine and pool factories and classes (imported under any
+    The rule asks which capability an import or access gives and catches the
+    mistakes of ordinary code under the spellings an author reaches for: the
+    engine and pool factories and classes (imported under any
     alias, or reached as an attribute of a name bound to ``sqlalchemy``), any
     import of ``sqlalchemy.engine`` besides its result and URL types, any import
     of ``sqlalchemy.pool``, a star import from ``sqlalchemy``, a DBAPI driver
     (also as a constant-string ``import_module``), ``.raw_connection()`` and its
-    kin, an engine's ``.pool``, and ``getattr`` / ``__dict__`` on ``sqlalchemy``.
+    kin, ``conn.connection.cursor()`` and ``session.connection().connection``
+    (a raw DBAPI cursor or connection with no listener), an engine's ``.pool``,
+    and ``getattr`` / ``__dict__`` on ``sqlalchemy``. It does not promise to stop
+    a deliberate bypass: the runtime cursor guard and row-level security do
+    (ADR-0018 decision 8).
     A ``.create_engine()`` of an object that is not from ``sqlalchemy`` is no
     finding.
     """
@@ -2921,9 +2949,12 @@ _CURSOR_EVENTS = frozenset(
     }
 )
 #: The events whose listener is handed the raw DBAPI connection (the pool's) or
-#: builds it (``do_connect``): the same capability as ``.raw_connection()``,
-#: which SANDLOOM-C037 refuses. These names are common words, so they are read
-#: only as the event name of a ``listen`` / ``listens_for`` call.
+#: builds it (``do_connect``), or a connection / exception context that hands out
+#: the raw connection and its cursor (``engine_connect``, ``after_execute``,
+#: ``handle_error``): the same capability as ``.raw_connection()``, which
+#: SANDLOOM-C037 refuses. These names are common words, so they are read only as
+#: the event name of a ``listen`` / ``listens_for`` call, and not when the target
+#: is an ORM session (:func:`_is_session_target`).
 _CONNECTION_EVENTS = frozenset(
     {
         "do_connect",
@@ -2937,8 +2968,15 @@ _CONNECTION_EVENTS = frozenset(
         "reset",
         "invalidate",
         "soft_invalidate",
+        "engine_connect",
+        "after_execute",
+        "handle_error",
     }
 )
+#: The ends of an identifier that names an ORM session (``Session``,
+#: ``sessionmaker``, ``async_session``, ``SessionLocal``, ``db_session``), compared
+#: lower-case with ``_`` removed.
+_SESSION_NAME_ENDS = ("session", "sessionmaker", "sessionlocal", "sessionfactory")
 #: The dialect methods among them: assigning one replaces the method the guard wraps.
 _DIALECT_CURSOR_METHODS = frozenset(
     {"do_execute", "do_executemany", "do_execute_no_params", "do_setinputsizes"}
@@ -2981,15 +3019,80 @@ def _sqlalchemy_paths(expr: ast.AST, bound: dict[str, set[str]]) -> set[str]:
     return {".".join([path, *attrs]) for path in bound.get(root, ())}
 
 
-def _event_bindings(tree: ast.AST) -> dict[str, set[str]]:
+def _imported_file(file_path: Path, node: ast.ImportFrom) -> Path | None:
+    """The file ``from <module> import ...`` names, when it is a file of the
+    importing file's own tree: a relative import (``from .helper import ev``)
+    from the file's directory up, an absolute one from the directory above the
+    first ancestor that holds its top package. ``None`` for ``sqlalchemy``, a
+    library, or ``from . import name`` (a name that may be a module or not)."""
+    if not node.module or (node.module + ".").startswith("sqlalchemy."):
+        return None
+    parts = node.module.split(".")
+    here = file_path.resolve().parent
+    if node.level:
+        ups = node.level - 1
+        if ups > len(here.parents):
+            return None  # beyond the top of the file system: not importable
+        roots = [here, *here.parents][ups : ups + 1]
+    else:
+        roots = [
+            a
+            for a in (here, *here.parents)
+            if (a / parts[0]).exists() or (a / f"{parts[0]}.py").exists()
+        ]
+    for root in roots:
+        target = root.joinpath(*parts)
+        for candidate in (target.with_name(f"{parts[-1]}.py"), target / "__init__.py"):
+            if candidate.is_file() and candidate != file_path.resolve():
+                return candidate
+    return None
+
+
+def _sibling_event_bindings(tree: ast.AST, file_path: Path) -> dict[str, set[str]]:
+    """The ``sqlalchemy`` paths the names a file imports from a sibling file of
+    its own tree stand for (``from .helper import ev``, where ``helper.py`` has
+    ``from sqlalchemy import event as ev``): one hop, the sibling's own
+    bindings. A sibling that cannot be read is reported when it is scanned
+    itself."""
+    bound: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        sibling = _imported_file(file_path, node)
+        if sibling is None:
+            continue
+        try:
+            theirs = _event_bindings(parse_file(sibling))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for alias in node.names:
+            if alias.name == "*":
+                names = {n: p for n, p in theirs.items() if not n.startswith("_")}
+                for name, paths in names.items():
+                    bound.setdefault(name, set()).update(paths)
+            elif alias.name in theirs:
+                bound.setdefault(alias.asname or alias.name, set()).update(
+                    theirs[alias.name]
+                )
+    return bound
+
+
+def _event_bindings(
+    tree: ast.AST, file_path: Path | None = None
+) -> dict[str, set[str]]:
     """Local name -> every ``sqlalchemy`` path it may be bound to: the imports of
-    :func:`_sqlalchemy_bindings`, plus plain re-binding followed to a fixed point
+    :func:`_sqlalchemy_bindings`, the names imported from a sibling file that
+    binds one (``file_path`` given: :func:`_sibling_event_bindings`), plus plain
+    re-binding followed to a fixed point
     (``ev = event``, ``sa2 = sa``, ``ev, other = event, 1``), in whatever order
     the assignments are written. Names resolve file-wide, not by scope: a name
     that stands for the module anywhere stands for it everywhere (more is
     reported, never less)."""
     imported, _hidden = _sqlalchemy_bindings(tree)
     bound = {name: {path} for name, path in imported.items()}
+    if file_path is not None:
+        for name, paths in _sibling_event_bindings(tree, file_path).items():
+            bound.setdefault(name, set()).update(paths)
     pairs = [pair for node in ast.walk(tree) for pair in _assignment_pairs(node)]
     changed = True
     while changed:
@@ -3006,11 +3109,14 @@ def _event_path_kind(path: str) -> str | None:
     """``"listen"`` for a path that reaches the registration code of
     ``sqlalchemy.event`` (``listen``, ``listens_for``, anything private),
     ``"module"`` for the package or one of its registration submodules, else
-    ``None`` (``event.remove``, ``event.contains``, a constant)."""
+    ``None`` (``event.remove``, ``event.contains``, a constant). The package is
+    the first ``event`` segment after ``sqlalchemy``, so a re-export through
+    another sqlalchemy module counts as the registrar it is
+    (``sqlalchemy.orm.events.event``, ``sqlalchemy.ext.mutable.event``)."""
     parts = path.split(".")
-    if parts[:2] != ["sqlalchemy", "event"]:
+    if parts[0] != "sqlalchemy" or "event" not in parts[1:]:
         return None
-    rest = parts[2:]
+    rest = parts[parts.index("event", 1) + 1 :]
     if any(p in _LISTEN_FUNCTIONS or p.startswith("_") for p in rest):
         return "listen"
     if not rest or (len(rest) == 1 and rest[0] in _EVENT_SUBMODULES):
@@ -3029,6 +3135,25 @@ def _event_name_argument(call: ast.Call) -> ast.expr | None:
         if keyword.arg == "identifier":
             return keyword.value
     return None
+
+
+def _is_session_target(call: ast.Call) -> bool:
+    """The ``target`` of ``listen(target, identifier, fn)`` is an ORM session: its
+    last identifier names one (``Session``, ``sessionmaker(...)``,
+    ``self.session``, ``async_session``). A session has no pool or connection
+    event, so a name like ``close`` there is an ORM listener, not a pool one."""
+    target = call.args[0] if call.args else None
+    if target is None:
+        target = next((k.value for k in call.keywords if k.arg == "target"), None)
+    while isinstance(target, ast.Call):
+        target = target.func
+    if isinstance(target, ast.Attribute):
+        name = target.attr
+    elif isinstance(target, ast.Name):
+        name = target.id
+    else:
+        return False
+    return name.lower().replace("_", "").endswith(_SESSION_NAME_ENDS)
 
 
 def _event_reference_findings(
@@ -3060,11 +3185,11 @@ def _event_reference_findings(
                 "name the check cannot read (a variable, a call, a star argument): "
                 "write the event name as a string literal"
             ]
-        if event_name in _CONNECTION_EVENTS:
+        if event_name in _CONNECTION_EVENTS and not _is_session_target(call):
             return [
                 f'Line {node.lineno}: a listener on the "{event_name}" event is '
-                "handed the DBAPI connection, or builds it, outside the framework's "
-                "engine checks"
+                "handed the DBAPI connection or cursor, or builds the connection, "
+                "outside the framework's engine checks"
             ]
     elif (
         "module" in kinds
@@ -3080,11 +3205,30 @@ def _event_reference_findings(
     return []
 
 
-def _cursor_event_string_findings(node: ast.AST) -> list[str]:
+def _event_star_import_findings(node: ast.AST) -> list[str]:
+    """``from sqlalchemy.event import *``: the names it brings are not read."""
+    if (
+        isinstance(node, ast.ImportFrom)
+        and node.level == 0
+        and (node.module or "") in {_EVENT_PACKAGE, f"{_EVENT_PACKAGE}.api"}
+        and any(alias.name == "*" for alias in node.names)
+    ):
+        return [
+            f"Line {node.lineno}: star import from {node.module} hides the "
+            "listeners a file registers"
+        ]
+    return []
+
+
+def _cursor_event_string_findings(node: ast.AST, dict_keys: set[int]) -> list[str]:
     """A string that is, whole, the name of a cursor-level event: a listener is
     registered by that name however the call is spelled (``event.listen``, an
-    aliased import, ``getattr(event, "listen")``, a name bound to the constant)."""
-    if not isinstance(node, ast.Constant | ast.BinOp | ast.JoinedStr):
+    aliased import, ``getattr(event, "listen")``, a name bound to the constant).
+    A key of a dict display is no registration: a call that reads it as an event
+    name is judged on its own (an unreadable name is reported)."""
+    if id(node) in dict_keys or not isinstance(
+        node, ast.Constant | ast.BinOp | ast.JoinedStr
+    ):
         return []
     text = _const_str(node)
     if text not in _CURSOR_EVENTS:
@@ -3102,6 +3246,11 @@ def _cursor_attribute_findings(node: ast.Attribute) -> list[str]:
     ``do_execute`` family (``dialect.do_execute = fn``, ``setattr`` is a string)."""
     if node.attr not in _CURSOR_EVENTS:
         return []
+    receiver = node.value
+    if isinstance(receiver, ast.Attribute) and receiver.attr == "dispatch":
+        receiver = receiver.value
+    if isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}:
+        return []  # the module's own object: ``self.do_execute``, ``self.dispatch.x``
     mentioned = {n.id for n in ast.walk(node.value) if isinstance(n, ast.Name)} | {
         n.attr for n in ast.walk(node.value) if isinstance(n, ast.Attribute)
     }
@@ -3116,6 +3265,30 @@ def _cursor_attribute_findings(node: ast.Attribute) -> list[str]:
     return [f"Line {node.lineno}: `.{node.attr}` {reason}"]
 
 
+def _event_usage(
+    tree: ast.AST,
+) -> tuple[set[int], set[int], set[int], dict[int, ast.Call]]:
+    """``(receivers, aliased, dict_keys, callees)`` of the nodes of ``tree``, by
+    ``id``: what is the receiver of an attribute, the value of a plain
+    assignment, a key of a dict display, and, by callee, the call it is of."""
+    receivers: set[int] = set()
+    aliased: set[int] = set()
+    dict_keys: set[int] = set()
+    callees: dict[int, ast.Call] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            receivers.add(id(node.value))
+        elif isinstance(node, ast.Call):
+            callees[id(node.func)] = node
+        elif isinstance(node, ast.Dict):
+            dict_keys.update(id(key) for key in node.keys if key is not None)
+        aliased.update(id(value) for _name, value in _assignment_pairs(node))
+    return receivers, aliased, dict_keys, callees
+
+
+# TODO(owner, 2026-11-24): revisit — option B (accident-only) chosen over an
+# allowlist of forms; review whether to tighten
+# (tm: archcheck-revisit-allowed-forms)
 def find_cursor_listeners(file_path: Path) -> list[str]:
     """A business module registering a listener at the cursor (SANDLOOM-C039).
 
@@ -3123,54 +3296,46 @@ def find_cursor_listeners(file_path: Path) -> list[str]:
     ``before_cursor_execute`` listener with ``retval=True`` rewrites the SQL text
     or the parameters after it read them, and a dialect listener that returns
     True makes SQLAlchemy skip the method that holds it; the cursor-level events
-    hand the raw DBAPI cursor to the listener as well. The rule refuses the
-    capability, not one spelling:
+    hand the raw DBAPI cursor to the listener as well.
+
+    The rule catches the mistakes of ordinary code, the ones a module author or an
+    AI agent writes in good faith. It does not promise to stop a deliberate bypass
+    (a registrar reached through a container, a computed event name, a dispatch
+    internal): that is the job of the runtime cursor guard and of row-level
+    security (ADR-0018 decision 8). No waiver comment admits a hit
+    (``runner.NON_WAIVABLE_RULES``). It reports:
 
     - any string that is, whole, a cursor-level event name (``_CURSOR_EVENTS``):
       ``event.listen`` / ``@event.listens_for`` on an engine, a connection, the
       ``Engine`` class or a dialect, ``retval`` or not, under any alias of
-      ``event`` or ``listen`` (``from sqlalchemy.event import listen as l``),
-      through ``getattr``, or a name bound to the constant;
+      ``event`` or ``listen`` (``from sqlalchemy.event import listen as l``,
+      ``from sqlalchemy.orm.events import event``, a name imported from a sibling
+      file that binds one), through ``getattr``, or a name bound to the constant;
+      a dict key is not a registration;
     - ``listen`` / ``listens_for`` used other than as a direct call, called
       with an event name that is not a string literal, or called with an event
-      that hands out the DBAPI connection (``_CONNECTION_EVENTS``);
+      that hands out the DBAPI connection or cursor (``_CONNECTION_EVENTS``)
+      unless the target is an ORM session;
     - the ``sqlalchemy.event`` module passed around or stored in a field, a
       star import from it, a constant ``import_module`` of it;
     - ``<x>.dispatch.before_cursor_execute`` and an attribute that replaces or
-      calls a dialect's ``do_execute`` family.
+      calls a dialect's ``do_execute`` family (not ``self.do_execute``).
 
     A listener on any other event stays allowed. Tests are not scanned.
     """
     tree = parse_file(file_path)
-    bound = _event_bindings(tree)
-    receivers: set[int] = set()
-    aliased: set[int] = set()
-    callees: dict[int, ast.Call] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
-            receivers.add(id(node.value))
-        elif isinstance(node, ast.Call):
-            callees[id(node.func)] = node
-        aliased.update(id(value) for _name, value in _assignment_pairs(node))
+    bound = _event_bindings(tree, file_path)
+    receivers, aliased, dict_keys, callees = _event_usage(tree)
     found: list[str] = []
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.ImportFrom)
-            and node.level == 0
-            and (node.module or "") in {_EVENT_PACKAGE, f"{_EVENT_PACKAGE}.api"}
-            and any(alias.name == "*" for alias in node.names)
-        ):
-            found.append(
-                f"Line {node.lineno}: star import from {node.module} hides the "
-                "listeners a file registers"
-            )
+        found.extend(_event_star_import_findings(node))
         if isinstance(node, ast.Name | ast.Attribute):
             found.extend(
                 _event_reference_findings(node, bound, receivers, aliased, callees)
             )
         if isinstance(node, ast.Attribute):
             found.extend(_cursor_attribute_findings(node))
-        found.extend(_cursor_event_string_findings(node))
+        found.extend(_cursor_event_string_findings(node, dict_keys))
     for line, module, _call in dynamic_imports(tree):
         if module == _EVENT_PACKAGE or module.startswith(f"{_EVENT_PACKAGE}."):
             found.append(
@@ -3239,12 +3404,31 @@ _MODULES_KEY_METHODS = frozenset(
 )
 _KERNEL_PACKAGE = "sandloom"
 _KERNEL_CORE = "sandloom.core"
+#: The attributes of the ``sandloom`` package object a module may use: its public
+#: subpackages. ``sandloom.core`` and every other name is the kernel.
+_PUBLIC_PACKAGE_ATTRS = frozenset({"sdk", "shared"})
 
 
 def _sys_modules_refusal(line: int, what: str) -> str:
     return (
         f"Line {line}: {what} (sys_modules: name the module with a constant string, "
         "or import it)"
+    )
+
+
+def _is_star_of_package(node: ast.ImportFrom) -> bool:
+    """``from sandloom import *``."""
+    return (
+        node.level == 0
+        and node.module == _KERNEL_PACKAGE
+        and any(alias.name == "*" for alias in node.names)
+    )
+
+
+def _package_refusal(line: int, what: str) -> str:
+    return (
+        f"Line {line}: {what} (the sandloom package: only `sandloom.sdk` and "
+        "`sandloom.shared` are public, import what you need from them)"
     )
 
 
@@ -3268,6 +3452,10 @@ class _SysModulesScan:
         self.sys_names: set[str] = set()
         self.modules_names: set[str] = set()
         self.dict_names: set[str] = set()
+        #: Names bound to the ``sandloom`` package object by ``import sandloom.x``
+        #: and the attribute paths such imports name (``("core", "x")``).
+        self.package_names: set[str] = set()
+        self.import_paths: set[tuple[str, ...]] = set()
         self.builtins = {"builtins"}
         self.operators = {"operator"}
         self.callables: dict[str, set[str]] = {
@@ -3326,6 +3514,15 @@ class _SysModulesScan:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     bound = alias.asname or alias.name.split(".")[0]
+                    parts = alias.name.split(".")
+                    if (
+                        parts[0] == _KERNEL_PACKAGE
+                        and len(parts) > 1
+                        and not alias.asname
+                    ):
+                        # ``import sandloom.sdk`` binds the package, not ``sdk``
+                        self.package_names.add(bound)
+                        self.import_paths.add(tuple(parts[1:]))
                     if alias.name == "sys":
                         self.sys_names.add(bound)
                     elif alias.name == "builtins":
@@ -3361,6 +3558,7 @@ class _SysModulesScan:
                     (self.sys_names, self._is_sys(value)),
                     (self.modules_names, self._is_modules(value)),
                     (self.dict_names, self._is_dict(value)),
+                    (self.package_names, self._is_package(value)),
                 ]
                 kind = self._callee_kind(value)
                 if kind is not None:
@@ -3409,6 +3607,25 @@ class _SysModulesScan:
                 and self._is_modules(func.value)
             )
         return False
+
+    def _is_package(self, node: ast.AST) -> bool:
+        """The ``sandloom`` package object: a name ``import sandloom.sdk`` bound
+        (or an alias of one), and ``__import__("sandloom.sdk")``, which returns the
+        top-level package unless it is given a ``fromlist``."""
+        if isinstance(node, ast.NamedExpr):
+            return self._is_package(node.value)
+        if isinstance(node, ast.Name):
+            return isinstance(node.ctx, ast.Load) and node.id in self.package_names
+        if not isinstance(node, ast.Call) or len(node.args) > 3:
+            return False
+        func = node.func
+        if not (
+            (isinstance(func, ast.Name) and func.id == "__import__")
+            or (isinstance(func, ast.Attribute) and func.attr == "__import__")
+        ) or any(k.arg == "fromlist" for k in node.keywords):
+            return False
+        target = _dynamic_import_target(node, self.dyn_modules, self.dyn_functions)
+        return target is not None and target[1].startswith(f"{_KERNEL_PACKAGE}.")
 
     def _is_dict(self, node: ast.AST) -> bool:
         """The namespace of ``sys``: ``vars(sys)``, ``sys.__dict__``,
@@ -3528,6 +3745,14 @@ class _SysModulesScan:
         reads: list[tuple[int, str, str]] = []
         refused: list[str] = []
         for node in ast.walk(self.tree):
+            if isinstance(node, ast.ImportFrom) and _is_star_of_package(node):
+                refused.append(
+                    _package_refusal(
+                        node.lineno,
+                        "a star import from sandloom brings in names the check "
+                        "cannot read, the kernel package among them",
+                    )
+                )
             if not isinstance(node, ast.expr) or id(node) in self.alias_values:
                 continue
             if self._is_sys(node):
@@ -3536,7 +3761,55 @@ class _SysModulesScan:
                 self._judge_modules(node, reads, refused)
             if self._is_dict(node):
                 self._judge_dict(node, refused)
+            if self._is_package(node):
+                self._judge_package(node, refused)
         return list(dict.fromkeys(reads)), list(dict.fromkeys(refused))
+
+    def _judge_package(self, node: ast.expr, refused: list[str]) -> None:
+        """A use of the ``sandloom`` package object: only ``.sdk`` and ``.shared``
+        (or a path an ``import sandloom.a.b`` of this file names), by attribute or by
+        a ``getattr`` with a constant name. Anything else is the kernel, or a use
+        the scan cannot follow."""
+        parent = self.parents.get(node)
+        if isinstance(parent, ast.Expr):
+            return  # ``__import__("sandloom.sdk")`` as a statement is an import
+        attrs: list[str] = []
+        cur: ast.AST = node
+        while (
+            isinstance(up := self.parents.get(cur), ast.Attribute) and up.value is cur
+        ):
+            attrs.append(up.attr)
+            cur = up
+        if attrs:
+            if attrs[0] in _PUBLIC_PACKAGE_ATTRS or any(
+                tuple(attrs[: len(path)]) == path for path in self.import_paths
+            ):
+                return
+            refused.append(
+                _package_refusal(node.lineno, f"`sandloom.{attrs[0]}` is the kernel")
+            )
+            return
+        if isinstance(parent, ast.Call) and parent.args and parent.args[0] is node:
+            if isinstance(parent.func, ast.Name) and parent.func.id == "hasattr":
+                return
+            if self._callee_kind(parent.func) == "getattr":
+                name = _const_str(parent.args[1]) if len(parent.args) > 1 else None
+                if name in _PUBLIC_PACKAGE_ATTRS:
+                    return
+                refused.append(
+                    _package_refusal(
+                        node.lineno,
+                        "getattr reads an attribute of sandloom by a name that is "
+                        "not `sdk` or `shared`, or that the check cannot read",
+                    )
+                )
+                return
+        refused.append(
+            _package_refusal(
+                node.lineno,
+                "the sandloom package is handed to code the check cannot follow",
+            )
+        )
 
     def _attrgetter_names(self, call: ast.Call) -> list[str] | None:
         """The attribute paths of ``attrgetter(...)``, ``None`` when one is not a
@@ -3700,6 +3973,13 @@ def sys_modules_reads(tree: ast.AST) -> tuple[list[tuple[int, str, str]], list[s
     ``importlib.import_module("sys")``; ``key in sys.modules`` and every
     single-key method (``get``, ``pop``, ``setdefault``, ``__getitem__`` ...).
     A key that is the module's own ``__name__`` is never the kernel and passes.
+
+    The ``sandloom`` package object is judged the same way, since its ``core`` is
+    the kernel: a name ``import sandloom.sdk`` binds (or an alias of it) and
+    ``__import__("sandloom.sdk")`` (which returns the top-level package) may be used
+    for ``.sdk`` and ``.shared`` only; ``sandloom.core.x``, a ``getattr`` of any other
+    name and the package handed to other code come back in ``refused``, and so does
+    ``from sandloom import *``.
     """
     return _SysModulesScan(tree).run()
 

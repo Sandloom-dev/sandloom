@@ -362,6 +362,18 @@ _ENGINE_BAD = {
         "async def f(conn):\n    return await conn.get_raw_connection()\n"
     ),
     "driver_connection": "def f(conn):\n    return conn.driver_connection\n",
+    # the DBAPI connection under a SQLAlchemy connection is the driver's own
+    "the DBAPI cursor of a connection": (
+        "def f(conn):\n    return conn.connection.cursor()\n"
+    ),
+    "the DBAPI cursor of a session's connection": (
+        "def f(session):\n"
+        "    return session.connection().connection.cursor().execute('select 1')\n"
+    ),
+    "the DBAPI cursor of an awaited connection": (
+        "async def f(session):\n"
+        "    return (await session.connection()).connection.cursor()\n"
+    ),
     "an engine's pool": "def f(engine):\n    return engine.pool.connect()\n",
     "the pool of a bind": (
         "def f(session):\n    return session.get_bind().pool.connect()\n"
@@ -440,6 +452,15 @@ _ENGINE_OK = {
     ),
     "a pool attribute of something that is no engine": (
         "def f(worker):\n    return worker.pool\n"
+    ),
+    # a cursor taken from something that is no connection is not the DBAPI's
+    "a cursor of a pagination object": ("def f(page):\n    return page.cursor()\n"),
+    "a connection attribute of a client, then a cursor of the result": (
+        "def f(client):\n    return client.cursor().connection\n"
+    ),
+    "the session's own execute": (
+        "async def f(session, statement):\n"
+        "    return await session.execute(statement)\n"
     ),
     "getattr on a model": "def f(model):\n    return getattr(model, 'name')\n",
     "a constant import_module of sqlalchemy used for a select": (
