@@ -73,7 +73,9 @@ the public API and the transaction rules the rest of the reduction needs.
 - Each module declares `__all__` and `__beginner__`; 27 beginner names were
   taught at acceptance (30 before KB-34; 26 after it: 20 code names in
   `sandloom.sdk.__all__`, the five `sandloom.sdk.testing` names and the
-  `client` fixture, see the amendment) and are taught by the generators, the tutorial and the agent cheat sheet. The
+  `client` fixture, see the amendment; 42 after dx-module-less-boilerplate:
+  25 code names, 5 of `sandloom.sdk.sagas`, 6 of `sandloom.sdk.projections`
+  and the six testing names, see the second amendment) and are taught by the generators, the tutorial and the agent cheat sheet. The
   surface is snapshotted.
 - Importing `sandloom.sdk` reads no environment and performs no I/O: settings
   become a lazy proxy forced by every entry point, and an import audit
@@ -439,6 +441,20 @@ approved migration of the public `sdk` contract and beginner DX.
    14); `Roles` and `Permissions` move to `sandloom_identity.rbac`. The
    [upgrade guide](../operate/upgrade-1.0.md#billing-and-tenancy-atoms-leave-the-kernel)
    gives the import per name.
+
+   **Second amendment (dx-module-less-boilerplate, 2026-11-24):** the module
+   contract sends authors to sagas and projections, the models to `UpdatedAt`,
+   the services to a refusal and the tasks to `bind_tenant`, and a marker on
+   each of those imports was noise. The beginner tier is 42 names: 25 in
+   `sandloom.sdk.__all__` (the 20 plus `NotFound`, `Conflict`, `Refused`,
+   `UpdatedAt` and `bind_tenant`), the five of `sandloom.sdk.sagas` (`Saga`,
+   `SagaContext`, `local_step`, `start_saga`, `step`), the six of
+   `sandloom.sdk.projections` (`Projection`, `ProjectionView`, `SourceGroup`,
+   `View`, `full_state`, `tombstone`) and the six testing names. The list is
+   a proposal that the owner confirms or trims when the change merges;
+   `Versioned` stays advanced (`sandloom.sdk.data`), and so does everything
+   else of the two modules. `sandloom check` reports T009 as well as the
+   schema step of `sandloom test`.
 3. **Generation.** A route policy that uses a generated atom adds the
    atom's contract to the module's `consumes` (it already does for the
    kernel's live atoms), so `sandloom generate` writes the stub and the

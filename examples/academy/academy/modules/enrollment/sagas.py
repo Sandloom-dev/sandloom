@@ -20,17 +20,11 @@ discovers ``ENROLL`` here and registers it.
 """
 
 from datetime import timedelta
-from typing import Any
 
 from academy.shared.contracts.notifications_mail_v1 import NOTIFICATIONS_MAIL_V1
 from academy.shared.contracts.payments_charges_v1 import PAYMENTS_CHARGES_V1
 from sandloom.sdk import Contract
-from sandloom.sdk.sagas import (  # sandloom: advanced sagas (ADR-0008)
-    Saga,
-    SagaContext,
-    local_step,
-    step,
-)
+from sandloom.sdk.sagas import Saga, SagaContext, local_step, step
 
 from .schemas.sagas import EnrollInput
 from .services import Enrollments
@@ -39,11 +33,11 @@ charges = Contract(PAYMENTS_CHARGES_V1)
 mail = Contract(NOTIFICATIONS_MAIL_V1)
 
 
-async def reserve_seat(_session: Any, c: SagaContext[EnrollInput]) -> str:
+async def reserve_seat(c: SagaContext[EnrollInput]) -> str:
     return await Enrollments.reserve(c.input.enrollment_id)
 
 
-async def release_seat(_session: Any, c: SagaContext[EnrollInput]) -> str:
+async def release_seat(c: SagaContext[EnrollInput]) -> str:
     return await Enrollments.cancel(c.input.enrollment_id)
 
 
@@ -55,7 +49,7 @@ def refund_args(c: SagaContext[EnrollInput]) -> dict[str, object]:
     return {"customer_id": c.input.student_id, "charge_key": c.key("charge")}
 
 
-async def grant_access(_session: Any, c: SagaContext[EnrollInput]) -> str:
+async def grant_access(c: SagaContext[EnrollInput]) -> str:
     return await Enrollments.activate(c.input.enrollment_id)
 
 

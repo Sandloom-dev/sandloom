@@ -19,9 +19,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import HTTPException
-
-from sandloom.sdk import command, contract, db, record_audit
+from sandloom.sdk import Refused, command, contract, db, record_audit
 
 from .models import ExternalAccount
 from .schemas import OperatorAccount, SessionsEnded
@@ -113,7 +111,7 @@ class AcmeSecurityContract:
         provider's groups carry it too (grant it there to keep it).
         """
         if not reason.strip() or not operator.strip():
-            raise HTTPException(422, "reason and operator are required")
+            raise Refused(422, "reason and operator are required")
         added = await add_admin_role(db(), user_id)
         if added is None:
             return False

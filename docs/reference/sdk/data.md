@@ -8,7 +8,7 @@ description: "Reference of sandloom.sdk.data: every public name with its signatu
 # `sandloom.sdk.data`
 
 Tables, sessions and reads: `Base`, `TenantScoped`, `new_id`,
-`CreatedAt` / `UpdatedAt`, `db()`, RLS
+`CreatedAt` / `UpdatedAt`, `Versioned`, `db()`, RLS
 helpers, the read planner, and the portable SQL forms. Some forms need a
 database feature (`Array`, `fulltext_index` / `matches`, `json_path`,
 `json_contains`, `transaction_lock`): a module declares it
@@ -27,6 +27,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`db`](#db) | function | The session of the innermost open unit of the current task (§4.3): |
 | [`new_id`](#new_id) | function | A new time-ordered id (UUIDv7, RFC 9562) for a primary key: |
 | [`TenantScoped`](#tenantscoped) | class | Mixin marking a model as tenant-owned (adds the indexed `tenant_id`). |
+| [`UpdatedAt`](#updatedat) | annotated type |  |
 | [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
 
 ## Advanced
@@ -68,7 +69,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`tenant_upsert`](#tenant_upsert) | async function | Insert `rows` of a `TenantScoped` model for the bound tenant and, where a row of that tenant already exists, refresh the `update` columns... |
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
-| [`UpdatedAt`](#updatedat) | annotated type |  |
+| [`Versioned`](#versioned) | class | A `version: bigint` column the database counts up: `1` on insert, plus one by every ORM update of the row, so a module never writes `item... |
 | [`WallClock`](#wallclock) | class | The database's clock when the statement runs ("now, at the call"). |
 
 ## Beginner names
@@ -80,6 +81,13 @@ class Base(DeclarativeBase)(**kwargs: Any) -> None
 ```
 
 Base class for all SQLAlchemy models.
+
+`eager_defaults`: a flush reads back every value the database set
+(`CreatedAt` on insert, `UpdatedAt` on update) with `RETURNING`, so a
+model's `created_at` / `updated_at` are loaded right after
+`flush()`: no `await db().refresh(row)`. A model that declares its own
+`__mapper_args__` (polymorphic inheritance) names `eager_defaults` there
+too.
 
 ### `CreatedAt`
 
@@ -124,6 +132,10 @@ Ids sort in creation order: by time across processes, and strictly
 increasing within one process (a counter orders a millisecond's burst).
 So `order_by(Model.id)` is the creation order, with no tie.
 
+The model has its id the moment it is constructed (`Item(...).id` is
+set before `add` or `flush`), so an event or a link can name it at
+once; an `id=` argument wins.
+
 ### `TenantScoped`
 
 ```python
@@ -134,6 +146,14 @@ Mixin marking a model as tenant-owned (adds the indexed `tenant_id`).
 
 Inheriting this both declares the column and opts the model into automatic
 tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
+
+### `UpdatedAt`
+
+```python
+UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn object>]
+```
+
+*(no docstring)*
 
 ### `UtcDateTime`
 
@@ -1033,13 +1053,28 @@ UowReads = Annotated[Any, Depends(dependency=<function get_uow_reads>, use_cache
 
 *(no docstring)*
 
-### `UpdatedAt`
+### `Versioned`
 
 ```python
-UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn object>]
+class Versioned
 ```
 
-*(no docstring)*
+A `version: bigint` column the database counts up: `1` on insert,
+plus one by every ORM update of the row, so a module never writes
+`item.version += 1`:
+
+```python
+class Project(TenantScoped, Versioned, Base):
+    ...
+
+await ProjectSaved(project_id=p.id, version=p.version).publish()
+```
+
+Read the version after `flush()`: the new value comes back with the
+UPDATE (`eager_defaults`), so no `refresh` is needed. Events carry it
+so a consumer can drop a stale or repeated one. A statement that updates
+no column leaves the version as it was; `version` itself is never set by
+hand.
 
 ### `WallClock`
 

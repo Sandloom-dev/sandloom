@@ -499,7 +499,10 @@ def render_module(module: ModuleType) -> str:
         "data": ("Units and transactions", "modules/database/units.md"),
         "tenant": ("Tenant isolation", "modules/database/multi-tenancy.md"),
         "events": ("Publish and consume events", "modules/between/add-event.md"),
-        "effects": ("Deduplicate effects", "modules/background/effect-deduplication.md"),
+        "effects": (
+            "Deduplicate effects",
+            "modules/background/effect-deduplication.md",
+        ),
         "tasks": ("Background tasks", "modules/background/tasks.md"),
         "contracts": ("Provide and call a contract", "modules/between/add-contract.md"),
         "authz": ("Authorization policies", "modules/http/authorization.md"),
@@ -529,23 +532,32 @@ def render_module(module: ModuleType) -> str:
 
 
 _COUNT_WORDS = {6: "six", 7: "seven", 8: "eight"}
+_PROCESS_MODULES = ("sandloom.sdk.sagas", "sandloom.sdk.projections")
 
 
 def render_index(modules: list[ModuleType]) -> str:
     """``docs/reference/sdk/index.md``: the namespace, its modules, the tiers."""
     root = next(m for m in modules if m.__name__ == "sandloom.sdk")
     code_names = tuple(getattr(root, "__all__", ()))
+    process_names = tuple(
+        name
+        for mod in modules
+        if mod.__name__ in _PROCESS_MODULES
+        for name in getattr(mod, "__beginner__", ())
+    )
     testing_names = tuple(
         name
         for mod in modules
         if mod.__name__ in ("sandloom.sdk.testing", "sandloom.sdk.testing.plugin")
         for name in getattr(mod, "__beginner__", ())
     )
+    total = len(code_names) + len(process_names) + len(testing_names)
+    testing_count = _COUNT_WORDS.get(len(testing_names), len(testing_names))
     out = [
         "---",
         "title: sandloom.sdk",
         "description: The Public API 1.0 namespace — every public module, the "
-        f"{len(code_names) + len(testing_names)} beginner names and where each name lives.",
+        f"{total} beginner names and where each name lives.",
         "---",
         "",
         GENERATED,
@@ -557,10 +569,13 @@ def render_index(modules: list[ModuleType]) -> str:
         "## The beginner names",
         "",
         f"These {len(code_names)} code names are importable from `sandloom.sdk` "
-        f"directly; the {_COUNT_WORDS.get(len(testing_names), len(testing_names))} "
+        f"directly; the {len(process_names)} names of the two modules for a "
+        "process that spans modules (`sandloom.sdk.sagas`, "
+        f"`sandloom.sdk.projections`) and the {testing_count} "
         "testing names (`client`, `as_user`, `published`, `deliver`, "
-        "`fake_contract`, `fake_access_fact`) come from `sandloom.sdk.testing` and "
-        "its pytest plugin. Each links to its entry on its home page.",
+        "`fake_contract`, `fake_access_fact`) come from their own modules "
+        "(the testing ones with a pytest plugin). "
+        "Each links to its entry on its home page.",
         "",
         "| Name | Home | Kind | Summary |",
         "| --- | --- | --- | --- |",
@@ -579,7 +594,8 @@ def render_index(modules: list[ModuleType]) -> str:
     plugin = next(
         (m for m in modules if m.__name__ == "sandloom.sdk.testing.plugin"), None
     )
-    for mod in (testing, plugin):
+    process = [m for m in modules if m.__name__ in _PROCESS_MODULES]
+    for mod in (*process, testing, plugin):
         if mod is None:
             continue
         for name in sorted(getattr(mod, "__beginner__", ()), key=str.lower):

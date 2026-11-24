@@ -12,7 +12,7 @@ A module and its tests import only public `sandloom.sdk` modules, the generated 
 and DTO copies (`<app>.shared.contracts.*`, `<module>._generated.contracts.*`,
 `CONTRACT_DTO_PACKAGES`) and their own package, all at module level (C001, C002, C005, C013, C021);
 an installed module package (`sandloom_identity`) is another module. Generated code and examples
-use the 26 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
+use the 42 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
 
 To talk to another module:
 
@@ -41,10 +41,10 @@ To talk to another module:
   `projections` and `tasks` and collects what they declare. `setup=` is only
   for L2 calls (startup tasks, claims contributors).
 - `models/`: tables `<module>_*`, ids `default=new_id` (UUIDv7), `created_at:
-  Mapped[CreatedAt]` (`clock_timestamp()`: `created_at, id` never ties), any other
-  time `UtcDateTime()` (C029); `schemas.py`: pydantic only (C011); `services.py`:
-  SQLAlchemy through `db()`; `api.py`: `router = module_router()` and routes
-  with pydantic DTOs (C009, C010), no error handlers (app-wide).
+  Mapped[CreatedAt]`, `updated_at: Mapped[UpdatedAt]` (never tie with `id`), other
+  times `UtcDateTime()` (C029); `schemas.py`: pydantic only (C011); `services.py`:
+  `db()`, refusals `NotFound` / `Conflict` / `Refused`; `api.py`:
+  `router = module_router()`, pydantic DTOs (C009, C010), no error handlers (app-wide).
 - `migrations/`: the module's own chain. `sandloom migrate new <m> "<message>"`
   autogenerates a revision, with RLS for each new `TenantScoped` table
   (against a scratch database). `tasks.py`: `sandloom add task <m> <name>`.

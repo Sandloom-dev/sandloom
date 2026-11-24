@@ -88,8 +88,8 @@ def notify_args(c: SagaContext[EnrollInput]) -> dict[str, Any]:
     return {"user_id": c.input.student_id, "template": "enrolled"}
 
 
-async def grant_access(session: Any, c: SagaContext[EnrollInput]) -> str:
-    return await enrollments.activate(session, c.input.enrollment_id)
+async def grant_access(c: SagaContext[EnrollInput]) -> str:
+    return await enrollments.activate(c.input.enrollment_id)   # reads and writes through db()
 
 
 ENROLL = Saga(
@@ -109,12 +109,15 @@ ENROLL = Saga(
   both forms register the same definition.
 - **Command steps** call a command contract (exactly once at the provider,
   through its durable command log). **Local steps**,
-  `local_step(apply=fn, compensate=fn)`, run `await fn(session, ctx)` in the
-  transition's own transaction (a savepoint): their writes commit with the
-  instance's move to the next step. A local step refuses definitively by
-  raising an exception whose `http_status` is 400, 402, 403, 404, 410 or 422;
-  anything else is retried. Its JSON-able return value is stored as the
-  step's result.
+  `local_step(apply=fn, compensate=fn)`, run `await fn(ctx)` in the
+  transition's own transaction (a savepoint). `db()` is that session, and the
+  writes commit with the instance's move to the next step. The earlier form
+  `fn(session, ctx)` still works; a function that fits neither is refused when
+  the step is declared. A local step refuses definitively by raising
+  `NotFound(...)`, `Refused(402, ...)` or any exception whose `http_status` is
+  400, 402, 403, 404, 410 or 422. Anything else is retried, `Conflict` (409)
+  included: a step that must refuse for good raises `Refused(422, ...)`. Its
+  JSON-able return value is stored as the step's result.
 - **Kinds.** `compensatable` (before the pivot; needs a compensation),
   `pivot` (the go/no-go point, at most one), `retriable` (after the pivot; it
   must eventually succeed). A step usually names only `call`, `args` and its

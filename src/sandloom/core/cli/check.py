@@ -86,7 +86,9 @@ modules or a module and the kernel declare, a new name without the module's
 prefix, a tier the snapshot does not record, and each service of the deploy
 profiles (a wrong module name in ``SANDLOOM_MODULES``, a name set for a module
 the service does not load, a literal value its declaration refuses). It runs
-with the full rule set only.
+with the full rule set only, as does the beginner-tier check (SANDLOOM-T009): an
+application module's ``sandloom.sdk`` import outside the beginner tier needs
+``# sandloom: advanced <reason>`` on its line.
 
 ``--boot`` additionally builds the application (``SANDLOOM_COMPOSITION_ROOT``,
 default ``sandloom.main``) through ``create_app`` — no server, no I/O — and reports
@@ -177,8 +179,23 @@ def main(argv: list[str] | None = None, *, record: Path | None = None) -> int:
         _record(record, args.rules, violations)
 
     gate = settings_gate_diagnostics(rules) if only is None else []
+    tier = beginner_tier_diagnostics(rules) if only is None else []
     boot = boot_diagnostics(project_root=rules.root) if args.boot else []
-    return _report(rules, violations, boot, boot_requested=bool(args.boot), gate=gate)
+    return _report(
+        rules, violations, boot, boot_requested=bool(args.boot), gate=gate, tier=tier
+    )
+
+
+def beginner_tier_diagnostics(rules: ArchRules) -> list[str]:
+    """Every advanced ``sandloom.sdk`` import without a ``# sandloom: advanced
+    <reason>`` marker in the application's modules (SANDLOOM-T009), rendered like
+    a startup problem. The framework's own tree reports none."""
+    from sandloom.core.testing import static_checks  # noqa: PLC0415 - cold: reads the sdk's tier lists from source; `--list-rules` and the other static commands stay light
+
+    return [
+        error_codes.render("SANDLOOM-T009", message, where=f"{path}:{line}")
+        for path, line, message in static_checks.beginner_tier_findings(rules.root)
+    ]
 
 
 def settings_gate_diagnostics(rules: ArchRules) -> list[str]:
@@ -236,6 +253,7 @@ def _report(
     *,
     boot_requested: bool,
     gate: list[str] | None = None,
+    tier: list[str] | None = None,
 ) -> int:
     """Print warnings / notes, then errors with their fixes; the exit code."""
     modules = rules.business_modules()
@@ -250,7 +268,8 @@ def _report(
                 print(f"      help: sandloom explain {v.code}")
         print()
     gate = gate or []
-    if not errors and not boot and not gate:
+    tier = tier or []
+    if not errors and not boot and not gate and not tier:
         print(
             f"sandloom check: OK ({len(modules)} module(s) under "
             f"{rules.modules_package or 'the top level'}: "
@@ -260,6 +279,7 @@ def _report(
         )
         return 0
     if not errors:
+        _print_tier(tier)
         _print_gate(gate)
         _print_boot(boot)
         return 1
@@ -279,9 +299,18 @@ def _report(
         print(f"  {entry.code} {rule}: {known[rule]}")
         print(f"      docs: {error_codes.documentation_url(entry.code)}")
         print(f"      help: sandloom explain {entry.code}")
+    _print_tier(tier)
     _print_gate(gate)
     _print_boot(boot)
     return 1
+
+
+def _print_tier(problems: list[str]) -> None:
+    if not problems:
+        return
+    print(f"\nsandloom check: {len(problems)} advanced import(s) without a marker\n")
+    for text in problems:
+        print(text + "\n")
 
 
 def _print_gate(problems: list[str]) -> None:

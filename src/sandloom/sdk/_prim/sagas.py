@@ -8,7 +8,16 @@ its owning module for discovery.
 
 from __future__ import annotations
 
-from sandloom.core.descriptors import CommandStep, SagaStep
-from sandloom.core.module_api import Saga, StepKind, step
+from sandloom.core.descriptors import CommandStep, LocalStep, SagaStep
+from sandloom.core.module_api import Saga, SagaContext, StepKind, local_step, step
 
-__all__ = ["CommandStep", "Saga", "SagaStep", "StepKind", "step"]
+__all__ = [
+    "CommandStep",
+    "LocalStep",
+    "Saga",
+    "SagaContext",
+    "SagaStep",
+    "StepKind",
+    "local_step",
+    "step",
+]

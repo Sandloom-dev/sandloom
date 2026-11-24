@@ -20,7 +20,7 @@ billing account pays.
 | `dependencies=[Depends(require(Role("admin")))]` | evaluates the policy before the handler; a deny answers with the decision's status |
 | `require(Subscribed(of=Account.user()) \| Role("admin"))` | evaluates the cheapest tier first and short-circuits: an admin never costs a billing call |
 | `of=Account.user()`, `Account.org(param="org_id")` or `Account.bound_tenant()` on every billing atom | resolves exactly that account; never infers it from the tenant |
-| `authorize_resource(loader=..., by="note_id", policy=Owner(...))` | loads the resource once, authorizes it and hands it to the endpoint |
+| `authorize_resource(loader=load, by="note_id", policy=Owner(...))`, with `async def load(note_id)` reading through `db()` | loads the resource once, authorizes it and hands it to the endpoint (`async def load(note_id, session)` still works) |
 | nothing | the framework's admin gates carry the `admin` risk: an automatic audit row ([Route policy](route-policy.md)) |
 
 ```python

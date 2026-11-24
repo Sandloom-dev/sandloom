@@ -36,7 +36,7 @@ owning module imports them from core and never names a database.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from sqlalchemy import Table, or_, update
 from sqlalchemy.engine import CursorResult
@@ -48,9 +48,24 @@ from sandloom.core.tenant_context import (
     current_tenant_id_optional,
     unscoped,
 )
+from sandloom.core.unit_of_work.request import db
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def _session_and_target(args: tuple[Any, ...], what: str) -> tuple[AsyncSession, Any]:
+    """``(session, target)`` of ``what(target, ...)`` (the session is ``db()``,
+    the unit the consumer runs in) or the earlier ``what(session, target, ...)``."""
+    if len(args) == 1:
+        return db(), args[0]
+    if len(args) == 2:
+        return args[0], args[1]
+    raise TypeError(
+        f"{what}(target, *, ...) takes the model or table (the session is "
+        f"`db()`); the earlier {what}(session, target, ...) also works, not "
+        f"{len(args)} positional arguments"
+    )
 
 
 def _table_of(target: Any) -> Table:
@@ -71,10 +86,35 @@ def _bound_tenant() -> Any:
     return current_tenant_id_optional()
 
 
+@overload
+async def monotonic_upsert(
+    target: Any,
+    /,
+    *,
+    key: dict[str, Any],
+    values: dict[str, Any],
+    version_column: str,
+    incoming_version: int,
+    insert_only: dict[str, Any] | None = None,
+) -> bool: ...
+
+
+@overload
 async def monotonic_upsert(
     session: AsyncSession,
     target: Any,
+    /,
     *,
+    key: dict[str, Any],
+    values: dict[str, Any],
+    version_column: str,
+    incoming_version: int,
+    insert_only: dict[str, Any] | None = None,
+) -> bool: ...
+
+
+async def monotonic_upsert(
+    *args: Any,
     key: dict[str, Any],
     values: dict[str, Any],
     version_column: str,
@@ -82,6 +122,10 @@ async def monotonic_upsert(
     insert_only: dict[str, Any] | None = None,
 ) -> bool:
     """Insert-or-update a single projection row, guarded by source version.
+
+    ``monotonic_upsert(Model, key=..., ...)`` writes through ``db()``, the unit
+    the consumer runs in; the earlier ``monotonic_upsert(session, Model, ...)``
+    still works.
 
     Inserts the row (``key`` + ``values`` + ``insert_only`` + the version) when
     absent; on a primary-key/unique conflict it updates ``values`` and the
@@ -97,6 +141,7 @@ async def monotonic_upsert(
     fresh). Without this, every task update would clobber project fields back to
     whatever the seed lookup returned, rolling back fresher project data.
     """
+    session, target = _session_and_target(args, "monotonic_upsert")
     table = _table_of(target)
     seed = insert_only or {}
     row = {**key, **values, **seed, version_column: incoming_version}
@@ -129,16 +174,42 @@ async def monotonic_upsert(
     return bool(result.rowcount)
 
 
+@overload
+async def monotonic_update(
+    target: Any,
+    /,
+    *,
+    match: dict[str, Any],
+    values: dict[str, Any],
+    version_column: str,
+    incoming_version: int,
+) -> int: ...
+
+
+@overload
 async def monotonic_update(
     session: AsyncSession,
     target: Any,
+    /,
     *,
+    match: dict[str, Any],
+    values: dict[str, Any],
+    version_column: str,
+    incoming_version: int,
+) -> int: ...
+
+
+async def monotonic_update(
+    *args: Any,
     match: dict[str, Any],
     values: dict[str, Any],
     version_column: str,
     incoming_version: int,
 ) -> int:
     """Update every projection row matching ``match``, guarded by source version.
+
+    The session is ``db()`` unless the earlier
+    ``monotonic_update(session, Model, ...)`` form passes one.
 
     For denormalised fields that fan out across many rows (e.g. a project's name
     copied onto every task row): updates the matched rows whose stored
@@ -155,6 +226,7 @@ async def monotonic_update(
     ``SELECT ... FOR UPDATE`` it in the other writer and copy its values) — see
     the projecthub taskboard ``ProjectSnapshot``.
     """
+    session, target = _session_and_target(args, "monotonic_update")
     table = _table_of(target)
     if "tenant_id" in table.c and "tenant_id" in values:
         raise ValueError("monotonic_update cannot change tenant_id")
@@ -178,10 +250,39 @@ async def monotonic_update(
     return int(getattr(result, "rowcount", 0) or 0)
 
 
+@overload
+async def monotonic_delete(
+    target: Any,
+    /,
+    *,
+    key: dict[str, Any],
+    version_column: str,
+    incoming_version: int,
+    values: dict[str, Any] | None = None,
+    insert_only: dict[str, Any] | None = None,
+    deleted_column: str = "deleted_at",
+    deleted_at: datetime | None = None,
+) -> bool: ...
+
+
+@overload
 async def monotonic_delete(
     session: AsyncSession,
     target: Any,
+    /,
     *,
+    key: dict[str, Any],
+    version_column: str,
+    incoming_version: int,
+    values: dict[str, Any] | None = None,
+    insert_only: dict[str, Any] | None = None,
+    deleted_column: str = "deleted_at",
+    deleted_at: datetime | None = None,
+) -> bool: ...
+
+
+async def monotonic_delete(
+    *args: Any,
     key: dict[str, Any],
     version_column: str,
     incoming_version: int,
@@ -191,6 +292,9 @@ async def monotonic_delete(
     deleted_at: datetime | None = None,
 ) -> bool:
     """Persist a versioned tombstone, including when deletion arrives first.
+
+    The session is ``db()`` unless the earlier
+    ``monotonic_delete(session, Model, ...)`` form passes one.
 
     A physical DELETE discards the version and lets a delayed older upsert
     resurrect the row. This helper retains it using the same tenant/version
@@ -205,6 +309,7 @@ async def monotonic_delete(
     versions through the same helper and must not infer deletion from an
     incomplete source listing.
     """
+    session, target = _session_and_target(args, "monotonic_delete")
     table = _table_of(target)
     if deleted_column not in table.c:
         raise ValueError(

@@ -78,8 +78,9 @@ class Credits:
   dedicated contract pool with its row-level-security hook. Contract methods
   take no session parameter; a caller that passes one gets
   `ContractArgumentError` (422).
-- **Errors.** Raise a domain exception carrying `http_status` (or an
-  `HTTPException`). The caller gets `ContractCallError` with the same status,
+- **Errors.** Raise `Refused(402, "...")` from `sandloom.sdk` (`NotFound` and
+  `Conflict` are its 404 and 409 forms), or a domain exception carrying
+  `http_status`. The caller gets `ContractCallError` with the same status,
   detail, headers and code, locally and over RPC. An `AttributeError` /
   `ValueError` escaping provider code is a provider failure (500 locally, 503
   remotely).

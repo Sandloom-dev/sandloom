@@ -12,16 +12,25 @@ module's ``sagas`` submodule (``core.register_saga``).
 
 from __future__ import annotations
 
+import functools
+import inspect
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from datetime import timedelta
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
 
 from sandloom.sdk._decl._owner import OWNER_ATTR, caller_module
 from sandloom.sdk._decl.contracts import CALL_ATTR
-from sandloom.sdk._prim.sagas import CommandStep, SagaStep, StepKind
+from sandloom.sdk._prim.sagas import (
+    CommandStep,
+    LocalStep,
+    SagaContext,
+    SagaStep,
+    StepKind,
+)
 from sandloom.sdk._prim.sagas import Saga as _Saga
+from sandloom.sdk._prim.sagas import local_step as _local_step
 from sandloom.sdk._prim.sagas import step as _step
 
 InputT = TypeVar("InputT", bound=BaseModel)
@@ -30,6 +39,80 @@ InputT = TypeVar("InputT", bound=BaseModel)
 #: (``credits.spend`` of ``credits = Contract(BILLING_CREDITS_V1)``).
 CommandRef = str | Callable[..., Awaitable[Any]]
 ArgsFn = Callable[[Any], dict[str, Any]]
+#: What a local step runs: ``async def apply(ctx)``, the session being
+#: ``db()``, or the earlier ``async def apply(session, ctx)``.
+LocalFn = (
+    Callable[[SagaContext[Any]], Awaitable[Any]]
+    | Callable[[Any, SagaContext[Any]], Awaitable[Any]]
+)
+
+
+KernelLocalFn = Callable[[Any, SagaContext[Any]], Awaitable[Any]]
+
+
+def _binds(signature: inspect.Signature, count: int) -> bool:
+    try:
+        signature.bind(*([None] * count))
+    except TypeError:
+        return False
+    return True
+
+
+def _with_session(fn: LocalFn, *, what: str) -> KernelLocalFn:
+    """``fn`` as the kernel's ``(session, ctx)`` function: a function that
+    takes only the context runs on ``db()``, which is the transition's session
+    inside a local step. A function that fits neither shape is refused; one
+    that fits both (``*args``) keeps the earlier ``(session, ctx)`` form."""
+    signature = inspect.signature(fn)
+    if _binds(signature, 2):
+        return cast(KernelLocalFn, fn)
+    if not _binds(signature, 1):
+        raise TypeError(
+            f"local_step({what}=...) takes `async def f(ctx)` (the session is "
+            f"`db()`) or `async def f(session, ctx)`, not {fn!r}"
+        )
+    ctx_only = cast(Callable[[SagaContext[Any]], Awaitable[Any]], fn)
+
+    @functools.wraps(fn)
+    async def run(_session: Any, ctx: SagaContext[Any]) -> Any:
+        return await ctx_only(ctx)
+
+    return run
+
+
+def local_step(
+    name: str,
+    *,
+    apply: LocalFn,
+    compensate: LocalFn | None = None,
+    kind: StepKind | str | None = None,
+    deadline: timedelta | None = None,
+) -> LocalStep:
+    """A local step, run inside the transition's unit of work::
+
+        async def reserve_seat(ctx: SagaContext[EnrollInput]) -> dict[str, str]:
+            db().add(Seat(course_id=ctx.input.course_id))
+            return {"course_id": str(ctx.input.course_id)}
+
+        local_step("reserve", apply=reserve_seat, compensate=release_seat)
+
+    ``db()`` is the transition's session (a savepoint: raising rolls the step's
+    writes back). Raise ``Refused(402, ...)`` / ``NotFound(...)`` for a
+    definitive refusal; anything else is retried. The earlier
+    ``async def f(session, ctx)`` form still works. The returned value (JSON)
+    is persisted as the step's result.
+    """
+    return _local_step(
+        name,
+        apply=_with_session(apply, what="apply"),
+        compensate=(
+            _with_session(compensate, what="compensate")
+            if compensate is not None
+            else None
+        ),
+        kind=kind,
+        deadline=deadline,
+    )
 
 
 def command_name(ref: CommandRef, *, what: str) -> str:
@@ -107,4 +190,4 @@ class Saga(_Saga[InputT]):
         setattr(self, OWNER_ATTR, caller_module(1))
 
 
-__all__ = ["CommandRef", "Saga", "command_name", "step"]
+__all__ = ["CommandRef", "LocalFn", "Saga", "command_name", "local_step", "step"]

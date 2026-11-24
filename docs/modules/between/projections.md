@@ -216,10 +216,12 @@ list` shows the registered projections.
     `monotonic_upsert` (full state) or `monotonic_delete` (tombstone), and a
     `ProjectionRebuilder` when `rebuild_from` is given. These L2 names stay
     public in `sandloom.sdk.projections`, with `monotonic_update` for a match-based
-    fan-out. The helpers issue Core statements, so they enforce tenancy
-    themselves: `monotonic_upsert` requires the row's `tenant_id`, and
-    `monotonic_update` is scoped to the bound tenant when one is bound and
-    cannot change `tenant_id`.
+    fan-out. A handler is `async def apply(envelope)`. It writes through `db()`,
+    as the helpers do: `monotonic_upsert(Row, key=..., ...)`. The earlier
+    `apply(session, envelope)` and `monotonic_upsert(session, Row, ...)` still
+    work. The helpers issue Core statements and enforce tenancy themselves.
+    `monotonic_upsert` requires the row's `tenant_id`. `monotonic_update` is
+    scoped to the bound tenant when one is bound and cannot change `tenant_id`.
 
 !!! info "Targets, tokens, rebuilds and purges"
     - **Targets.** A relational `model=` is the supported target in 1.0:

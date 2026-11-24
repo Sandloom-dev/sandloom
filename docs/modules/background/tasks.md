@@ -41,9 +41,9 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from sandloom.sdk import bind_tenant
 from sandloom.sdk.data import open_uow
 from sandloom.sdk.tasks import task
-from sandloom.sdk.tenant import bind_tenant
 
 from . import services
 

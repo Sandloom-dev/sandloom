@@ -15,6 +15,17 @@ later hand-off raises `NotImplementedError` naming it.
 
 `from sandloom.sdk.projections import <name>`. Signatures in a terminal: `sandloom docs <name>`. Beginner names are the ones generated code and the examples use; any other name is advanced (mark its import line `# sandloom: advanced <reason>` in generated code and examples).
 
+## Start with (beginner)
+
+| Name | Kind | Summary |
+| --- | --- | --- |
+| [`full_state`](#full_state) | function | A mapper of full-state events: every owned field, replaced iff the stored version is NULL or older (convergent under any interleaving). |
+| [`Projection`](#projection) | class | A declared read model (spec §6.4), registered by `define_module` from the module's `projections` submodule. |
+| [`ProjectionView`](#projectionview) | class | Reads one projection (`Annotated[ProjectionView[R], View(...)]`). |
+| [`SourceGroup`](#sourcegroup) | class | The channels of ONE aggregate feeding a projection, with its version. |
+| [`tombstone`](#tombstone) | function | A mapper of delete events: a versioned tombstone in the owning group (§6.4 item 5); reads filter it. |
+| [`View`](#view) | function | The dependency resolving a `ProjectionView` of projection `name`: |
+
 ## Advanced
 
 | Name | Kind | Summary |
@@ -23,28 +34,210 @@ later hand-off raises `NotImplementedError` naming it.
 | [`ConditionalWriteStore`](#conditionalwritestore) | class | Driver feature `conditional_write` (spec §2.3). |
 | [`ConsistencyToken`](#consistencytoken) | class | A verified token (spec §2.3). |
 | [`delta`](#delta) | function | A mapper of delta events (column increments); allowed only for a relational projection applied under the durable inbox (§6.4 item 4). |
-| [`full_state`](#full_state) | function | A mapper of full-state events: every owned field, replaced iff the stored version is NULL or older (convergent under any interleaving). |
 | [`make_consumer_callback`](#make_consumer_callback) | function | Wrap a projection consumer descriptor into an event-bus callback. |
 | [`Mapper`](#mapper) | class | Maps an event to the projection fields its group owns. |
 | [`monotonic_delete`](#monotonic_delete) | async function | Persist a versioned tombstone, including when deletion arrives first. |
 | [`monotonic_update`](#monotonic_update) | async function | Update every projection row matching `match`, guarded by source version. |
 | [`monotonic_upsert`](#monotonic_upsert) | async function | Insert-or-update a single projection row, guarded by source version. |
-| [`Projection`](#projection) | class | A declared read model (spec §6.4), registered by `define_module` from the module's `projections` submodule. |
 | [`ProjectionConsumerDescriptor`](#projectionconsumerdescriptor) | class | A durable consumer that applies one source channel to one projection. |
 | [`ProjectionHandler`](#projectionhandler) | callable |  |
 | [`ProjectionRebuilder`](#projectionrebuilder_1) | class | Reconstructs a projection from its source modules (idempotently). |
 | [`ProjectionRebuildResult`](#projectionrebuildresult) | class | Outcome of a rebuild run (rows written + whether the index was cleared). |
 | [`ProjectionRegistryError`](#projectionregistryerror) | exception | A projection/consumer registration conflicts with existing state. |
-| [`ProjectionView`](#projectionview) | class | Reads one projection (`Annotated[ProjectionView[R], View(...)]`). |
 | [`purge_tombstones`](#purge_tombstones) | async function | Purge tombstones behind the watermark that refuses older replays. |
 | [`QueryProjectionDescriptor`](#queryprojectiondescriptor) | class | A denormalised cross-module read model owned by one module. |
 | [`QueryProjectionRegistry`](#queryprojectionregistry) | class | Holds query-projection descriptors, consumers and rebuilders by name. |
 | [`read_token`](#read_token) | function | The token of `header`; `None` for a missing, malformed, expired, unknown-kid or other-tenant token (never an error). |
 | [`rebuild`](#rebuild) | async function | Rebuild projection `name` from its source (§6.4): one tenant, or every tenant. Purges refuse while it runs; the purge watermark is kept.... |
-| [`SourceGroup`](#sourcegroup) | class | The channels of ONE aggregate feeding a projection, with its version. |
 | [`start_projection_consumers`](#start_projection_consumers) | async function | Subscribe every registered projection consumer to the event bus. |
-| [`tombstone`](#tombstone) | function | A mapper of delete events: a versioned tombstone in the owning group (§6.4 item 5); reads filter it. |
-| [`View`](#view) | function | The dependency resolving a `ProjectionView` of projection `name`: |
+
+## Beginner names
+
+### `full_state`
+
+```python
+def full_state(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]
+```
+
+A mapper of full-state events: every owned field, replaced iff the
+stored version is NULL or older (convergent under any interleaving).
+
+### `Projection`
+
+```python
+class Projection(
+    name: str,
+    *,
+    key: tuple[str, ...],
+    groups: Sequence[SourceGroup],
+    model: type[TenantScoped] | None = None,
+    store: tuple[str, str] | None = None,
+    insert_only: Mapping[str, Any] | None = None,
+    deleted_column: str = 'deleted_at',
+    rebuild_from: BoundContractMethod | tuple[str, str] | None = None,
+    lag_slo_s: float = 5.0,
+    at_least_once: bool = False,
+) -> None
+```
+
+A declared read model (spec §6.4), registered by `define_module`
+from the module's `projections` submodule.
+
+`model=` (a relational `TenantScoped` table) is the supported target
+in 1.0. `store=` (a `document_store` instance) is experimental in 1.0:
+tested against the in-memory driver only, without production drivers.
+
+#### `Projection.channels`
+
+```python
+def channels(self) -> tuple[str, ...]
+```
+
+The source channels, in declaration order.
+
+#### `Projection.descriptor`
+
+```python
+def descriptor(self, owner_module: str) -> QueryProjectionDescriptor
+```
+
+#### `Projection.token_entries`
+
+```python
+def token_entries(
+    self,
+    channel: str,
+    payload: Mapping[str, Any],
+) -> Iterable[tuple[Mapping[str, Any], str, Any, int]]
+```
+
+The `(row key, group, aggregate id, version)` an event of
+`channel` will produce (`group`: its source group's version
+column): a write's consistency token (spec §6.4 item 7).
+
+#### `Projection.target`
+
+```python
+def target(self) -> ConditionalWriteStore
+```
+
+The store of a `store=` projection (`conditional_write`).
+
+#### `Projection.consumers`
+
+```python
+def consumers(self) -> list[ProjectionConsumerDescriptor]
+```
+
+#### `Projection.rebuilder`
+
+```python
+def rebuilder(self) -> ProjectionRebuilderFromContract | None
+```
+
+#### `Projection.apply`
+
+```python
+async def apply(
+    self,
+    session: Any,
+    group: SourceGroup,
+    event: Event,
+    mapper: Mapper[Any],
+) -> bool
+```
+
+Apply one event to the projection in `session` (the consumer's unit).
+
+### `ProjectionView`
+
+```python
+class ProjectionView(Generic)(
+    projection: Projection,
+    row: type[R],
+    session: Any,
+    *,
+    on_stale: Literal['serve', 'source'] = 'serve',
+    wait_ms: int | None = None,
+    token: ConsistencyToken | None = None,
+    response: Response | None = None,
+) -> None
+```
+
+Reads one projection (`Annotated[ProjectionView[R], View(...)]`).
+
+Rows whose tombstone is set are never returned. With a consistency token
+(`SANDLOOM-Consistency-Token`) a read waits up to `wait_ms` for the rows
+the caller's write produces; then it serves anyway with `stale = True`
+and `SANDLOOM-Projection-Stale: true` (`on_stale="serve"`), or reads the
+entity from its source through `rebuild_from` (`on_stale="source"`,
+`get` only). Never an error status.
+
+#### `ProjectionView.get`
+
+```python
+async def get(self, key: Mapping[str, Any]) -> R | None
+```
+
+#### `ProjectionView.query`
+
+```python
+async def query(
+    self,
+    *,
+    filter: Mapping[str, Any] | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> Page[R]
+```
+
+#### `ProjectionView.search`
+
+```python
+async def search(self, q: str, *, limit: int = 50) -> list[R]
+```
+
+### `SourceGroup`
+
+```python
+class SourceGroup(
+    events: Mapping[type[Event], Mapper[Any]],
+    aggregate_key: str,
+    version_field: str,
+    version_column: str,
+    owns: tuple[str, ...],
+    tenant_from: str = 'tenant_id',
+) -> None
+```
+
+The channels of ONE aggregate feeding a projection, with its version.
+
+### `tombstone`
+
+```python
+def tombstone(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]
+```
+
+A mapper of delete events: a versioned tombstone in the owning group
+(§6.4 item 5); reads filter it.
+
+### `View`
+
+```python
+def View(
+    name: str,
+    row: type[R],
+    *,
+    on_stale: Literal['serve', 'source'] = 'serve',
+    wait_ms: int | None = None,
+) -> params.Depends
+```
+
+The dependency resolving a `ProjectionView` of projection `name`:
+
+```python
+tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
+```
 
 ## Advanced names
 
@@ -162,15 +355,6 @@ def delta(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]
 A mapper of delta events (column increments); allowed only for a
 relational projection applied under the durable inbox (§6.4 item 4).
 
-### `full_state`
-
-```python
-def full_state(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]
-```
-
-A mapper of full-state events: every owned field, replaced iff the
-stored version is NULL or older (convergent under any interleaving).
-
 ### `make_consumer_callback`
 
 ```python
@@ -198,9 +382,7 @@ Maps an event to the projection fields its group owns.
 
 ```python
 async def monotonic_delete(
-    session: AsyncSession,
-    target: Any,
-    *,
+    *args: Any,
     key: dict[str, Any],
     version_column: str,
     incoming_version: int,
@@ -212,6 +394,9 @@ async def monotonic_delete(
 ```
 
 Persist a versioned tombstone, including when deletion arrives first.
+
+The session is `db()` unless the earlier
+`monotonic_delete(session, Model, ...)` form passes one.
 
 A physical DELETE discards the version and lets a delayed older upsert
 resurrect the row. This helper retains it using the same tenant/version
@@ -230,9 +415,7 @@ incomplete source listing.
 
 ```python
 async def monotonic_update(
-    session: AsyncSession,
-    target: Any,
-    *,
+    *args: Any,
     match: dict[str, Any],
     values: dict[str, Any],
     version_column: str,
@@ -241,6 +424,9 @@ async def monotonic_update(
 ```
 
 Update every projection row matching `match`, guarded by source version.
+
+The session is `db()` unless the earlier
+`monotonic_update(session, Model, ...)` form passes one.
 
 For denormalised fields that fan out across many rows (e.g. a project's name
 copied onto every task row): updates the matched rows whose stored
@@ -261,9 +447,7 @@ the projecthub taskboard `ProjectSnapshot`.
 
 ```python
 async def monotonic_upsert(
-    session: AsyncSession,
-    target: Any,
-    *,
+    *args: Any,
     key: dict[str, Any],
     values: dict[str, Any],
     version_column: str,
@@ -273,6 +457,10 @@ async def monotonic_upsert(
 ```
 
 Insert-or-update a single projection row, guarded by source version.
+
+`monotonic_upsert(Model, key=..., ...)` writes through `db()`, the unit
+the consumer runs in; the earlier `monotonic_upsert(session, Model, ...)`
+still works.
 
 Inserts the row (`key` + `values` + `insert_only` + the version) when
 absent; on a primary-key/unique conflict it updates `values` and the
@@ -288,93 +476,6 @@ events, guarded by their own version, are the authority for keeping it
 fresh). Without this, every task update would clobber project fields back to
 whatever the seed lookup returned, rolling back fresher project data.
 
-### `Projection`
-
-```python
-class Projection(
-    name: str,
-    *,
-    key: tuple[str, ...],
-    groups: Sequence[SourceGroup],
-    model: type[TenantScoped] | None = None,
-    store: tuple[str, str] | None = None,
-    insert_only: Mapping[str, Any] | None = None,
-    deleted_column: str = 'deleted_at',
-    rebuild_from: BoundContractMethod | tuple[str, str] | None = None,
-    lag_slo_s: float = 5.0,
-    at_least_once: bool = False,
-) -> None
-```
-
-A declared read model (spec §6.4), registered by `define_module`
-from the module's `projections` submodule.
-
-`model=` (a relational `TenantScoped` table) is the supported target
-in 1.0. `store=` (a `document_store` instance) is experimental in 1.0:
-tested against the in-memory driver only, without production drivers.
-
-#### `Projection.channels`
-
-```python
-def channels(self) -> tuple[str, ...]
-```
-
-The source channels, in declaration order.
-
-#### `Projection.descriptor`
-
-```python
-def descriptor(self, owner_module: str) -> QueryProjectionDescriptor
-```
-
-#### `Projection.token_entries`
-
-```python
-def token_entries(
-    self,
-    channel: str,
-    payload: Mapping[str, Any],
-) -> Iterable[tuple[Mapping[str, Any], str, Any, int]]
-```
-
-The `(row key, group, aggregate id, version)` an event of
-`channel` will produce (`group`: its source group's version
-column): a write's consistency token (spec §6.4 item 7).
-
-#### `Projection.target`
-
-```python
-def target(self) -> ConditionalWriteStore
-```
-
-The store of a `store=` projection (`conditional_write`).
-
-#### `Projection.consumers`
-
-```python
-def consumers(self) -> list[ProjectionConsumerDescriptor]
-```
-
-#### `Projection.rebuilder`
-
-```python
-def rebuilder(self) -> ProjectionRebuilderFromContract | None
-```
-
-#### `Projection.apply`
-
-```python
-async def apply(
-    self,
-    session: Any,
-    group: SourceGroup,
-    event: Event,
-    mapper: Mapper[Any],
-) -> bool
-```
-
-Apply one event to the projection in `session` (the consumer's unit).
-
 ### `ProjectionConsumerDescriptor`
 
 ```python
@@ -382,7 +483,7 @@ class ProjectionConsumerDescriptor(
     name: str,
     source_channel: str,
     projection: str,
-    handler: ProjectionHandler,
+    handler: ProjectionHandlerFn,
     durable: bool = True,
     required: bool = True,
     module: str | None = None,
@@ -411,6 +512,15 @@ on the monotonic upsert alone.
 `required=True` makes the projection subscription part of readiness. Use
 `False` only when the owning read path explicitly tolerates a stale or
 unavailable projection.
+
+#### `ProjectionConsumerDescriptor.apply`
+
+```python
+apply  (property)
+```
+
+The handler in the runtime's `(session, envelope)` form, the one
+`__post_init__` stored whichever shape the author passed.
 
 #### `ProjectionConsumerDescriptor.group_name`
 
@@ -491,54 +601,6 @@ class ProjectionRegistryError(RuntimeError)
 ```
 
 A projection/consumer registration conflicts with existing state.
-
-### `ProjectionView`
-
-```python
-class ProjectionView(Generic)(
-    projection: Projection,
-    row: type[R],
-    session: Any,
-    *,
-    on_stale: Literal['serve', 'source'] = 'serve',
-    wait_ms: int | None = None,
-    token: ConsistencyToken | None = None,
-    response: Response | None = None,
-) -> None
-```
-
-Reads one projection (`Annotated[ProjectionView[R], View(...)]`).
-
-Rows whose tombstone is set are never returned. With a consistency token
-(`SANDLOOM-Consistency-Token`) a read waits up to `wait_ms` for the rows
-the caller's write produces; then it serves anyway with `stale = True`
-and `SANDLOOM-Projection-Stale: true` (`on_stale="serve"`), or reads the
-entity from its source through `rebuild_from` (`on_stale="source"`,
-`get` only). Never an error status.
-
-#### `ProjectionView.get`
-
-```python
-async def get(self, key: Mapping[str, Any]) -> R | None
-```
-
-#### `ProjectionView.query`
-
-```python
-async def query(
-    self,
-    *,
-    filter: Mapping[str, Any] | None = None,
-    limit: int = 50,
-    cursor: str | None = None,
-) -> Page[R]
-```
-
-#### `ProjectionView.search`
-
-```python
-async def search(self, q: str, *, limit: int = 50) -> list[R]
-```
 
 ### `purge_tombstones`
 
@@ -691,21 +753,6 @@ every tenant. Purges refuse while it runs; the purge watermark is kept.
 Without an alias-swapping store a blue/green rebuild runs in place
 (`details["blue_green"] == "in_place"`).
 
-### `SourceGroup`
-
-```python
-class SourceGroup(
-    events: Mapping[type[Event], Mapper[Any]],
-    aggregate_key: str,
-    version_field: str,
-    version_column: str,
-    owns: tuple[str, ...],
-    tenant_from: str = 'tenant_id',
-) -> None
-```
-
-The channels of ONE aggregate feeding a projection, with its version.
-
 ### `start_projection_consumers`
 
 ```python
@@ -722,33 +769,6 @@ Returns the number of consumers wired through the canonical supervised
 runtime. Duplicate groups and missing required projections fail startup;
 repeated calls do not add duplicate handlers. `session_opener` defaults
 to `unit_of_work.db_session` and is injectable for tests.
-
-### `tombstone`
-
-```python
-def tombstone(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]
-```
-
-A mapper of delete events: a versioned tombstone in the owning group
-(§6.4 item 5); reads filter it.
-
-### `View`
-
-```python
-def View(
-    name: str,
-    row: type[R],
-    *,
-    on_stale: Literal['serve', 'source'] = 'serve',
-    wait_ms: int | None = None,
-) -> params.Depends
-```
-
-The dependency resolving a `ProjectionView` of projection `name`:
-
-```python
-tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
-```
 
 ## Examples and related guides
 

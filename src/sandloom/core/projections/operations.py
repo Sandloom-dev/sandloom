@@ -214,7 +214,7 @@ def watermark_guarded(
     are atomic with respect to a purge, for a relational model and a store
     target alike (the store write runs inside the locked unit). A purge thus
     never deletes a tombstone between an apply's check and its write."""
-    handler = descriptor.handler
+    handler = descriptor.apply
     projection = descriptor.projection
 
     @functools.wraps(handler)

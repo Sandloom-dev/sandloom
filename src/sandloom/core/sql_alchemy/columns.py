@@ -28,11 +28,16 @@ import sys
 import threading
 import time
 import uuid
+import weakref
 from datetime import datetime
 from typing import Annotated
 
-from sqlalchemy.orm import mapped_column
+from sqlalchemy import BigInteger, event, text
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Mapped, configure_mappers, mapped_column
+from sqlalchemy.sql.schema import CallableColumnDefault
 
+from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.portable import UtcDateTime, WallClock
 
 #: ``created_at: Mapped[CreatedAt]``: a ``timestamptz NOT NULL`` the database
@@ -79,6 +84,29 @@ UpdatedAt.__doc__ = """As ``CreatedAt``, and set again by every ORM update::
 Both the insert default and the update value are the database's clock at
 the statement (``clock_timestamp()`` on PostgreSQL).
 """
+
+
+class Versioned:
+    """A ``version: bigint`` column the database counts up: ``1`` on insert,
+    plus one by every ORM update of the row, so a module never writes
+    ``item.version += 1``::
+
+        class Project(TenantScoped, Versioned, Base):
+            ...
+
+        await ProjectSaved(project_id=p.id, version=p.version).publish()
+
+    Read the version after ``flush()``: the new value comes back with the
+    UPDATE (``eager_defaults``), so no ``refresh`` is needed. Events carry it
+    so a consumer can drop a stale or repeated one. A statement that updates
+    no column leaves the version as it was; ``version`` itself is never set by
+    hand.
+    """
+
+    version: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=1, onupdate=text("version + 1")
+    )
+
 
 # --------------------------------------------------------------------------- #
 # UUIDv7 (RFC 9562 §5.7, counter method 1 of §6.2: a 42-bit counter seeded at
@@ -135,8 +163,51 @@ def new_id() -> uuid.UUID:
     Ids sort in creation order: by time across processes, and strictly
     increasing within one process (a counter orders a millisecond's burst).
     So ``order_by(Model.id)`` is the creation order, with no tie.
+
+    The model has its id the moment it is constructed (``Item(...).id`` is
+    set before ``add`` or ``flush``), so an event or a link can name it at
+    once; an ``id=`` argument wins.
     """
     return _generate()
 
 
-__all__ = ["CreatedAt", "UpdatedAt", "new_id"]
+# --------------------------------------------------------------------------- #
+# The id at construction
+# --------------------------------------------------------------------------- #
+
+#: ``{model class: attribute names of its primary key columns whose default is
+#: new_id}``, read once per class.
+_ID_ATTRIBUTES: weakref.WeakKeyDictionary[type, tuple[str, ...]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _id_attributes(cls: type) -> tuple[str, ...]:
+    names = _ID_ATTRIBUTES.get(cls)
+    if names is None:
+        # This listener runs before the mapper's own `init` hook, which is
+        # what configures the mappers on a first construction: without this
+        # the class has no attribute implementation to set yet.
+        configure_mappers()
+        mapper = sa_inspect(cls)
+        names = tuple(
+            mapper.get_property_by_column(column).key
+            for column in mapper.primary_key
+            # SQLAlchemy wraps a callable default; `__wrapped__` is the function
+            # the model named, so only a `default=new_id` column is matched
+            if isinstance(column.default, CallableColumnDefault)
+            and getattr(column.default.arg, "__wrapped__", None) is new_id
+        )
+        _ID_ATTRIBUTES[cls] = names
+    return names
+
+
+@event.listens_for(Base, "init", propagate=True)
+def _assign_ids(target: object, args: tuple[object, ...], kwargs: object) -> None:
+    """Set ``default=new_id`` primary keys before the constructor's own
+    arguments, so ``Item(id=...)`` still wins."""
+    for name in _id_attributes(type(target)):
+        setattr(target, name, _generate())
+
+
+__all__ = ["CreatedAt", "UpdatedAt", "Versioned", "new_id"]

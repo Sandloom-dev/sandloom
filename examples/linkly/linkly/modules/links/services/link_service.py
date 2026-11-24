@@ -11,11 +11,10 @@ import secrets
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from sandloom.sdk import db
+from sandloom.sdk import Conflict, NotFound, db
 from sandloom.sdk.infra import cache  # sandloom: advanced operation-based cache
 
 from ..events import LinkCreated
@@ -49,11 +48,7 @@ class LinkService:
             await db().flush()
         except IntegrityError as exc:
             # Code collision (custom or — very rarely — a generated one).
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"short code '{code}' is already taken",
-            ) from exc
-        await db().refresh(link)
+            raise Conflict(f"short code '{code}' is already taken") from exc
         await LinkCreated(link_id=link.id, code=link.code).publish()
         return link
 
@@ -72,9 +67,7 @@ class LinkService:
         else:
             link = await reads.one(link_target_by_code, code=code)
             if link is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="short code not found"
-                )
+                raise NotFound("short code not found")
             target = link.target_url
             await c.set(_url_key(code), target, ttl_seconds=_URL_TTL_SECONDS)
         await c.incr(_clicks_key(code))
@@ -85,9 +78,7 @@ class LinkService:
         result = await db().execute(select(Shortlink).where(Shortlink.id == link_id))
         link = result.scalar_one_or_none()
         if link is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="link not found"
-            )
+            raise NotFound("link not found")
         return link
 
     @classmethod

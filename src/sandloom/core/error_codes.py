@@ -311,18 +311,21 @@ must be visible in review.
         "endpoints-outside-api",
         "check",
         "HTTP endpoint outside the module's api/ layer",
-        "move the route into the module's api/ package",
-        "define_module mounts api/'s router; endpoints elsewhere are not mounted "
-        "by convention and escape the api-layer rules.",
+        "move the route into the module's api.py (or an api/ package)",
+        "define_module mounts the router of api.py or of the api/ package; "
+        "endpoints elsewhere are not mounted by convention and escape the "
+        "api-layer rules.",
     ),
     _entry(
         "SANDLOOM-C010",
         "orm-leakage",
         "check",
         "ORM model / SQLAlchemy in an endpoint file",
-        "map to pydantic DTOs in services and keep persistence out of api/",
-        "The api/ layer stays persistence-free: endpoints take DbSession, call "
-        "services and return schemas/ DTOs.",
+        "move the query into services.py and return pydantic DTOs from the route",
+        "The api layer (api.py or the api/ package) stays persistence-free: an "
+        "endpoint takes the request and `user: CurrentUser`, calls a service "
+        "function (which reaches the session with `db()`) and returns a schemas "
+        "DTO. It imports no model and no SQLAlchemy name.",
     ),
     _entry(
         "SANDLOOM-C011",
@@ -2530,13 +2533,15 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "test",
         "a module imports an advanced sandloom.sdk name without a marker",
         "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
-        "Generators and examples teach the 26 beginner names: the 20 code names of "
-        "`sandloom.sdk`, the five test helpers of `sandloom.sdk.testing` and the "
-        "`client` fixture of `sandloom.sdk.testing.plugin` (`sandloom docs "
-        "sandloom.sdk`, `sandloom docs sandloom.sdk.testing` and `sandloom docs "
-        "sandloom.sdk.testing.plugin` list them). An application's modules keep "
-        "to them: the `schema & deploy` step of `sandloom test` reports an advanced "
-        "import that has no marker.",
+        "Generators and examples teach the 42 beginner names: the 25 code names of "
+        "`sandloom.sdk` (`sandloom docs sandloom.sdk`), the five of "
+        "`sandloom.sdk.sagas` and the six of `sandloom.sdk.projections` (what "
+        "`sandloom add saga` and `sandloom add projection` write), the five test "
+        "helpers of `sandloom.sdk.testing` (`sandloom docs sandloom.sdk.testing`) "
+        "and the `client` fixture, which lives in `sandloom.sdk.testing.plugin` "
+        "(`sandloom docs sandloom.sdk.testing.plugin`). An application's modules "
+        "keep to them: `sandloom check` (which `sandloom test` runs) reports an "
+        "advanced import that has no marker.",
     ),
     _entry(
         "SANDLOOM-T010",

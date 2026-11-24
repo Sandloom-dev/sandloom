@@ -13,8 +13,7 @@ import uuid
 from sqlalchemy import Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sandloom.sdk import Base, CreatedAt, TenantScoped, new_id
-from sandloom.sdk.data import UpdatedAt  # sandloom: advanced last-write time
+from sandloom.sdk import Base, CreatedAt, TenantScoped, UpdatedAt, new_id
 
 TICKET_STATUSES = ("open", "pending", "closed")
 TICKET_PRIORITIES = ("low", "normal", "high", "urgent")

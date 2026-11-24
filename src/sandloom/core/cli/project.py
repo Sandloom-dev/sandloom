@@ -294,16 +294,23 @@ CRUD, events and cross-module calls:
 | need | names (`from sandloom.sdk import ...`) |
 | --- | --- |
 | a module | `define_module` |
-| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt`, `UtcDateTime` |
+| tables | `Base`, `TenantScoped`, `db`, `new_id` |
+| times | `CreatedAt`, `UpdatedAt`, `UtcDateTime` |
 | routes | `module_router`, `public`, `CurrentUser` |
+| refusals | `NotFound`, `Conflict`, `Refused` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
 | authorization | `require`, `Owner`, `authorize_resource` |
-| effects | `record_audit`, `on_commit` |
+| effects | `record_audit`, `on_commit`, `bind_tenant` |
+| sagas | `Saga`, `SagaContext`, `step`, `local_step`, `start_saga` |
+| projections | `Projection`, `ProjectionView`, `SourceGroup`, `View`, |
+| | `full_state`, `tombstone` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, |
 | | `deliver`, `fake_contract`, `fake_access_fact` |
 
-Other SDK names are advanced: mark the import `# sandloom: advanced <reason>`.
+The sagas and projections rows import from `sandloom.sdk.sagas` and
+`sandloom.sdk.projections`. Other SDK names are advanced: mark the import
+`# sandloom: advanced <reason>`.
 The billing and tenancy gates (`Subscribed`, `SubscriptionActive`, `Credits`,
 `OrgRole`) are not sdk names: `sandloom generate` writes them beside the
 consumer's contract stub, and a route imports them from
@@ -311,7 +318,9 @@ consumer's contract stub, and a route imports them from
 `$app.shared.contracts.tenancy_membership_v1`.
 Ids and times: `default=new_id` (UUIDv7) and `created_at: Mapped[CreatedAt]`
 (`clock_timestamp()`), so a list ordered by `created_at, id` never ties; any
-other time column is `UtcDateTime()` (SANDLOOM-C029).
+other time column is `UtcDateTime()` (SANDLOOM-C029). A refusal is
+`raise NotFound("...")`, `Conflict("...")` or `Refused(422, "...")`, with no
+FastAPI import.
 
 Routes declare nothing but their exceptions: every route is authenticated
 (`CurrentUser`, or a gate) unless it says `public(reason="...")`; writes get

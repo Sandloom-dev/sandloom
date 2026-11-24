@@ -19,7 +19,8 @@ framework's own tests:
   broker, and no two beats share a broker.
 * :func:`beginner_tier_problems` (SANDLOOM-T009): a module imports a
   ``sandloom.sdk`` name outside the beginner tier without a
-  ``# sandloom: advanced <reason>`` marker on the line.
+  ``# sandloom: advanced <reason>`` marker on the line. ``sandloom check`` runs
+  it (and ``sandloom test`` through it), so this step does not repeat it.
 * :func:`settings_gate_problems` (SANDLOOM-B036, SANDLOOM-T019): the settings
   the application's modules declare (collisions, the prefix rule, recorded
   tiers) and the chosen topology's services against them (module names,
@@ -395,9 +396,10 @@ def deploy_profiles(root: Path) -> list[Path]:
 # --------------------------------------------------------------------------- #
 
 
-def beginner_tier_problems(root: Path) -> list[str]:
-    """Every advanced ``sandloom.sdk`` import in the modules ``root``'s
-    ``architecture_rules.yml`` names that has no marker (SANDLOOM-T009)."""
+def beginner_tier_findings(root: Path) -> list[tuple[Path, int, str]]:
+    """``(file, line, message)`` of every advanced ``sandloom.sdk`` import in
+    the modules ``root``'s ``architecture_rules.yml`` names that has no marker
+    (SANDLOOM-T009); the file is shown relative to ``root``."""
     rules_file = root / "architecture_rules.yml"
     spec = importlib.util.find_spec("sandloom.sdk")
     if not rules_file.is_file() or spec is None or spec.origin is None:
@@ -409,14 +411,22 @@ def beginner_tier_problems(root: Path) -> list[str]:
     except ManifestError:
         return []  # sandloom check reports a broken manifest
     beginner = api10_rules.beginner_names(Path(spec.origin).parent)
-    problems: list[str] = []
+    findings: list[tuple[Path, int, str]] = []
     for py in api10_rules.iter_python([modules]):
         shown = py.relative_to(root) if py.is_relative_to(root) else py
         for found in api10_rules.find_beginner_tier_problems(py, beginner):
             line, _, message = found.partition(": ")
-            number = line.removeprefix("Line ")
-            problems.append(f"{shown}:{number}: {message} (SANDLOOM-T009)")
-    return problems
+            findings.append((shown, int(line.removeprefix("Line ")), message))
+    return findings
+
+
+def beginner_tier_problems(root: Path) -> list[str]:
+    """One line per finding of :func:`beginner_tier_findings`, with its code.
+    ``sandloom check`` reports them (``beginner_tier_diagnostics``)."""
+    return [
+        f"{path}:{line}: {message} (SANDLOOM-T009)"
+        for path, line, message in beginner_tier_findings(root)
+    ]
 
 
 def settings_gate_problems(
@@ -455,10 +465,8 @@ def all_problems(
     """Every problem of the step; ``warnings`` (when given) collects the
     split profile's warnings (SANDLOOM-T003: a module no service deploys)."""
     core = core if core is not None else load_composition_core()
-    problems = (
-        chain_problems(core, skipped=skipped_chains(core))
-        + redundant_index_problems()
-        + beginner_tier_problems(root)
+    problems = chain_problems(core, skipped=skipped_chains(core)) + (
+        redundant_index_problems()
     )
     profiles = deploy_profiles(root)
     if profiles and importlib.util.find_spec("yaml") is None:

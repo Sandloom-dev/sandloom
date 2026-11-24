@@ -5,10 +5,7 @@ import uuid
 from httpx import AsyncClient
 
 from academy.shared.contracts.notifications_mail_v1 import NOTIFICATIONS_MAIL_V1
-from sandloom.sdk import Contract
-from sandloom.sdk.tenant import (
-    bind_tenant,  # sandloom: advanced call a contract as a tenant
-)
+from sandloom.sdk import Contract, bind_tenant
 from sandloom.sdk.testing import as_user
 
 mail = Contract(NOTIFICATIONS_MAIL_V1)

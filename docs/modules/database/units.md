@@ -38,6 +38,16 @@ async def create(body: NoteIn, *, author_id: UUID) -> Note:
     return note
 ```
 
+After `flush()` the row is complete. `created_at` and `updated_at` are loaded:
+`Base` reads back what the database set, with `RETURNING`. There is no
+`await db().refresh(note)`. A `default=new_id` key is set when the model is
+constructed, and `Note(...).id` can go into an event before the flush.
+
+A model that mixes in `Versioned` (`sandloom.sdk.data`, advanced) gets a
+`version` that the database counts up with each update. An event carries
+`note.version` after the flush. The code never writes `note.version += 1`.
+
+<!-- lookup -->
 - **Never call `commit()` or `rollback()`** on a session in module code
   ([SANDLOOM-C006](../../reference/error-codes.md#sandloom-c006)). Use `flush()` to get
   ids and constraint errors early.
@@ -53,8 +63,22 @@ async def create(body: NoteIn, *, author_id: UUID) -> Note:
   contract pool with its tenant hook ([Contracts](../between/contracts.md)).
 - **In a consumer** `db()` is the delivery's unit; a delivery that raises
   rolls back and is redelivered ([Events](../between/events.md)).
+- **In a saga local step** `db()` is the transition's session (a savepoint):
+  `local_step("reserve", apply=reserve)` takes `async def reserve(ctx)`
+  ([Sagas](../between/sagas.md)).
+- **In an `authorize_resource` loader** `async def load(id)` reads through
+  `db()` ([Authorization](../http/authorization.md)).
+- **In an L2 projection handler** `async def apply(envelope)` runs on `db()`,
+  and `monotonic_upsert(Row, key=..., ...)` writes through it
+  ([Projections](../between/projections.md)).
 - **In a task or script** open a unit with `open_uow()`; inside the block
   `db()` returns its session ([Background tasks](../background/tasks.md)).
+
+Four forms took the session as a parameter: `local_step` `fn(session, ctx)`,
+the `authorize_resource` loader `(id, session)`, the projection handler
+`(session, envelope)` and `monotonic_upsert(session, Row, ...)`. They are the
+earlier spelling and still work, with no warning. A function that fits neither
+spelling is refused when it is declared.
 
 `open_uow(database=None)` opens a unit on the module's primary database, or
 on a named one. The module is the one whose package holds the calling code.

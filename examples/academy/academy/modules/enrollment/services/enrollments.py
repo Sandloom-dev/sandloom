@@ -2,10 +2,9 @@
 
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 
-from sandloom.sdk import db
+from sandloom.sdk import NotFound, db
 
 from ..models import EnrollmentEnrollment
 
@@ -33,9 +32,7 @@ class Enrollments:
     async def get_or_404(cls, enrollment_id: UUID) -> EnrollmentEnrollment:
         row = await db().get(EnrollmentEnrollment, enrollment_id)
         if row is None:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, detail="Enrollment not found"
-            )
+            raise NotFound("Enrollment not found")
         return row
 
     @classmethod

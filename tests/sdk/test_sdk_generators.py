@@ -728,18 +728,25 @@ def _tier_problems(paths: list[Path]) -> list[str]:
     ]
 
 
-def test_the_beginner_tier_is_the_26_names() -> None:
+def test_the_beginner_tier_is_the_42_names() -> None:
     """27 names of the 1.0 spec (26 since KB-34: 20 code and 6 testing), plus ``new_id`` and ``CreatedAt``: the id
     and timestamp idiom every generated model uses (owner, 2026-10-27), plus
     ``UtcDateTime``, the type SANDLOOM-C029 asks for on every other time
     column (owner, 2026-11-05), less the four domain atoms (``Subscribed``,
     ``SubscriptionActive``, ``Credits``, ``OrgRole``) that the consumer's
-    generated stub carries since KB-34: 20 code names and 6 testing ones."""
+    generated stub carries since KB-34; 42 since dx-module-less-boilerplate:
+    ``NotFound``, ``Conflict``, ``Refused``, ``UpdatedAt`` and ``bind_tenant``
+    join the root (25 code names), and the tiers of ``sandloom.sdk.sagas`` (5)
+    and ``sandloom.sdk.projections`` (6) are no longer empty."""
     beginner = api10_rules.beginner_names(SDK)
     code = beginner["sandloom.sdk"]
     testing = beginner["sandloom.sdk.testing"] | beginner["sandloom.sdk.testing.plugin"]
-    assert len(code) == 20 and len(testing) == 6
+    sagas = beginner["sandloom.sdk.sagas"]
+    projections = beginner["sandloom.sdk.projections"]
+    assert len(code) == 25 and len(testing) == 6
+    assert len(sagas) == 5 and len(projections) == 6
     assert {"new_id", "CreatedAt", "UtcDateTime"} <= code
+    assert {"NotFound", "Conflict", "Refused", "UpdatedAt", "bind_tenant"} <= code
 
 
 def test_generated_code_uses_only_the_beginner_tier(tmp_path: Path) -> None:
