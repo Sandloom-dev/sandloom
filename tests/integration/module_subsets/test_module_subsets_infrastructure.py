@@ -338,6 +338,34 @@ def no_periodic_runs(
     )
 
 
+@pytest.fixture(scope="module")
+def dev_billing_run(tmp_path_factory: pytest.TempPathFactory) -> SubsetRun:
+    """Billing alone at the ``dev`` tier, as ``sandloom dev run`` serves it: no
+    worker and no beat."""
+    runs = _lane(
+        tmp_path_factory.mktemp("subsets-dev"),
+        subsets=(("billing",),),
+        env=_live_env({"ENVIRONMENT": "dev"}),
+    )
+    return runs[("billing",)]
+
+
+def test_in_development_a_billing_reconciler_that_never_ran_keeps_the_app_healthy(
+    dev_billing_run: SubsetRun,
+) -> None:
+    """The matrix lanes run at ``test``, where the same boot is
+    ``ready_ops_degraded``: here ``/health`` is 200 and says what to start."""
+    probe = dev_billing_run.probe
+    assert probe["outcome"] == "booted", probe
+    assert probe["health"] == 200 and probe["ready"] == 200, probe
+    check = probe["health_checks"]["billing_reconciler"]
+    assert check["status"] == "ok", check
+    assert check["details"]["state"] == "never_ran", check
+    assert "uv run sandloom beat" in check["details"]["note"], check
+    failing = {n for n, c in probe["health_checks"].items() if c["status"] != "ok"}
+    assert not failing, probe["health_checks"]
+
+
 @pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
 def test_every_subset_is_ready_on_real_infrastructure(
     live_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
