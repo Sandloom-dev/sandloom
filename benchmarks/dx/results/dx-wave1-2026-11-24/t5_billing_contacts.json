@@ -81,7 +81,19 @@
   "skills_read": [],
   "first_green_turn": 10,
   "t009_failures": 0,
-  "advanced_markers": 0,
-  "sdk_names": [],
-  "tier_misses": []
+  "advanced_markers": 1,
+  "sdk_names": [
+    "sandloom.sdk.Base",
+    "sandloom.sdk.CreatedAt",
+    "sandloom.sdk.TenantScoped",
+    "sandloom.sdk.data.disable_tenant_rls",
+    "sandloom.sdk.data.enable_tenant_rls",
+    "sandloom.sdk.new_id"
+  ],
+  "tier_misses": [
+    "sandloom.sdk.data.disable_tenant_rls",
+    "sandloom.sdk.data.enable_tenant_rls"
+  ],
+  "test_sdk_names": [],
+  "test_tier_misses": []
 }

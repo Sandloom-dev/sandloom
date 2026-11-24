@@ -126,7 +126,30 @@
   "skills_read": [],
   "first_green_turn": 12,
   "t009_failures": 0,
-  "advanced_markers": 0,
-  "sdk_names": [],
-  "tier_misses": []
+  "advanced_markers": 3,
+  "sdk_names": [
+    "sandloom.sdk.Base",
+    "sandloom.sdk.CreatedAt",
+    "sandloom.sdk.CurrentUser",
+    "sandloom.sdk.TenantScoped",
+    "sandloom.sdk.authz.Account",
+    "sandloom.sdk.data.UpdatedAt",
+    "sandloom.sdk.data.disable_tenant_rls",
+    "sandloom.sdk.data.enable_tenant_rls",
+    "sandloom.sdk.module_router",
+    "sandloom.sdk.new_id",
+    "sandloom.sdk.require"
+  ],
+  "tier_misses": [
+    "sandloom.sdk.authz.Account",
+    "sandloom.sdk.data.UpdatedAt",
+    "sandloom.sdk.data.disable_tenant_rls",
+    "sandloom.sdk.data.enable_tenant_rls"
+  ],
+  "test_sdk_names": [
+    "sandloom.sdk.testing.as_user",
+    "sandloom.sdk.testing.fake_contract",
+    "sandloom.sdk.testing.published"
+  ],
+  "test_tier_misses": []
 }

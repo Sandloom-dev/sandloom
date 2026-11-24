@@ -115,6 +115,8 @@ def test_transcript_metrics_count_docs_recipes_skills_and_the_first_green_test(
         bash("cat .agents/skills/sandloom-new-module/SKILL.md"),
         bash("ls .agents/skills/*/SKILL.md"),
         ("Skill", {"skill": "sandloom-split-deploy"}, ""),
+        bash("uv run sandloom docs -h"),  # help is no lookup
+        bash("uv run sandloom docs recipe --help"),
     ]
     path = tmp_path / "transcript.jsonl"
     write_transcript(path, steps)
@@ -179,49 +181,130 @@ diff --git a/app/modules/x/services.py b/app/modules/x/services.py
 new file mode 100644
 --- /dev/null
 +++ b/app/modules/x/services.py
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,8 @@
 +from sandloom.sdk import Event, DbSession
 +from sandloom.sdk import (  # sandloom: advanced chain
 +    Sandloom,
 +    WallClock,
 +)
-+from sandloom.sdk.testing import client, make_user as mk
 +import sandloom.sdk.migrations
 +from sandloom.sdk.migrations import run_module_migrations  # sandloom: advanced gate
 +from sandloom.core import something
+diff --git a/app/modules/x/tests/test_x.py b/app/modules/x/tests/test_x.py
+new file mode 100644
+--- /dev/null
++++ b/app/modules/x/tests/test_x.py
+@@ -0,0 +1,2 @@
++from sandloom.sdk.testing import client, make_user as mk
++from sandloom.sdk import InTestsOnly  # sandloom: advanced test double
+diff --git a/app/modules/x/_generated/contracts/y.py b/app/modules/x/_generated/contracts/y.py
+new file mode 100644
+--- /dev/null
++++ b/app/modules/x/_generated/contracts/y.py
+@@ -0,0 +1 @@
++from sandloom.sdk.authz import Generated  # sandloom: advanced generated code
+diff --git a/app/shared/contracts/z.py b/app/shared/contracts/z.py
+new file mode 100644
+--- /dev/null
++++ b/app/shared/contracts/z.py
+@@ -0,0 +1 @@
++from sandloom.sdk import InSharedContracts
 diff --git a/README.md b/README.md
 --- a/README.md
 +++ b/README.md
-@@ -1 +1 @@
+@@ -0,0 +1 @@
 +from sandloom.sdk import InAMarkdownFile
-diff --git a/app/old.py b/app/old.py
---- a/app/old.py
-+++ b/app/old.py
-@@ -1 +1 @@
+diff --git a/app/modules/x/old.py b/app/modules/x/old.py
+--- a/app/modules/x/old.py
++++ /dev/null
+@@ -1 +0,0 @@
 -from sandloom.sdk import Removed
 """
 
 
 def test_diff_metrics_find_names_outside_the_tier_and_markers(tm: ModuleType) -> None:
     got = tm.diff_metrics(PATCH, TIER)
-    assert got["advanced_markers"] == 2
-    assert got["sdk_names"] == [
+    assert got == EXPECTED
+
+
+EXPECTED = {
+    # the module's own code only: not tests, generated code, shared contracts, docs
+    "advanced_markers": 2,
+    "sdk_names": [
         "sandloom.sdk.DbSession",
         "sandloom.sdk.Event",
         "sandloom.sdk.Sandloom",
         "sandloom.sdk.WallClock",
         "sandloom.sdk.migrations",
         "sandloom.sdk.migrations.run_module_migrations",
-        "sandloom.sdk.testing.client",
-        "sandloom.sdk.testing.make_user",
-    ]
-    assert got["tier_misses"] == [
+    ],
+    "tier_misses": [
         "sandloom.sdk.DbSession",
         "sandloom.sdk.WallClock",
         "sandloom.sdk.migrations",
         "sandloom.sdk.migrations.run_module_migrations",
+    ],
+    "test_sdk_names": [
+        "sandloom.sdk.InTestsOnly",
+        "sandloom.sdk.testing.client",
         "sandloom.sdk.testing.make_user",
+    ],
+    "test_tier_misses": ["sandloom.sdk.InTestsOnly", "sandloom.sdk.testing.make_user"],
+}
+
+
+def test_the_patch_appmode_writes_gives_the_same_metrics(
+    tm: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """App mode's ``changes.patch`` is ``difflib`` output (``appmode.app_patch``):
+    ``---``/``+++`` headers and no ``diff --git`` line. Every real run's diff
+    metrics were 0 until a file started at its ``+++`` header."""
+    monkeypatch.syspath_prepend(str(DX))
+    appmode = importlib.import_module("appmode")
+    pristine, app = tmp_path / "pristine", tmp_path / "app"
+    files = {
+        "app/modules/x/services.py": (
+            "from sandloom.sdk import Event\n",
+            "from sandloom.sdk import Event, DbSession\n"
+            "x = 1\n"
+            "from sandloom.sdk import (  # sandloom: advanced chain\n"
+            "    Sandloom,\n"
+            "    WallClock,\n"
+            ")\n",
+        ),
+        "app/modules/x/tests/test_x.py": ("", "from sandloom.sdk import OnlyInTests\n"),
+        "app/modules/x/_generated/g.py": ("", "from sandloom.sdk import Generated\n"),
+    }
+    for rel, (old, new) in files.items():
+        for root, text in ((pristine, old), (app, new)):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text)
+    patch = appmode.app_patch(app, pristine, sorted(files))
+    assert "diff --git" not in patch
+    got = tm.diff_metrics(patch, TIER)
+    assert got["advanced_markers"] == 1
+    assert got["sdk_names"] == [
+        "sandloom.sdk.DbSession",
+        "sandloom.sdk.Event",
+        "sandloom.sdk.Sandloom",
+        "sandloom.sdk.WallClock",
     ]
+    assert got["tier_misses"] == ["sandloom.sdk.DbSession", "sandloom.sdk.WallClock"]
+    assert got["test_sdk_names"] == ["sandloom.sdk.OnlyInTests"]
+
+
+def test_a_changed_line_that_looks_like_a_header_does_not_start_a_file(
+    tm: ModuleType,
+) -> None:
+    patch = (
+        "--- a/m/modules/x/a.py\n+++ b/m/modules/x/a.py\n@@ -1,2 +1,3 @@\n"
+        "-++ old\n"
+        "+++ b/other/shared/b.py\n"  # an added line "++ b/other/…" inside the hunk
+        "+from sandloom.sdk import Late\n"
+        " context\n"
+    )
+    # read as a header it would hand the import to shared/b.py, which is not counted
+    assert tm.diff_metrics(patch, TIER)["sdk_names"] == ["sandloom.sdk.Late"]
 
 
 def test_an_empty_diff_has_no_names(tm: ModuleType) -> None:
@@ -229,6 +312,8 @@ def test_an_empty_diff_has_no_names(tm: ModuleType) -> None:
         "advanced_markers": 0,
         "sdk_names": [],
         "tier_misses": [],
+        "test_sdk_names": [],
+        "test_tier_misses": [],
     }
 
 
@@ -392,6 +477,36 @@ def test_one_run_per_task_says_a_sample_is_not_a_difference(
 ) -> None:
     text = run_eval.runs_section("L", [row()])
     assert "one sample cannot separate a change" in text
+
+
+def test_the_first_green_mean_shows_how_many_runs_it_averages(
+    run_eval: ModuleType,
+) -> None:
+    rows = [
+        row(first_green_turn=4),
+        row(first_green_turn=None),
+        row(first_green_turn=6),
+    ]
+    assert "5 ±1.4 (4-6) n=2/3" in run_eval.runs_section("L", rows)
+
+
+def test_totals_over_no_metric_rows_are_unknown_not_zero(run_eval: ModuleType) -> None:
+    old = {k: v for k, v in row().items() if k not in run_eval.tiermetrics.METRIC_KEYS}
+    summary = run_eval.summarize([old])
+    assert summary["t009_failures_total"] is None
+    assert summary["advanced_markers_total"] is None
+    assert run_eval.summarize([row(t009_failures=2)])["t009_failures_total"] == 2
+
+
+def test_promote_keeps_every_run_of_a_repeated_label(
+    run_eval: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(run_eval, "RESULTS_DIR", tmp_path / "results")
+    monkeypatch.setattr(run_eval, "HERE", tmp_path)
+    stored_runs(run_eval, tmp_path, [1, 2, 3])
+    run_eval.cmd_promote(argparse.Namespace(label="L"))
+    tasks = json.loads((tmp_path / "baseline.json").read_text())["tasks"]
+    assert sorted(tasks) == ["t1_notes.r1", "t1_notes.r2", "t1_notes.r3"]
 
 
 def test_rescore_refuses_a_label_of_repeated_runs(

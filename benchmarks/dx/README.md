@@ -338,12 +338,22 @@ numbers come from the run's `transcript.jsonl` and `changes.patch`
 | `skills_read` | SKILL.md files read (`Read`, `cat`/`sed`/…, the `Skill` tool), by skill name |
 | `first_green_turn` | the turn (assistant message, as `turns` counts) of the first `sandloom test` whose output shows a pass: its `sandloom test: OK` line, or `PASS` step lines with no `FAIL`. Output a pipe cut to nothing shows nothing: not counted. `null`: none seen |
 | `t009_failures` | SANDLOOM-T009 lines in the agent's tool results, every rerun counted (the code named in `AGENTS.md` is not) |
-| `advanced_markers` | `# sandloom: advanced` lines the final diff adds (generated code carries some: they are the same in every run) |
-| `sdk_names`, `tier_misses` | `sandloom.sdk` names the final diff imports, as `module.Name`, and those outside the tier of the checkout that scores (a tier miss counts with or without a marker) |
+| `advanced_markers` | `# sandloom: advanced` lines the final diff adds to a module's own code |
+| `sdk_names`, `tier_misses` | `sandloom.sdk` names the final diff imports in a module's own code, as `module.Name`, and those outside the tier (a tier miss counts with or without a marker) |
+| `test_sdk_names`, `test_tier_misses` | the same for the module's test files, apart: tests import `sandloom.sdk.testing` names and test doubles |
+
+The diff metrics count as SANDLOOM-T009 does: only files under an application's
+`modules/<module>/` directory; generated code (`_generated/`), shared contracts
+and wiring are not the agent's tier use. The diff is read from
+`changes.patch`, whose file headers (`+++ b/<path>`) differ between app mode
+(`difflib`) and framework mode (`git diff`); both are read.
 
 A result stored before these existed has none of them and is left out of every
 mean (never counted as 0). `recompute --label <label>` writes them from a kept
-transcript (`dx-wave1-2026-11-24` has them).
+transcript (`dx-wave1-2026-11-24` has them). The tier is the one of the
+checkout that runs `recompute` (the installed `sandloom.sdk`), not the one the
+run was made against: recompute an old label on that run's ref, or read its
+tier misses as of today's tier.
 
 **Repeated runs.** `run --runs N` runs each selected task N times, one task's
 runs after each other (they share its Redis indexes), tasks in parallel. Run k
@@ -351,8 +361,10 @@ works under the label `<label>.rk` (its own app directory, database and
 checkpoints) and is stored as `results/<label>/<task>.rk.json`. The report adds
 a table with each metric's mean, sample standard deviation and range per task,
 and `summary.json` holds the same under `per_task`. A difference between two
-labels smaller than the spread is noise; one run per task cannot show it.
-`rescore` does not handle such a label.
+labels smaller than the spread is noise; one run per task cannot show it. The
+first-green-turn mean covers only the runs that went green (`n=2/3`).
+`rescore` does not handle such a label; `promote` keeps every run
+(`<task>.rk`).
 
 `--tasks measured` selects the measured set, with 3 runs each unless `--runs`
 says otherwise: t1, t3, t5, t9, t10 (tier 1: a first module, refusals,

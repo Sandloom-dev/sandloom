@@ -41,6 +41,8 @@ METRIC_KEYS = (
     "advanced_markers",
     "sdk_names",
     "tier_misses",
+    "test_sdk_names",
+    "test_tier_misses",
 )
 
 #: ``sandloom docs <args>`` inside a Bash command (``uv run sandloom docs …`` too).
@@ -58,6 +60,7 @@ _FROM_RE = re.compile(
     r"(\([^)]*\)|[^\n(]*)([^\n]*)",
     re.MULTILINE,
 )
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 _IMPORT_RE = re.compile(r"^[ \t]*import[ \t]+(sandloom\.sdk\.[\w.]+)", re.MULTILINE)
 
 
@@ -121,10 +124,13 @@ def _is_green(text: str) -> bool:
 
 def _docs_call(args: str, names: list[str], recipes: list[str]) -> tuple[int, int]:
     """Classify one ``sandloom docs`` call; return (lookups, recipe-index views)."""
-    tokens = [t.strip("'\"`") for t in args.split()]
-    tokens = [t for t in tokens if t and not t.startswith("-") and not t.isdigit()]
+    raw = [t.strip("'\"`") for t in args.split()]
+    flags = [t for t in raw if t.startswith("-")]
+    if "-h" in flags or "--help" in flags:
+        return 0, 0  # asking for help is no lookup
+    tokens = [t for t in raw if t and not t.startswith("-") and not t.isdigit()]
     if not tokens:
-        return (0, 0) if "--" in args else (1, 0)  # `docs --write` etc. is no lookup
+        return (0, 0) if flags else (1, 0)  # `docs --write` etc. is no lookup
     if tokens[0] == "recipes" or (tokens[0] == "recipe" and len(tokens) == 1):
         return 0, 1
     if tokens[0] == "recipe":
@@ -188,20 +194,49 @@ def transcript_metrics(transcript: Path) -> dict[str, Any]:
     }
 
 
-def _added_python(patch: str) -> list[str]:
-    """The added lines of each ``.py`` file of a ``git diff``, one text per file."""
-    files: list[list[str]] = []
+def _added_python(patch: str) -> list[tuple[str, str]]:
+    """``(path, added text)`` of each ``.py`` file of a unified diff. A file starts
+    at its ``+++ b/<path>`` header, which both ``git diff`` (framework mode) and
+    ``appmode.app_patch`` (``difflib``: no ``diff --git`` line) write. Hunk
+    counts tell a header from a changed line that starts with ``++``/``--``."""
+    files: list[tuple[str, list[str]]] = []
     current: list[str] | None = None
+    old_left = new_left = 0
     for line in patch.splitlines():
-        if line.startswith("diff --git "):
-            current = [] if line.rsplit(" b/", 1)[-1].endswith(".py") else None
-            if current is not None:
-                files.append(current)
-        elif (
-            current is not None and line.startswith("+") and not line.startswith("+++")
-        ):
-            current.append(line[1:])
-    return ["\n".join(lines) for lines in files]
+        if old_left or new_left:
+            if line.startswith("+"):
+                new_left -= 1
+                if current is not None:
+                    current.append(line[1:])
+            elif line.startswith("-"):
+                old_left -= 1
+            elif not line.startswith("\\"):  # context
+                old_left -= 1
+                new_left -= 1
+            continue
+        hunk = _HUNK_RE.match(line)
+        if hunk:
+            old_left, new_left = (int(n) if n else 1 for n in hunk.groups())
+        elif line.startswith("+++ "):
+            path = line[4:].split("\t")[0]
+            current = None
+            if path.endswith(".py") and path != "/dev/null":
+                current = []
+                files.append((path.removeprefix("b/"), current))
+    return [(path, "\n".join(lines)) for path, lines in files]
+
+
+def _file_kind(path: str) -> str | None:
+    """``code`` for a module's own code (what SANDLOOM-T009 gates: under an
+    application's ``modules/<module>/``, not generated), ``test`` for a module's
+    test file, ``None`` for anything else (generated code, shared contracts,
+    wiring), which the agent did not write against the tier."""
+    parts = path.split("/")
+    if "modules" not in parts[:-2] or "_generated" in parts:
+        return None
+    name = parts[-1]
+    is_test = "tests" in parts[:-1] or name.startswith("test_") or name == "conftest.py"
+    return "test" if is_test else "code"
 
 
 def _imported(names_text: str) -> list[str]:
@@ -211,27 +246,36 @@ def _imported(names_text: str) -> list[str]:
 
 
 def diff_metrics(patch: str, beginner: dict[str, set[str]]) -> dict[str, Any]:
-    """The diff half of :data:`METRIC_KEYS`: the ``sandloom.sdk`` names the final
-    diff imports (``module.Name``), those outside the beginner tier (a module the
-    tier does not list has no beginner names), and the advanced markers."""
-    names: set[str] = set()
-    misses: set[str] = set()
+    """The diff half of :data:`METRIC_KEYS`, counted the way SANDLOOM-T009 does:
+    the ``sandloom.sdk`` names the module code of the final diff imports
+    (``module.Name``), those outside the beginner tier (a module the tier does not
+    list has no beginner names) and the advanced markers. Generated code and
+    files outside an application's ``modules/`` are not counted; a module's test
+    files are reported apart (``test_sdk_names``, ``test_tier_misses``)."""
+    names: dict[str, set[str]] = {"code": set(), "test": set()}
+    misses: dict[str, set[str]] = {"code": set(), "test": set()}
     markers = 0
-    for text in _added_python(patch):
-        markers += text.count(_MARKER)
+    for path, text in _added_python(patch):
+        kind = _file_kind(path)
+        if kind is None:
+            continue
+        if kind == "code":
+            markers += text.count(_MARKER)
         for found in _FROM_RE.finditer(text):
             module = found.group(1)
             for name in _imported(found.group(2)):
-                names.add(f"{module}.{name}")
+                names[kind].add(f"{module}.{name}")
                 if name not in beginner.get(module, set()):
-                    misses.add(f"{module}.{name}")
+                    misses[kind].add(f"{module}.{name}")
         for found in _IMPORT_RE.finditer(text):
-            names.add(found.group(1))
-            misses.add(found.group(1))
+            names[kind].add(found.group(1))
+            misses[kind].add(found.group(1))
     return {
         "advanced_markers": markers,
-        "sdk_names": sorted(names),
-        "tier_misses": sorted(misses),
+        "sdk_names": sorted(names["code"]),
+        "tier_misses": sorted(misses["code"]),
+        "test_sdk_names": sorted(names["test"]),
+        "test_tier_misses": sorted(misses["test"]),
     }
 
 

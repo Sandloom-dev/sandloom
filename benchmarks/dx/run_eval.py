@@ -456,6 +456,8 @@ class Result:
     advanced_markers: int = 0  # `# sandloom: advanced` lines in the final diff
     sdk_names: list[str] = field(default_factory=list)  # sandloom.sdk names imported
     tier_misses: list[str] = field(default_factory=list)  # ... outside the tier
+    test_sdk_names: list[str] = field(default_factory=list)  # the same, test files
+    test_tier_misses: list[str] = field(default_factory=list)
     # repeated runs (--runs N): this is run `run` of a task whose results are
     # stored as <task>.r<run>.json under the label `group`
     run: int = 1
@@ -1913,8 +1915,12 @@ def tier_summary(ran: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_recipes_read": mean("recipes_read"),
         "mean_skills_read": mean("skills_read"),
         "mean_first_green_turn": mean("first_green_turn"),
-        "t009_failures_total": sum(r["t009_failures"] for r in rows),
-        "advanced_markers_total": sum(r["advanced_markers"] for r in rows),
+        "first_green_runs": sum(r["first_green_turn"] is not None for r in rows),
+        # over no run with the metrics a total is unknown, not 0
+        "t009_failures_total": sum(r["t009_failures"] for r in rows) if rows else None,
+        "advanced_markers_total": (
+            sum(r["advanced_markers"] for r in rows) if rows else None
+        ),
         "mean_tier_misses": mean("tier_misses"),
     }
 
@@ -2086,11 +2092,14 @@ def runs_section(label: str, rows: list[dict[str, Any]]) -> str:
             "run-to-run variation (`run --runs 3`).\n"
         )
 
-    def cell(stat: dict[str, Any]) -> str:
+    def cell(stat: dict[str, Any], key: str, task: dict[str, Any]) -> str:
         if not stat["n"]:
             return "—"
         sd = f" ±{stat['sd']:g}" if stat["sd"] is not None else ""
-        return f"{stat['mean']:g}{sd} ({stat['min']:g}-{stat['max']:g})"
+        text = f"{stat['mean']:g}{sd} ({stat['min']:g}-{stat['max']:g})"
+        if key == "first_green_turn":  # only the runs that went green are averaged
+            text += f" n={stat['n']}/{task['runs'] - task['errored']}"
+        return text
 
     lines = [
         f"### {label}: mean ±sd (min-max) over each task's runs",
@@ -2102,7 +2111,7 @@ def runs_section(label: str, rows: list[dict[str, Any]]) -> str:
         note = f" ({t['errored']} errored)" if t["errored"] else ""
         lines.append(
             f"| {task} | {t['runs']}{note} | {t['passed']}/{t['runs'] - t['errored']} | "
-            + " | ".join(cell(t[key]) for key, _ in RUN_METRICS)
+            + " | ".join(cell(t[key], key, t) for key, _ in RUN_METRICS)
             + " |"
         )
     lines += [
@@ -2181,7 +2190,8 @@ def gaps_section(label: str, rows: list[dict[str, Any]]) -> str:
 def cmd_recompute(args: argparse.Namespace) -> None:
     """Re-derive doc gaps / outside kinds and the tier and skills metrics (from
     the kept transcript and diff) for stored results (no agent, no gates);
-    generated files move out of ``edited_outside``."""
+    generated files move out of ``edited_outside``. The tier misses are scored
+    against this checkout's ``sandloom.sdk`` tier, not the run's."""
     for path in sorted((RESULTS_DIR / args.label).glob("[tp][0-9]*.json")):
         row = json.loads(path.read_text())
         outside_ = row.get("edited_outside", [])
@@ -2246,7 +2256,8 @@ def cmd_promote(args: argparse.Namespace) -> None:
         "model": rows[0]["model"] if rows else "",
         "summary": summarize(rows),
         "tasks": {
-            r["task"]: {
+            # one entry per run (a --runs label keeps every run, not the last)
+            result_stem(r["task"], r.get("run", 1), r.get("group", "")): {
                 k: r[k]
                 for k in (
                     "outcome",

@@ -22,9 +22,10 @@
   "mean_recipes_read": 2.1,
   "mean_skills_read": 0.1,
   "mean_first_green_turn": 11.7,
+  "first_green_runs": 10,
   "t009_failures_total": 0,
-  "advanced_markers_total": 0,
-  "mean_tier_misses": 0.0,
+  "advanced_markers_total": 29,
+  "mean_tier_misses": 3.5,
   "tasks_that_created_a_dotenv": 0,
   "total_cost_usd": 3.04,
   "per_task": {
@@ -90,17 +91,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 4.0,
+        "max": 4.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 4.0,
+        "max": 4.0
       }
     },
     "t1_notes": {
@@ -165,17 +166,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 3.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 3.0,
+        "max": 3.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 4.0,
+        "max": 4.0
       }
     },
     "t2_welcome": {
@@ -240,17 +241,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 4.0,
+        "max": 4.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 5.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 5.0,
+        "max": 5.0
       }
     },
     "t3_quotas": {
@@ -315,17 +316,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 7.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 7.0,
+        "max": 7.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 6.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 6.0,
+        "max": 6.0
       }
     },
     "t4_resend_invitation": {
@@ -465,17 +466,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 1.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 1.0,
+        "max": 1.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 2.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 2.0,
+        "max": 2.0
       }
     },
     "t6_team_overview": {
@@ -540,17 +541,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 4.0,
+        "max": 4.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 8.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 8.0,
+        "max": 8.0
       }
     },
     "t7_credits_event_v2": {
@@ -615,17 +616,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 1.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 1.0,
+        "max": 1.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 1.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 1.0,
+        "max": 1.0
       }
     },
     "t8_purge_invitations": {
@@ -690,17 +691,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 4.0,
+        "max": 4.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 4.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 4.0,
+        "max": 4.0
       }
     },
     "t9_member_export": {
@@ -765,17 +766,17 @@
       },
       "advanced_markers": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 1.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 1.0,
+        "max": 1.0
       },
       "tier_misses": {
         "n": 1,
-        "mean": 0.0,
+        "mean": 1.0,
         "sd": null,
-        "min": 0.0,
-        "max": 0.0
+        "min": 1.0,
+        "max": 1.0
       }
     }
   }
