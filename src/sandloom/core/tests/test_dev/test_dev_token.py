@@ -30,6 +30,7 @@ import jwt
 import pytest
 
 from sandloom.core.auth import dev_token as kernel_mint
+from sandloom.core.auth import tokens as kernel_tokens
 from sandloom.core.cli import dev as dev_cli
 from sandloom.core.cli.dev import commands, identity, token
 
@@ -101,11 +102,71 @@ def test_a_database_on_this_machine_passes(url: str) -> None:
         "postgresql://u@127.0.0.1,db.example.com/db",
         "postgresql://u@db.example.com,127.0.0.1/db",
         "postgresql://u@localhost/db?host=/tmp,db.example.com",
+        # The driver's parser, not ours: a `/` or `#` in the "password" ends the
+        # authority for a hand-written split, and SQLAlchemy connects to the
+        # host after the last `@` (here db.prod.example.com).
+        "postgresql+asyncpg://localhost:pa/ss@db.prod.example.com/app",
+        "postgresql+asyncpg://localhost:pa#ss@db.prod.example.com/app",
+        "postgresql+asyncpg://127.0.0.1:pa?ss@db.prod.example.com/app",
+        "postgresql://u@127.0.0.1/db?host=db.example.com&host=127.0.0.1",
     ],
 )
 def test_a_database_that_is_not_this_machine_is_refused(url: str) -> None:
     why = token.local_refusal("dev", url)
     assert why is not None and "not this machine" in why
+
+
+NO_HOST_URL = "postgresql+asyncpg://u:p@/app"
+
+
+@pytest.mark.parametrize(
+    "pghost",
+    ["db.prod.example.com", "10.0.0.5", "127.0.0.1,db.example.com", "2001:db8::1"],
+)
+def test_a_url_without_a_host_is_refused_for_a_remote_pghost(pghost: str) -> None:
+    """The driver connects where ``PGHOST`` says when the url names no host."""
+    why = token.local_refusal("dev", NO_HOST_URL, pghost)
+    assert why is not None and "not this machine" in why
+
+
+@pytest.mark.parametrize(
+    "pghost", [None, "", "127.0.0.1", "localhost", "/var/run/postgresql", "::1"]
+)
+def test_a_url_without_a_host_passes_for_a_local_or_absent_pghost(
+    pghost: str | None,
+) -> None:
+    assert token.local_refusal("dev", NO_HOST_URL, pghost) is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        LOCAL_URL,
+        "postgresql+asyncpg://u:p@/app?host=/var/run/postgresql",
+        "sqlite+aiosqlite:///./dev.db",
+    ],
+)
+def test_pghost_is_read_only_for_a_postgresql_url_that_names_no_host(url: str) -> None:
+    """A url with a host (authority or query) or a file database never connects
+    through ``PGHOST``: a remote one in the shell must not refuse it."""
+    assert token.local_refusal("dev", url, "db.example.com") is None
+
+
+def test_a_url_with_an_empty_authority_connects_where_pghost_says() -> None:
+    """``postgresql+asyncpg:///app`` names no host either (no ``@``)."""
+    url = "postgresql+asyncpg:///app"
+    assert token.local_refusal("dev", url, "db.example.com") is not None
+    assert token.local_refusal("dev", url, "127.0.0.1") is None
+    assert token.local_refusal("dev", url, None) is None
+
+
+def test_the_raw_check_reads_pghost_from_the_process_environment() -> None:
+    base = {"ENVIRONMENT": "dev", "DATABASE_URL": NO_HOST_URL}
+    assert token.raw_refusal(base, "") is None
+    why = token.raw_refusal({**base, "PGHOST": "db.example.com"}, "")
+    assert why is not None and "not this machine" in why
+    # `.env` is not exported to the driver: only the process environment counts.
+    assert token.raw_refusal(base, _dotenv(PGHOST="db.example.com")) is None
 
 
 @pytest.mark.parametrize("url", [None, "", "not a url", "//127.0.0.1/db", "127.0.0.1"])
@@ -127,7 +188,12 @@ def test_the_environment_is_judged_before_the_database() -> None:
 
 
 def test_the_cli_and_the_kernel_mint_agree_on_the_dev_environments() -> None:
-    assert token.DEV_ENVIRONMENTS == kernel_mint.DEV_ENVIRONMENTS == ("dev", "test")
+    assert (
+        token.DEV_ENVIRONMENTS
+        == kernel_mint.DEV_ENVIRONMENTS
+        == kernel_tokens.DEV_ENVIRONMENTS
+        == ("dev", "test")
+    )
 
 
 # --- the raw values: the process environment, then .env -----------------------
@@ -150,6 +216,28 @@ def test_dotenv_alone_can_carry_both_values() -> None:
     assert token.raw_refusal({}, _dotenv(ENVIRONMENT="dev")) is not None  # no database
     assert token.raw_refusal({}, _dotenv(DATABASE_URL=LOCAL_URL)) is not None  # unset
     assert token.raw_refusal({}, "") is not None
+
+
+@pytest.mark.parametrize(
+    ("text", "refused"),
+    [
+        # `.env` names are read as the settings reader reads them: any case.
+        (f"environment=prod\nDATABASE_URL={LOCAL_URL}\n", True),
+        (f"Environment=prod\ndatabase_url={LOCAL_URL}\n", True),
+        ("ENVIRONMENT=dev\ndatabase_url=postgresql://u@db.example.com/x\n", True),
+        (f"environment=dev\nDatabase_Url={LOCAL_URL}\n", False),
+        # Both spellings: the refused value decides.
+        (f"ENVIRONMENT=dev\nenvironment=prod\nDATABASE_URL={LOCAL_URL}\n", True),
+        (f"environment=prod\nENVIRONMENT=dev\nDATABASE_URL={LOCAL_URL}\n", True),
+        # An entry with no value is no entry.
+        (f"ENVIRONMENT\nDATABASE_URL={LOCAL_URL}\n", True),
+        (f"ENVIRONMENT=dev\nDATABASE_URL\ndatabase_url={LOCAL_URL}\n", False),
+    ],
+)
+def test_dotenv_names_are_case_insensitive_as_the_settings_reader_is(
+    text: str, refused: bool
+) -> None:
+    assert (token.raw_refusal({}, text) is not None) is refused
 
 
 @pytest.mark.parametrize(
@@ -249,6 +337,7 @@ def environ(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "PYTHONSAFEPATH",
         "ENVIRONMENT",
         "DATABASE_URL",
+        "PGHOST",
         "JWT_SECRET",
         "JWT_PRIVATE_KEY",
         "JWT_PUBLIC_KEY",
@@ -294,6 +383,19 @@ def no_child(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         ({"DATABASE_URL": None}, "DATABASE_URL is not set"),
         ({"DATABASE_URL": "postgresql://u:pw@db.example.com/x"}, "not this machine"),
         ({"DATABASE_URL": "nonsense"}, "does not parse"),
+        (
+            {
+                "DATABASE_URL": "postgresql+asyncpg://localhost:pa/ss@db.prod.example.com/x"
+            },
+            "db.prod.example.com",
+        ),
+        (
+            {
+                "DATABASE_URL": "postgresql+asyncpg://u:pw@/x",
+                "PGHOST": "pg.example.com",
+            },
+            "pg.example.com",
+        ),
     ],
 )
 def test_a_refused_request_never_starts_the_app(
@@ -342,6 +444,19 @@ def test_ci_is_refused_before_anything(
     with pytest.raises(commands.DevError, match="CI is set"):
         token.run(_ctx(checkout, environ), token.Request())
     assert no_child == []
+
+
+@pytest.mark.parametrize(
+    ("value", "is_ci"),
+    [
+        *(("1", True), ("true", True), ("TRUE", True), ("yes", True), ("on", True)),
+        *(("0", False), ("false", False), ("no", False), ("off", False), ("", False)),
+    ],
+)
+def test_ci_means_a_true_value_as_the_docs_say(value: str, is_ci: bool) -> None:
+    """The docs, the ADR and the changelog say "CI set to a true value (`1`,
+    `true`, `yes` or `on`)": `CI=false` is a developer machine."""
+    assert commands.in_ci({"CI": value}) is is_ci
 
 
 def test_the_cli_refuses_in_ci_with_its_own_text(
@@ -402,6 +517,7 @@ def test_it_prints_a_token_the_app_signed_and_what_it_carries(
     assert claims["roles"] == ["admin", "viewer"]
     assert claims["tenant_ids"] == [str(tenant)]
     assert claims["claims_sources"] == ["identity", "tenancy"]
+    assert claims["dev_mint"] is True  # the marker a production verifier refuses
     assert claims["exp"] - claims["iat"] == 5 * 60
     summary = ctx.err.getvalue()
     assert str(token.DEV_USER_ID) in summary and str(tenant) in summary
@@ -479,6 +595,23 @@ def test_a_bare_app_gets_a_token_and_the_multi_tenancy_note(
     assert "TENANCY_MODE" not in single.err.getvalue()
 
 
+def test_a_single_tenant_app_gets_no_tenant_advice_even_with_a_tenant_authority(
+    checkout: Path, environ: dict[str, str]
+) -> None:
+    """The policy of ``checkout`` assigns tenant grants, so a multi-tenant app
+    is told to pass ``--tenant``; under ``TENANCY_MODE=single`` the configured
+    tenant binds for every token and that advice would mislead."""
+    multi = _ctx(checkout, {**environ, "TENANCY_MODE": "multi"})
+    token.run(multi, token.Request())
+    assert "no --tenant" in multi.err.getvalue()
+    single = _ctx(
+        checkout,
+        {**environ, "TENANCY_MODE": "single", "SINGLE_TENANT_ID": str(uuid4())},
+    )
+    token.run(single, token.Request())
+    assert "note:" not in single.err.getvalue()
+
+
 @pytest.mark.parametrize("ttl", [0, -5, kernel_mint.MAX_TTL_MINUTES + 1])
 def test_a_ttl_out_of_bounds_is_refused_by_the_mint(
     checkout: Path, environ: dict[str, str], ttl: int
@@ -532,6 +665,8 @@ def test_the_child_alone_mints_in_dev(checkout: Path, environ: dict[str, str]) -
         {"ENVIRONMENT": "Dev"},
         {"DATABASE_URL": "postgresql+asyncpg://u:pw@db.example.com:5432/x"},
         {"DATABASE_URL": "postgresql+asyncpg://u:pw@localhost/x?host=db.example.com"},
+        {"DATABASE_URL": "postgresql+asyncpg://localhost:pa/ss@db.prod.example.com/x"},
+        {"DATABASE_URL": "postgresql+asyncpg://u:pw@/x", "PGHOST": "pg.example.com"},
     ],
 )
 def test_the_child_refuses_on_its_own_loaded_settings(

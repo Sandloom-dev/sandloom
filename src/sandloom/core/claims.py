@@ -75,6 +75,12 @@ TENANT_SELECTORS: frozenset[str] = frozenset({"tenant_id", "org_id"})
 #: decision #10): ``{"v": 1, "k": {key: digest of (key, authority)}}``.
 CPV_CLAIM = "cpv"
 CPV_VERSION = 1
+#: The marker every token of ``sandloom dev token`` carries (sealed with the
+#: rest of its claims: no ``data=`` of a mint may name it). A verifier refuses
+#: a token that carries it unless ``ENVIRONMENT`` is ``dev`` or ``test``
+#: (``sandloom.core.auth.tokens``), so a development key reused in production
+#: signs nothing the production app accepts.
+DEV_MINT_CLAIM = "dev_mint"
 #: The key of a ``<m>.claims.v1`` answer naming the import path of the
 #: module that served it (the authority binding, ADR-0014 decision 4): the
 #: issuer refuses a remote authority whose service answers for another
@@ -311,10 +317,11 @@ def fail_safe_keys(keys: Iterable[str], what: str) -> frozenset[str]:
 # The sealed mint (ADR-0014 decision 5, owner answer #13)
 # ---------------------------------------------------------------------------
 
-#: Provenance and the policy marker: only the merge (``collect_claims``) or
-#: the kernel test authority writes them into a token.
+#: Provenance and the policy marker: only the merge (``collect_claims``), the
+#: kernel test authority or the development token writes them into a token
+#: (the last one alone writes :data:`DEV_MINT_CLAIM`).
 PROVENANCE_KEYS: frozenset[str] = frozenset(
-    {"claims_sources", "claims_sources_failed", CPV_CLAIM}
+    {"claims_sources", "claims_sources_failed", CPV_CLAIM, DEV_MINT_CLAIM}
 )
 #: The token envelope a minting caller may set in ``data``: the subject, the
 #: token type, the step-up instant and the registered claims

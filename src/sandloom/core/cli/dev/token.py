@@ -16,10 +16,20 @@ composition is read elsewhere in ``sandloom dev``):
 * ``ENVIRONMENT`` must be exactly ``dev`` or ``test``, exported or in ``.env``.
   Not set, ``prod``, a typo (``Dev``) and every other spelling are refused: the
   app itself runs as ``dev`` when it is not set, a minting tool must not guess;
-* ``DATABASE_URL`` must name this machine (loopback, ``localhost`` or a unix
-  socket). A copied production ``.env`` that still says ``ENVIRONMENT=dev``
-  carries a remote database, and its key would sign a token valid there;
-* not in CI.
+* every host of ``DATABASE_URL`` (read as SQLAlchemy reads it: its authority,
+  its ``host`` / ``hostaddr`` query parameters, and ``PGHOST`` when the url
+  names none) must be this machine: loopback, ``localhost`` or a unix socket;
+  a file database has no host and passes. A copied production ``.env`` that
+  still says ``ENVIRONMENT=dev`` carries a remote database, and this is the
+  early refusal of it. It is no protection for the key: the app's own verifier
+  refuses every token this command mints unless it too runs as ``dev`` or
+  ``test`` (the ``dev_mint`` marker, :mod:`sandloom.core.auth.dev_token`);
+* not with ``CI`` set to a true value (``1``, ``true``, ``yes`` or ``on``; the
+  same reading ``sandloom dev up`` gives it).
+
+``ENVIRONMENT``, ``DATABASE_URL`` and ``PGHOST`` are read raw here, not through
+``Settings``, on purpose: this gate runs before any code of the app is
+imported, and the loaded settings repeat it in the child process.
 
 No secret is read here, passed on or printed: the child process signs, and its
 stderr is shown only with ``--debug``, without urls.
@@ -35,7 +45,6 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from dotenv import dotenv_values
@@ -47,8 +56,8 @@ from sandloom.core.cli.url_text import drop_urls
 from sandloom.core.config.common import Environment
 
 #: The only values of ``ENVIRONMENT`` a dev token is minted under. The kernel's
-#: mint holds the same list (``sandloom.core.auth.dev_token.DEV_ENVIRONMENTS``;
-#: a test keeps the two equal).
+#: mint and verifier hold the same list
+#: (``sandloom.core.auth.tokens.DEV_ENVIRONMENTS``; a test keeps the two equal).
 DEV_ENVIRONMENTS: tuple[str, ...] = (Environment.dev.value, Environment.test.value)
 
 #: The stable subject of a dev token: what one token creates, the next finds.
@@ -79,34 +88,48 @@ def _local_host(host: str) -> bool:
         return False
 
 
-def database_hosts(url: str) -> list[str]:
-    """Every host ``url`` can connect to: those of its authority (a
-    ``h1:5432,h2:5432`` list included) and of its ``host`` / ``hostaddr``
-    query parameters. Empty for a file database or a default unix socket.
-    ``ValueError`` for a url that does not parse."""
-    parts = urlsplit(url)
-    if not parts.scheme:
-        raise ValueError("no scheme")
-    hosts: list[str] = []
-    for piece in parts.netloc.rpartition("@")[2].split(","):
-        piece = piece.strip()
-        if piece.startswith("["):
-            host = piece[1:].partition("]")[0]
-        else:
-            host = piece.partition(":")[0]
-        if host:
-            hosts.append(host)
-    query = parse_qs(parts.query)
-    for key in ("host", "hostaddr"):
-        for value in query.get(key, []):
-            hosts.extend(h.strip() for h in value.split(",") if h.strip())
+def _query_hosts(value: str | tuple[str, ...] | None) -> list[str]:
+    """The comma-separated hosts of one query parameter (a repeated parameter
+    is a tuple)."""
+    values = (value,) if isinstance(value, str) else (value or ())
+    return [host.strip() for text in values for host in text.split(",") if host.strip()]
+
+
+def database_hosts(url: str, pghost: str | None = None) -> list[str]:
+    """Every host the database driver can connect to for ``url``, read the way
+    SQLAlchemy reads it (never a second parser: a password holding ``/`` or
+    ``#`` puts the host elsewhere for a hand-written one): the host of its
+    authority (a comma list included) and its ``host`` / ``hostaddr`` query
+    parameters. A PostgreSQL url that names none connects where ``PGHOST``
+    says, so those hosts are ``pghost``'s. Empty for a file database or a
+    default unix socket. ``ValueError`` for a url that does not parse."""
+    from sqlalchemy.engine import make_url  # noqa: PLC0415 - cold: the CLI loads this module for every `sandloom dev` command; only a token run reads a database url
+    from sqlalchemy.exc import ArgumentError  # noqa: PLC0415 - cold: same
+
+    try:
+        parsed = make_url(url)
+    except (
+        ArgumentError,
+        ValueError,
+    ) as exc:  # a multi-host list with ports, no scheme
+        raise ValueError("does not parse") from exc
+    hosts = [
+        *_query_hosts(parsed.host),
+        *_query_hosts(parsed.query.get("host")),
+        *_query_hosts(parsed.query.get("hostaddr")),
+    ]
+    if not hosts and parsed.get_backend_name() == "postgresql":
+        hosts = _query_hosts(pghost)
     return hosts
 
 
-def local_refusal(environment: str | None, database_url: str | None) -> str | None:
+def local_refusal(
+    environment: str | None, database_url: str | None, pghost: str | None = None
+) -> str | None:
     """Why a dev token is not minted for this ``ENVIRONMENT`` and
-    ``DATABASE_URL``, or ``None``. One rule for the raw values (before the app
-    is imported) and for the loaded settings (in the child)."""
+    ``DATABASE_URL`` (``PGHOST`` is where a url with no host connects), or
+    ``None``. One rule for the raw values (before the app is imported) and
+    for the loaded settings (in the child)."""
     if not environment:
         return (
             "ENVIRONMENT is not set: `sandloom dev token` runs only with "
@@ -125,7 +148,7 @@ def local_refusal(environment: str | None, database_url: str | None) -> str | No
             "`uv run sandloom dev up` first"
         )
     try:
-        hosts = database_hosts(database_url)
+        hosts = database_hosts(database_url, pghost)
     except ValueError:
         return "DATABASE_URL does not parse as a url: fix it before minting a token"
     remote = [host for host in hosts if not _local_host(host)]
@@ -148,16 +171,20 @@ def _from_environ(environ: Mapping[str, str], name: str) -> list[str]:
 def _raw_setting(
     environ: Mapping[str, str], dotenv: Mapping[str, str | None], name: str
 ) -> str | None:
-    """``name`` as the app reads it: the environment, else ``.env``. When the
-    environment spells it in several cases, a value that would be refused wins
-    (the loaded settings decide in the child, this only refuses early)."""
-    exported = _from_environ(environ, name)
-    if exported:
-        bad = [
-            v for v in exported if name != "ENVIRONMENT" or v not in DEV_ENVIRONMENTS
-        ]
-        return (bad or exported)[0]
-    return dotenv.get(name)
+    """``name`` as the app reads it: the environment, else ``.env``, in either
+    place whatever the case of the name (the settings reader ignores case; an
+    entry with no value is no entry). When one place spells it in several
+    cases, a value that would be refused wins (the loaded settings decide in
+    the child, this only refuses early)."""
+    values = _from_environ(environ, name) or [
+        value
+        for key, value in dotenv.items()
+        if key.upper() == name and value is not None
+    ]
+    if not values:
+        return None
+    bad = [v for v in values if name != "ENVIRONMENT" or v not in DEV_ENVIRONMENTS]
+    return (bad or values)[0]
 
 
 def raw_refusal(environ: Mapping[str, str], dotenv_text: str) -> str | None:
@@ -167,6 +194,7 @@ def raw_refusal(environ: Mapping[str, str], dotenv_text: str) -> str | None:
     return local_refusal(
         _raw_setting(environ, dotenv, "ENVIRONMENT"),
         _raw_setting(environ, dotenv, "DATABASE_URL"),
+        environ.get("PGHOST"),
     )
 
 

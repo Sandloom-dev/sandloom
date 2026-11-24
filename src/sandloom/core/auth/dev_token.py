@@ -14,7 +14,14 @@ is a forgery of provenance by design, and the reason for every refusal below:
   unassigned key would be dropped by the app's trusted view, so asking for it
   is an error, never a token that looks fine and answers 403;
 * it signs with the app's own key (``JWT_SECRET`` or the asymmetric
-  ``JWT_PRIVATE_KEY``) and never returns or names it.
+  ``JWT_PRIVATE_KEY``) and never returns or names it;
+* every token it mints carries the sealed marker ``dev_mint``
+  (:data:`~sandloom.core.claims.DEV_MINT_CLAIM`), and the verifier
+  (:func:`sandloom.core.auth.tokens.decode_token`) refuses that marker unless
+  its own ``ENVIRONMENT`` is ``dev`` or ``test``. This is what keeps a
+  production app from accepting a token minted with its key on a developer
+  machine (a copied production ``.env`` with ``ENVIRONMENT=dev`` passes the
+  checks of the command; the key it holds is not protected by them).
 
 Not a replacement for an issuer: the subject has no account, so a route that
 reads one (identity's ``/auth/me``) answers as it does for an unknown user.
@@ -28,14 +35,16 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from sandloom.core.auth.tokens import create_access_token
-from sandloom.core.claims import CPV_CLAIM, CPV_VERSION, ClaimAuthorities, _seal_claims
-from sandloom.core.config.common import Environment
+from sandloom.core.auth.tokens import DEV_ENVIRONMENTS, create_access_token
+from sandloom.core.claims import (
+    CPV_CLAIM,
+    CPV_VERSION,
+    DEV_MINT_CLAIM,
+    ClaimAuthorities,
+    _seal_claims,
+)
 from sandloom.core.config.settings import settings
 
-#: The environments a dev token may be minted in. An allow-list: every other
-#: value (``prod`` today, a new environment tomorrow) is refused.
-DEV_ENVIRONMENTS: tuple[str, ...] = (Environment.dev.value, Environment.test.value)
 #: A token lives one hour unless asked otherwise; never longer than a day.
 DEFAULT_TTL_MINUTES = 60
 MAX_TTL_MINUTES = 24 * 60
@@ -132,6 +141,7 @@ def mint_dev_token(
         claims["tenant_ids"] = [str(tenant_id)]
     claims["claims_sources"] = sorted(sources)
     claims["claims_sources_failed"] = []
+    claims[DEV_MINT_CLAIM] = True
     # What an issuer holding the whole map stamps: the digest of every key's
     # current authority, so a key the token does not carry reads as a definite
     # deny (403), never as "refresh" (401 token_policy_outdated).

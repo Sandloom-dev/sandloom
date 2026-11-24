@@ -1,6 +1,6 @@
 ---
 title: Get your first access token
-description: Call your own route in the first hour - register and verify with the printed link, or print a development token with one command.
+description: Call your own route in the first hour - print a development token with one command, or register and verify with the printed link.
 type: how-to
 ---
 
@@ -9,15 +9,11 @@ type: how-to
 Two ways to a bearer token for your own routes, both without an email account
 or a mail server:
 
+- **`sandloom dev token`.** One command prints a token the app accepts, for
+  development and tests of your routes. It never runs in production.
 - **The real flow.** Register, verify the email with the link the app prints,
   sign in, refresh after creating an organization. It is the flow your users
   take, so do it once.
-- **`sandloom dev token`.** One command prints a token the app accepts, for
-  development and tests of your routes. It never runs in production.
-
-The identity battery requires a verified email before password login. In
-development the app prints the links of the emails it sends instead of mailing
-them. The verification link is in the terminal where `sandloom dev run` runs.
 
 ## Create the application
 
@@ -36,7 +32,105 @@ prints each email's links, marked `[dev only]`. Production refuses that
 setting. When you want a real inbox, configure a notification driver as
 [Notifications](../../infrastructure/notifications.md) describes.
 
-## Register and verify
+## A token in one command
+
+With the API running (`uv run sandloom dev run` in another terminal), pick any
+tenant id and ask for a token that grants it:
+
+```bash
+TOKEN=$(uv run sandloom dev token --tenant 00000000-0000-4000-8000-000000000001)
+curl --fail-with-body http://127.0.0.1:8000/api/v1/notes/items \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+That is the whole path: no registration, no organization, no email. The token
+goes to standard output and nothing else does, so it fits in `$(...)`. What it
+carries goes to standard error: the subject, the tenant, the roles and how long
+it lives.
+
+A tenant-scoped route of your application trusts the tenant the token grants.
+It does not look for a membership. Tenancy's own organization routes
+(`/api/v1/orgs/...`) check membership live. A tenant made up this way is not an
+organization there, so they do not list or open it. To act in an organization
+you created through the real flow below, pass its id instead of this one.
+
+| Flag | What it does |
+|---|---|
+| `--tenant UUID` | grants that tenant, the way a tenancy membership would |
+| `--role NAME` | carries a role; repeat it for several (at most 16) |
+| `--user UUID` | the subject; the default is one fixed development user |
+| `--ttl-minutes N` | how long it lives: 60 by default, 1 to 1440 |
+| `--quiet` | prints the token only |
+
+The app accepts the token as it accepts one it issued itself. The app's own key
+signs it. It also carries the proof of origin that the app's claim policy asks
+for ([ADR-0014](../../adr/0014-claims-trust-and-authorization-portability.md)).
+Its role and tenant claims therefore count. A JWT you sign by hand has no such
+proof; the app drops its roles and tenants.
+
+For that reason the command grants a role or a tenant only when a module of
+your application vouches for it, as identity and tenancy do. Asking for one that
+no module vouches for is an error that names the missing assignment. It is not a
+token that answers `403`.
+
+The token has no account behind it, so a route that reads the account, such as
+`/auth/me`, answers as it does for an unknown user. It carries no permissions.
+
+### When the command refuses
+
+It runs only on a developer machine, and it says why when it does not:
+
+- `ENVIRONMENT` must be `dev` or `test`, written exactly so in the environment
+  or in `.env`. `prod` and a typo such as `Dev` are refused. So is a missing
+  value: the app runs as `dev` then, but a command that signs a credential does
+  not guess.
+- `DATABASE_URL` must point at this machine. A unix socket and a file database
+  count as this machine. Every host the url can reach is checked: the one in its
+  address and those of its `host` and `hostaddr` parameters. When a PostgreSQL
+  url names no host, `PGHOST` is checked instead. A `.env` copied from production that still says
+  `ENVIRONMENT=dev` is refused for its remote database. No flag overrides
+  this. The check covers `DATABASE_URL` only, not the urls under `INFRA`.
+- `CI` must not be set to a true value (`1`, `true`, `yes` or `on`). A test mints
+  its own tokens with `as_user` ([testing](../../reference/testing.md)).
+
+Those checks do not protect a key. Every token the command mints carries a
+`dev_mint` marker. An app refuses that marker unless its own `ENVIRONMENT` is
+`dev` or `test`. A token minted on a machine that holds a production key
+therefore answers `401` on production, whatever role and tenant it names. A
+holder of a signing key can still sign anything, so keep production secrets out
+of a development checkout.
+
+The signing key is never printed. When the app's settings or its composition
+root do not load, the command says so. It leaves out the settings' own error
+text, which can echo the value that failed. `uv run sandloom --debug dev token`
+adds the last error line of the failed process, without urls.
+
+### An application without batteries
+
+`sandloom new --no-batteries` composes no identity and no tenancy, so no module
+vouches for a role or a tenant: `--role` and `--tenant` are refused. A token
+without flags is still a valid login for routes that need nothing more.
+
+A tenant-scoped route, such as the generated module's, still has to know the
+tenant. With the default `TENANCY_MODE=multi` nothing can bind one for any
+token. Such a route answers `400 tenant_required`. When the request names a
+tenant in `X-Tenant-Id` it answers `403 tenant_not_authorized`, since no token
+lists one. For a first try set one tenant in `.env`:
+
+```dotenv
+TENANCY_MODE=single
+SINGLE_TENANT_ID=00000000-0000-4000-8000-000000000001
+```
+
+Restart `uv run sandloom dev run`, and `uv run sandloom dev token` is enough.
+
+## The real flow
+
+The identity battery requires a verified email before password login. In
+development the app prints the links of the emails it sends instead of mailing
+them. The verification link is in the terminal where `sandloom dev run` runs.
+
+### Register and verify
 
 Start the API with `uv run sandloom dev run` and open its interactive API
 documentation at the address it prints, `http://127.0.0.1:8000/docs` when that
@@ -72,7 +166,7 @@ restart the API and execute **POST `/auth/resend-verification`** with
 `{"email": "alice@example.com"}`. It returns `204` and prints a fresh link for
 an unverified account.
 
-## Sign in
+### Sign in
 
 Execute **POST `/auth/login`** with the same address and password:
 
@@ -87,7 +181,7 @@ In Swagger UI, click **Authorize** and paste the access token into the
 bearer-token field. **GET `/auth/me`** should now return your account.
 Application module routes authenticate the same way.
 
-## Refresh after creating an organization
+### Refresh after creating an organization
 
 With the access token authorized, execute **POST `/api/v1/orgs`**:
 
@@ -129,78 +223,6 @@ with that `X-Tenant-Id` returns `403 tenant_not_authorized`. Its `detail` says
 to refresh the access token or log in again. This does not mean organization
 creation failed. Accepting an invitation requires the same refresh. Refresh
 tokens rotate, so subsequent refreshes use the newest one.
-
-## A token in one command
-
-```bash
-TOKEN=$(uv run sandloom dev token --tenant "$ORG_ID")
-curl --fail-with-body http://127.0.0.1:8000/api/v1/notes/items \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-The token goes to standard output and nothing else does, so it fits in `$(...)`.
-What it carries goes to standard error: the subject, the tenant, the roles and
-how long it lives.
-
-| Flag | What it does |
-|---|---|
-| `--tenant UUID` | grants that organization, the way a tenancy membership would |
-| `--role NAME` | carries a role; repeat it for several (at most 16) |
-| `--user UUID` | the subject; the default is one fixed development user |
-| `--ttl-minutes N` | how long it lives: 60 by default, 1 to 1440 |
-| `--quiet` | prints the token only |
-
-The app accepts the token as it accepts one it issued itself. The app's own key
-signs it. It also carries the proof of origin that the app's claim policy asks
-for ([ADR-0014](../../adr/0014-claims-trust-and-authorization-portability.md)).
-Its role and tenant claims therefore count. A JWT you sign by hand has no such
-proof; the app drops its roles and tenants.
-
-For that reason the command grants a role or a tenant only when a module of
-your application vouches for it, as identity and tenancy do. Asking for one that
-no module vouches for is an error that names the missing assignment. It is not a
-token that answers `403`.
-
-The token has no account behind it, so a route that reads the account, such as
-`/auth/me`, answers as it does for an unknown user. It carries no permissions.
-
-### When the command refuses
-
-It runs only on a developer machine, and it says why when it does not:
-
-- `ENVIRONMENT` must be `dev` or `test`, written exactly so in the environment
-  or in `.env`. `prod` and a typo such as `Dev` are refused. So is a missing
-  value: the app runs as `dev` then, but a command that signs a credential does
-  not guess.
-- `DATABASE_URL` must point at this machine, which includes a unix socket and a
-  file database. A `.env` copied from production that still says
-  `ENVIRONMENT=dev` is refused for its remote database. No flag overrides
-  this. The check covers `DATABASE_URL` only, not the urls under `INFRA`.
-- `CI` must not be set. A test mints its own tokens with `as_user`
-  ([testing](../../reference/testing.md)).
-
-The signing key is never printed. When the app's settings or its composition
-root do not load, the command says so. It leaves out the settings' own error
-text, which can echo the value that failed. `uv run sandloom --debug dev token`
-adds the last error line of the failed process, without urls.
-
-### An application without batteries
-
-`sandloom new --no-batteries` composes no identity and no tenancy, so no module
-vouches for a role or a tenant: `--role` and `--tenant` are refused. A token
-without flags is still a valid login for routes that need nothing more.
-
-A tenant-scoped route, such as the generated module's, still has to know the
-tenant. With the default `TENANCY_MODE=multi` nothing can bind one for any
-token, so such a route answers `400 tenant_required`. For a first try set one
-tenant in `.env`:
-
-```dotenv
-TENANCY_MODE=single
-SINGLE_TENANT_ID=00000000-0000-4000-8000-000000000001
-```
-
-Restart `uv run sandloom dev run`, and `uv run sandloom dev token` is enough.
 
 Next: [tenant boundaries and membership rules](tenancy.md),
 [identity's security behavior](identity.md) and

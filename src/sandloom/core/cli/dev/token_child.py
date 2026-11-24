@@ -6,8 +6,8 @@ the app's package is the checkout's and nothing of it, settings included, is
 imported into the CLI. In order:
 
 1. load the app's settings and apply the dev-only rule to them again (the
-   parent checked the raw ``ENVIRONMENT`` / ``DATABASE_URL``; this is the
-   value the app would run with, ``SECRETS_DIR`` included);
+   parent checked the raw ``ENVIRONMENT`` / ``DATABASE_URL`` / ``PGHOST``;
+   this is the value the app would run with, ``SECRETS_DIR`` included);
 2. import the composition root, which composes the modules and so assigns the
    claim authorities;
 3. mint (:func:`sandloom.core.auth.dev_token.mint_dev_token`, which checks the
@@ -66,13 +66,16 @@ def _notes(minted: DevToken, *, tenancy_mode: str, tenant_authority: bool) -> li
     """What the developer is about to run into with this token."""
     if minted.tenant_id is not None:
         return []
+    if tenancy_mode == "single":
+        # The configured tenant binds for every token; `--tenant` would only
+        # have to match it (403 tenant_mismatch otherwise), a module granting
+        # tenants or not.
+        return []
     if tenant_authority:
         return [
             "no --tenant: a tenant-scoped route answers 400 tenant_required; "
             "pass --tenant <uuid> for the tenant to act in"
         ]
-    if tenancy_mode == "single":
-        return []
     return [
         "TENANCY_MODE=multi and no composed module grants a tenant: a "
         "tenant-scoped route cannot bind one for any token. For a first try set "
@@ -94,7 +97,9 @@ def main(argv: Sequence[str]) -> int:
             "the app's settings do not load: run `uv run sandloom config dump` "
             "to see which setting is wrong"
         )
-    problem = _token.local_refusal(loaded.environment.value, loaded.database_url)
+    problem = _token.local_refusal(
+        loaded.environment.value, loaded.database_url, os.environ.get("PGHOST")
+    )
     if problem is not None:
         return _refuse(problem)
     try:

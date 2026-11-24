@@ -5,6 +5,11 @@ through the real gates of the claim-policy matrix (``Role``, ``TenantScope``;
 ``test_claims_split_matrix``) on a verifier composed with a real
 ``claim_authorities`` map. The refusals are checked against the loaded settings
 (``ENVIRONMENT``), the policy (a claim nobody is assigned) and the bounds.
+
+The last section is the verifier's side of the sealed ``dev_mint`` marker:
+a verifier that is not running dev or test refuses every token that carries it,
+which is what keeps a production app from accepting a token minted with its key
+on a developer machine.
 """
 
 from __future__ import annotations
@@ -18,13 +23,19 @@ import pytest
 
 from sandloom.core.auth import dev_token as dt
 from sandloom.core.auth import tokens
-from sandloom.core.claims import NO_AUTHORITIES, ClaimAuthorities
+from sandloom.core.claims import (
+    DEV_MINT_CLAIM,
+    NO_AUTHORITIES,
+    ClaimAuthorities,
+    UnsealedClaimsError,
+)
 from sandloom.core.config.common import Environment
 from sandloom.core.config.settings import settings
 from sandloom.core.tests import test_auth_rotation_revocation as _revocation
 from sandloom.core.tests._entry_points_support import installed_entry_points
 from sandloom.core.tests.test_claims_split_matrix import (
     ACME,
+    ALL_401,
     ID,
     OK,
     ROLES_401,
@@ -273,3 +284,110 @@ def test_no_output_names_the_signing_secret(monkeypatch: pytest.MonkeyPatch) -> 
 def test_the_token_is_not_in_the_repr() -> None:
     minted = _mint(NO_AUTHORITIES)
     assert minted.token not in repr(minted)
+
+
+# --- the sealed marker: a verifier outside dev and test refuses a dev token -------
+NON_DEV = [env for env in Environment if env.value not in dt.DEV_ENVIRONMENTS]
+
+
+def _marked(value: Any) -> str:
+    """A token signed with the app's key whose only dev-token trait is the
+    marker (with ``value``): only the marker can decide what a verifier does."""
+    claims = {"sub": str(uuid4()), "token_type": "access", DEV_MINT_CLAIM: value}
+    return tokens._mint(claims, None, None)
+
+
+def test_the_verifier_and_the_mint_share_the_dev_environments() -> None:
+    assert dt.DEV_ENVIRONMENTS is tokens.DEV_ENVIRONMENTS
+    assert tokens.DEV_ENVIRONMENTS == ("dev", "test")
+    assert Environment.prod in NON_DEV  # the refusal rows below are not empty
+
+
+def test_every_dev_token_carries_the_marker() -> None:
+    policy = verifier(roles_map(ID)).claim_authorities
+    for minted in (
+        _mint(NO_AUTHORITIES),
+        _mint(policy, roles=["admin"]),
+        _mint(policy, tenant_id=uuid4(), roles=["admin"], ttl_minutes=1),
+    ):
+        assert _claims(minted)[DEV_MINT_CLAIM] is True
+
+
+@pytest.mark.parametrize(
+    "mint", [tokens.create_access_token, tokens.create_service_token]
+)
+def test_no_mint_takes_the_marker_from_its_caller(mint: Any) -> None:
+    """Sealed like ``cpv``: only the dev token's sealed result writes it, so a
+    verifier's refusal is never triggered (or dodged) through ``data=``."""
+    with pytest.raises(UnsealedClaimsError, match=DEV_MINT_CLAIM):
+        mint({"sub": str(uuid4()), "token_type": "access", DEV_MINT_CLAIM: True})
+
+
+@pytest.mark.parametrize("env", [Environment.dev, Environment.test])
+def test_a_dev_or_test_verifier_accepts_a_dev_token(
+    env: Environment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    minted = _mint(NO_AUTHORITIES)
+    monkeypatch.setattr(settings, "environment", env)
+    claims = tokens.decode_token(minted.token)
+    assert claims is not None
+    assert claims["sub"] == str(minted.user_id)
+    assert claims[DEV_MINT_CLAIM] is True
+
+
+@pytest.mark.parametrize("env", NON_DEV)
+def test_a_verifier_in_any_other_environment_refuses_a_dev_token(
+    env: Environment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Minted where a dev token may be, presented to a verifier that holds the
+    same key but runs as another environment: a copied production ``.env``."""
+    minted = _mint(NO_AUTHORITIES)
+    monkeypatch.setattr(settings, "environment", env)
+    assert tokens.decode_token(minted.token) is None
+
+
+@pytest.mark.asyncio
+async def test_a_production_app_answers_401_at_every_gate_whatever_the_token_names(
+    mem_cache: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = verifier(roles_map(ID))
+    token = _mint(core.claim_authorities, tenant_id=uuid4(), roles=["admin"]).token
+    assert await statuses(core, token) == {**OK, "/perm": 403}  # dev: it works
+    monkeypatch.setattr(settings, "environment", Environment.prod)
+    # prod: the same token is nobody. The role gates answer 401; `TenantScope`
+    # binds no tenant for it (400 tenant_required, as for no token at all).
+    assert await statuses(core, token) == {**ALL_401, "/tenant": 400}
+
+
+def test_the_verification_cache_is_keyed_on_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A token verified (and cached) under dev is not served from the cache to
+    a verifier that has since become prod, and is accepted again under dev."""
+    minted = _mint(NO_AUTHORITIES)
+    assert tokens.decode_token(minted.token) is not None
+    assert tokens.decode_token(minted.token) is not None  # the cached answer
+    monkeypatch.setattr(settings, "environment", Environment.prod)
+    assert tokens.decode_token(minted.token) is None
+    monkeypatch.setattr(settings, "environment", Environment.dev)
+    assert tokens.decode_token(minted.token) is not None
+
+
+def test_a_token_without_the_marker_is_unaffected_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal is the marker's, not a production rule on every token."""
+    plain = tokens.create_service_token({"sub": str(uuid4()), "token_type": "access"})
+    monkeypatch.setattr(settings, "environment", Environment.prod)
+    assert tokens.decode_token(plain) is not None
+
+
+@pytest.mark.parametrize("value", [True, False, None, 0, "", "no"])
+def test_the_marker_refuses_whatever_its_value(
+    value: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Presence decides, not truthiness: no spelling of the claim slips through."""
+    token = _marked(value)
+    assert tokens.decode_token(token) is not None  # dev/test: a plain token
+    monkeypatch.setattr(settings, "environment", Environment.prod)
+    assert tokens.decode_token(token) is None
