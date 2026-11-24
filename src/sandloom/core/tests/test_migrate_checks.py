@@ -115,7 +115,25 @@ def _forget(prefix: str) -> None:
         del sys.modules[name]
 
 
-def test_import_models_walks_every_module_below_the_package(
+class _ReachedConfig(Exception):
+    """``run_migrations`` imports the models first, then reads the alembic config."""
+
+
+class _ContextStoppingAtConfig:
+    @property
+    def config(self) -> Any:
+        raise _ReachedConfig
+
+
+def _import_the_models_of(monkeypatch: pytest.MonkeyPatch, *model_modules: str) -> None:
+    """Run the model-import step of ``run_migrations``, stopped before it needs
+    a database."""
+    monkeypatch.setattr(alembic_support, "context", _ContextStoppingAtConfig())
+    with pytest.raises(_ReachedConfig):
+        alembic_support.run_migrations(model_modules=model_modules)
+
+
+def test_the_runner_walks_every_module_below_the_models_package(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``models/__init__.py`` imports nothing; a model file anywhere below it
@@ -128,23 +146,28 @@ def test_import_models_walks_every_module_below_the_package(
     (models / "nested" / "deep.py").write_text("")
     monkeypatch.syspath_prepend(str(tmp_path))
     try:
-        alembic_support._import_models("walkedpkg.models")
+        _import_the_models_of(monkeypatch, "walkedpkg.models")
         assert "walkedpkg.models.item" in sys.modules
         assert "walkedpkg.models.nested.deep" in sys.modules
     finally:
         _forget("walkedpkg")
 
 
-def test_import_models_takes_a_plain_module(
+def test_the_runner_takes_a_plain_models_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "plainmodels.py").write_text("")
     monkeypatch.syspath_prepend(str(tmp_path))
     try:
-        alembic_support._import_models("plainmodels")
+        _import_the_models_of(monkeypatch, "plainmodels")
         assert "plainmodels" in sys.modules
     finally:
         _forget("plainmodels")
+
+
+def test_a_missing_models_module_still_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ModuleNotFoundError):
+        _import_the_models_of(monkeypatch, "sandloom_no_such_models")
 
 
 # --------------------------------------------------------------------------- #

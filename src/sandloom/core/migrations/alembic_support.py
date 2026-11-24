@@ -35,7 +35,6 @@ a shared ``alembic_version`` table.
 from __future__ import annotations
 
 import importlib
-import importlib.util
 import json
 import os
 import pkgutil
@@ -43,6 +42,7 @@ import re
 from collections.abc import Callable, Iterable, Sequence
 from logging.config import fileConfig
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Literal
 
 from alembic import context
@@ -103,26 +103,20 @@ def _resolve_sync_url(configured: str | None) -> str:
     return to_sync_url(settings.database_url)
 
 
-def _model_module_names(model_modules: Sequence[str]) -> list[str]:
-    """Each of ``model_modules`` and, when it is a package, every module below
-    it, in order: a ``models/<x>.py`` registers its tables whether or not
-    ``models/__init__.py`` imports it (``define_module`` walks the package the
-    same way), so a new model file joins the chain without an import loop in
-    ``__init__``. Only names: the caller imports them."""
-    names: list[str] = []
-    for name in model_modules:
-        spec = importlib.util.find_spec(name)
-        if spec is None:
-            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
-        names.append(name)
-        if spec.submodule_search_locations is not None:
-            names += sorted(
-                info.name
-                for info in pkgutil.walk_packages(
-                    spec.submodule_search_locations, prefix=f"{name}."
-                )
-            )
-    return names
+def _submodule_names(package: ModuleType) -> list[str]:
+    """Every module below ``package``, in order, or none for a plain module: a
+    ``models/<x>.py`` registers its tables whether or not ``models/__init__.py``
+    imports it (``define_module`` walks the package the same way), so a new
+    model file joins the chain without an import loop in ``__init__``. Only
+    names: ``run_migrations`` imports them."""
+    spec = package.__spec__
+    locations = spec.submodule_search_locations if spec is not None else None
+    if locations is None:
+        return []
+    return sorted(
+        info.name
+        for info in pkgutil.walk_packages(locations, prefix=f"{package.__name__}.")
+    )
 
 
 def _tenant_rls_enabled(url: str) -> bool:
@@ -158,6 +152,25 @@ def _drop_empty_autogenerate(
     return hook
 
 
+def _run_chain_transaction(connection: Connection, url: str) -> None:
+    """Run the configured chain in one transaction on ``connection``."""
+    with context.begin_transaction():
+        lock = _direct_run_lock(connection, url)
+        if lock is not None:
+            # Direct ``alembic upgrade`` (outside sandloom-migrate's
+            # run-wide lock): serialise concurrent runners for the
+            # duration of this chain's transaction.
+            connection.execute(lock.statement, lock.parameters)
+        # After the advisory lock: the wait for it is the runner's own
+        # (MIGRATION_LOCK_TIMEOUT_SECONDS), not a table lock.
+        _bound_ddl_waits(connection)
+        try:
+            context.run_migrations()
+        except DBAPIError as exc:
+            _name_the_timeout_setting(exc)
+            raise
+
+
 def run_migrations(
     table_names: Iterable[str] = (),
     model_modules: Sequence[str] = (),
@@ -183,8 +196,9 @@ def run_migrations(
     attached to them) via ``include_object``; at upgrade time the filter is a
     no-op (the migration ops run as written).
     """
-    for name in _model_module_names(model_modules):
-        importlib.import_module(name)
+    for mod in model_modules:
+        for name in _submodule_names(importlib.import_module(mod)):
+            importlib.import_module(name)
 
     owned = frozenset(table_names)
     config = context.config
@@ -246,21 +260,7 @@ def run_migrations(
                 process_revision_directives=_drop_empty_autogenerate(config),
                 **COMPARE_OPTIONS,
             )
-            with context.begin_transaction():
-                lock = _direct_run_lock(connection, url)
-                if lock is not None:
-                    # Direct ``alembic upgrade`` (outside sandloom-migrate's
-                    # run-wide lock): serialise concurrent runners for the
-                    # duration of this chain's transaction.
-                    connection.execute(lock.statement, lock.parameters)
-                # After the advisory lock: the wait for it is the runner's own
-                # (MIGRATION_LOCK_TIMEOUT_SECONDS), not a table lock.
-                _bound_ddl_waits(connection)
-                try:
-                    context.run_migrations()
-                except DBAPIError as exc:
-                    _name_the_timeout_setting(exc)
-                    raise
+            _run_chain_transaction(connection, url)
     finally:
         connectable.dispose()
 
