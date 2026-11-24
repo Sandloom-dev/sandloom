@@ -376,6 +376,53 @@ class Projection:
             token_entries=self.token_entries,
         )
 
+    def view(
+        self,
+        row: type[R],
+        *,
+        on_stale: Literal["serve", "source"] = "serve",
+        wait_ms: int | None = None,
+    ) -> params.Depends:
+        """The dependency resolving a :class:`ProjectionView` of THIS projection::
+
+            BoardView = Annotated[ProjectionView[BoardOut], BOARD.view(BoardOut)]
+
+            async def list_boards(boards: BoardView) -> Page[BoardOut]: ...
+
+        It binds the object, never a name: a typo is a ``NameError`` at import,
+        and a module reads only a projection it can import (another module's
+        data reaches it through events and contracts). The row type stays in
+        the annotation too, because a type checker needs it and FastAPI hands
+        the dependency no annotation.
+        """
+        if on_stale not in ("serve", "source"):
+            self._fail(
+                f"view(on_stale={on_stale!r}) is not 'serve' or 'source'",
+                'on_stale="serve" (default) or on_stale="source"',
+            )
+        if wait_ms is not None and wait_ms < 0:
+            self._fail(
+                f"view(wait_ms={wait_ms!r}) is negative",
+                "wait_ms=None (the PROJECTION_RYW_WAIT_MS default) or a "
+                "number of milliseconds >= 0",
+            )
+        projection = self
+
+        async def projection_view(
+            session: DbSession, request: Request, response: Response
+        ) -> ProjectionView[R]:
+            return ProjectionView(
+                projection,
+                row,
+                session,
+                on_stale=on_stale,
+                wait_ms=wait_ms,
+                token=read_token(request.headers.get(CONSISTENCY_HEADER)),
+                response=response,
+            )
+
+        return params.Depends(projection_view)
+
     def _has_tombstones(self) -> bool:
         return any(
             mapper.kind == "tombstone"
@@ -764,16 +811,9 @@ class ProjectionRebuilderFromContract:
 # Reading
 # --------------------------------------------------------------------------- #
 
-_PROJECTIONS: dict[str, Projection] = {}
-
-
-def register_view_source(projection: Projection) -> None:
-    """Make ``projection`` readable through ``View(name, ...)`` (discovery)."""
-    _PROJECTIONS[projection.name] = projection
-
 
 class ProjectionView(Generic[R]):
-    """Reads one projection (``Annotated[ProjectionView[R], View(...)]``).
+    """Reads one projection (``Annotated[ProjectionView[R], PROJECTION.view(R)]``).
 
     Rows whose tombstone is set are never returned. With a consistency token
     (``SANDLOOM-Consistency-Token``) a read waits up to ``wait_ms`` for the rows
@@ -1035,37 +1075,6 @@ def _decode_cursor(cursor: str | None) -> int:
     return offset
 
 
-def View(
-    name: str,
-    row: type[R],
-    *,
-    on_stale: Literal["serve", "source"] = "serve",
-    wait_ms: int | None = None,
-) -> params.Depends:
-    """The dependency resolving a ``ProjectionView`` of projection ``name``::
-
-    tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
-    """
-
-    async def projection_view(
-        session: DbSession, request: Request, response: Response
-    ) -> ProjectionView[R]:
-        projection = _PROJECTIONS.get(name)
-        if projection is None:
-            raise LookupError(f"no projection {name!r} is registered")
-        return ProjectionView(
-            projection,
-            row,
-            session,
-            on_stale=on_stale,
-            wait_ms=wait_ms,
-            token=read_token(request.headers.get(CONSISTENCY_HEADER)),
-            response=response,
-        )
-
-    return params.Depends(projection_view)
-
-
 def projection_of(value: Any) -> Projection | None:
     return value if isinstance(value, Projection) else None
 
@@ -1077,10 +1086,8 @@ __all__ = [
     "ProjectionRebuilderFromContract",
     "ProjectionView",
     "SourceGroup",
-    "View",
     "delta",
     "full_state",
     "projection_of",
-    "register_view_source",
     "tombstone",
 ]

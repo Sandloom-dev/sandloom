@@ -1,6 +1,6 @@
 ---
 name: sandloom-quality-gates
-description: Run every gate of this Sandloom app (tests, lint, format, types, sandloom check, generated files, migration drift) and fix failures. Use before declaring a change done, or when asked to "check", "verify" or "run the tests".
+description: Use when you are about to declare a change done in this Sandloom app, when asked to "check", "verify" or "run the tests", or when a gate fails and you need its code. It runs every gate (tests, lint, format, types, sandloom check, generated files, migration drift) and fixes the failures.
 ---
 
 # Quality gates of <app>

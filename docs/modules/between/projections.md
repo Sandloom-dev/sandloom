@@ -1,6 +1,6 @@
 ---
 title: Projections
-description: Cross-module read models built from events - source groups, version guards, field ownership, tombstones and View.
+description: Cross-module read models built from events - source groups, version guards, field ownership, tombstones and `Projection.view`.
 type: concept
 ---
 
@@ -26,7 +26,7 @@ of truth.
 | Refusal at startup when two groups write one column, a key is not tenant-first, or a delta is unsafe | per group: `owns=(...)`, and each event's mapper (`full_state`, `delta`, `tombstone`) |
 | The tenant bound from the event's `tenant_id` and checked against the row | a `tenant_id: UUID` field on every source event |
 | Tombstones that reads filter out | a nullable `deleted_at` column (or `deleted_column=`) when a group has `tombstone` events |
-| A tenant-scoped, paginated read dependency that hides tombstones | `Annotated[ProjectionView[Row], View("<name>", Row)]` |
+| A tenant-scoped, paginated read dependency that hides tombstones | `Annotated[ProjectionView[Row], PROJECTION.view(Row)]` |
 | A rebuild path through the source's read contract | `rebuild_from=<caller>.<read method>` |
 
 ## How to use it
@@ -141,15 +141,21 @@ migration. See [Add a projection](add-projection.md).
 ```python
 from typing import Annotated
 from sandloom.sdk.data import Page
-from sandloom.sdk.projections import ProjectionView, View  # sandloom: advanced the read side of a route
+from sandloom.sdk.projections import ProjectionView  # sandloom: advanced the read side of a route
+
+from notes.projections import BOARD
+
+BoardView = Annotated[ProjectionView[BoardOut], BOARD.view(BoardOut)]
 
 @router.get("/boards")
-async def list_boards(
-    boards: Annotated[ProjectionView[BoardOut], View("notes.board", BoardOut)],
-    cursor: str | None = None,
-) -> Page[BoardOut]:
+async def list_boards(boards: BoardView, cursor: str | None = None) -> Page[BoardOut]:
     return await boards.query(limit=50, cursor=cursor)
 ```
+
+`BOARD.view(Row, *, on_stale="serve", wait_ms=None)` binds the projection
+object, never a name. A typo fails when the file is imported. A module can
+read only a projection it can import: another module's data reaches it
+through events and contracts, never through a name lookup.
 
 `get(key)` returns one row or `None`; `query(filter=, limit=, cursor=)`
 returns a page ordered by the key. Tombstoned rows are never returned, and

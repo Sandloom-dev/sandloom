@@ -28,7 +28,7 @@ The token is advisory and never an error status:
 
 Pure kernel code: no I/O, no SQLAlchemy. The L1 projection layer
 (``sandloom.sdk.projections``) issues tokens on writes and reads them in
-``View(...)``; :func:`entries_satisfied` is the wait condition it polls.
+``Projection.view(...)``; :func:`entries_satisfied` is the wait condition it polls.
 """
 
 from __future__ import annotations

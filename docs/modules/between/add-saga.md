@@ -108,7 +108,9 @@ handle = await start_saga(ONBOARDING, saga_id=row.id, input=OnboardingInput(...)
 
 Starting the same `saga_id` again with equal input returns the existing
 instance; other input raises `SagaInputConflict` (409).
-`saga_status(ONBOARDING, saga_id)` is the read side. See
+`saga_status(ONBOARDING, saga_id)` is the read side; add `with_row=loader` to
+get the business row with it, read in the right order
+([Sagas](sagas.md#reading-it-the-status-route)). See
 [Sagas](sagas.md#starting-one-202-accepted) for a full route.
 
 ## Verify

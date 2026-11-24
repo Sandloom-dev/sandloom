@@ -4511,7 +4511,8 @@
         "descriptor",
         "rebuilder",
         "target",
-        "token_entries"
+        "token_entries",
+        "view"
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, key:KEYWORD_ONLY|tuple[str, ...], groups:KEYWORD_ONLY|Sequence[SourceGroup], model:KEYWORD_ONLY|type[TenantScoped] | None=None, store:KEYWORD_ONLY|tuple[str, str] | None=None, insert_only:KEYWORD_ONLY|Mapping[str, Any] | None=None, deleted_column:KEYWORD_ONLY|str='deleted_at', rebuild_from:KEYWORD_ONLY|BoundContractMethod | tuple[str, str] | None=None, lag_slo_s:KEYWORD_ONLY|float=5.0, at_least_once:KEYWORD_ONLY|bool=False) -> None"
     },
@@ -4613,10 +4614,6 @@
         "tenant_from"
       ],
       "signature": "(events:POSITIONAL_OR_KEYWORD|Mapping[type[Event], Mapper[Any]], aggregate_key:POSITIONAL_OR_KEYWORD|str, version_field:POSITIONAL_OR_KEYWORD|str, version_column:POSITIONAL_OR_KEYWORD|str, owns:POSITIONAL_OR_KEYWORD|tuple[str, ...], tenant_from:POSITIONAL_OR_KEYWORD|str='tenant_id') -> None"
-    },
-    "View": {
-      "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, row:POSITIONAL_OR_KEYWORD|type[R], on_stale:KEYWORD_ONLY|Literal['serve', 'source']='serve', wait_ms:KEYWORD_ONLY|int | None=None) -> params.Depends"
     },
     "delta": {
       "kind": "function",
@@ -4822,7 +4819,7 @@
     },
     "saga_status": {
       "kind": "function",
-      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], saga_id:POSITIONAL_OR_KEYWORD|object) -> SagaHandle | None"
+      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], saga_id:POSITIONAL_OR_KEYWORD|object, with_row:KEYWORD_ONLY|Callable[[], Awaitable[RowT]] | None=None) -> tuple[SagaHandle | None, RowT] | SagaHandle | None"
     },
     "saga_step_key": {
       "kind": "function",

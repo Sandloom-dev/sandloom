@@ -36,6 +36,8 @@ APP_SKILLS: tuple[str, ...] = (
     "sandloom-module-context",
     "sandloom-new-module",
     "sandloom-quality-gates",
+    "sandloom-cross-module",
+    "sandloom-background-tasks",
     "sandloom-event-version-roll",
     "sandloom-split-deploy",
 )

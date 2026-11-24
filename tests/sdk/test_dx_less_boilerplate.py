@@ -211,7 +211,6 @@ def test_a_tier_2_name_elsewhere_needs_its_marker(
             "from sandloom.sdk.projections import monotonic_upsert\n",
             "monotonic_upsert",
         ),
-        ("projections.py", "from sandloom.sdk.projections import View\n", "View"),
         (
             "projections.py",
             "from sandloom.sdk.projections import ProjectionView\n",
