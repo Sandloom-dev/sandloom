@@ -86,6 +86,18 @@ async def test_without_with_row_the_result_is_the_handle_alone(
     assert finished == ["status"]
 
 
+async def test_an_explicit_none_loader_is_the_plain_call_and_types_as_the_handle(
+    finished: list[str],
+) -> None:
+    # the static half (the overload takes `None`, the result is the handle alone)
+    # is pinned in tests/typing/proofs/sdk_proof.py, which mypy and pyright run.
+    async with db_session():
+        plain = await saga_status(ENROLL, "wr-1", with_row=None)
+
+    assert isinstance(plain, SagaHandle) and plain.status == "completed"
+    assert finished == ["status"]
+
+
 async def test_a_loader_that_raises_propagates_after_the_instance_read(
     finished: list[str],
 ) -> None:

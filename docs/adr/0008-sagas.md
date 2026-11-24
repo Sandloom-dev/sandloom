@@ -561,8 +561,9 @@ The status route reads the instance and the business row together:
 read first and the loader awaited after it in the same unit, so a terminal
 status is never paired with the row's previous state (a transition commits
 the row and the status together). It is correct only when the row lives in the
-saga's database and a local step writes it (owner decision 2026-11-24: a tuple,
-not a named result type).
+saga's database and a local step writes it, and the loader reads the row fresh
+(a `select`, not a `get` that returns a row the session already holds) (owner
+decision 2026-11-24: a tuple, not a named result type).
 
 **Scaffold.** `uv run sandloom add saga <module> <name>` generates, in the
 module's own package:

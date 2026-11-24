@@ -220,6 +220,11 @@ ordered against the instance. `with_row=` takes the loader, not its result:
 `with_row=lambda: enrollments.get_or_404(id)`, never
 `with_row=enrollments.get_or_404(id)` (that is a `TypeError`).
 
+The loader must read the row fresh. The request's session keeps a row it
+already loaded in its identity map. A `db().get(Model, id)` after an earlier
+load of that row returns the cached copy, so the guarantee above does not hold
+for it. Use a `select` in the loader, or `get` with `populate_existing=True`.
+
 ### How it runs
 
 Each saga-owning module gets a kernel consumer `<module>:sagas@advance` on

@@ -173,7 +173,9 @@ async def start_saga(
 
 
 @overload
-async def saga_status(definition: Saga[Any], saga_id: object) -> SagaHandle | None: ...
+async def saga_status(
+    definition: Saga[Any], saga_id: object, *, with_row: None = None
+) -> SagaHandle | None: ...
 
 
 @overload
@@ -210,6 +212,12 @@ async def saga_status(
     local step of the saga writes it. The runtime cannot check that for a
     loader it only calls: a row in another database, or one another process
     writes, is not ordered against the instance by this call.
+
+    The loader must read the row fresh. A row the request's session already
+    holds is served from its identity map, not re-read, so the guarantee above
+    would not hold for it: ``db().get(Model, id)`` after an earlier load of that
+    row returns the cached copy. Run a ``select`` (or ``get`` with
+    ``populate_existing=True``) inside the loader.
     """
     given: object = with_row  # the annotation is a promise; the call site is not
     if given is not None and not callable(given):

@@ -27,7 +27,7 @@ from sandloom.sdk import (
 )
 from sandloom.sdk.contracts import ContractRef, OptionalContract
 from sandloom.sdk.events import EventMeta
-from sandloom.sdk.sagas import Saga, step
+from sandloom.sdk.sagas import Saga, SagaHandle, saga_status, step
 from sandloom.sdk.tasks import PayloadlessTask, Task, task
 from sandloom.sdk.testing import as_user, deliver, fake_contract, published
 
@@ -140,6 +140,21 @@ RESERVE = Saga(
     deadline=timedelta(minutes=1),
     steps=[step("reserve", call=quota_caller.reserve, args=lambda ctx: {"amount": 1})],
 )
+
+
+async def saga_status_forms(saga_id: UUID) -> None:
+    async def load_row() -> str:
+        return "row"
+
+    assert_type(await saga_status(RESERVE, saga_id), SagaHandle | None)
+    # an explicit None is the plain call (what a wrapper forwarding `with_row` writes)
+    assert_type(await saga_status(RESERVE, saga_id, with_row=None), SagaHandle | None)
+    assert_type(
+        await saga_status(RESERVE, saga_id, with_row=load_row),
+        tuple[SagaHandle | None, str],
+    )
+    # the loader's result, not the loader: the usual mistake is refused statically
+    await saga_status(RESERVE, saga_id, with_row=load_row())  # type: ignore[call-overload]
 
 
 # -- testing ---------------------------------------------------------------------
