@@ -534,6 +534,88 @@ def test_without_a_terminal_the_admin_step_prints_a_link() -> None:
     steps = wizard.setup_steps("/opt/uv", admin_email="ops@example.com", attach=False)
     assert steps[-1].argv[-1] == "--invite" and not steps[-1].attached
     assert len(wizard.setup_steps("/opt/uv", admin_email=None, attach=False)) == 4
+    assert steps[-1].show and not any(s.show for s in steps[:-1])
+
+
+_INVITE = (
+    "print('Administrator ops@example.com created. Set the password within 15 "
+    "minutes:')\n"
+    "print('  http://127.0.0.1:8000/admin/set-password?token=abc')\n"
+    "print('The link works once. A new one: uv run sandloom admin invite "
+    "--email ops@example.com')"
+)
+
+
+def test_a_shown_step_keeps_its_output_and_the_others_do_not(tmp_path: Path) -> None:
+    runner, out = _runner(tmp_path)
+    steps = [
+        _py("uv sync", "print('synced')"),
+        wizard.Step("admin create", [PY, "-c", _INVITE], show=True),
+    ]
+    result = runner.run(steps, cwd=tmp_path, app_dir="shop")
+    assert result.ok
+    assert result.shown[1] == "  http://127.0.0.1:8000/admin/set-password?token=abc"
+    assert len(result.shown) == 3 and "synced" not in result.shown
+    assert "token=abc" not in out.getvalue()  # the runner prints the step line only
+
+
+def test_a_failed_shown_step_shows_nothing(tmp_path: Path) -> None:
+    runner, _ = _runner(tmp_path)
+    broken = wizard.Step(
+        "admin create",
+        [PY, "-c", "import sys; print('half a link'); sys.exit(2)"],
+        show=True,
+    )
+    result = runner.run([broken], cwd=tmp_path, app_dir="shop")
+    assert not result.ok and result.shown == []
+
+
+def test_plain_setup_summary_shows_the_invite_link_before_next_steps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``new --yes --setup --admin-email``: the link of the captured
+    ``admin create --invite`` step is on the terminal, not only in the log."""
+    monkeypatch.setattr(project, "write_generated_files", lambda _root: None)
+    real = wizard._runner
+
+    def runner(run: wizard._Run, root: Path) -> wizard.SetupRunner:
+        made = real(run, root)
+
+        def fake(argv: list[str], **kw: Any) -> subprocess.Popen[str]:
+            script = _INVITE if "admin" in argv else "print('ok')"
+            return subprocess.Popen([PY, "-c", script], **kw)
+
+        made.popen = fake
+        return made
+
+    monkeypatch.setattr(wizard, "_runner", runner)
+    out, err = _Stream(tty=False), _Stream(tty=False)
+    code = wizard.main(
+        [
+            "shop",
+            "--dir",
+            str(tmp_path),
+            "--yes",
+            "--setup",
+            "--no-git",
+            "--agents",
+            "claude",
+            "--with",
+            "admin",
+            "--admin-email",
+            "ops@example.com",
+        ],
+        environ={"UV": "/opt/uv", "PATH": os.environ.get("PATH", "")},
+        stdin=_Stream(tty=False),
+        out=out,
+        err=err,
+    )
+    assert code == 0, err.getvalue()
+    text = out.getvalue()
+    link = "http://127.0.0.1:8000/admin/set-password?token=abc"
+    assert link in text and "works once" in text
+    assert "uv run sandloom admin invite --email ops@example.com" in text
+    assert text.index(link) < text.index("Next steps:")
 
 
 # --------------------------------------------------------------- git init

@@ -105,7 +105,36 @@ SNAPSHOT_ISOLATION: dict[str, bool] = {
 
 
 class PlanningError(RuntimeError):
-    """A declared operation is inconsistent with its entity / database."""
+    """A declared operation is inconsistent with its entity / database.
+
+    Every kernel raise site uses one of the subclasses below, each with its
+    own catalogue code. A bare ``PlanningError`` (a third-party execution
+    adapter's) prints SANDLOOM-R024, the catch-all for this family.
+    """
+
+
+class InvalidOperation(PlanningError):
+    """An operation's own arguments contradict each other, refused when it is
+    built (SANDLOOM-R023)."""
+
+
+class OperationSchemaMismatch(PlanningError):
+    """A declared operation does not fit its entity or schema, refused when
+    it is planned (SANDLOOM-R024)."""
+
+
+class NoExecutionAdapter(PlanningError):
+    """A database offers no execution adapter to run planned reads on
+    (SANDLOOM-R025)."""
+
+
+class InvalidReadScope(PlanningError):
+    """A read handle or route is used in a way its scope does not allow
+    (SANDLOOM-R026)."""
+
+
+class UnencodableCursorValue(PlanningError):
+    """A keyset value has a type a page cursor cannot carry (SANDLOOM-R027)."""
 
 
 class SnapshotReadsUnavailable(PlanningError):
@@ -198,9 +227,9 @@ class ReadOperation(Generic[R]):
 
     def __post_init__(self) -> None:
         if not self.by and not isinstance(self, ListOperation | JoinRead):
-            raise PlanningError("ReadOperation.by must name at least one column")
+            raise InvalidOperation("ReadOperation.by must name at least one column")
         if self.lock is not None:
-            raise PlanningError(
+            raise InvalidOperation(
                 f"locking read ({self.lock!r}) cannot be a declared operation: "
                 "a lock needs a read-write Unit of Work — keep it on DbSession "
                 "with select(...).with_for_update(...)"
@@ -250,7 +279,9 @@ class JoinRead(ReadOperation[R]):
 
     def __post_init__(self) -> None:
         if self.join is None or not self.via:
-            raise PlanningError("JoinRead needs join=<entity> and via=<FK attribute>")
+            raise InvalidOperation(
+                "JoinRead needs join=<entity> and via=<FK attribute>"
+            )
         if not self.name:
             object.__setattr__(
                 self,
@@ -262,11 +293,11 @@ class JoinRead(ReadOperation[R]):
             object.__setattr__(self, attr, MappingProxyType(dict(getattr(self, attr))))
         clash = set(self.by) & set(self.join_by)
         if clash:
-            raise PlanningError(f"{self.name}: argument names used twice: {clash}")
+            raise InvalidOperation(f"{self.name}: argument names used twice: {clash}")
         object.__setattr__(self, "keys", self.by + tuple(self.join_by))
         object.__setattr__(self, "keyset", frozenset(self.keys))
         if not self.keys:
-            raise PlanningError(
+            raise InvalidOperation(
                 f"{self.name}: JoinRead needs at least one key argument "
                 "(by= or join_by=)"
             )
@@ -350,12 +381,12 @@ class ListOperation(ReadOperation[R]):
             )
         super().__post_init__()
         if not self.order_by:
-            raise PlanningError(f"{self.name}: order_by must name a column")
+            raise InvalidOperation(f"{self.name}: order_by must name a column")
         object.__setattr__(self, "order_by", tuple(self.order_by))
         if (self.join is None) != (not self.via):
-            raise PlanningError(f"{self.name}: join= and via= go together")
+            raise InvalidOperation(f"{self.name}: join= and via= go together")
         if self.max_limit is not None and self.max_limit < 1:
-            raise PlanningError(f"{self.name}: max_limit must be >= 1")
+            raise InvalidOperation(f"{self.name}: max_limit must be >= 1")
         for attr in (
             "where",
             "join_by",
@@ -368,9 +399,9 @@ class ListOperation(ReadOperation[R]):
         keys = (*self.by, *self.join_by, *self.optional, *self.prefix)
         if len(set(keys)) != len(keys):
             clash = sorted({k for k in keys if keys.count(k) > 1})
-            raise PlanningError(f"{self.name}: argument names used twice: {clash}")
+            raise InvalidOperation(f"{self.name}: argument names used twice: {clash}")
         if len(self.optional) + len(self.prefix) > MAX_OPTIONAL_FILTERS:
-            raise PlanningError(
+            raise InvalidOperation(
                 f"{self.name}: at most {MAX_OPTIONAL_FILTERS} optional / prefix "
                 "filters (each combination is its own statement)"
             )
@@ -454,7 +485,7 @@ def _tag(value: Any) -> Any:
         return {"n": str(value)}
     if isinstance(value, float):
         return {"f": repr(value)}
-    raise PlanningError(f"cannot put a {type(value).__name__} into a cursor")
+    raise UnencodableCursorValue(f"cannot put a {type(value).__name__} into a cursor")
 
 
 def _untag(value: Any) -> Any:
@@ -639,7 +670,7 @@ def _adapter(core: CoreRuntime, database: str) -> ExecutionAdapter:
     provider: DatabaseProvider = core.database(database)
     adapter = provider.planner_adapter()
     if adapter is None:
-        raise PlanningError(
+        raise NoExecutionAdapter(
             f"database {database!r} (driver {getattr(provider, 'driver', '?')!r}) "
             "offers no execution adapter for declared operations"
         )
@@ -842,14 +873,14 @@ class Reads:
         isolation: Isolation = "read_committed",
     ) -> None:
         if core is None and adapter is None:
-            raise PlanningError("Reads needs a core or an execution adapter")
+            raise InvalidReadScope("Reads needs a core or an execution adapter")
         if isolation not in SNAPSHOT_ISOLATION:
-            raise PlanningError(
+            raise InvalidReadScope(
                 f"unsupported read isolation {isolation!r}; one of "
                 f"{sorted(SNAPSHOT_ISOLATION)}"
             )
         if isolation != "read_committed" and (unit is not None or not shared):
-            raise PlanningError(
+            raise InvalidReadScope(
                 "repeatable_read needs a read-only SCOPE (SnapshotReads / "
                 "read_scope(..., isolation=...)); inside a Unit of Work the "
                 "isolation is the unit's"
@@ -1044,8 +1075,13 @@ __all__ = [
     "PageLimitError",
     "Plan",
     "PlanningError",
+    "InvalidOperation",
+    "InvalidReadScope",
+    "NoExecutionAdapter",
+    "OperationSchemaMismatch",
     "SNAPSHOT_ISOLATION",
     "SnapshotReadsUnavailable",
+    "UnencodableCursorValue",
     "UndeclaredOperation",
     "ReadOnlyScopeError",
     "ReadOperation",
