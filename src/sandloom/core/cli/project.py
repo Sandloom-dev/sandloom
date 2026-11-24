@@ -366,7 +366,7 @@ How-tos with tested code: `uv run sandloom docs recipes`. What you can call:
 `uv run sandloom docs contracts`, `... events`, `... <contract or channel>`.
 Skills ($skill_dirs): sandloom-module-context, sandloom-new-module,
 sandloom-quality-gates, sandloom-cross-module, sandloom-background-tasks,
-sandloom-event-version-roll, sandloom-split-deploy.
+sandloom-module-rules, sandloom-event-version-roll, sandloom-split-deploy.
 Every module follows the contract in `$app/modules/AGENTS.md`.
 Before changing a module: `uv run sandloom context <name>`; discover connections
 with `uv run sandloom graph <name> --hops 1`. Refresh: `sandloom add skills`.

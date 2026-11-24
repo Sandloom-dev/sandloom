@@ -88,10 +88,11 @@ register = define_module(__name__, version="0.1.0")
 
 Everything the module declares in its conventional submodules is
 discovered (routers, events, consumers, contracts, sagas, projections,
-consumed contracts). `setup(core)` stays for what has no declaration
-(startup tasks, claims contributors, planner operations). `router=` /
-`events=` override discovery as today; `consumes` adds to the derived
-requirements. Modules are REQUIRED unless `optional=True`.
+consumed contracts, planner read operations). `setup(core)` stays for
+what has no declaration (startup tasks, claims contributors).
+`router=` / `events=` override discovery as today; `consumes` adds
+to the derived requirements. Modules are REQUIRED unless
+`optional=True`.
 
 `issues_tokens=True` marks the access-token issuer. An issuer ends its
 refresh sessions on an emergency block with a durable consumer of

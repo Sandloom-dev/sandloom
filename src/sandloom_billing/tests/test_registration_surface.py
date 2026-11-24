@@ -111,6 +111,16 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "sandloom_billing.contracts.CreditsContract",
         "database=None",
     ),
+    # the declared reads of GET /subscription and GET /credits (planner),
+    # discovered in ``services/operations`` and registered by name
+    (
+        "register_operations",
+        "JoinRead('billing.balance.of_organization')",
+        "JoinRead('billing.balance.of_user')",
+        "JoinRead('billing.plan.of_price')",
+        "ListOperation('billing.subscriptions.of_organization')",
+        "ListOperation('billing.subscriptions.of_user')",
+    ),
     ("add_shutdown_task", "sandloom_billing.psp.close_psp_client"),
     # its four claim keys declared fail-safe (ADR-0014 decision 7, B-N12)
     (
@@ -120,15 +130,6 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
     ),
     ("register_access_fact", "AccessFact('subscription.active')"),
     ("register_access_fact", "AccessFact('organization.subscription.active')"),
-    # the declared reads of GET /subscription and GET /credits (planner)
-    (
-        "register_operations",
-        "ListOperation('billing.subscriptions.of_user')",
-        "ListOperation('billing.subscriptions.of_organization')",
-        "JoinRead('billing.balance.of_user')",
-        "JoinRead('billing.balance.of_organization')",
-        "JoinRead('billing.plan.of_price')",
-    ),
     # the reconciler's operational criterion (G-OPS-24)
     (
         "register_health_check",
