@@ -4,25 +4,15 @@ It owns an in-app notification table (discovered from ``models/``, its
 route from ``api/``) and a durable EVENT CONSUMER on another module's
 channel, read through a view (``consumers.py``) — no cross-module import.
 The consumer persists a record and dispatches through the notification
-capability. A short ``setup`` registers the planner's read operations, which
-have no declaration yet.
+capability. The planner's read operation (``services/operations.py``) is
+discovered like the rest.
 """
 
 from sandloom.sdk import define_module
-from sandloom.sdk.module import ModuleAPI  # sandloom: advanced setup registers L2 parts
-
-from .services.operations import OPERATIONS
-
-
-def _setup(core: ModuleAPI) -> None:
-    # Declared planner reads (the in-app list): planned at boot.
-    core.register_operations(*OPERATIONS)
-
 
 register = define_module(
     __name__,
     version="0.1.0",
     depends_on=["projecthub.modules.tasks"],
     capabilities=["database", "eventbus", "notification"],
-    setup=_setup,
 )

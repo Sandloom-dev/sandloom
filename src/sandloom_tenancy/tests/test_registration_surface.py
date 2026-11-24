@@ -125,19 +125,20 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "sandloom_tenancy.contracts.TenancySecurityContract",
         "database=None",
     ),
+    # the declared membership guard read and the lists (planned + logged at
+    # startup), discovered in ``services/operations`` and registered by name
+    (
+        "register_operations",
+        "JoinRead('tenancy.member.role_in_active_org')",
+        "ListOperation('tenancy.members.of_org')",
+        "ReadOperation('tenancy.org.by_id')",
+        "ListOperation('tenancy.orgs.active_ids_of_user')",
+        "ListOperation('tenancy.orgs.active_of_user')",
+    ),
     (
         "add_claims_contributor",
         "sandloom_tenancy.claims.tenancy_claims",
         "critical=True",
-    ),
-    # 0.6.0: the declared membership guard read (planned + logged at startup)
-    (
-        "register_operations",
-        "JoinRead('tenancy.member.role_in_active_org')",
-        "ReadOperation('tenancy.org.by_id')",
-        "ListOperation('tenancy.members.of_org')",
-        "ListOperation('tenancy.orgs.active_of_user')",
-        "ListOperation('tenancy.orgs.active_ids_of_user')",
     ),
 ]
 

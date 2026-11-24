@@ -2551,6 +2551,40 @@ reads on PostgreSQL, and Uuid(as_uuid=False) fails on SQLite.
 """,
         docs="docs/modules/database/multi-tenancy.md",
     ),
+    _entry(
+        "SANDLOOM-R022",
+        "undeclared-planner-operation",
+        "runtime",
+        "a planner read (Reads.one, Reads.page, ...) of an operation that no loaded "
+        "module declares",
+        "declare the operation at module level in the module that owns its entity "
+        "(for instance in services/operations.py, imported by the module's api or "
+        "services); for an entity no module package holds, call "
+        "core.register_operations(op) in the setup= of a module that reads it",
+        """
+The planner compiles a read operation (ReadOperation, ListOperation, JoinRead)
+on its first use. An operation that a module declares is found when the module
+loads (define_module discovery), planned at startup, tied to its module and
+listed in /diagnostics/core. An operation built where no module declares it,
+inside a handler or in a helper no module imports, would be compiled lazily on
+its first request with none of that, so Reads(core).one(op, ...) refuses it with
+UndeclaredOperation (a PlanningError). The check runs once per adapter and
+mode, on the first plan of the operation, never on the cached path, and it is
+skipped for a handle on a fixed adapter (Reads(core, adapter=...)) and for
+session_reads(db()), which runs on the unit's own session.
+
+Fix. Put the operation at module level, in services/operations.py or another
+file of the module that owns the entity, and import that file from the module's
+api.py or services so discovery sees it. Discovery reads module variables, and
+one level of a tuple, list or dict. It only registers an operation whose entity
+is defined inside the module's package. An operation over a table no module
+package holds (a kernel table, an app-level shared model) is never discovered:
+register it explicitly with core.register_operations(op) in the setup= of the
+module that reads it. In a test, build the operation, then call
+ModuleAPI(core).register_operations(op) before reading it.
+""",
+        docs="docs/modules/database/units.md",
+    ),
     # ------------------------------------------------------- tests/snapshots
     _entry(
         "SANDLOOM-T001",
@@ -2920,6 +2954,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "DatabaseFileReplaced": "SANDLOOM-B028",
     "NestedWriterRefused": "SANDLOOM-R016",
     "UnsealedClaimsError": "SANDLOOM-R017",
+    "UndeclaredOperation": "SANDLOOM-R022",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",

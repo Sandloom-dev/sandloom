@@ -173,7 +173,7 @@ def _reference_handlers() -> dict[tuple[str, str], Callable[..., Any]]:
         return [NotificationOut.model_validate(r) for r in rows]
 
     async def resolve_link(code: str, db: DbSession) -> RedirectResponse:
-        from fastapi import HTTPException, status
+        from sandloom.sdk.errors import NotFound
 
         c = cache()
         cached = await c.get(f"links:url:{code}")
@@ -183,9 +183,9 @@ def _reference_handlers() -> dict[tuple[str, str], Callable[..., Any]]:
             result = await db.execute(select(Shortlink).where(Shortlink.code == code))
             link = result.scalar_one_or_none()
             if link is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="short code not found"
-                )
+                # the example raises the author error (code ``not_found``), so
+                # the baseline answers the same body
+                raise NotFound("short code not found")
             target = link.target_url
             await c.set(f"links:url:{code}", target, ttl_seconds=3600)
         await c.incr(f"links:clicks:{code}")
