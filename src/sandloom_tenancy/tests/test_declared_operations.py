@@ -157,7 +157,7 @@ async def test_a_bad_declaration_fails_the_startup_task(sandloom_core: Any) -> N
     assert critical
     with pytest.raises(Exception, match="nope") as exc:
         await task()
-    assert type(exc.value).__name__ == "PlanningError"
+    assert type(exc.value).__name__ == "OperationSchemaMismatch"
 
 
 def test_register_operations_refuses_non_operations(sandloom_core: Any) -> None:

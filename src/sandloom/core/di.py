@@ -479,7 +479,7 @@ def _check_read_only_route(route: Any) -> None:
     writable = {get_db, get_read_only_db, get_uow_reads}
     calls = {d.call for d in _flat_dependencies(route)}
     if get_planned_reads in calls and get_snapshot_reads in calls:
-        raise _planner.PlanningError(
+        raise _planner.InvalidReadScope(
             f"route {getattr(route, 'path', route)!r} declares PlannedReads AND "
             "SnapshotReads: two read scopes of different isolation"
         )
@@ -489,7 +489,7 @@ def _check_read_only_route(route: Any) -> None:
         call = dep.call
         name = getattr(call, "__qualname__", "")
         if call in writable or call in _NAMED_DB_DEPENDENCIES:
-            raise _planner.PlanningError(
+            raise _planner.InvalidReadScope(
                 f"route {getattr(route, 'path', route)!r} declares PlannedReads "
                 f"(read-only) AND a Unit of Work ({name}); use UowReads for "
                 "planned reads inside a read-write route"
