@@ -201,17 +201,12 @@ The status route reports the saga and the business row. Pass the row's
 loader to `saga_status` and it returns both, in the right order:
 
 ```python
-from sandloom.sdk.sagas import saga_status  # sandloom: advanced read a saga's state
-
-@router.get("/enrollments/{enrollment_id}")
-async def get_enrollment(enrollment_id: UUID, user: CurrentUser) -> EnrollmentOut:
-    handle, row = await saga_status(
-        ENROLL, enrollment_id, with_row=lambda: enrollments.get_or_404(enrollment_id)
-    )
-    return EnrollmentOut(id=row.id, status=row.status, saga_status=handle.status if handle else None)
+--8<-- "examples/academy/academy/modules/enrollment/api/enrollment.py:65:81"
 ```
 
-`handle` is `None` if the saga never started. The call reads the instance
+`saga_status` comes from `sandloom.sdk.sagas`, an advanced name that needs a
+`# sandloom: advanced <reason>` marker. `handle` is `None` if the saga never
+started. The call reads the instance
 first and awaits the loader after it, in the same unit. A saga transition
 commits the business row and the instance status together, and under READ
 COMMITTED a later read never sees an older commit. So the row is at least as
