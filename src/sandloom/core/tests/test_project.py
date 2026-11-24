@@ -595,12 +595,26 @@ def test_mail_apps_expose_a_real_notifier_and_name_the_demo_risk(
         root = tmp_path / f"shop_{battery}"
         env = _compose(root)["services"]["app"]["environment"]
         assert "NOTIFIER_BACKEND" in env, battery
+        # the flat default is not written: the composition's driver stays
+        assert env["NOTIFIER_BACKEND"] == "${NOTIFIER_BACKEND:-}", battery
         for removed in ("SMTP_HOST", "SMTP_FROM", "SMTP_USE_TLS"):
             assert removed not in env, (battery, removed)
         assert "log_notifier_in_prod" in _read(root, "deploy/docker-compose.yml")
     generate_project("probe_nomail", tmp_path, with_batteries=["billing"])
     plain = _compose(tmp_path / "probe_nomail")["services"]["app"]["environment"]
     assert "NOTIFIER_BACKEND" not in plain
+
+
+def test_the_env_files_write_no_flat_storage_default(tmp_path: Path) -> None:
+    """``STORAGE_TYPE=local`` is the default, so a fresh app does not write it
+    (a flat setting replaces the composition's driver and warns); the path the
+    local store needs stays."""
+    generate_project("probe_flat", tmp_path)
+    root = tmp_path / "probe_flat"
+    for name in (".env", ".env.test"):
+        lines = _read(root, name).splitlines()
+        assert not any(line.startswith("STORAGE_TYPE=") for line in lines), name
+        assert any(line.startswith("STORAGE_PATH=") for line in lines), name
 
 
 def test_billing_apps_must_choose_a_psp(tmp_path: Path) -> None:
