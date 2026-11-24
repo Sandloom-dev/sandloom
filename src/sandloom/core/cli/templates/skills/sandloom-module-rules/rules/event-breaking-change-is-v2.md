@@ -17,7 +17,6 @@ await ItemCreatedV2(...).publish()  # every .v1 reader goes silent
 ## Correct
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 from sandloom.sdk.events import publish_event_versions  # sandloom: advanced v1 and v2
 

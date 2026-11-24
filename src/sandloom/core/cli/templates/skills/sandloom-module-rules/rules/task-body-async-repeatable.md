@@ -11,7 +11,6 @@ The worker already has an event loop, and `db()` raises outside a unit. A task c
 ## Incorrect
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 @task()
 def send_digest(payload: DigestIn) -> None:
@@ -21,7 +20,6 @@ def send_digest(payload: DigestIn) -> None:
 ## Correct
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 @task(at_least_once=True)
 async def send_digest(payload: DigestIn) -> None:

@@ -18,7 +18,6 @@ async def grant_credits(user_id: UUID, order_id: UUID) -> None:
 ## Correct
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 from sandloom.sdk.effects import operation_key  # sandloom: advanced dedupe key
 

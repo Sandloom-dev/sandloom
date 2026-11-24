@@ -120,7 +120,7 @@ def test_a_good_rule_parses() -> None:
 
 def test_a_code_ok_waiver_beside_a_block_is_allowed() -> None:
     waived = GOOD.replace(
-        "```python\nx = 2", "<!-- code-ok: D4 an example -->\n\n```python\nx = 2"
+        "```python\nx = 2", "<!-- code-ok: D4 an example -->\n```python\nx = 2"
     )
     assert tool().parse_rule("a-rule", waived).correct == "x = 2"
 
@@ -292,6 +292,6 @@ def test_a_waiver_is_what_lets_a_long_example_pass() -> None:
     ]
     assert waived
     for path in waived:
-        text = re.sub(r"<!-- code-ok:.*?-->\n\n", "", path.read_text(encoding="utf-8"))
+        text = re.sub(r"<!-- code-ok:.*?-->\n", "", path.read_text(encoding="utf-8"))
         rel = f"{REPO_TEMPLATES}skills/sandloom-module-rules/rules/{path.name}"
         assert {h.rule for h in code_check().check_text(rel, text)} == {"D4"}, path.name

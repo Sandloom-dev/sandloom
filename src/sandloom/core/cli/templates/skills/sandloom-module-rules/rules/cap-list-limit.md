@@ -18,7 +18,6 @@ async def list_items(user: CurrentUser, limit: int = 20) -> list[ItemOut]: ...
 ## Correct
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 @router.get("/items")
 async def list_items(

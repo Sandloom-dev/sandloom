@@ -11,7 +11,6 @@ A consumer that copies the event's fields over the stored row lets a late old ev
 ## Incorrect
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 @on(NoteRenamedView)
 async def on_renamed(event: NoteRenamedView) -> None:
@@ -22,7 +21,6 @@ async def on_renamed(event: NoteRenamedView) -> None:
 ## Correct
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 @on(NoteRenamedView)
 async def on_renamed(event: NoteRenamedView) -> None:

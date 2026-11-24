@@ -19,7 +19,6 @@ async def place_order(order: OrderIn) -> None:
 ## Correct
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 PLACE_ORDER = Saga(
     "orders.place",

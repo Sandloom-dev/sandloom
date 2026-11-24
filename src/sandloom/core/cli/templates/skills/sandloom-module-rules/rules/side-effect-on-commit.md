@@ -18,7 +18,6 @@ await cache().set(f"invite:{email}", "1")  # stays set if the unit rolls back
 ## Correct
 
 <!-- code-ok: D4 rule example, a fragment of a module file: D1 and D2 check it -->
-
 ```python
 from functools import partial
 
