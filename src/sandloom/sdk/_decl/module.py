@@ -69,7 +69,7 @@ from sandloom.sdk._decl.events import (
     resolve_role,
     wire_schema,
 )
-from sandloom.sdk._decl.projections import Projection, register_view_source
+from sandloom.sdk._decl.projections import Projection
 from sandloom.sdk._decl.sagas import Saga
 from sandloom.sdk._decl.web import ModuleRouter
 from sandloom.sdk._prim.module import (
@@ -499,7 +499,6 @@ def _register_declarations(
         rebuilder = projection.rebuilder()
         if rebuilder is not None:
             core.register_projection_rebuilder(projection.name, rebuilder)
-        register_view_source(projection)
 
 
 def define_module(

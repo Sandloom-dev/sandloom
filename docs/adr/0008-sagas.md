@@ -505,9 +505,13 @@ ENROLL = Saga[EnrollInput](
 - `Saga[InputT]` and `SagaContext[InputT]` are generic, so `c.input` is the
   module's own pydantic model with IDE completion and mypy checking.
   `c.result("charge", SpendResult)` returns a step's decoded result typed.
-- Arguments are **named module-level functions**, not lambdas: they show up
-  in tracebacks and coverage, can be unit-tested, and the docs and the
-  scaffold use them. (Lambdas work; the guide recommends against them.)
+- Arguments are **pure functions**, named or, for a one-expression mapping of
+  `c.input`, a lambda. A mapping that reads `c.result(...)` or `c.key(...)` is
+  a named function: it shows up in tracebacks and coverage and can be
+  unit-tested, and the startup check names a function by `fn.__name__`, which a
+  lambda reports as `<lambda>()`. A closure over request state is impure on a
+  retry in either form. (Owner decision 2026-11-24: lambdas are allowed with
+  this rule; the guide used to recommend against them.)
 - Keyword-only builders with defaults: `kind` defaults to `compensatable`
   before the pivot and `retriable` after it, so a typical step names only
   `call`, `args` and its compensation.
@@ -551,6 +555,14 @@ async def enroll(body: EnrollIn, db: DbSession, user=Depends(get_current_user_id
 `start_saga` returns a `SagaHandle(saga_id, status, created)`; a repeat with
 the same input returns the existing handle (`created=False`), so the route
 needs no special idempotency code of its own beyond the guard.
+
+The status route reads the instance and the business row together:
+`handle, row = await saga_status(ENROLL, id, with_row=loader)`. The instance is
+read first and the loader awaited after it in the same unit, so a terminal
+status is never paired with the row's previous state (a transition commits
+the row and the status together). It is correct only when the row lives in the
+saga's database and a local step writes it (owner decision 2026-11-24: a tuple,
+not a named result type).
 
 **Scaffold.** `uv run sandloom add saga <module> <name>` generates, in the
 module's own package:

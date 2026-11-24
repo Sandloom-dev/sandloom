@@ -145,10 +145,19 @@ def step(
     """A command step: ``call`` a command contract with ``args(ctx)``::
 
         credits = Contract(BILLING_CREDITS_V1)
-        step("charge", call=credits.spend, args=lambda ctx: {...},
+        step("charge", call=credits.spend,
+             args=lambda c: {"user_id": c.input.user_id, "amount": c.input.price},
              compensate=credits.grant)
 
     Identical to the L2 ``step`` with ``call="billing.credits.v1.spend"``.
+
+    ``args`` runs again on every attempt, so it is pure: no clock, no
+    randomness, no closure over request state (a drift changes the command's
+    argument digest and parks the saga). A lambda suits a one-expression
+    mapping of ``c.input``. Write a named function when the mapping reads
+    ``c.result(...)`` or ``c.key(...)``: the startup check names the function
+    in its errors (``fn.__name__``), and a lambda shows up there as
+    ``<lambda>()``.
     """
     return _step(
         name,

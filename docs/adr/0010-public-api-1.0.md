@@ -482,7 +482,7 @@ approved migration of the public `sdk` contract and beginner DX.
    | `Saga`, `SagaContext`, `step`, `local_step`, `start_saga` | the saga scaffold | 0 (one example app) | n/a | tier 2 |
    | `Projection`, `SourceGroup`, `full_state`, `tombstone` | the projection scaffold | 1 | n/a | tier 2 |
    | `task`, `periodic`, `open_uow` | the task scaffold | 1 | n/a | tier 2 |
-   | `View`, `ProjectionView`, `unscoped`, `Versioned` | no | 0 | n/a | advanced: the recipe reads its table with `db()`; the marker on `unscoped` is a review signal |
+   | `ProjectionView`, `unscoped`, `Versioned` | no | 0 | n/a | advanced: the recipe reads its table with `db()`; the marker on `unscoped` is a review signal (`View(name, row)` was in this row; `Projection.view(row)` replaced it, dx-sp-s1-view-status) |
 
    **Tier 1 is 29 names:** the 24 of `sandloom.sdk.__all__` (the 20 of the
    first amendment, less `Owner` and `authorize_resource`, plus `Account`,

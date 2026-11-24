@@ -323,8 +323,26 @@ names: `Owner` and `authorize_resource` left the root
 | `from sandloom.sdk import Owner, authorize_resource` | `from sandloom.sdk.authz import Owner, authorize_resource  # sandloom: advanced <reason>` |
 | `from sandloom.sdk.authz import Account  # sandloom: advanced ...` | `from sandloom.sdk import Account` (the marker is no longer needed) |
 | `Saga`, `step`, `Projection`, `task` and the other tier 2 names with a marker in their own file | no marker in `sagas.py`, `projections.py` or `tasks.py`; a marker in any other file |
-| `View`, `ProjectionView` imported with no marker | `# sandloom: advanced <reason>`: [SANDLOOM-T009](../reference/error-codes.md#sandloom-t009) |
+| `ProjectionView` imported with no marker | `# sandloom: advanced <reason>`: [SANDLOOM-T009](../reference/error-codes.md#sandloom-t009) |
 | `fake_access_fact` imported with no marker | `# sandloom: advanced <reason>` |
+
+### Projection reads bind the projection object
+
+`View(name, row)` is removed: `from sandloom.sdk.projections import View` is an
+`ImportError`. Read a projection through the object you declared. The name
+lookup went wrong at the first request and let any module read another
+module's projection by name. `X.view(Row)` fails at import when `X` is
+misspelt, and only a module that can import `X` reads it.
+
+| Old | New |
+| --- | --- |
+| `Annotated[ProjectionView[Row], View("notes.board", Row)]` | `Annotated[ProjectionView[Row], BOARD.view(Row)]`, with `BOARD = Projection("notes.board", ...)` imported from the module's `projections.py` |
+| `View("notes.board", Row, on_stale="source", wait_ms=200)` | `BOARD.view(Row, on_stale="source", wait_ms=200)` |
+| a module reading another module's projection by name | a projection of its own, fed by the events of the other module ([Projections](../modules/between/projections.md)) |
+
+`saga_status(SAGA, id, with_row=loader)` is new and optional: it returns
+`(handle, row)` and reads the saga before the row. Existing `saga_status(SAGA,
+id)` calls are unchanged.
 
 ### Idempotency
 
