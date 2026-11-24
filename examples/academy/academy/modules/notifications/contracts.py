@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sandloom.sdk import command, contract, db
+from sandloom.sdk import command, contract
 
 from .services import Outbox
 
@@ -12,4 +12,4 @@ class Mail:
     @command(idempotency_key="operation_key")
     async def send(self, recipient_id: UUID, template: str, operation_key: str) -> UUID:
         """Record ``template`` for ``recipient_id``; the message id."""
-        return await Outbox.send(db(), recipient_id, template, operation_key)
+        return await Outbox.send(recipient_id, template, operation_key)

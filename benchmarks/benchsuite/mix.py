@@ -339,7 +339,7 @@ async def _seed_full(conn: asyncpg.Connection) -> None:
     if await conn.fetchval("SELECT count(*) FROM tickets_tickets") >= LIST_ROWS:
         return  # seeded before
     await conn.executemany(
-        "INSERT INTO tickets_tickets (id, organization_id, created_by, subject, body,"
+        "INSERT INTO tickets_tickets (id, tenant_id, created_by, subject, body,"
         " status, priority, created_at, updated_at) VALUES"
         " ($1, $2, $3, $4, 'b', 'open', 'normal', now(), now())",
         [(uuid.uuid4(), ORG, USER, f"ticket {i}") for i in range(LIST_ROWS)],

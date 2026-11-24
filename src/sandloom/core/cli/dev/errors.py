@@ -10,7 +10,8 @@ never from ``__context__`` (an error raised while handling a connection
 failure is a real error and keeps its traceback). Three one-liners::
 
     error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused).
-    Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]
+    Start the dev services: uv run sandloom dev up (or start your own servers
+    and set DATABASE_URL)   [SANDLOOM-R014]
 
     error: PostgreSQL at 127.0.0.1:5432 refused the login (authentication
     failed): check the user and password in the URL   [SANDLOOM-R014]
@@ -33,11 +34,12 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping, MutableMapping, MutableSequence
+from collections.abc import Mapping, MutableMapping, MutableSequence, Sequence
 from pathlib import Path
 from typing import TextIO
 
 import sandloom.core.cli.ui as _ui
+import sandloom.core.observability.log_level as _log_level
 from sandloom.core.cli.dev.envfile import ENV_FILE, exported_drift, read_block
 from sandloom.core.observability.unreachable import CODE, connection_failure
 
@@ -70,6 +72,46 @@ def debug_requested(argv: MutableSequence[str], environ: Mapping[str, str]) -> b
         index += 1
     raw = (environ.get(DEBUG_ENV) or "").strip().lower()
     return found or raw in {"1", "true", "yes", "on"}
+
+
+VERBOSE_FLAGS = ("-v", "--verbose")
+
+#: Commands that run a long-lived process: their INFO lines are the output.
+_LOGGING_COMMANDS = frozenset({"dev", "worker", "beat"})
+
+
+def verbose_requested(argv: MutableSequence[str]) -> bool:
+    """``-v`` / ``--verbose`` before the subcommand (removed from ``argv``).
+    One after the subcommand is left to it."""
+    found = False
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--" or not arg.startswith("-"):
+            break
+        if arg in VERBOSE_FLAGS:
+            del argv[index]
+            found = True
+            continue
+        index += 1
+    return found
+
+
+def quiet_logs(argv: Sequence[str], *, verbose: bool) -> None:
+    """A one-shot command (``migrate new``, ``add``, ``generate``, ``test`` ...)
+    logs WARNING and above, unless ``verbose`` (``sandloom -v <command>``,
+    ``--debug``). The level is a default of this process
+    (:mod:`sandloom.core.observability.log_level`), not an environment
+    variable: a ``LOG_LEVEL`` set in the environment or in ``.env`` decides
+    instead, and ``sandloom config dump`` still reports that setting.
+    ``dev`` / ``worker`` / ``beat`` keep the configured level: their log is
+    what they print."""
+    if verbose:
+        return
+    command = next((a for a in argv[1:] if not a.startswith("-")), None)
+    if command is None or command in _LOGGING_COMMANDS:
+        return
+    _log_level.request_default("WARNING")
 
 
 def enable_debug(environ: MutableMapping[str, str]) -> None:

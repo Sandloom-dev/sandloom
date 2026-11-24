@@ -12,7 +12,7 @@ EXPECTED_MISSING: dict[str, frozenset[str]] = {
     "projecthub.modules.projects": frozenset(),
     # A pure read model: its projection consumers / rebuilder need the
     # source modules' read contracts (local or SERVICE_BINDINGS).
-    "projecthub.modules.taskboard": frozenset({"projects.read.v1", "tasks.read.v1"}),
+    "projecthub.modules.taskboard": frozenset({"projects.read.v2", "tasks.read.v1"}),
     "projecthub.modules.tasks": frozenset(),
 }
 

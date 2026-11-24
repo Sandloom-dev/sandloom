@@ -25,6 +25,14 @@
         "list_for_tenant"
       ],
       "name": "projects.read.v1"
+    },
+    {
+      "database": null,
+      "methods": [
+        "get",
+        "list_for_tenant"
+      ],
+      "name": "projects.read.v2"
     }
   ],
   "events": {

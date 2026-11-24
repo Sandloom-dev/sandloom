@@ -1,7 +1,7 @@
 """The projects module (a source of the taskboard read model).
 
 Everything it declares is discovered: routes in ``api/``, the project events
-in ``events.py``, the public ``projects.read.v1`` contract in
+in ``events.py``, the public ``projects.read.v2`` contract (and the released ``v1``) in
 ``contracts.py``, the table in ``models/``.
 """
 

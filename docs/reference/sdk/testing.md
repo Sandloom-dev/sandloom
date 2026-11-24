@@ -128,8 +128,10 @@ def as_user(
 
 `(user_id, headers)` with a freshly minted access token.
 
-Today's `make_user_headers`: `user_id` / `tenant_id` default to
-random UUIDs; the token carries `tenant_id` and the signed
+Today's `make_user_headers`: `user_id` defaults to a random UUID and
+`tenant_id` to a random one too, except under `TENANCY_MODE=single`,
+where it is `SINGLE_TENANT_ID` (any other tenant is a 403
+`tenant_mismatch`); the token carries `tenant_id` and the signed
 `tenant_ids` allowlist; `tenant=False` mints a tenant-less token; any
 extra keyword becomes a claim (`roles=["admin"]`):
 

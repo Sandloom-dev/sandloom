@@ -22,7 +22,7 @@
         "get",
         "list_for_tenant"
       ],
-      "name": "projects.read.v1",
+      "name": "projects.read.v2",
       "required": true
     },
     {

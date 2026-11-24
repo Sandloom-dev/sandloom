@@ -22,7 +22,8 @@ await notifier().send(
 A module that cannot work without email states it, and startup checks it:
 `CapabilityRequirement("notification", features=frozenset({"email"}))`.
 
-Choose the driver with `NOTIFIER_BACKEND`.
+Choose the driver with `NOTIFIER_BACKEND`. Unset, the driver your app's composition or
+`INFRA` selects stands, and with none selected it is `log`.
 
 ## Drivers
 
