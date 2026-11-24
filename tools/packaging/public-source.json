@@ -873,7 +873,6 @@
         "examples/helpdesk/helpdesk/modules/tickets/tests/__init__.py",
         "examples/helpdesk/helpdesk/modules/tickets/tests/conftest.py",
         "examples/helpdesk/helpdesk/modules/tickets/tests/test_rls_migration.py",
-        "examples/helpdesk/helpdesk/modules/tickets/tests/test_rls_migration.py",
         "examples/helpdesk/helpdesk/modules/tickets/tests/test_tickets_api.py",
         "examples/helpdesk/helpdesk/shared/__init__.py",
         "examples/helpdesk/helpdesk/shared/contracts/__init__.py",
