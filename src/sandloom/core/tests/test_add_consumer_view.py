@@ -9,6 +9,8 @@ generated test builds is validated against ``<app>/shared/events/<channel>.json`
 from __future__ import annotations
 
 import ast
+import asyncio
+import importlib
 import json
 import sys
 import types
@@ -66,40 +68,37 @@ def _view_fields(root: Path) -> list[str]:
     ]
 
 
+_PACKAGE = "probe_deals"
+
+
 def _scaffolded_payload(root: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """The payload the generated test of the ``deals`` consumer passes to
-    ``deliver``: the view class of ``consumers.py`` and the ``event = ...`` line of
-    its test, both run (in a module of their own: pydantic resolves a view's
-    annotations through ``sys.modules``)."""
-    module = root / "probe" / "modules" / "deals"
-    consumers = ast.parse((module / "consumers.py").read_text(encoding="utf-8"))
-    test = ast.parse(
-        (module / "tests" / "test_on_contact_created.py").read_text(encoding="utf-8")
-    )
-    view = next(
-        node
-        for node in consumers.body
-        if isinstance(node, ast.ClassDef) and node.name == "ContactCreated"
-    )
-    imports = [
-        node
-        for tree in (consumers, test)
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom) and node.level == 0
-    ]
-    scaffold = types.ModuleType("probe_deals_scaffold")
-    monkeypatch.setitem(sys.modules, scaffold.__name__, scaffold)
-    namespace = scaffold.__dict__
-    program = ast.Module([*imports, view], type_ignores=[])
-    exec(compile(program, "<consumers.py>", "exec"), namespace)  # noqa: S102 - the generated view class
-    call = next(
-        node.value
-        for node in ast.walk(test)
-        if isinstance(node, ast.Assign)
-        and [t.id for t in node.targets if isinstance(t, ast.Name)] == ["event"]
-    )
-    event = eval(compile(ast.Expression(call), "<test>", "eval"), namespace)  # noqa: S307 - the generated event line
-    payload: dict[str, Any] = event.model_dump(mode="json", by_alias=True)
+    ``deliver``. The module's own ``consumers.py`` and ``tests/`` are imported as the
+    package ``probe_deals`` (its relative import resolves), and the generated test
+    function runs with ``deliver`` replaced by one that keeps the event."""
+    seen: list[Any] = []
+
+    async def deliver(event: Any, **_: Any) -> int:
+        seen.append(event)
+        return 1  # the consumers the real deliver reports
+
+    package = types.ModuleType(_PACKAGE)
+    package.__path__ = [str(root / "probe" / "modules" / "deals")]
+    monkeypatch.setitem(sys.modules, _PACKAGE, package)
+    importlib.invalidate_caches()
+    try:
+        scaffold = importlib.import_module(f"{_PACKAGE}.tests.test_on_contact_created")
+        monkeypatch.setattr(scaffold, "deliver", deliver)
+        asyncio.run(
+            scaffold.test_on_contact_created_applies_a_redelivered_event_once(
+                None, None
+            )
+        )
+    finally:
+        for name in [m for m in sys.modules if m.startswith(f"{_PACKAGE}.")]:
+            del sys.modules[name]
+    assert len(seen) == 1
+    payload: dict[str, Any] = seen[0].model_dump(mode="json", by_alias=True)
     return payload
 
 
