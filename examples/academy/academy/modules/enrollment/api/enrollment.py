@@ -67,14 +67,9 @@ async def enroll(
     response_model=EnrollmentOut,
 )
 async def get_enrollment(enrollment_id: UUID, user: CurrentUser) -> EnrollmentOut:
-    # The saga FIRST, the row after it: a saga transition commits the
-    # enrollment row and the instance status together, and under READ
-    # COMMITTED a later read never sees an older commit — so the row is at
-    # least as new as the saga status we report (read the other way round, a
-    # transition landing between the two reads would pair a terminal saga
-    # status with the row's previous state).
-    handle = await saga_status(ENROLL, enrollment_id)
-    row = await Enrollments.get_or_404(enrollment_id)
+    handle, row = await saga_status(
+        ENROLL, enrollment_id, with_row=lambda: Enrollments.get_or_404(enrollment_id)
+    )
     return EnrollmentOut(
         id=row.id,
         course_id=row.course_id,

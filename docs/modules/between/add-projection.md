@@ -1,6 +1,6 @@
 ---
 title: Add a projection
-description: Build a read model fed by events with `sandloom add projection` - full-state, delta and tombstone mappers, source groups, reads through View, and rebuilds.
+description: Build a read model fed by events with `sandloom add projection` - full-state, delta and tombstone mappers, source groups, reads through `Projection.view`, and rebuilds.
 type: how-to
 ---
 
@@ -110,24 +110,29 @@ so they are producers defined next to the projection. In a real projection:
 
 ### 4. Read it
 
-Inject a `ProjectionView` with `View(name, row_type)`. Reads are filtered
-to the bound tenant and never return tombstoned rows:
+Inject a `ProjectionView` with `BOARD.view(row_type)`, where `BOARD` is the
+projection object from `projections.py`. Reads are filtered to the bound
+tenant and never return tombstoned rows:
 
 ```python
 from typing import Annotated
 from sandloom.sdk.data import Page
-from sandloom.sdk.projections import ProjectionView, View  # sandloom: advanced the read side of a route
+from sandloom.sdk.projections import ProjectionView  # sandloom: advanced the read side of a route
+
+from notes.projections import BOARD
+
+BoardView = Annotated[ProjectionView[BoardOut], BOARD.view(BoardOut)]
 
 @router.get("/boards")
-async def list_boards(
-    boards: Annotated[ProjectionView[BoardOut], View("notes.board", BoardOut)],
-    cursor: str | None = None,
-) -> Page[BoardOut]:
+async def list_boards(boards: BoardView, cursor: str | None = None) -> Page[BoardOut]:
     return await boards.query(limit=50, cursor=cursor)
 ```
 
-`get(key)` returns one row or `None`; `query(filter=, limit=, cursor=)`
-returns a page ordered by the key.
+`view` binds the object. A misspelt projection is a `NameError` when the
+file is imported, not a `LookupError` at the first request. Only the
+module that owns `BOARD` can read it. The row type stays in the annotation
+too, because a type checker needs it. `get(key)` returns one row or `None`;
+`query(filter=, limit=, cursor=)` returns a page ordered by the key.
 
 ### 5. Make it rebuildable
 
@@ -174,7 +179,7 @@ emitted before the watermark is dead-lettered instead of resurrecting a row.
 
 Set `PROJECTION_TOKEN_KEYS` (`{kid: secret}`). A write route whose events
 feed a projection then answers with `SANDLOOM-Consistency-Token`; the client
-sends it back on the read, and `View(...)` waits up to `wait_ms` for those
+sends it back on the read, and `BOARD.view(...)` waits up to `wait_ms` for those
 rows before serving (stale reads carry `SANDLOOM-Projection-Stale: true`).
 
 `ProjectionView.search()` needs a store with the `search` feature; none ships

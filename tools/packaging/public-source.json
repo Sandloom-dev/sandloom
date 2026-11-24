@@ -1823,6 +1823,7 @@
         "src/sandloom/core/tests/test_cache_kit.py",
         "src/sandloom/core/tests/test_database_atomic_store.py",
         "src/sandloom/core/tests/test_dx_author_errors.py",
+        "src/sandloom/core/tests/test_dx_sp_s1.py",
         "src/sandloom/core/tests/test_dx_eager_defaults.py",
         "src/sandloom/core/tests/test_dx_db_everywhere.py",
         "src/sandloom/core/tests/test_dx_check_beginner_tier.py",

@@ -10,7 +10,7 @@ after first, in projections.py: Projection, SourceGroup, full_state, tombstone
 advanced: BoundContractMethod, ConditionalWriteStore, ConsistencyToken, Mapper,
     ProjectionConsumerDescriptor, ProjectionHandler, ProjectionRebuildResult,
     ProjectionRebuilder, ProjectionRegistryError, ProjectionView,
-    QueryProjectionDescriptor, QueryProjectionRegistry, View, delta,
+    QueryProjectionDescriptor, QueryProjectionRegistry, delta,
     make_consumer_callback, monotonic_delete, monotonic_update,
     monotonic_upsert, purge_tombstones, read_token, rebuild,
     start_projection_consumers
@@ -38,7 +38,6 @@ from sandloom.sdk._decl.projections import (
     Projection,
     ProjectionView,
     SourceGroup,
-    View,
     delta,
     full_state,
     tombstone,
@@ -66,7 +65,6 @@ __all__ = [
     "QueryProjectionDescriptor",
     "QueryProjectionRegistry",
     "SourceGroup",
-    "View",
     "delta",
     "full_state",
     "make_consumer_callback",
@@ -85,9 +83,10 @@ __beginner__: tuple[str, ...] = ()
 #: Tier 2 (ADR-0010, "The beginner tier"): what ``sandloom add projection``
 #: writes. ``{file: names}``: a name needs no ``# sandloom: advanced <reason>``
 #: marker in the module's own top-level file of that name
-#: (``<module>/projections.py``), and needs one in any other file. ``View``,
+#: (``<module>/projections.py``), and needs one in any other file.
 #: ``ProjectionView`` and ``unscoped`` stay advanced: the read side of a route
-#: is not what a first projection needs.
+#: (``Projection.view(Row)`` needs only the projection you import) is not what
+#: a first projection needs.
 __after_first__ = {
     "projections.py": (
         "Projection",

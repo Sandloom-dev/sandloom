@@ -100,7 +100,7 @@ These 12 names are what a saga, a projection or a task needs. A business module 
 | [`sandloom.sdk.infra`](infra.md) | 0 | 0 | 33 |  |
 | [`sandloom.sdk.migrations`](migrations.md) | 0 | 0 | 2 |  |
 | [`sandloom.sdk.module`](module.md) | 1 | 0 | 20 |  |
-| [`sandloom.sdk.projections`](projections.md) | 0 | 4 | 26 |  |
+| [`sandloom.sdk.projections`](projections.md) | 0 | 4 | 25 |  |
 | [`sandloom.sdk.sagas`](sagas.md) | 0 | 5 | 16 |  |
 | [`sandloom.sdk.security`](security.md) | 0 | 0 | 26 |  |
 | [`sandloom.sdk.tasks`](tasks.md) | 0 | 2 | 5 |  |
