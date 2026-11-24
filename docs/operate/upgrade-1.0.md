@@ -278,6 +278,26 @@ write ([Module internals](../advanced/module-internals.md)).
 | `step("s", call="billing.credits.v1.spend", ...)` | `step("s", call=credits.spend, ...)` |
 | `QueryProjectionDescriptor` + consumers + `monotonic_upsert` + `ProjectionRebuilder` | `Projection(...)` with `SourceGroup`s and mappers |
 | `router = APIRouter(...)` with auth and tenant dependencies | `router = module_router()` |
+| `core.register_operations(*OPERATIONS)` in `setup` | `item_by_id = ReadOperation(...)` at module level (a tuple or dict of them works too); discovered |
+
+### Planner reads are discovered
+
+`define_module` registers every `ReadOperation`, `ListOperation` and `JoinRead`
+declared at module level in the package, so the `setup` that only called
+`core.register_operations(*OPERATIONS)` goes away. The old call still works: it
+is idempotent per operation.
+
+A read of an operation no module declares is now refused. `Reads.one` and
+`Reads.page` raise `PlanningError` at the first read, with the fix in the
+message. Such an operation used to compile on first use. It was built inside a
+handler or in a helper no module imports, so it had no startup planning and no
+line in `/diagnostics/core`.
+
+| Old | New |
+| --- | --- |
+| an operation built inside a handler or service | declared at module level next to the models it reads, in a file the module imports |
+| `Reads(core).one(op, ...)` in a test, with `op` built in the test | `ModuleAPI(core).register_operations(op)` first, or `session_reads(db)` |
+| `Reads(core, adapter=...)` or `session_reads(db())` | unchanged: a fixed adapter skips the check |
 
 ### Sessions
 
