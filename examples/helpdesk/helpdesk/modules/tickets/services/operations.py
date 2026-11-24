@@ -13,13 +13,14 @@ from ..schemas import TicketOut
 #: Upper bound of one ticket list page (the routes' ``limit`` caps).
 MAX_TICKETS_PAGE = 100
 
-#: ``GET /orgs/{id}/tickets`` (and the export): an organization's newest
-#: tickets — ``ORDER BY created_at DESC`` with the primary key as the
-#: tie-breaker, served by ``ix_tickets_tickets_org_created_id``.
+#: ``GET /orgs/{id}/tickets`` (and the export): the bound tenant's (the
+#: organization's) newest tickets — ``ORDER BY created_at DESC`` with the
+#: primary key as the tie-breaker, served by ``ix_tickets_tickets_org_created_id``
+#: ``(tenant_id, created_at, id)``. ``by`` is empty: the tenant is the filter.
 tickets_of_org = ListOperation(
     entity=Ticket,
     result=TicketOut,
-    by=("organization_id",),
+    by=(),
     order_by=("created_at",),
     descending=True,
     max_limit=MAX_TICKETS_PAGE,

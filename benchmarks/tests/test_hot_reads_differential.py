@@ -85,6 +85,7 @@ from sandloom.core.sql_alchemy.rls import enable_tenant_rls_statements
 from sandloom.core.testing.infra import override_instance
 from sandloom.core.unit_of_work import dispatch as _uow_dispatch
 from sandloom.core.unit_of_work import scope as _uow_scope
+from sandloom.sdk.tenant import bind_tenant
 from sandloom.shared.guards.auth import get_current_user_id
 from benchsuite import mix
 from benchsuite.setup_db import s5_statements
@@ -104,10 +105,8 @@ N_NOTES = 6
 # (main @ e39d66ea), on the request Unit of Work.
 # --------------------------------------------------------------------------- #
 def _reference_handlers() -> dict[tuple[str, str], Callable[..., Any]]:
-    from helpdesk.modules.tickets.api.tickets import _membership_service
     from helpdesk.modules.tickets.models import Ticket
     from helpdesk.modules.tickets.schemas import TicketOut
-    from helpdesk.modules.tickets.services import TicketService
     from linkly.modules.links.models import Shortlink
     from projecthub.modules.notifications.models import NotificationRecord
     from projecthub.modules.notifications.schemas import NotificationOut
@@ -122,37 +121,36 @@ def _reference_handlers() -> dict[tuple[str, str], Callable[..., Any]]:
         user = await UserService.get_by_id(user_id, db)
         return UserOut.model_validate(user)
 
+    # The route's own dependencies (the ``OrgRole`` gate) are copied onto the
+    # reference route below, so the reference only reads: on the request unit,
+    # with the path's organization bound.
     async def _old_list_for_org(
-        membership: Any, organization_id: UUID, user_id: UUID, db: Any, limit: int
+        organization_id: UUID, db: Any, limit: int
     ) -> list[Ticket]:
-        await TicketService._ensure_member(membership, organization_id, user_id)
-        result = await db.execute(
-            select(Ticket)
-            .where(Ticket.organization_id == organization_id)
-            .order_by(Ticket.created_at.desc())
-            .limit(limit)
-        )
-        return list(result.scalars().all())
+        with bind_tenant(organization_id):
+            result = await db.execute(
+                select(Ticket)
+                .where(Ticket.tenant_id == organization_id)
+                .order_by(Ticket.created_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
 
     async def list_tickets(
         organization_id: UUID,
         db: DbSession,
-        user_id: UUID = Depends(get_current_user_id),
-        membership: Any = Depends(_membership_service),
+        _user_id: UUID = Depends(get_current_user_id),
         limit: int = Query(default=50, ge=1, le=100),
     ) -> list[TicketOut]:
-        tickets = await _old_list_for_org(
-            membership, organization_id, user_id, db, limit
-        )
+        tickets = await _old_list_for_org(organization_id, db, limit)
         return [TicketOut.model_validate(t) for t in tickets]
 
     async def export_tickets(
         organization_id: UUID,
         db: DbSession,
-        user_id: UUID = Depends(get_current_user_id),
-        membership: Any = Depends(_membership_service),
+        _user_id: UUID = Depends(get_current_user_id),
     ) -> dict[str, Any]:
-        tickets = await _old_list_for_org(membership, organization_id, user_id, db, 100)
+        tickets = await _old_list_for_org(organization_id, db, 100)
         return {
             "organization_id": str(organization_id),
             "count": len(tickets),
@@ -590,7 +588,7 @@ async def _seed(admin: asyncpg.Connection, user: uuid.UUID) -> None:
             owner,
         )
     await admin.executemany(
-        "INSERT INTO tickets_tickets (id, organization_id, created_by, subject, body,"
+        "INSERT INTO tickets_tickets (id, tenant_id, created_by, subject, body,"
         " status, priority, created_at, updated_at) VALUES"
         " ($1, $2, $3, $4, 'b', 'open', 'normal', $5, $5)",
         [
@@ -783,7 +781,9 @@ async def test_ticket_lists(hot: Hot, first: str) -> None:
     a = await hot.check(
         "tickets_bad_org", "/api/v1/orgs/not-a-uuid/tickets", hot.member, first=first
     )
-    assert a.status == 422
+    # the ``OrgRole`` gate reads the organization from the path before the
+    # route's own validation: a malformed id is its 400
+    assert a.status == 400
     # the export gate is the ORGANIZATION's live subscription (spec §7):
     # billing's facts read in its own contract unit, on both sides
     a = await hot.check(
@@ -997,24 +997,28 @@ async def test_database_error(
 async def test_harness_detects_a_divergence(hot: Hot) -> None:
     """Negative control: a reference that skips the membership check (or reads
     another tenant) MUST show up as a divergence."""
-    route, new_app, old_app = hot.routes[
+    route, new_app, _old_app = hot.routes[
         ("GET", "/api/v1/orgs/{organization_id}/tickets")
     ]
     foreign = f"/api/v1/orgs/{OTHER_ORG}/tickets"
     route.app = new_app
     b = await hot.call(foreign, hot.member)
-    from helpdesk.modules.tickets.services import TicketService
-
-    async def allow(*_a: Any, **_k: Any) -> None:
-        return None
-
-    real = TicketService._ensure_member
-    TicketService._ensure_member = allow  # type: ignore[method-assign,assignment]
+    # The same reference handler without the route's ``OrgRole`` gate.
+    ungated = APIRoute(
+        route.path,
+        _reference_handlers()[("GET", route.path)],
+        response_model=route.response_model,
+        status_code=route.status_code,
+        dependencies=[],
+        methods=["GET"],
+        response_class=route.response_class,
+        name=route.name,
+    )
+    prune_marker_dependencies([ungated])
     try:
-        route.app = old_app
+        route.app = ungated.app
         a = await hot.call(foreign, hot.member)
     finally:
-        TicketService._ensure_member = real  # type: ignore[method-assign]
         route.app = new_app
     assert b.status == 403 and a.status == 200
     with pytest.raises(AssertionError, match="DIVERGENCE"):

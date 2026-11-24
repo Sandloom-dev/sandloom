@@ -29,20 +29,22 @@ events and typed contracts):
 - `projects` and `tasks` are one-line `define_module(...)` packages: their
   `module_router()` routes, producer events and `@contract` read providers are
   **discovered**. `sandloom generate` writes the typed stubs callers import
-  (`projecthub/shared/contracts/projects_read_v1.py`, `tasks_read_v1.py`) and
+  (`projecthub/shared/contracts/projects_read_v2.py`, `tasks_read_v1.py`) and
   exports the event schemas (`projecthub/shared/events/`).
 - `taskboard` calls the read contracts through module-level callers,
-  `projects = Contract(PROJECTS_READ_V1)`; `define_module` derives the
-  module's `consumes` (contract and methods) from those calls. Its consumers
-  read **views** (`class TaskCreated(Event, channel="tasks.task.created.v1")`
+  `projects = Contract(PROJECTS_READ_V2)`; `define_module` derives the
+  module's `consumes` (contract and methods) from those calls. `projects.read.v2`
+  answers with the typed `ProjectState` DTO (`project.name`); the dict-returning
+  `v1` stays beside it, unchanged, because a breaking change of a released
+  contract is a new major. The taskboard consumers read **views** (`class TaskCreated(Event, channel="tasks.task.created.v1")`
   in `consumers.py`), verified against the producers by `sandloom check`.
 - What has no declaration yet stays in a short L2 `setup` with top-level
-  imports: the planner's read operations, the taskboard projection (a
-  `Projection(...)` cannot express the project fan-out over task rows) and
-  the notifications consumer (it writes in the delivery's session, which an
-  `@on` handler reaches through `db()` once it lands).
+  imports: the planner's read operations and the taskboard projection (a
+  `Projection(...)` cannot express the project fan-out over task rows). The
+  `notifications` consumer needs no `setup`: it is an `@on(TaskCreated)`
+  handler writing through `db()`.
 - Tests sign in with `as_user()`, check `published(ProjectCreated)` and
-  replace a contract with `fake_contract(PROJECTS_READ_V1, ...)`.
+  replace a contract with `fake_contract(PROJECTS_READ_V2, ...)`.
 - An advanced name carries `# sandloom: advanced <reason>` on its import line
   (SANDLOOM-T009).
 

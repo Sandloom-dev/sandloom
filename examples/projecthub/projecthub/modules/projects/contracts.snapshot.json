@@ -65,6 +65,136 @@
           }
         }
       }
+    },
+    "projects.read.v2": {
+      "hash": "b74c966452eb9c3d89c4cc3470976c94",
+      "methods": {
+        "get": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "project_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "fields": {
+                  "name": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "str"
+                    }
+                  },
+                  "project_id": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "uuid"
+                    }
+                  },
+                  "status": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "str"
+                    }
+                  },
+                  "tenant_id": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "uuid"
+                    }
+                  },
+                  "version": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "int"
+                    }
+                  }
+                },
+                "k": "model",
+                "ref": "projecthub.modules.projects.schemas.project:ProjectState",
+                "schema_hash": "23d5d87aaab99d7a"
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
+        "list_for_tenant": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "item": {
+              "fields": {
+                "name": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "str"
+                  }
+                },
+                "project_id": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "uuid"
+                  }
+                },
+                "status": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "str"
+                  }
+                },
+                "tenant_id": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "uuid"
+                  }
+                },
+                "version": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "int"
+                  }
+                }
+              },
+              "k": "model",
+              "ref": "projecthub.modules.projects.schemas.project:ProjectState",
+              "schema_hash": "23d5d87aaab99d7a"
+            },
+            "k": "list"
+          }
+        }
+      }
     }
   },
   "format": 1,

@@ -4,17 +4,17 @@
   "consumes": [
     {
       "methods": [],
-      "name": "tenancy.membership.v1",
-      "required": false
-    },
-    {
-      "methods": [],
       "name": "billing.entitlements.v1",
       "required": false
     },
     {
       "methods": [],
       "name": "billing.facts.v1",
+      "required": false
+    },
+    {
+      "methods": [],
+      "name": "tenancy.membership.v1",
       "required": false
     }
   ],

@@ -4,18 +4,17 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from sandloom.sdk import db
 
 from ..models import NotificationsMessage
 
 
 class Outbox:
     @classmethod
-    async def send(
-        cls, db: AsyncSession, recipient_id: UUID, template: str, operation_key: str
-    ) -> UUID:
+    async def send(cls, recipient_id: UUID, template: str, operation_key: str) -> UUID:
         existing = (
-            await db.execute(
+            await db().execute(
                 select(NotificationsMessage).where(
                     NotificationsMessage.operation_key == operation_key
                 )
@@ -26,17 +25,15 @@ class Outbox:
         message = NotificationsMessage(
             recipient_id=recipient_id, template=template, operation_key=operation_key
         )
-        db.add(message)
-        await db.flush()
+        db().add(message)
+        await db().flush()
         return message.id
 
     @classmethod
-    async def inbox(
-        cls, db: AsyncSession, recipient_id: UUID
-    ) -> Sequence[NotificationsMessage]:
+    async def inbox(cls, recipient_id: UUID) -> Sequence[NotificationsMessage]:
         return (
             (
-                await db.execute(
+                await db().execute(
                     select(NotificationsMessage)
                     .where(NotificationsMessage.recipient_id == recipient_id)
                     .order_by(NotificationsMessage.created_at, NotificationsMessage.id)

@@ -11,7 +11,6 @@ from fastapi.responses import RedirectResponse
 
 from sandloom.sdk import module_router, public
 from sandloom.sdk.data import PlannedReads  # sandloom: advanced read-only planner route
-from sandloom.sdk.web import DbSession  # sandloom: advanced db() lands with H1
 
 from ..schemas import LinkCreateIn, LinkOut, LinkStatsOut
 from ..services import LinkService
@@ -24,9 +23,9 @@ router = module_router(
 
 
 @router.post("", response_model=LinkOut, status_code=status.HTTP_201_CREATED)
-async def create_link(data: LinkCreateIn, db: DbSession) -> LinkOut:
+async def create_link(data: LinkCreateIn) -> LinkOut:
     """Create a shortlink. Public — anyone can shorten a URL."""
-    link = await LinkService.create(data, db)
+    link = await LinkService.create(data)
     return LinkOut.model_validate(link)
 
 

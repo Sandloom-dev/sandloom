@@ -1,7 +1,7 @@
 """Shortlink business logic.
 
 Demonstrates the framework's infrastructure-agnostic surface in a tiny app:
-the request's session for persistence, the operation-based cache provider
+the unit's session (``db()``) for persistence, the operation-based cache provider
 (``cache()``) for a hot code->URL lookup and live click counter, and a typed
 ``LinkCreated`` event published through the transactional outbox. No auth, no
 other modules.
@@ -14,8 +14,8 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom.sdk import db
 from sandloom.sdk.infra import cache  # sandloom: advanced operation-based cache
 
 from ..events import LinkCreated
@@ -41,19 +41,19 @@ def _clicks_key(code: str) -> str:
 
 class LinkService:
     @classmethod
-    async def create(cls, data: LinkCreateIn, db: AsyncSession) -> Shortlink:
+    async def create(cls, data: LinkCreateIn) -> Shortlink:
         code = data.custom_code or _gen_code()
         link = Shortlink(code=code, target_url=data.target_url)
-        db.add(link)
+        db().add(link)
         try:
-            await db.flush()
+            await db().flush()
         except IntegrityError as exc:
             # Code collision (custom or — very rarely — a generated one).
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"short code '{code}' is already taken",
             ) from exc
-        await db.refresh(link)
+        await db().refresh(link)
         await LinkCreated(link_id=link.id, code=link.code).publish()
         return link
 
@@ -81,8 +81,8 @@ class LinkService:
         return target
 
     @classmethod
-    async def get_or_404(cls, link_id: UUID, db: AsyncSession) -> Shortlink:
-        result = await db.execute(select(Shortlink).where(Shortlink.id == link_id))
+    async def get_or_404(cls, link_id: UUID) -> Shortlink:
+        result = await db().execute(select(Shortlink).where(Shortlink.id == link_id))
         link = result.scalar_one_or_none()
         if link is None:
             raise HTTPException(

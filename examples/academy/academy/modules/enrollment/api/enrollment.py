@@ -14,8 +14,7 @@ from sandloom.sdk.sagas import (  # sandloom: advanced start a saga in the reque
     saga_status,
     start_saga,
 )
-from sandloom.sdk.web import (  # sandloom: advanced db() lands with H1; durable guard
-    DbSession,
+from sandloom.sdk.web import (  # sandloom: advanced durable guard: stored body replay
     idempotency_guard,
 )
 
@@ -33,14 +32,19 @@ router = module_router(prefix="/api/v1/enrollments")
 )
 async def enroll(
     data: EnrollIn,
-    db: DbSession,
     user: CurrentUser,
     _key: Annotated[
         Any, Depends(idempotency_guard(scope="enrollment.enroll", durable=True))
     ],
 ) -> EnrollmentAccepted:
-    """Create a pending enrollment and start its saga in the SAME transaction."""
-    row = await Enrollments.create(db, user.user_id, data.course_id, data.price)
+    """Create a pending enrollment and start its saga in the SAME transaction.
+
+    The explicit durable guard (not the derived status-only one): no
+    ``Idempotency-Key`` is refused, and a keyed retry replays the stored
+    ``EnrollmentAccepted`` body, so the client learns the enrollment id and a
+    double POST never starts a second saga.
+    """
+    row = await Enrollments.create(user.user_id, data.course_id, data.price)
     handle = await start_saga(
         ENROLL,
         saga_id=row.id,
@@ -62,9 +66,7 @@ async def enroll(
     "/{enrollment_id}",
     response_model=EnrollmentOut,
 )
-async def get_enrollment(
-    enrollment_id: UUID, db: DbSession, user: CurrentUser
-) -> EnrollmentOut:
+async def get_enrollment(enrollment_id: UUID, user: CurrentUser) -> EnrollmentOut:
     # The saga FIRST, the row after it: a saga transition commits the
     # enrollment row and the instance status together, and under READ
     # COMMITTED a later read never sees an older commit — so the row is at
@@ -72,7 +74,7 @@ async def get_enrollment(
     # transition landing between the two reads would pair a terminal saga
     # status with the row's previous state).
     handle = await saga_status(ENROLL, enrollment_id)
-    row = await Enrollments.get_or_404(db, enrollment_id)
+    row = await Enrollments.get_or_404(enrollment_id)
     return EnrollmentOut(
         id=row.id,
         course_id=row.course_id,

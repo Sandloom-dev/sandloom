@@ -3,7 +3,7 @@
 The source events are VIEWS of the projects / tasks channels (declared here,
 verified against the producers by ``sandloom check``); the module never imports
 those modules. The projects read contract is called through its generated
-stub (``Contract(PROJECTS_READ_V1)``).
+stub (``Contract(PROJECTS_READ_V2)``).
 
 Every handler is version-guarded, so at-least-once / out-of-order delivery is
 safe, and the two writers of a project's denormalised fields are SERIALISED on
@@ -15,7 +15,7 @@ the project's row in the local ``taskboard_project_snapshot`` table (see
   refreshes the project fields across every existing task row for that
   project (guarded by ``project_version``).
 * ``on_task_upserted`` — a task created/updated event. Locks the project's
-  snapshot row (seeding it from the ``projects.read.v1`` contract only when it
+  snapshot row (seeding it from the ``projects.read.v2`` contract only when it
   does not exist yet) and upserts the task row (guarded by ``task_version``)
   with the snapshot's CURRENT project fields.
 
@@ -38,7 +38,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from projecthub.shared.contracts.projects_read_v1 import PROJECTS_READ_V1
+from projecthub.shared.contracts.projects_read_v2 import PROJECTS_READ_V2
 from sandloom.sdk import Contract, Event
 from sandloom.sdk.events import (
     EventEnvelope,  # sandloom: advanced L2 projection consumers
@@ -53,7 +53,7 @@ from .models import ProjectSnapshot, ProjectTaskQueryIndex
 #: The projection this module owns.
 PROJECTION_NAME = "project_task_query_index"
 
-projects = Contract(PROJECTS_READ_V1)
+projects = Contract(PROJECTS_READ_V2)
 
 
 class TaskCreated(Event, channel="tasks.task.created.v1"):
@@ -167,14 +167,14 @@ async def lock_project_snapshot(
     snapshot = await _locked_snapshot(session, project_id)
     if snapshot is not None:
         return snapshot
-    project = await projects.get(project_id) or {}
+    project = await projects.get(project_id)
     await upsert_project_snapshot(
         session,
         project_id=project_id,
         tenant_id=tenant_id,
-        name=str(project.get("name", "")),
-        status=str(project.get("status", "unknown")),
-        version=int(project.get("version", 0)),
+        name=project.name if project else "",
+        status=project.status if project else "unknown",
+        version=project.version if project else 0,
     )
     return await _locked_snapshot(session, project_id)
 

@@ -13,6 +13,14 @@ from sandloom.sdk.testing import (
 )
 
 
+@pytest_asyncio.fixture
+async def client(real_uow_client: AsyncClient) -> AsyncClient:
+    """Real request units: ``OrgRole`` asks tenancy's membership contract,
+    which reads committed rows only (never the caller's open transaction), so
+    the seeded organization must be committed, as in production."""
+    return real_uow_client
+
+
 async def _seed_org_member(
     client: AsyncClient, role: str
 ) -> tuple[uuid.UUID, uuid.UUID, dict[str, Any]]:

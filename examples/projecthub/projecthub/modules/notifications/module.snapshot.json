@@ -24,7 +24,7 @@
   ],
   "consumers": [
     {
-      "bind_tenant_from": null,
+      "bind_tenant_from": "tenant_id",
       "channel": "tasks.task.created.v1",
       "database": "default",
       "dead_letter": true,

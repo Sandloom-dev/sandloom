@@ -39,12 +39,12 @@ charges = Contract(PAYMENTS_CHARGES_V1)
 mail = Contract(NOTIFICATIONS_MAIL_V1)
 
 
-async def reserve_seat(db: Any, c: SagaContext[EnrollInput]) -> str:
-    return await Enrollments.reserve(db, c.input.enrollment_id)
+async def reserve_seat(_session: Any, c: SagaContext[EnrollInput]) -> str:
+    return await Enrollments.reserve(c.input.enrollment_id)
 
 
-async def release_seat(db: Any, c: SagaContext[EnrollInput]) -> str:
-    return await Enrollments.cancel(db, c.input.enrollment_id)
+async def release_seat(_session: Any, c: SagaContext[EnrollInput]) -> str:
+    return await Enrollments.cancel(c.input.enrollment_id)
 
 
 def charge_args(c: SagaContext[EnrollInput]) -> dict[str, object]:
@@ -55,8 +55,8 @@ def refund_args(c: SagaContext[EnrollInput]) -> dict[str, object]:
     return {"customer_id": c.input.student_id, "charge_key": c.key("charge")}
 
 
-async def grant_access(db: Any, c: SagaContext[EnrollInput]) -> str:
-    return await Enrollments.activate(db, c.input.enrollment_id)
+async def grant_access(_session: Any, c: SagaContext[EnrollInput]) -> str:
+    return await Enrollments.activate(c.input.enrollment_id)
 
 
 def notify_args(c: SagaContext[EnrollInput]) -> dict[str, object]:
