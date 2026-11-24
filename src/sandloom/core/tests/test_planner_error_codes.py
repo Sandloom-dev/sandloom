@@ -239,13 +239,18 @@ _KERNEL = Path(planner.__file__).resolve().parents[1]
 
 
 def _bare_planning_raises(source: str) -> list[int]:
-    """Lines that ``raise PlanningError(...)`` / ``raise x.PlanningError(...)``."""
+    """Lines that raise ``PlanningError`` bare: called or not, plain or dotted."""
     lines: list[int] = []
     for node in ast.walk(ast.parse(source)):
-        if not (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)):
+        if not (isinstance(node, ast.Raise) and node.exc is not None):
             continue
-        func = node.exc.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        target = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+        if isinstance(target, ast.Attribute):
+            name = target.attr
+        elif isinstance(target, ast.Name):
+            name = target.id
+        else:
+            name = ""
         if name == "PlanningError":
             lines.append(node.lineno)
     return lines
@@ -254,6 +259,8 @@ def _bare_planning_raises(source: str) -> list[int]:
 def test_the_scan_finds_a_bare_raise() -> None:
     assert _bare_planning_raises("raise PlanningError('x')\n") == [1]
     assert _bare_planning_raises("raise _planner.PlanningError('x')\n") == [1]
+    assert _bare_planning_raises("raise PlanningError\n") == [1]
+    assert _bare_planning_raises("raise _planner.PlanningError\n") == [1]
     assert _bare_planning_raises("raise InvalidOperation('x')\n") == []
 
 
