@@ -43,6 +43,7 @@ An event and its consumer (the view lists only the fields you read):
 ```python
 class NoteCreated(Event, channel="notes.note.created.v1"): ...
 
+
 @on(NoteCreatedView)
 async def on_note_created(event: NoteCreatedView) -> None: ...
 ```

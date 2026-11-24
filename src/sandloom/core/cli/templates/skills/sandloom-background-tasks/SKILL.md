@@ -29,6 +29,7 @@ name is its dotted path, so it has no `name=`.
 from sandloom.sdk.data import open_uow
 from sandloom.sdk.tasks import periodic
 
+
 @periodic(cron="0 3 * * *", id="<module>.purge-old-items")
 async def purge_old_items() -> None:
     """Every day at 03:00 UTC."""

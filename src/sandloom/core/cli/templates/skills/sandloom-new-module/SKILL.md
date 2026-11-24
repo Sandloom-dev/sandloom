@@ -52,6 +52,7 @@ domain:
   ORG = Account.org(param="org_id")
   PAID_ADMIN = require(OrgRole("admin") & SubscriptionActive(of=ORG))
 
+
   @router.get("/orgs/{org_id}/report", dependencies=[Depends(PAID_ADMIN)])
   async def report(org_id: UUID, user: CurrentUser) -> ReportOut: ...
   ```
