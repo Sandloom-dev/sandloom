@@ -154,10 +154,6 @@
     "sandloom.sdk.data.disable_tenant_rls",
     "sandloom.sdk.data.enable_tenant_rls",
     "sandloom.sdk.migrations.run_module_migrations",
-    "sandloom.sdk.projections.Projection",
-    "sandloom.sdk.projections.SourceGroup",
-    "sandloom.sdk.projections.full_state",
-    "sandloom.sdk.projections.tombstone",
     "sandloom.sdk.tenant.current_tenant_id"
   ],
   "test_sdk_names": [
@@ -168,7 +164,6 @@
     "sandloom.sdk.testing.fake_contract"
   ],
   "test_tier_misses": [
-    "sandloom.sdk.tenant.bind_tenant",
     "sandloom.sdk.testing.assert_migrations_match_models"
   ]
 }

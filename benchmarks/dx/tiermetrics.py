@@ -64,17 +64,55 @@ _HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 _IMPORT_RE = re.compile(r"^[ \t]*import[ \t]+(sandloom\.sdk\.[\w.]+)", re.MULTILINE)
 
 
+def _sdk_dir(sdk_dir: Path | None) -> Path:
+    if sdk_dir is not None:
+        return sdk_dir
+    spec = importlib.util.find_spec("sandloom.sdk")
+    if spec is None or spec.origin is None:
+        raise RuntimeError("sandloom.sdk is not importable: run with `uv run`")
+    return Path(spec.origin).parent
+
+
 def beginner_tier(sdk_dir: Path | None = None) -> dict[str, set[str]]:
     """``{sandloom.sdk module: its __beginner__ names}`` of the installed framework
     (the same static read SANDLOOM-T009 gates with)."""
     from sandloom.core.archcheck import api10_rules
 
-    if sdk_dir is None:
-        spec = importlib.util.find_spec("sandloom.sdk")
-        if spec is None or spec.origin is None:
-            raise RuntimeError("sandloom.sdk is not importable: run with `uv run`")
-        sdk_dir = Path(spec.origin).parent
-    return api10_rules.beginner_names(sdk_dir)
+    return api10_rules.beginner_names(_sdk_dir(sdk_dir))
+
+
+def after_first_tier(sdk_dir: Path | None = None) -> dict[str, dict[str, set[str]]]:
+    """``{sandloom.sdk module: {file name: names}}`` of the installed framework's
+    ``__after_first__`` (tier 2: free in a module's own top-level file of that
+    name, as SANDLOOM-T009 reads it)."""
+    from sandloom.core.archcheck import api10_rules
+
+    return api10_rules.after_first_names(_sdk_dir(sdk_dir))
+
+
+def _in_tier(
+    path: str,
+    module: str,
+    name: str,
+    beginner: dict[str, set[str]],
+    after_first: dict[str, dict[str, set[str]]],
+) -> bool:
+    """Whether ``name`` of ``module`` imported in the diff file ``path`` is no tier
+    miss: a beginner name, or a tier 2 name in the file SANDLOOM-T009 frees it in
+    (``api10_rules.tier2_names_here``, the one place that rule lives)."""
+    from sandloom.core.archcheck import api10_rules
+
+    if name in beginner.get(module, set()):
+        return True
+    parts = Path(path).parts
+    if "modules" not in parts[:-2]:
+        return False
+    # the module's directory is the nearest `modules/` above the file's own
+    depth = max(i for i, p in enumerate(parts[:-2]) if p == "modules")
+    modules_path = Path(*parts[: depth + 1])
+    return name in api10_rules.tier2_names_here(
+        Path(path), module, after_first, modules_path
+    )
 
 
 def _result_text(content: Any) -> str:
@@ -245,13 +283,21 @@ def _imported(names_text: str) -> list[str]:
     return [p.split(" as ")[0].strip() for p in parts if p and p != "\\"]
 
 
-def diff_metrics(patch: str, beginner: dict[str, set[str]]) -> dict[str, Any]:
+def diff_metrics(
+    patch: str,
+    beginner: dict[str, set[str]],
+    after_first: dict[str, dict[str, set[str]]] | None = None,
+) -> dict[str, Any]:
     """The diff half of :data:`METRIC_KEYS`, counted the way SANDLOOM-T009 does:
     the ``sandloom.sdk`` names the module code of the final diff imports
     (``module.Name``), those outside the beginner tier (a module the tier does not
-    list has no beginner names) and the advanced markers. Generated code and
+    list has no beginner names) and the advanced markers. A tier 2 name
+    (``after_first``, :func:`after_first_tier`) is no miss in the file of a
+    module's own directory that the tier names for it (``sagas.py``), a miss
+    anywhere else; ``None`` is a tier with no tier 2 names. Generated code and
     files outside an application's ``modules/`` are not counted; a module's test
     files are reported apart (``test_sdk_names``, ``test_tier_misses``)."""
+    later = after_first or {}
     names: dict[str, set[str]] = {"code": set(), "test": set()}
     misses: dict[str, set[str]] = {"code": set(), "test": set()}
     markers = 0
@@ -265,7 +311,7 @@ def diff_metrics(patch: str, beginner: dict[str, set[str]]) -> dict[str, Any]:
             module = found.group(1)
             for name in _imported(found.group(2)):
                 names[kind].add(f"{module}.{name}")
-                if name not in beginner.get(module, set()):
+                if not _in_tier(path, module, name, beginner, later):
                     misses[kind].add(f"{module}.{name}")
         for found in _IMPORT_RE.finditer(text):
             names[kind].add(found.group(1))
@@ -280,11 +326,18 @@ def diff_metrics(patch: str, beginner: dict[str, set[str]]) -> dict[str, Any]:
 
 
 def run_metrics(
-    transcript: Path, patch: Path, beginner: dict[str, set[str]]
+    transcript: Path,
+    patch: Path,
+    beginner: dict[str, set[str]],
+    after_first: dict[str, dict[str, set[str]]] | None = None,
 ) -> dict[str, Any]:
     """:data:`METRIC_KEYS` of one run. A missing transcript raises (a metric that
     read nothing must not look like a run that did nothing); a missing patch is a
     run that stopped before it wrote one (no application): an empty diff."""
     out = transcript_metrics(transcript)
-    out.update(diff_metrics(patch.read_text() if patch.is_file() else "", beginner))
+    out.update(
+        diff_metrics(
+            patch.read_text() if patch.is_file() else "", beginner, after_first
+        )
+    )
     return out
