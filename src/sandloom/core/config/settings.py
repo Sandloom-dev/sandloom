@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextvars import ContextVar
 from difflib import get_close_matches
 from typing import Any
@@ -322,33 +322,61 @@ class Settings(
             )
         return self
 
-    @model_validator(mode="before")
     @classmethod
-    def _reject_production_setting_typos(cls, value: Any) -> Any:
-        """Catch near-miss framework names without rejecting ambient env vars."""
-        if not isinstance(value, dict):
-            return value
-        supplied = {str(k).upper(): v for k, v in value.items()}
-        environment = supplied.get("ENVIRONMENT", os.environ.get("ENVIRONMENT"))
-        if environment not in ("prod", Environment.prod):
-            return value
+    def misspelled_settings(cls, keys: Iterable[str] = ()) -> list[tuple[str, str]]:
+        """``(name, did-you-mean)`` for each name among ``keys`` and the process
+        environment that is a near miss of a framework setting.
+
+        Ambient variables are not flagged: a name must share a prefix with a
+        framework setting and be a near-exact match of one (``TENANCY_MOD`` for
+        ``TENANCY_MODE``). ``extra="ignore"`` would otherwise drop it silently.
+        """
         aliases = {
             str(field.alias or name).upper() for name, field in cls.model_fields.items()
         }
         accepted = aliases | {name.upper() for name in cls.model_fields}
         prefixes = {name.split("_", 1)[0] for name in aliases if "_" in name}
-        for key in sorted(set(supplied) | set(os.environ)):
-            normalized = key.upper()
-            if normalized in accepted or len(normalized) < 8 or "_" not in normalized:
+        found: list[tuple[str, str]] = []
+        for key in sorted(
+            {str(k).upper() for k in keys} | {k.upper() for k in os.environ}
+        ):
+            if key in accepted or len(key) < 8 or "_" not in key:
                 continue
-            if normalized.split("_", 1)[0] not in prefixes:
+            if key.split("_", 1)[0] not in prefixes:
                 continue
-            matches = get_close_matches(normalized, sorted(aliases), n=1, cutoff=0.95)
+            matches = get_close_matches(key, sorted(aliases), n=1, cutoff=0.95)
             if matches:
-                raise ValueError(
-                    f"Unknown framework setting {normalized}; "
-                    f"did you mean {matches[0]}?"
-                )
+                found.append((key, matches[0]))
+        return found
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flag_setting_typos(cls, value: Any) -> Any:
+        """A misspelled framework setting is refused in production and warned
+        about everywhere else (it was ignored without a word: ``TENANCY_MOD``
+        ran a multi-tenant app)."""
+        if not isinstance(value, dict):
+            return value
+        supplied = {str(k).upper(): v for k, v in value.items()}
+        snapshot = _LOAD_SNAPSHOT.get()
+        keys = set(supplied) | (set(snapshot.dotenv) if snapshot is not None else set())
+        typos = cls.misspelled_settings(keys)
+        if not typos:
+            return value
+        environment = supplied.get("ENVIRONMENT", os.environ.get("ENVIRONMENT"))
+        if environment in ("prod", Environment.prod):
+            name, suggestion = typos[0]
+            raise ValueError(
+                f"Unknown framework setting {name}; did you mean {suggestion}?"
+            )
+        logger = logging.getLogger("sandloom.settings")
+        for name, suggestion in typos:
+            logger.warning(
+                "Unknown framework setting %s is ignored; did you mean %s? "
+                "(production refuses it)",
+                name,
+                suggestion,
+            )
         return value
 
     @model_validator(mode="after")
@@ -721,7 +749,8 @@ class Settings(
 
     @model_validator(mode="after")
     def _storage_requirements(self) -> Settings:
-        # ``s3``: the driver validates its options (INFRA.objectstore.default).
+        # ``s3`` and an unset selector: the driver validates its own options
+        # (INFRA.objectstore.default; the local driver checks ``path``).
         if self.storage_type == "local" and not self.storage_path:
             raise ValueError("STORAGE_PATH is required when STORAGE_TYPE=local")
         return self
@@ -806,6 +835,13 @@ def _hint(error: ValidationError) -> str:
         "and the stack's key-value server and writes the URLs into .env (or set "
         "them yourself).\n"
     )
+
+
+def misspelled_settings_in_use() -> list[tuple[str, str]]:
+    """``(name, did-you-mean)`` of every misspelled framework setting in this
+    process's environment and ``.env`` (what ``sandloom doctor`` and
+    ``sandloom config dump`` print)."""
+    return Settings.misspelled_settings(_module_settings.process_snapshot().dotenv)
 
 
 def _load_into(target: Settings) -> None:

@@ -73,7 +73,7 @@ from sandloom.core.composition import load_composition_core
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.common import MULTI_TENANT_STRICT, strict_profile_active
-from sandloom.core.config.settings import settings
+from sandloom.core.config.settings import misspelled_settings_in_use, settings
 from sandloom.core.eventing.bus_base import BaseEventBus, durable_transport
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.migrations.migrations import migration_status
@@ -200,6 +200,7 @@ def check_config(report: Report, cfg: Any) -> None:
             )
         if cfg.docs_exposed:
             report.add("config", "docs", WARN, "API docs are exposed in production")
+    check_misspelled_settings(report)
     check_overrides(report, cfg)
     if getattr(cfg, "production_profile", None) == MULTI_TENANT_STRICT:
         errors, warnings = config_problems(cfg)
@@ -216,6 +217,20 @@ def check_config(report: Report, cfg: Any) -> None:
                 WARN,
                 "the strict profile is enforced only with ENVIRONMENT=prod",
             )
+
+
+def check_misspelled_settings(report: Report) -> None:
+    """A near miss of a framework setting in the environment or ``.env`` is
+    ignored by the settings model (production refuses it): warn in every
+    environment."""
+    for name, suggestion in misspelled_settings_in_use():
+        report.add(
+            "config",
+            "misspelled_setting",
+            WARN,
+            f"{name} is not a framework setting and is ignored; did you mean "
+            f"{suggestion}?",
+        )
 
 
 def check_boot(report: Report, cfg: Any) -> None:

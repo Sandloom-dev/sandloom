@@ -35,7 +35,8 @@ Call `objectstore(name="exports")` to select a named instance.
 
 ### `local`
 
-Set `STORAGE_TYPE=local` and `STORAGE_PATH` for filesystem storage. Use
+`local` is the object store when nothing selects another: leave `STORAGE_TYPE` unset, or set
+it to `local`, and set `STORAGE_PATH` for filesystem storage. Use
 `path` and `max_upload_size_bytes` to override the defaults on a named instance.
 
 Mount the same persistent volume in every replica that needs the files.

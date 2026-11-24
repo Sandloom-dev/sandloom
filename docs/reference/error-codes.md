@@ -105,6 +105,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B039`](#sandloom-b039) | `operator-capability-unavailable` | runtime | an operator command's owner cannot be confirmed to provide what the command needs: no owner is assigned, its public name is unknown, its &lt;owner>.security.v1 is neither local nor bound, the contract lacks a method or has it with another shape, this service may not call it, or the owner answered with another shape | active |
 | [`SANDLOOM-B040`](#sandloom-b040) | `operator-owner-substitution` | runtime | the service an operator command would call for &lt;owner>.security.v1 is not the owner the claim map names: its binding names another service than the owner's other bindings, or its describe states another provider, or its answer is not bound to the pinned service | active |
 | [`SANDLOOM-B041`](#sandloom-b041) | `kernel-capability-refused` | boot | module code resolved or required a kernel-facing capability (atomic_store, lease, broadcast) | active |
+| [`SANDLOOM-B042`](#sandloom-b042) | `unknown-driver-option` | boot | an INFRA instance carries an option its driver does not accept | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1688,6 +1689,27 @@ naming it is refused, the requirement when the module loads.
 **Fix:** use the module-facing API built on it (sandloom.sdk: cache, idempotency_guard, the event bus through the outbox), or a module-facing capability
 
 **More:** `docs/adr/0016-kernel-ports-and-driver-packages.md`
+
+### SANDLOOM-B042
+
+**an INFRA instance carries an option its driver does not accept**
+
+Slug: `unknown-driver-option` · kind: boot · status: active
+
+**What happened and why it matters**
+
+Every key of an INFRA instance except driver is passed to the driver as an
+option, and each driver declares the options it accepts. A key it does not
+declare (urll for url, bukcet for bucket) is refused at startup instead of
+being ignored, because an ignored option leaves the driver on its default (a
+cache on localhost, a bucket nobody named). The refusal names the instance, the
+driver, every unknown key, the accepted keys and, for a near miss, the key you
+probably meant. A value of the wrong type or a missing required option is a
+different refusal and reads as the driver's own options error.
+
+**Fix:** fix the option name the refusal lists (the accepted keys are named, with the nearest one), or remove it
+
+**More:** `docs/infrastructure/configure.md`
 
 ### SANDLOOM-B020
 

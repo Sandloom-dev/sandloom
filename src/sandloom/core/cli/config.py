@@ -45,7 +45,11 @@ from pydantic_settings import (
 from sandloom.core.cli.url_text import mask_url_credentials as mask_url_credentials
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config import module_settings as _module_settings
-from sandloom.core.config.settings import effective_secrets_dir, settings
+from sandloom.core.config.settings import (
+    effective_secrets_dir,
+    misspelled_settings_in_use,
+    settings,
+)
 from sandloom.core.observability.guardrails import is_secret_name
 
 REDACTED = "<redacted>"
@@ -270,6 +274,17 @@ def _build_module_entries(
     return entries, mask_url_credentials(failure) if failure else None
 
 
+def _warn_misspelled() -> None:
+    """A near miss of a framework setting is ignored by the settings model
+    (production refuses it): the dump says so on stderr, in every environment."""
+    for name, suggestion in misspelled_settings_in_use():
+        print(
+            f"warning: {name} is not a framework setting and is ignored; did you "
+            f"mean {suggestion}?",
+            file=sys.stderr,
+        )
+
+
 def dump_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="sandloom config dump",
@@ -315,6 +330,7 @@ def dump_main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
+    _warn_misspelled()
     entries = effective_config(settings, redact=not args.show_secrets)
     prefixes = [p.strip().upper() for p in args.only.split(",") if p.strip()]
     if prefixes:

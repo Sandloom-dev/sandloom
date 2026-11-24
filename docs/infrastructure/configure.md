@@ -14,6 +14,12 @@ Streams and Celery. An app made by `sandloom new` lists its picks in `DEFAULT_IN
 The flat settings give the database, object store and notifier their options: `DATABASE_URL`, <!-- prose-ok: P6 a list of settings -->
 `STORAGE_*` and `NOTIFIER_BACKEND`. `EVENT_BUS_BACKEND` names the bus
 (`memory`, `broadcast` or `streams`); unset, it leaves the bus to the composition.
+`STORAGE_TYPE` and `NOTIFIER_BACKEND` work the same way. Unset, the driver the composition
+or `INFRA` selects stands with its options: an `s3` store keeps its `bucket`, an `smtp`
+notifier its `host`. With none selected, the object store is `local` and the notifier is
+`log`. Set, the flat setting replaces the composition's choice, and the startup log warns
+that the choice's options are dropped. `INFRA` wins over an explicit flat setting and
+warns that the flat setting is ignored.
 
 Every Redis instance and the Celery broker takes its own explicit url in `INFRA`: <!-- prose-ok: P6 a list of instances -->
 `cache.default.url`, `eventbus.default.url` (streams), `lease.beat.url`,
@@ -59,7 +65,9 @@ or overrides drivers and options:
 selected through `INFRA`. Keeping the driver merges new options over the old ones,
 and naming another driver starts with only the options given here. Driver options are
 schema-validated; an unknown driver, instance or option
-fails startup. The `sqlalchemy` option `tenant_rls: true` turns on
+fails startup. A misspelled option (`urll` for `url`) is refused with
+[SANDLOOM-B042](../reference/error-codes.md): the message lists the accepted keys and the
+nearest one. The `sqlalchemy` option `tenant_rls: true` turns on
 PostgreSQL row-level security for that instance, with `system_url` /
 `require_system_channel` for its system channel (see
 [Multi-tenancy](../modules/database/multi-tenancy.md)). PostgreSQL URLs always name their driver:
