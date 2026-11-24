@@ -18,7 +18,7 @@ or a mail server:
 ## Create the application
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a16" sandloom new myapp --with identity,tenancy --module notes
+uvx --from "sandloom[standard]==0.7.0a17" sandloom new myapp --with identity,tenancy --module notes
 ```
 
 The `tenant_not_authorized` code, the tenant error texts and the printed

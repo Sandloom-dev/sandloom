@@ -204,10 +204,10 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     generate_project("shop", tmp_path, with_batteries=["identity"])
     shop = tomllib.loads(_read(tmp_path / "shop", "pyproject.toml"))
     assert shop["project"]["dependencies"] == [
-        "sandloom[postgres,redis,celery]>=0.7.0a16,<0.8",
-        "sandloom-redis>=0.7.0a16,<0.8",
-        "sandloom-celery>=0.7.0a16,<0.8",
-        "sandloom-identity>=0.7.0a16,<0.8",
+        "sandloom[postgres,redis,celery]>=0.7.0a17,<0.8",
+        "sandloom-redis>=0.7.0a17,<0.8",
+        "sandloom-celery>=0.7.0a17,<0.8",
+        "sandloom-identity>=0.7.0a17,<0.8",
     ]
 
     # A minimal app depends on the kernel alone (+ its Redis/Celery drivers:
@@ -215,9 +215,9 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     generate_project("probe", tmp_path)
     probe = tomllib.loads(_read(tmp_path / "probe", "pyproject.toml"))
     assert probe["project"]["dependencies"] == [
-        "sandloom[postgres,redis,celery]>=0.7.0a16,<0.8",
-        "sandloom-redis>=0.7.0a16,<0.8",
-        "sandloom-celery>=0.7.0a16,<0.8",
+        "sandloom[postgres,redis,celery]>=0.7.0a17,<0.8",
+        "sandloom-redis>=0.7.0a17,<0.8",
+        "sandloom-celery>=0.7.0a17,<0.8",
     ]
 
     # A published app (no local checkout, so no `[tool.uv.sources]`) gets
@@ -226,7 +226,7 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     generate_project("published", tmp_path, framework_source="pypi")
     published = tomllib.loads(_read(tmp_path / "published", "pyproject.toml"))
     assert published["project"]["dependencies"] == [
-        "sandloom[postgres,redis,celery]>=0.7.0a16,<0.8",
+        "sandloom[postgres,redis,celery]>=0.7.0a17,<0.8",
     ]
     assert "tool" not in published or "sources" not in published["tool"].get("uv", {})
 
@@ -252,10 +252,10 @@ def test_generated_app_installs_the_fast_extra(tmp_path: Path) -> None:
         "custom",
         tmp_path,
         with_batteries=["identity"],
-        framework_req="sandloom==0.7.0a16",
+        framework_req="sandloom==0.7.0a17",
     )
     custom_pyproject = _read(tmp_path / "custom", "pyproject.toml")
-    assert '"sandloom==0.7.0a16"' in custom_pyproject
+    assert '"sandloom==0.7.0a17"' in custom_pyproject
 
 
 def test_asgi_reuses_framework_factory(tmp_path: Path) -> None:

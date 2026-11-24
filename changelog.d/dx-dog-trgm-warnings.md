@@ -1,3 +1,0 @@
-### Fixed
-
-- **`sandloom test` and `sandloom migrate drift` no longer print three Alembic `UserWarning`s for identity's user-search index** (dx-dog-trgm-warnings). The `ix_users_search_trgm` index is a portable `search_index`, whose operand carries the `gin_trgm_ops` operator class; Alembic cannot compare such an expression and warned once per column, advising `postgresql_ops`, which a module must not use (no dialect keyword in a model). The migration runner now ignores exactly that warning for every chain command (`upgrade`, `check`, autogenerate), as the migrations-match-models test helper already did; the index is still compared by its reflected definition. No schema change, no new revision, nothing to do on upgrade.
