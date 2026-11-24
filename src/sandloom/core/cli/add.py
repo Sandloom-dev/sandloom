@@ -33,7 +33,10 @@ Rules every generator keeps:
   tenants. The choice is the developer's, never read from the environment or
   ``.env`` (a gitignored per-machine file would scaffold a table without
   row-level security into an app that is multi-tenant in production);
-  ``add projection`` always keys its rows by tenant.
+  ``add projection`` always keys its rows by tenant; ``add consumer`` gives a
+  view it builds from ``--field`` alone (no producer schema yet) a ``tenant_id``
+  too, unless ``--no-tenant``: a view of a found producer keeps that producer's
+  required fields.
 
 Every generator is run into a fresh app by the framework's tests and the
 result must pass ``sandloom check`` and the app's own tests.
@@ -1344,18 +1347,23 @@ def add_contract_use(
 # --------------------------------------------------------------------------- #
 
 
-def _producer_fields(where: Layout, channel: str) -> tuple[list[tuple[str, str]], str]:
-    """The producer's fields for a view: from the tree, else the exported
-    schema; ``([], "")`` when neither is found."""
+def _producer_fields(
+    where: Layout, channel: str
+) -> tuple[list[tuple[str, str, bool]], str]:
+    """The producer's fields for a view, as ``(name, annotation, required)``:
+    from the tree, else the exported schema; ``([], "")`` when neither is found.
+    ``required`` is what the channel's schema demands of every payload (a field
+    with no default; the schema's ``required`` list)."""
     for py in api10_rules.iter_python([where.modules_dir]):
         if "tests" in py.parts or "migrations" in py.parts:
             continue
         for event in api10_rules.event_classes(py):
             module = py.relative_to(where.modules_dir).parts[0]
             if event.channel == channel and channel.split(".", 1)[0] == module:
-                return list(
-                    event.fields.items()
-                ), f"{py.relative_to(where.modules_dir)}"
+                return [
+                    (name, annotation, name not in event.optional)
+                    for name, annotation in event.fields.items()
+                ], f"{py.relative_to(where.modules_dir)}"
     exported = (
         where.shared_dir / "events" / f"{channel}.json" if where.shared_dir else None
     )
@@ -1367,6 +1375,7 @@ def _producer_fields(where: Layout, channel: str) -> tuple[list[tuple[str, str]]
             "number": "float",
             "boolean": "bool",
         }
+        required = set(schema.get("required") or [])
         fields = []
         for prop, spec in (schema.get("properties") or {}).items():
             kind = (
@@ -1374,26 +1383,66 @@ def _producer_fields(where: Layout, channel: str) -> tuple[list[tuple[str, str]]
                 if spec.get("format") == "uuid"
                 else names.get(spec.get("type"), "str")
             )
-            fields.append((prop, kind))
+            fields.append((prop, kind, prop in required))
         return fields, exported.name
     return [], ""
+
+
+def _view_of_producer(
+    found: list[tuple[str, str, bool]], given: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """The fields of a view whose producer is known. Every required field of the
+    producer stays (the channel's schema validates each payload against them, so
+    a test event without one is refused); ``--field`` narrows the optional ones
+    and adds its own. With no ``--field``, all the producer's fields."""
+    if not given:
+        return [(name, annotation) for name, annotation, _ in found]
+    named = dict(given)
+    view = [
+        (name, named.get(name, annotation))
+        for name, annotation, required in found
+        if required or name in named
+    ]
+    known = {name for name, _, _ in found}
+    return view + [
+        (name, annotation) for name, annotation in given if name not in known
+    ]
 
 
 def add_consumer(
     module: str, channel: str, where: Layout, fields: list[str]
 ) -> list[Path]:
     """``sandloom add consumer <m> <channel>``: a view of ``channel`` and an
-    ``@on`` handler in ``consumers.py``."""
+    ``@on`` handler in ``consumers.py``.
+
+    The view's fields come from the producer (its class in the tree, else its
+    exported schema), the required ones always; ``fields`` narrows the optional
+    ones and adds. With no producer found they are ``fields`` plus ``tenant_id``
+    (unless ``where`` is not tenant-scoped, ``--no-tenant``), the field ``add
+    event`` writes by default; the scaffolded test builds the event from every
+    field of the view."""
     directory = _require_module(where, module)
     if not _CHANNEL.fullmatch(channel):
         raise GeneratorError(f"not a versioned channel: {channel!r}")
     found, source = _producer_fields(where, channel)
-    if fields:
-        view_fields = [(n, a) for n, a, _ in parse_fields(fields)]
+    given = [(n, a) for n, a, _ in parse_fields(fields)]
+    if found:
+        view_fields = _view_of_producer(found, given)
+        note = (
+            f"fields from --field and the producer's required ones ({source})"
+            if given
+            else f"fields of the producer ({source})"
+        )
+    elif given:
+        view_fields = list(given)
         note = "fields from --field"
-    elif found:
-        view_fields = found
-        note = f"fields of the producer ({source})"
+        # No schema to read yet: `add event` will give the channel `tenant_id`
+        # (unless --no-tenant), and a payload without it fails the channel's
+        # schema in the test. The same default, so either order of the two
+        # generators gives a passing test.
+        if where.tenant_scoped and not any(n == "tenant_id" for n, _ in given):
+            view_fields.append(("tenant_id", "UUID"))
+            note = "fields from --field, and tenant_id"
     else:
         raise GeneratorError(
             f"no producer schema for {channel!r} in this tree"
@@ -2217,7 +2266,16 @@ def _parser() -> argparse.ArgumentParser:
         metavar="NAME:TYPE",
         help=f"a field of the view, as name:type with type one of {types}; "
         "repeat it for each field (default: the producer's own fields, read "
-        "from its class or its exported schema)",
+        "from its class or its exported schema). With a producer found, the "
+        "view keeps its required fields (tenant_id included): --field narrows "
+        "the optional ones and adds its own",
+    )
+    consumer.add_argument(
+        "--no-tenant",
+        action="store_true",
+        help="for an app without tenants: a view built from --field alone (no "
+        "producer schema found yet) gets no tenant_id. Without it the view "
+        "gets tenant_id: UUID, as `add event` writes it",
     )
     saga = generator(
         "saga", "a saga with a typed command step, a stand-in contract and tests"
@@ -2339,7 +2397,9 @@ def add_stack(root: Path) -> int:
 def _run(args: argparse.Namespace) -> tuple[list[Path], str | None]:
     where = layout(
         args.root,
-        tenant_scoped=not (args.what in ("module", "event") and args.no_tenant),
+        tenant_scoped=not (
+            args.what in ("module", "event", "consumer") and args.no_tenant
+        ),
     )
     if args.what == "skills":
         agents = _skills.choose_agents(

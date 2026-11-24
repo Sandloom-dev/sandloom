@@ -30,6 +30,11 @@ at-least-once; there is no ordering guarantee between events.
 
   Otherwise you pass the fields yourself with `--field`, and the view is
   marked unverified.
+
+  The order of the two generators does not matter. `add event` gives the event
+  `tenant_id: UUID` unless you pass `--no-tenant`. A view built from `--field`
+  alone gets the same field, so its test passes once the event is added. An
+  app without tenants passes `--no-tenant` to both.
 - If `consumers.py` already exists, it must parse and import `Event, on`
   from `sandloom.sdk` (and the types the fields need).
 
@@ -61,14 +66,22 @@ Both runs above, in one file:
 ```
 
 - **A view, not a producer.** The channel's first segment (`notes`) is
-  another module, so the class is a *view* of that channel: it is not
-  registered as a schema, `.publish()` on it is refused, and payload fields
-  it does not declare are ignored. You may delete fields you do not need;
-  never add one the producer does not send.
+  another module, so the class is a *view* of that channel. It is not
+  registered as a schema and `.publish()` on it is refused. Payload fields it
+  does not declare are ignored. You may delete an optional field you do not
+  need; never add one the producer does not send.
+- **Keep the required fields.** `tenant_id` is one of them. The generated test
+  builds its event from the view's fields. `deliver` checks that event against
+  the channel's schema, which demands every required field.
+- **Which fields.** With the producer found and no `--field`, the view has all
+  its fields. With `--field`, the view keeps the producer's required fields.
+  Your `--field`s narrow the optional ones (those with a default) and add their
+  own.
 - **Verified or not.** A view built from the producer's schema is checked
-  against it. A view built from `--field` carries the comment
-  `# unverified: no producer schema was found` and is reported as unverified
-  until the producer's schema file is available.
+  against it. A view built from `--field` alone carries the comment
+  `# unverified: no producer schema was found`. It gets `tenant_id: UUID`
+  unless you pass `--no-tenant` or name the field yourself. It stays reported
+  as unverified until the producer's schema file is available.
 - **The handler.** `@on(E, name="...")` registers the function as a durable
   consumer. Each delivery runs in its own unit of work; `db()` is that unit's
   session. The envelope id is claimed in the same unit, so a redelivered
