@@ -84,7 +84,11 @@ def scratch_db() -> Iterator[str]:
         admin.dispose()
 
 
-def _env(tmp_path: Path, database_url: str, **extra: str) -> dict[str, str]:
+def _env(
+    tmp_path: Path, database_url: str, *, tenant_rls: bool = False, **extra: str
+) -> dict[str, str]:
+    """The child's environment; ``tenant_rls`` sets the option of the INFRA
+    database instance the chain runner reads to decide on row-level security."""
     env = {
         k: v
         for k, v in os.environ.items()
@@ -110,13 +114,19 @@ def _env(tmp_path: Path, database_url: str, **extra: str) -> dict[str, str]:
         }
     )
     env.update(extra)
+    if tenant_rls:
+        infra = json.loads(env["INFRA"])
+        infra["database"] = {"default": {"tenant_rls": True}}
+        env["INFRA"] = json.dumps(infra)
     # A root that selects no driver (the lean one) gets them from INFRA.
     env["INFRA"] = lean_root_infra(env)
     return env
 
 
-def _migrate(tmp_path: Path, env: dict[str, str], *args: str) -> str:
-    proc = subprocess.run(
+def _migrate_proc(
+    tmp_path: Path, env: dict[str, str], *args: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, "-m", "sandloom.core.cli.migrate", *args],
         cwd=tmp_path,  # no backend/.env: the env above is the whole config
         env=env,
@@ -124,11 +134,15 @@ def _migrate(tmp_path: Path, env: dict[str, str], *args: str) -> str:
         text=True,
         timeout=180,
     )
+
+
+def _migrate(tmp_path: Path, env: dict[str, str], *args: str) -> str:
+    proc = _migrate_proc(tmp_path, env, *args)
     assert proc.returncode == 0, (args, proc.stdout, proc.stderr)
     return proc.stdout
 
 
-def _scaffold(tmp_path: Path) -> Path:
+def _scaffold(tmp_path: Path, *, empty: bool = False) -> Path:
     pkg = tmp_path / "revapp"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("")
@@ -139,7 +153,7 @@ def _scaffold(tmp_path: Path) -> Path:
         shared_package="revapp.shared",
         source_root=tmp_path,
     )
-    add.add_module("revprobe", where)
+    add.add_module("revprobe", where, empty=empty)
     return pkg / "revprobe"
 
 
@@ -187,13 +201,13 @@ def _run_revision_flow(tmp_path: Path, env: dict[str, str], database_url: str) -
         "-m",
         "add note",
         "--autogenerate",
-        "--rev-id",
-        "0002_revprobe",
     )
+    # No --rev-id: the next number of the chain, not a random hash.
     created = module_dir / "migrations" / "versions" / "0002_revprobe_add_note.py"
     assert str(created) in out, out
     text = created.read_text()
     assert "down_revision" in text and "0001_revprobe" in text
+    assert "0002_revprobe" in text
     assert "add_column" in text and "revprobe_items" in text and "note" in text
     # Scoped to the module's own tables: nothing about other chains' tables.
     assert "outbox_messages" not in text and "identity_" not in text
@@ -275,3 +289,171 @@ def test_new_autogenerates_against_a_scratch_database(
         assert "revprobe_items" not in inspect(engine).get_table_names()
     finally:
         engine.dispose()
+
+
+def _versions(module_dir: Path) -> list[str]:
+    return sorted(p.name for p in (module_dir / "migrations" / "versions").glob("*.py"))
+
+
+def test_new_refuses_when_no_model_changed(tmp_path: Path, scratch_db: str) -> None:
+    """Nothing to write is not a revision: no empty file, a non-zero exit."""
+    module_dir = _scaffold(tmp_path)
+    proc = _migrate_proc(
+        tmp_path, _env(tmp_path, scratch_db), "new", "revprobe", "nothing changed"
+    )
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    assert "no changes detected" in proc.stderr
+    assert _versions(module_dir) == ["0001_revprobe_baseline.py"]
+
+
+def test_revision_autogenerate_refuses_when_no_model_changed(
+    tmp_path: Path, scratch_db: str
+) -> None:
+    module_dir = _scaffold(tmp_path)
+    env = _env(tmp_path, scratch_db)
+    _migrate(tmp_path, env, "upgrade-module", "revprobe", "--apply")
+    proc = _migrate_proc(
+        tmp_path, env, "revision", "revprobe", "-m", "empty", "--autogenerate"
+    )
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    assert "no changes detected" in proc.stderr
+    assert _versions(module_dir) == ["0001_revprobe_baseline.py"]
+    # Without --autogenerate the empty template is what was asked for.
+    _migrate(tmp_path, env, "revision", "revprobe", "-m", "by hand")
+    assert _versions(module_dir) == [
+        "0001_revprobe_baseline.py",
+        "0002_revprobe_by_hand.py",
+    ]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("drift",),  # the migration step of `sandloom test`
+        ("upgrade-module", "revprobe", "--apply"),
+        ("revision", "revprobe", "-m", "by hand"),
+    ],
+    ids=["drift", "upgrade-module", "revision"],
+)
+def test_a_chain_with_a_duplicate_revision_id_is_refused(
+    tmp_path: Path, scratch_db: str, args: tuple[str, ...]
+) -> None:
+    """Two branches that each added the next numbered revision leave two files with
+    one id: every command refuses it and names the file to renumber, before it
+    touches the database or writes a revision."""
+    module_dir = _scaffold(tmp_path)
+    versions = module_dir / "migrations" / "versions"
+    baseline = versions / "0001_revprobe_baseline.py"
+    (versions / "0001_revprobe_other_branch.py").write_text(baseline.read_text())
+    before = _versions(module_dir)
+    proc = _migrate_proc(tmp_path, _env(tmp_path, scratch_db), *args)
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    assert "renumber 0001_revprobe_other_branch.py to 0002_revprobe" in proc.stderr
+    assert _versions(module_dir) == before
+
+
+def test_new_numbers_the_revision_and_warns_about_a_not_null_column(
+    tmp_path: Path, scratch_db: str
+) -> None:
+    """A Python ``default=`` autogenerates ``add_column(nullable=False)`` with no
+    SQL default: it fails on a table with rows while the drift gate passes."""
+    module_dir = _scaffold(tmp_path)
+    model = module_dir / "models" / "item.py"
+    anchor = "    title: Mapped[str] = mapped_column(String(255))\n"
+    status = '    status: Mapped[str] = mapped_column(String(20), default="new")\n'
+    model.write_text(model.read_text().replace(anchor, anchor + status))
+    proc = _migrate_proc(
+        tmp_path, _env(tmp_path, scratch_db), "new", "revprobe", "add status"
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    created = module_dir / "migrations" / "versions" / "0002_revprobe_add_status.py"
+    assert str(created) in proc.stdout
+    assert "0002_revprobe" in created.read_text()
+    assert (
+        "warning: revprobe_items.status is added NOT NULL with no server_default"
+        in proc.stderr
+    )
+    # A nullable column is no warning.
+    _add_note_column(module_dir)
+    proc = _migrate_proc(
+        tmp_path, _env(tmp_path, scratch_db), "new", "revprobe", "add note"
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert "0003_revprobe_add_note.py" in proc.stdout
+    assert "warning" not in proc.stderr
+
+
+_NOTE_MODEL = '''"""A table of the module's own."""
+
+import uuid
+
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from sandloom.sdk import Base, TenantScoped, new_id
+
+
+class RevprobeNote(TenantScoped, Base):
+    __tablename__ = "revprobe_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    title: Mapped[str] = mapped_column(String(255))
+'''
+
+
+def test_an_empty_module_gets_its_first_revision_from_migrate_new(
+    tmp_path: Path, scratch_db: str
+) -> None:
+    """``add module --empty``, then a model, then ``migrate new``: the chain's
+    first revision (``0001_<module>``) with the table and its row-level security;
+    ``models/__init__.py`` imports nothing, the runner finds the new file. The
+    revision applies, and a second ``migrate new`` has nothing to write."""
+    from sqlalchemy import create_engine, inspect
+
+    module_dir = _scaffold(tmp_path, empty=True)
+    assert _versions(module_dir) == []
+    (module_dir / "models" / "note.py").write_text(_NOTE_MODEL)
+    env = _env(tmp_path, scratch_db)
+    out = _migrate(tmp_path, env, "new", "revprobe", "add notes")
+    created = module_dir / "migrations" / "versions" / "0001_revprobe_add_notes.py"
+    assert str(created) in out, out
+    text = created.read_text()
+    assert 'revision: str = "0001_revprobe"' in text or "'0001_revprobe'" in text
+    assert "down_revision" in text and "None" in text
+    assert "create_table" in text and "revprobe_notes" in text
+    assert 'enable_tenant_rls(op, "revprobe_notes", if_configured=True)' in text
+    compile(text, str(created), "exec")
+    _migrate(tmp_path, env, "upgrade-module", "revprobe", "--apply")
+    engine = create_engine(to_sync_url(scratch_db))
+    try:
+        assert "revprobe_notes" in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
+    proc = _migrate_proc(tmp_path, env, "new", "revprobe", "again")
+    assert proc.returncode == 1 and "no changes detected" in proc.stderr
+    assert _versions(module_dir) == ["0001_revprobe_add_notes.py"]
+
+
+@pytest.mark.parametrize("tenant_rls", [True, False])
+def test_the_baseline_enables_row_level_security_where_the_database_is_configured(
+    tmp_path: Path, scratch_db: str, tenant_rls: bool
+) -> None:
+    """The scaffold's one-call baseline follows the INFRA database instance:
+    ``tenant_rls`` on enables and forces row security, off leaves the table plain."""
+    from sqlalchemy import create_engine, text
+
+    _scaffold(tmp_path)
+    env = _env(tmp_path, scratch_db, tenant_rls=tenant_rls)
+    _migrate(tmp_path, env, "upgrade-module", "revprobe", "--apply")
+    engine = create_engine(to_sync_url(scratch_db))
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                    "WHERE relname = 'revprobe_items'"
+                )
+            ).one()
+    finally:
+        engine.dispose()
+    assert tuple(row) == (tenant_rls, tenant_rls)

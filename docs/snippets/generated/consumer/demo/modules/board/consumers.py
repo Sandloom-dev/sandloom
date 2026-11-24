@@ -12,7 +12,7 @@ class ItemCreated(Event, channel="notes.item.created.v1"):
     tenant_id: UUID
 
 
-@on(ItemCreated)
+@on(ItemCreated, name="on_item_created")
 async def on_item_created(event: ItemCreated) -> None:
     """Runs once per event (durable), with the event's tenant bound."""
 
@@ -25,6 +25,6 @@ class InvoicePaid(Event, channel="billing.invoice.paid.v1"):  # unverified: no p
     amount: int
 
 
-@on(InvoicePaid)
+@on(InvoicePaid, name="on_invoice_paid")
 async def on_invoice_paid(event: InvoicePaid) -> None:
     """Runs once per event (durable), with the event's tenant bound."""

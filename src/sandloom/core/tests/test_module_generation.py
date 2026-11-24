@@ -118,14 +118,27 @@ def test_wiring_registers_the_module_in_framework_and_app_lists(
     )
 
 
-@pytest.mark.parametrize("name", ["q", "quotas", "customer_notifications"])
-def test_generated_module_passes_the_format_gate(tmp_path: Path, name: str) -> None:
+@pytest.mark.parametrize(
+    ("name", "entity"),
+    [
+        ("q", None),
+        ("quotas", None),
+        ("customer_notifications", None),
+        ("q", "x"),
+        ("quotas", "purchase_order"),
+        ("customer_notifications", "subscription_preference"),
+    ],
+)
+def test_generated_module_passes_the_format_gate(
+    tmp_path: Path, name: str, entity: str | None
+) -> None:
     """The templates wrap name-dependent lines the way `ruff format` does, so
-    a fresh module passes the project's format hook whatever its name."""
+    a fresh module passes the project's format hook whatever its module and
+    entity names are (with ``settings.py`` too)."""
     import subprocess
     import sys
 
-    created = add.add_module(name, _layout(tmp_path))
+    created = add.add_module(name, _layout(tmp_path), with_settings=True, entity=entity)
     files = [
         str(p) for p in created if p.suffix == ".py" and "migrations" not in p.parts
     ]
@@ -173,7 +186,6 @@ def test_add_module_generates_a_compliant_parseable_skeleton(tmp_path: Path) -> 
     rel = {p.relative_to(base).as_posix() for p in created}
     assert {
         "__init__.py",
-        "settings.py",
         "models/__init__.py",
         "models/item.py",
         "schemas.py",
@@ -184,6 +196,7 @@ def test_add_module_generates_a_compliant_parseable_skeleton(tmp_path: Path) -> 
         "migrations/versions/0001_payments_baseline.py",
         "tests/test_payments.py",
     } <= rel
+    assert "settings.py" not in rel  # a module that needs no setting has none
     for path in created:
         if path.suffix == ".py":
             ast.parse(path.read_text())  # parseable
@@ -262,7 +275,7 @@ def test_add_module_register_is_declarative(tmp_path: Path) -> None:
         shared_package="gen_probe.shared",
         source_root=tmp_path,
     )
-    add.add_module("widgets", where)
+    add.add_module("widgets", where, with_settings=True)
     env = {
         **os.environ,
         "PYTHONPATH": os.pathsep.join([str(tmp_path), *sys.path]),
@@ -316,3 +329,159 @@ def test_add_module_boilerplate_is_minimal(
             continue
         assert find_kernel_internal_test_imports(path) == [], path
         assert find_legacy_infra_imports(path) == [], path
+
+
+# --------------------------------------------------------------------------- #
+# --entity, --empty, --settings and the baseline of a fresh module
+# --------------------------------------------------------------------------- #
+
+
+def _rel(created: list[Path], base: Path) -> set[str]:
+    return {p.relative_to(base).as_posix() for p in created}
+
+
+def _flat_layout(root: Path) -> add.Layout:
+    """``--no-tenant``: an app without tenants."""
+    return add.Layout(
+        modules_dir=root,
+        modules_package="myapp.modules",
+        shared_dir=root / "shared",
+        shared_package="myapp.shared",
+        source_root=root,
+        tenant_scoped=False,
+    )
+
+
+def test_add_module_entity_names_the_example_everywhere(tmp_path: Path) -> None:
+    created = add.add_module("shop", _layout(tmp_path), entity="purchase_order")
+    base = tmp_path / "shop"
+    rel = _rel(created, base)
+    assert "models/purchase_order.py" in rel and "models/item.py" not in rel
+    model = (base / "models" / "purchase_order.py").read_text()
+    assert "class ShopPurchaseOrder(TenantScoped, Base)" in model
+    assert '__tablename__ = "shop_purchase_orders"' in model
+    channel = 'channel="shop.purchase_order.created.v1"'
+    assert channel in (base / "events.py").read_text()
+    assert '"/purchase_orders"' in (base / "api.py").read_text()
+    baseline = (base / "migrations" / "versions" / "0001_shop_baseline.py").read_text()
+    assert '"shop_purchase_orders"' in baseline
+    assert (
+        "test_purchase_orders_need_an_authenticated_user"
+        in (base / "tests" / "test_shop.py").read_text()
+    )
+    for path in created:  # no example name is left behind
+        if path.suffix == ".py":
+            text = path.read_text()
+            for stale in ("ShopItem", "shop_items", "/items", ".item.created"):
+                assert stale not in text, (path, stale)
+
+
+@pytest.mark.parametrize("entity", ["Bad", "1x", "with-dash", "class", ""])
+def test_add_module_refuses_a_bad_entity_name(tmp_path: Path, entity: str) -> None:
+    with pytest.raises(add.GeneratorError, match="entity name"):
+        add.add_module("shop", _layout(tmp_path), entity=entity)
+    assert not (tmp_path / "shop").exists()
+
+
+@pytest.mark.parametrize("entity", ["tenant", "owner"])
+def test_add_module_refuses_an_entity_that_repeats_a_framework_column(
+    tmp_path: Path, entity: str
+) -> None:
+    """``<entity>_id`` is the example's id field: for ``tenant`` / ``owner`` it is the
+    ``tenant_id`` / ``owner_id`` the example already writes (``tenant_id=row.id,
+    tenant_id=row.tenant_id``: a SyntaxError in services.py)."""
+    with pytest.raises(add.GeneratorError, match=f"{entity}_id"):
+        add.add_module("shop", _layout(tmp_path), entity=entity)
+    assert not (tmp_path / "shop").exists()
+
+
+def test_a_tenant_entity_is_fine_where_the_module_writes_no_tenant_column(
+    tmp_path: Path,
+) -> None:
+    """The refusal names a real clash only: ``--no-tenant`` writes no ``tenant_id``,
+    so ``tenant`` is a plain entity there (and ``owner`` still is not)."""
+    add.add_module("shop", _flat_layout(tmp_path), entity="tenant")
+    for name in ("services.py", "events.py", "api.py"):
+        source = (tmp_path / "shop" / name).read_text()
+        compile(source, name, "exec")  # no duplicated argument or field
+    with pytest.raises(add.GeneratorError, match="owner_id"):
+        add.add_module("other", _flat_layout(tmp_path), entity="owner")
+
+
+def test_add_module_empty_is_the_package_and_its_chain_only(tmp_path: Path) -> None:
+    created = add.add_module("blank", _layout(tmp_path), empty=True)
+    base = tmp_path / "blank"
+    rel = _rel(created, base)
+    assert {
+        "__init__.py",
+        "models/__init__.py",
+        "migrations/env.py",
+        "migrations/script.py.mako",
+        "migrations/versions/.gitkeep",
+        "tests/test_migrations.py",
+    } <= rel
+    assert rel.isdisjoint({"api.py", "events.py", "schemas.py", "services.py"})
+    assert not list(base.glob("models/[!_]*.py"))  # no example table
+    assert not list((base / "migrations" / "versions").glob("*.py"))
+    assert "settings.py" not in rel
+    assert "define_module(__name__" in (base / "__init__.py").read_text()
+
+
+def test_add_module_refuses_options_that_contradict(tmp_path: Path) -> None:
+    with pytest.raises(add.GeneratorError, match="give one of them"):
+        add.add_module("shop", _layout(tmp_path), entity="order", empty=True)
+    with pytest.raises(add.GeneratorError, match="--no-tenant"):
+        add.add_module("shop", _flat_layout(tmp_path), empty=True)
+    assert not (tmp_path / "shop").exists()
+
+
+def test_add_module_writes_settings_only_on_request(tmp_path: Path) -> None:
+    add.add_module("plain", _layout(tmp_path))
+    assert not (tmp_path / "plain" / "settings.py").exists()
+    assert "settings" not in (tmp_path / "plain" / "__init__.py").read_text()
+    created = add.add_module("tuned", _layout(tmp_path), with_settings=True)
+    assert "settings.py" in _rel(created, tmp_path / "tuned")
+    init = (tmp_path / "tuned" / "__init__.py").read_text()
+    assert "settings=TunedSettings" in init
+    assert "from .settings import TunedSettings" in init
+    both = add.add_module("both", _layout(tmp_path), empty=True, with_settings=True)
+    assert "settings.py" in _rel(both, tmp_path / "both")
+
+
+def test_baseline_enables_row_level_security_in_one_call(tmp_path: Path) -> None:
+    """The baseline names no runner internals: one helper call each way, which
+    acts only where the database enforces tenant isolation."""
+    add.add_module("parcels", _layout(tmp_path))
+    baseline = (
+        tmp_path / "parcels" / "migrations" / "versions" / "0001_parcels_baseline.py"
+    ).read_text()
+    up, down = baseline.split("def downgrade")
+    assert 'enable_tenant_rls(op, "parcels_items", if_configured=True)' in up
+    assert 'disable_tenant_rls(op, "parcels_items", if_configured=True)' in down
+    assert "sandloom_tenant_rls" not in baseline
+    assert "attributes" not in baseline and "get_context" not in baseline
+    # --no-tenant: a plain table, no RLS call and no import for it
+    add.add_module("flat", _flat_layout(tmp_path))
+    flat = (
+        tmp_path / "flat" / "migrations" / "versions" / "0001_flat_baseline.py"
+    ).read_text()
+    assert "tenant_rls" not in flat
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_generated_models_package_has_no_import_loop(
+    tmp_path: Path, empty: bool
+) -> None:
+    """The migration runner walks ``models/`` as ``define_module`` does, so the
+    package file imports nothing."""
+    import ast
+
+    add.add_module("walked", _layout(tmp_path), empty=empty)
+    source = (tmp_path / "walked" / "models" / "__init__.py").read_text()
+    imports = [
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Import | ast.ImportFrom)
+    ]
+    assert imports == []
+    assert "iter_modules" not in source and "import_module" not in source

@@ -37,13 +37,18 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import pkgutil
 import re
 from collections.abc import Callable, Iterable, Sequence
 from logging.config import fileConfig
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Literal
 
 from alembic import context
+from alembic.config import Config
+from alembic.operations.ops import MigrationScript
+from alembic.runtime.migration import MigrationContext
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Connection, Dialect, make_url
 from sqlalchemy.exc import DBAPIError
@@ -58,6 +63,14 @@ from sandloom.core.sql_alchemy.portable import (
     LockStatement,
     optional_lock_statement_for,
 )
+from sandloom.core.sql_alchemy.rls import TENANT_RLS_SWITCH
+
+#: ``config.attributes`` key: ``revision_module(autogenerate=True)`` sets it so
+#: an autogenerate that finds no difference writes no revision.
+REFUSE_EMPTY_AUTOGENERATE = "sandloom_refuse_empty_autogenerate"
+#: ``config.attributes`` key this runner sets when it dropped such an empty
+#: revision, for ``revision_module`` to refuse with a message.
+EMPTY_AUTOGENERATE = "sandloom_empty_autogenerate"
 
 #: Sync DSN injected by ``sandloom-migrate`` to target a named database instance.
 MIGRATE_URL_ENV = "SANDLOOM_MIGRATE_DATABASE_URL"
@@ -90,6 +103,84 @@ def _resolve_sync_url(configured: str | None) -> str:
     return to_sync_url(settings.database_url)
 
 
+def _submodule_names(package: ModuleType) -> list[str]:
+    """Every module below ``package``, in order, or none for a plain module: a
+    ``models/<x>.py`` registers its tables whether or not ``models/__init__.py``
+    imports it (``define_module`` walks the package the same way, skipping the
+    same two subpackages: a ``tests`` package below it and a ``migrations`` one,
+    the chain's own), so a new model file joins the chain without an import loop
+    in ``__init__``. Only names: ``run_migrations`` imports them."""
+    spec = package.__spec__
+    locations = spec.submodule_search_locations if spec is not None else None
+    if locations is None:
+        return []
+    names = sorted(
+        info.name
+        for info in pkgutil.walk_packages(locations, prefix=f"{package.__name__}.")
+    )
+    return [name for name in names if not _is_skipped_below(name, package.__name__)]
+
+
+def _is_skipped_below(name: str, package: str) -> bool:
+    """The rule of ``sandloom.sdk._decl.module._walk``: a ``tests`` or a
+    ``migrations`` module below ``package`` is not a model module (a test file
+    imported here would run its collection-time code in the migration run)."""
+    below = name[len(package) :]
+    return ".tests" in below or ".migrations" in below
+
+
+def _tenant_rls_enabled(url: str) -> bool:
+    """Whether the database at ``url`` runs with ``tenant_rls`` on, so generated
+    table policies match the runtime tenant hook. The effective URL decides,
+    named databases and CLI URL overrides included."""
+    return any(
+        instance.options.get("tenant_rls") is True
+        and to_sync_url(str(instance.options.get("url") or settings.database_url))
+        == url
+        for instance in load_infra_config(settings).get("database", {}).values()
+    )
+
+
+def _drop_empty_autogenerate(
+    config: Config,
+) -> Callable[[MigrationContext, object, list[MigrationScript]], None]:
+    """The ``process_revision_directives`` hook of every chain: with
+    ``REFUSE_EMPTY_AUTOGENERATE`` set, an autogenerate that found no change
+    emits no revision (and sets ``EMPTY_AUTOGENERATE``). A plain
+    ``alembic revision`` (an empty template by intent) is left alone."""
+
+    def hook(
+        _context: MigrationContext, _revision: object, directives: list[MigrationScript]
+    ) -> None:
+        if not config.attributes.get(REFUSE_EMPTY_AUTOGENERATE, False):
+            return
+        script = directives[0]
+        if script.upgrade_ops is not None and script.upgrade_ops.is_empty():
+            directives[:] = []
+            config.attributes[EMPTY_AUTOGENERATE] = True
+
+    return hook
+
+
+def _run_chain_transaction(connection: Connection, url: str) -> None:
+    """Run the configured chain in one transaction on ``connection``."""
+    with context.begin_transaction():
+        lock = _direct_run_lock(connection, url)
+        if lock is not None:
+            # Direct ``alembic upgrade`` (outside sandloom-migrate's
+            # run-wide lock): serialise concurrent runners for the
+            # duration of this chain's transaction.
+            connection.execute(lock.statement, lock.parameters)
+        # After the advisory lock: the wait for it is the runner's own
+        # (MIGRATION_LOCK_TIMEOUT_SECONDS), not a table lock.
+        _bound_ddl_waits(connection)
+        try:
+            context.run_migrations()
+        except DBAPIError as exc:
+            _name_the_timeout_setting(exc)
+            raise
+
+
 def run_migrations(
     table_names: Iterable[str] = (),
     model_modules: Sequence[str] = (),
@@ -116,7 +207,8 @@ def run_migrations(
     no-op (the migration ops run as written).
     """
     for mod in model_modules:
-        importlib.import_module(mod)
+        for name in _submodule_names(importlib.import_module(mod)):
+            importlib.import_module(name)
 
     owned = frozenset(table_names)
     config = context.config
@@ -141,14 +233,7 @@ def run_migrations(
         return chain_includes(_owns, dialect, obj, name, type_, reflected)
 
     url = _resolve_sync_url(config.get_main_option("sqlalchemy.url"))
-    # Keep generated table policies consistent with the runtime tenant hook.
-    # Match the effective URL, including named databases and CLI URL overrides.
-    config.attributes["sandloom_tenant_rls"] = any(
-        instance.options.get("tenant_rls") is True
-        and to_sync_url(str(instance.options.get("url") or settings.database_url))
-        == url
-        for instance in load_infra_config(settings).get("database", {}).values()
-    )
+    config.attributes[TENANT_RLS_SWITCH] = _tenant_rls_enabled(url)
 
     if context.is_offline_mode():
         dialect = make_url(url).get_dialect()()
@@ -161,6 +246,7 @@ def run_migrations(
             dialect_opts={"paramstyle": "named"},
             include_object=include_object,
             version_table=version_table,
+            process_revision_directives=_drop_empty_autogenerate(config),
         )
         with context.begin_transaction():
             context.run_migrations()
@@ -181,23 +267,10 @@ def run_migrations(
                 target_metadata=target_metadata,
                 include_object=include_object,
                 version_table=version_table,
+                process_revision_directives=_drop_empty_autogenerate(config),
                 **COMPARE_OPTIONS,
             )
-            with context.begin_transaction():
-                lock = _direct_run_lock(connection, url)
-                if lock is not None:
-                    # Direct ``alembic upgrade`` (outside sandloom-migrate's
-                    # run-wide lock): serialise concurrent runners for the
-                    # duration of this chain's transaction.
-                    connection.execute(lock.statement, lock.parameters)
-                # After the advisory lock: the wait for it is the runner's own
-                # (MIGRATION_LOCK_TIMEOUT_SECONDS), not a table lock.
-                _bound_ddl_waits(connection)
-                try:
-                    context.run_migrations()
-                except DBAPIError as exc:
-                    _name_the_timeout_setting(exc)
-                    raise
+            _run_chain_transaction(connection, url)
     finally:
         connectable.dispose()
 

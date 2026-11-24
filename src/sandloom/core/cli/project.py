@@ -1535,7 +1535,7 @@ def generate_project(
         source_root=root,
     )
     # The starter can pass static checks before its first settings snapshot.
-    created.extend(_add.add_module(sample_module, where, with_settings=False))
+    created.extend(_add.add_module(sample_module, where))
     return created
 
 

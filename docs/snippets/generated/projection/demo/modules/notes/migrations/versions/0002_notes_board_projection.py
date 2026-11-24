@@ -1,6 +1,6 @@
 """notes.board projection table (by `sandloom add projection`)
 
-Revision ID: notes_board_projection
+Revision ID: 0002_notes
 Revises: 0001_notes
 Create Date: generated
 
@@ -13,7 +13,7 @@ from alembic import op
 
 from sandloom.sdk.data import disable_tenant_rls, enable_tenant_rls  # sandloom: advanced RLS
 
-revision: str = "notes_board_projection"
+revision: str = "0002_notes"
 down_revision: str | Sequence[str] | None = "0001_notes"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -30,12 +30,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("tenant_id", "board_id"),
     )
     op.create_index(op.f("ix_notes_board_rows_tenant_id"), "notes_board_rows", ["tenant_id"])
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        enable_tenant_rls(op, "notes_board_rows")
+    enable_tenant_rls(op, "notes_board_rows", if_configured=True)
 
 
 def downgrade() -> None:
-    if op.get_context().config.attributes.get("sandloom_tenant_rls", False):
-        disable_tenant_rls(op, "notes_board_rows")
+    disable_tenant_rls(op, "notes_board_rows", if_configured=True)
     op.drop_index(op.f("ix_notes_board_rows_tenant_id"), table_name="notes_board_rows")
     op.drop_table("notes_board_rows")

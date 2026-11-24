@@ -56,20 +56,36 @@ The module is named by its short name (`notes`) or its dotted package
    (`--database <name>` when the module declares several). It compares only
    the module's tables;
 2. adds row-level security for every `TenantScoped` table the revision
-   creates: `enable_tenant_rls` at the end of `upgrade()` and
-   `disable_tenant_rls` at the start of `downgrade()`, under the switch the
-   migration runner sets from the database's configuration
-   (`system_access=True` for a model with `__system_access__ = True`);
+   creates. `upgrade()` ends with `enable_tenant_rls` and `downgrade()` starts
+   with `disable_tenant_rls`, each with `if_configured=True` (and
+   `system_access=True` for a model with `__system_access__ = True`). With
+   `if_configured=True` a call acts only where the migration runner knows the
+   database enforces tenant isolation, from the `tenant_rls` option of its
+   `INFRA` instance. One revision then runs on a database with row-level
+   security and on one without;
 3. prints the file it created and each table it covered.
+
+The revision is numbered after the chain's last one: `0002_notes` in the file
+`0002_notes_add_archived_at_to_notes.py`, as the baseline is `0001_notes`.
+`--rev-id <id>` sets an explicit revision id instead.
+
+If two branches each add the next revision of one chain, both write `0002_notes`,
+and Alembic keeps only one of the files. `sandloom migrate` and the migration
+step of `sandloom test` refuse a chain in which two files declare one revision
+id. The message names the file to renumber, for example `renumber
+0002_notes_add_x.py to 0003_notes`. Rename that file and edit two fields:
+`revision` becomes the new id, `down_revision` the id it now follows.
+
+When the models already match the chain, the command refuses with "no changes
+detected" and writes nothing. Change a model first, or write a revision by
+hand (see "Other forms").
 
 A new tenant table gets these lines (here as rendered by `sandloom add
 projection`, which uses the same template):
 
 ```python
---8<-- "docs/snippets/generated/projection/demo/modules/notes/migrations/versions/notes_board_projection.py:22:41"
+--8<-- "docs/snippets/generated/projection/demo/modules/notes/migrations/versions/0002_notes_board_projection.py:22:39"
 ```
-
-`--rev-id <id>` sets an explicit revision id.
 
 ### 3. Review the revision
 
@@ -79,7 +95,11 @@ cannot know:
 - a renamed column appears as a drop and an add: replace them with
   `op.alter_column(..., new_column_name=...)`;
 - a new `NOT NULL` column on a table with rows needs a server default or a
-  data step;
+  data step. A Python `default=` is not a database default. Autogenerate
+  writes `add_column(..., nullable=False)` with no `server_default`, and that
+  fails on a table that has rows. `migrate new` prints a warning for each such
+  column. Give the column a `server_default=` in the model, or add it
+  nullable, backfill it, then make it `NOT NULL`;
 - data migrations (backfills) are yours to write; keep them idempotent;
 - a table that is being served needs its DDL in steps (a concurrent index,
   a `NOT VALID` constraint, a batched backfill): see
@@ -87,7 +107,8 @@ cannot know:
   every statement a `lock_timeout` of `MIGRATION_DDL_LOCK_TIMEOUT_MS` (5 s by
   default), so a revision that waits longer for a lock fails;
 - RLS is added only for tables the revision **creates**. A table that
-  becomes tenant-scoped later needs `enable_tenant_rls` by hand.
+  becomes tenant-scoped later needs `enable_tenant_rls(op, "<table>",
+  if_configured=True)` by hand, and `disable_tenant_rls` in `downgrade()`.
 
 A money ledger (a model with the `MoneyLedger` mixin) is refused at import
 unless its operation-key column is `NOT NULL` and unique, so the constraint
@@ -104,18 +125,24 @@ Without `--apply` the command prints what it would do.
 ### Other forms
 
 - `sandloom migrate revision notes -m "<message>" --autogenerate` is the same
-  autogenerate **without** the RLS step. Prefer `sandloom migrate new`.
+  autogenerate **without** the RLS step; it refuses "no changes detected" too.
+  Prefer `sandloom migrate new`.
 - `sandloom migrate revision notes -m "<message>"` writes an empty revision, for
-  a pure data migration.
+  a pure data migration. It is the only form that writes a revision with
+  nothing in it, and it numbers it like the others.
 
 ## When to edit a revision instead
 
 Edit an existing revision, including the baseline `0001_<module>_baseline.py`
 that `sandloom add module` renders, **only before its first deployment**: while
-it has run on no shared database, staging or production. Typical case: you
+it has run on no shared database. Staging counts as shared. Typical case: you
 replace the generated example table with your real tables before the module
-ships. Rebuild your development database afterwards (downgrade the module,
-or drop and re-create the database).
+ships. Rebuild your development database afterwards: downgrade the module, or
+drop the database and create it again.
+
+To skip that edit, create the module with `sandloom add module <name> --empty`
+and run `sandloom migrate new` for your first model. `--entity <name>` keeps
+the example and names it for your domain.
 
 After a revision has run anywhere other than your machine, never edit it:
 add a new revision. Other databases already recorded the old one and would
