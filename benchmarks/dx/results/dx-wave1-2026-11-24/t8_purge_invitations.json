@@ -68,5 +68,40 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "seed:teamhub",
-  "error": ""
+  "error": "",
+  "docs_lookups": 0,
+  "docs_names": [],
+  "recipes_read": [
+    "periodic-task",
+    "test-service-or-task"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 5,
+  "t009_failures": 0,
+  "advanced_markers": 4,
+  "sdk_names": [
+    "sandloom.sdk.data.open_uow",
+    "sandloom.sdk.db",
+    "sandloom.sdk.module.CapabilityRequirement",
+    "sandloom.sdk.tasks.periodic",
+    "sandloom.sdk.tenant.unscoped"
+  ],
+  "tier_misses": [
+    "sandloom.sdk.data.open_uow",
+    "sandloom.sdk.module.CapabilityRequirement",
+    "sandloom.sdk.tasks.periodic",
+    "sandloom.sdk.tenant.unscoped"
+  ],
+  "test_sdk_names": [
+    "sandloom.sdk.data.open_uow",
+    "sandloom.sdk.db",
+    "sandloom.sdk.tenant.bind_tenant",
+    "sandloom.sdk.tenant.unscoped"
+  ],
+  "test_tier_misses": [
+    "sandloom.sdk.data.open_uow",
+    "sandloom.sdk.tenant.bind_tenant",
+    "sandloom.sdk.tenant.unscoped"
+  ]
 }

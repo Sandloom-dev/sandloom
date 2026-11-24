@@ -68,5 +68,25 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "seed:teamhub",
-  "error": ""
+  "error": "",
+  "docs_lookups": 1,
+  "docs_names": [
+    "Account"
+  ],
+  "recipes_read": [
+    "org-gate"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 7,
+  "t009_failures": 0,
+  "advanced_markers": 1,
+  "sdk_names": [
+    "sandloom.sdk.authz.Account"
+  ],
+  "tier_misses": [
+    "sandloom.sdk.authz.Account"
+  ],
+  "test_sdk_names": [],
+  "test_tier_misses": []
 }

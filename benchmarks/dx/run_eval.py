@@ -45,6 +45,7 @@ import os
 import re
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import threading
@@ -61,6 +62,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import appmode  # noqa: E402  (app-mode mechanics, next to this file)
+import tiermetrics  # noqa: E402  (tier and skills metrics, next to this file)
 
 REPO = HERE.parents[1]
 TASKS_DIR = HERE / "tasks"
@@ -198,7 +200,7 @@ GATES: dict[str, list[str]] = {
         "{module_tests}",
     ],
 }
-READ_VERBS = re.compile(r"(^|[|;&]\s*|\s)(cat|sed|head|tail|less|nl|bat|awk)\s")
+READ_VERBS = tiermetrics.READ_VERBS
 #: A kernel read is a DX defect: the docs should have answered it. Each path
 #: maps to the topic the agent was looking for (first match wins) and the doc
 #: that is meant to answer it.
@@ -443,6 +445,23 @@ class Result:
     outside_by_kind: dict[str, list[str]] = field(default_factory=dict)
     framework_edits: int = 0
     other_module_edits: int = 0
+    # tier and skills metrics (tiermetrics.METRIC_KEYS), from the transcript and diff
+    docs_lookups: int = 0  # `sandloom docs <name>` calls (recipe calls apart)
+    docs_names: list[str] = field(default_factory=list)
+    recipes_read: list[str] = field(default_factory=list)  # `sandloom docs recipe <n>`
+    recipe_index_views: int = 0  # `sandloom docs recipes`
+    skills_read: list[str] = field(default_factory=list)  # SKILL.md reads
+    first_green_turn: int | None = None  # turn of the first green `sandloom test`
+    t009_failures: int = 0  # SANDLOOM-T009 lines the agent's runs printed
+    advanced_markers: int = 0  # `# sandloom: advanced` lines in the final diff
+    sdk_names: list[str] = field(default_factory=list)  # sandloom.sdk names imported
+    tier_misses: list[str] = field(default_factory=list)  # ... outside the tier
+    test_sdk_names: list[str] = field(default_factory=list)  # the same, test files
+    test_tier_misses: list[str] = field(default_factory=list)
+    # repeated runs (--runs N): this is run `run` of a task whose results are
+    # stored as <task>.r<run>.json under the label `group`
+    run: int = 1
+    group: str = ""
     # product suite
     kind: str = "task"
     acceptance: dict[str, bool] = field(default_factory=dict)
@@ -1662,6 +1681,8 @@ def run_task(task: Task, args: argparse.Namespace) -> Result:
             model=args.model,
             kind=task.kind,
             mode="app",
+            run=args.run,
+            group=args.results_label,
         )
         with run_marker(out_dir):
             _run_app_task(task, args, result, out_dir)
@@ -1671,7 +1692,13 @@ def run_task(task: Task, args: argparse.Namespace) -> Result:
     start = checkpoint_ref(args.label, task.start) if task.start else args.ref
     ref = sh(["git", "rev-parse", "--short", start], REPO).stdout.strip()
     result = Result(
-        task=task.id, label=args.label, ref=ref, model=args.model, kind=task.kind
+        task=task.id,
+        label=args.label,
+        ref=ref,
+        model=args.model,
+        kind=task.kind,
+        run=args.run,
+        group=args.results_label,
     )
     with run_marker(out_dir):
         _run_task(task, args, result, start, out_dir)
@@ -1776,25 +1803,43 @@ def _run_task(
 # --------------------------------------------------------------------------- #
 
 
+def fill_dx_metrics(result: Result, out_dir: Path) -> None:
+    """Set the tier and skills metrics of ``result`` from ``out_dir``'s transcript
+    and final diff. A run that left no transcript keeps the defaults."""
+    transcript = out_dir / "transcript.jsonl"
+    if not transcript.is_file():
+        return
+    metrics = tiermetrics.run_metrics(
+        transcript, out_dir / "changes.patch", tiermetrics.beginner_tier()
+    )
+    for key in tiermetrics.METRIC_KEYS:
+        setattr(result, key, metrics[key])
+
+
+def result_stem(task: str, run: int, group: str) -> str:
+    """File name (without extension) of a result: ``<task>``, or ``<task>.r<run>``
+    when the label holds repeated runs (``group`` is the label they share)."""
+    return f"{task}.r{run}" if group else task
+
+
 def write_result(result: Result, out_dir: Path) -> None:
     derived = classify(asdict(result), result.ref or None)
     result.kernel_reads = derived["kernel_reads"]
     result.outside_by_kind = derived["outside_by_kind"]
     result.framework_edits = derived["framework_edits"]
     result.other_module_edits = derived["other_module_edits"]
-    dest = RESULTS_DIR / result.label
+    fill_dx_metrics(result, out_dir)
+    dest = RESULTS_DIR / (result.group or result.label)
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / f"{result.task}.json").write_text(
-        json.dumps(asdict(result), indent=2) + "\n"
-    )
+    stem = result_stem(result.task, result.run, result.group)
+    (dest / f"{stem}.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
     report = out_dir / "report.md"
     if report.exists():
-        (dest / f"{result.task}.report.md").write_text(
-            report.read_text().strip() + "\n"
-        )
+        (dest / f"{stem}.report.md").write_text(report.read_text().strip() + "\n")
 
 
 def load_results(label: str) -> list[dict[str, Any]]:
+    """The stored rows of ``label``, a task's runs in run order."""
     return [
         json.loads(p.read_text())
         for p in sorted((RESULTS_DIR / label).glob("[tp][0-9]*.json"))
@@ -1810,6 +1855,100 @@ def errored(row: dict[str, Any]) -> bool:
 def dev_failures(row: dict[str, Any]) -> list[str]:
     """Failed ``test_dev_*`` checks, whatever the gates said."""
     return [k for k, ok in row.get("dev_checks", {}).items() if not ok]
+
+
+#: (result key, column) of the metrics reported with a mean and spread over a
+#: task's runs; a list counts its length.
+RUN_METRICS = (
+    ("tokens_total", "tokens"),
+    ("turns", "turns"),
+    ("tool_calls", "tools"),
+    ("docs_lookups", "docs lookups"),
+    ("recipes_read", "recipes"),
+    ("skills_read", "skills"),
+    ("first_green_turn", "first green turn"),
+    ("t009_failures", "T009 hits"),
+    ("advanced_markers", "advanced markers"),
+    ("tier_misses", "tier misses"),
+)
+
+
+def metric_value(row: dict[str, Any], key: str) -> float | None:
+    """One metric of one run: a list is its length. ``None`` for a run that has
+    no such metric (a result stored before it existed, a run that never had a
+    green ``sandloom test``): it is left out of means, never counted as 0."""
+    value = row.get(key)
+    if isinstance(value, list):
+        return float(len(value))
+    return None if value is None else float(value)
+
+
+def has_tier_metrics(row: dict[str, Any]) -> bool:
+    """Results stored before the tier metrics existed carry none of them."""
+    return "docs_lookups" in row
+
+
+def spread(values: list[float]) -> dict[str, Any]:
+    """``n``, mean, sample standard deviation (``None`` for one value), min, max."""
+    if not values:
+        return {"n": 0, "mean": None, "sd": None, "min": None, "max": None}
+    return {
+        "n": len(values),
+        "mean": round(statistics.fmean(values), 1),
+        "sd": round(statistics.stdev(values), 1) if len(values) > 1 else None,
+        "min": min(values),
+        "max": max(values),
+    }
+
+
+def tier_summary(ran: list[dict[str, Any]]) -> dict[str, Any]:
+    """The tier and skills headline over the runs that carry the metrics."""
+    rows = [r for r in ran if has_tier_metrics(r)]
+
+    def mean(key: str) -> float | None:
+        values = [v for r in rows if (v := metric_value(r, key)) is not None]
+        return spread(values)["mean"]
+
+    return {
+        "tier_metrics_runs": len(rows),
+        "mean_docs_lookups": mean("docs_lookups"),
+        "mean_recipes_read": mean("recipes_read"),
+        "mean_skills_read": mean("skills_read"),
+        "mean_first_green_turn": mean("first_green_turn"),
+        "first_green_runs": sum(r["first_green_turn"] is not None for r in rows),
+        # over no run with the metrics a total is unknown, not 0
+        "t009_failures_total": sum(r["t009_failures"] for r in rows) if rows else None,
+        "advanced_markers_total": (
+            sum(r["advanced_markers"] for r in rows) if rows else None
+        ),
+        "mean_tier_misses": mean("tier_misses"),
+    }
+
+
+def aggregate(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per task: the runs, how many passed, and :func:`spread` of every
+    :data:`RUN_METRICS` metric over the runs that ran (errored runs are listed
+    in ``errored``, not averaged in)."""
+    out: dict[str, dict[str, Any]] = {}
+    for task in dict.fromkeys(r["task"] for r in rows):
+        mine = [r for r in rows if r["task"] == task]
+        ran = [r for r in mine if not errored(r)]
+        out[task] = {
+            "runs": len(mine),
+            "errored": len(mine) - len(ran),
+            "passed": sum(r["outcome"] == "pass" for r in ran),
+            **{
+                key: spread(
+                    [
+                        v
+                        for r in ran
+                        if (key in r and (v := metric_value(r, key)) is not None)
+                    ]
+                )
+                for key, _ in RUN_METRICS
+            },
+        }
+    return out
 
 
 def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1851,6 +1990,7 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "framework_edits_total": sum(r.get("framework_edits", 0) for r in ran),
         "other_module_edits_total": sum(r.get("other_module_edits", 0) for r in ran),
         "mean_edited_outside": mean("edited_outside"),
+        **tier_summary(ran),
         "tasks_that_created_a_dotenv": sum(
             bool(r.get("created_env_file")) for r in ran
         ),
@@ -1876,7 +2016,7 @@ def table(label: str, rows: list[dict[str, Any]]) -> str:
         )
         any_dev = ", ".join(d.removeprefix("test_dev_") for d in dev_failures(r)) or "—"
         lines.append(
-            f"| {r['task']} | {r['outcome']} | {failed} | {fn} | {any_dev} | {dev} "
+            f"| {run_name(r)} | {r['outcome']} | {failed} | {fn} | {any_dev} | {dev} "
             f"| {r['tokens_total']:,} "
             f"| {r['turns']} | {r['tool_calls']} | {r['wall_min']} | {len(r['kernel_files_read'])} "
             f"| {len(r['edited_outside'])} |"
@@ -1901,6 +2041,84 @@ def table(label: str, rows: list[dict[str, Any]]) -> str:
             "",
         ]
     lines += ["Summary: " + ", ".join(f"{k}={v}" for k, v in s.items()), ""]
+    return "\n".join(lines)
+
+
+def run_name(row: dict[str, Any]) -> str:
+    """``t1_notes``, or ``t1_notes r2`` for run 2 of a repeated-run label."""
+    return f"{row['task']} r{row['run']}" if row.get("group") else row["task"]
+
+
+def tier_table(label: str, rows: list[dict[str, Any]]) -> str:
+    """Tier and skills metrics of every run: the ``sandloom docs`` names and
+    recipes the agent needed, the skills it read, the turn of its first green
+    ``sandloom test``, the SANDLOOM-T009 lines it hit and the ``sandloom.sdk``
+    names its diff imports outside the beginner tier."""
+    shown = [r for r in rows if has_tier_metrics(r)]
+    if not shown:
+        return ""
+
+    def names(row: dict[str, Any], key: str) -> str:
+        return ", ".join(f"`{n}`" for n in row[key]) or "—"
+
+    lines = [
+        f"### {label}: tier and skills metrics",
+        "",
+        "| run | docs lookups | names | recipes | skills read | first green turn "
+        "| T009 hits | advanced markers | tier misses |",
+        "|---|---:|---|---|---|---:|---:|---:|---|",
+    ]
+    for r in shown:
+        green = r["first_green_turn"] if r["first_green_turn"] is not None else "—"
+        lines.append(
+            f"| {run_name(r)} | {r['docs_lookups']} | {names(r, 'docs_names')} "
+            f"| {names(r, 'recipes_read')} | {names(r, 'skills_read')} | {green} "
+            f"| {r['t009_failures']} | {r['advanced_markers']} "
+            f"| {names(r, 'tier_misses')} |"
+        )
+    return "\n".join([*lines, ""])
+
+
+def runs_section(label: str, rows: list[dict[str, Any]]) -> str:
+    """Mean and spread of the headline metrics per task over its runs. One run
+    per task says so: a single sample cannot separate a change from run-to-run
+    variation."""
+    per_task = aggregate(rows)
+    if not per_task:
+        return ""
+    if max(t["runs"] for t in per_task.values()) < 2:
+        return (
+            f"One run per task in {label}: one sample cannot separate a change from "
+            "run-to-run variation (`run --runs 3`).\n"
+        )
+
+    def cell(stat: dict[str, Any], key: str, task: dict[str, Any]) -> str:
+        if not stat["n"]:
+            return "—"
+        sd = f" ±{stat['sd']:g}" if stat["sd"] is not None else ""
+        text = f"{stat['mean']:g}{sd} ({stat['min']:g}-{stat['max']:g})"
+        if key == "first_green_turn":  # only the runs that went green are averaged
+            text += f" n={stat['n']}/{task['runs'] - task['errored']}"
+        return text
+
+    lines = [
+        f"### {label}: mean ±sd (min-max) over each task's runs",
+        "",
+        "| task | runs | passed | " + " | ".join(c for _, c in RUN_METRICS) + " |",
+        "|---|---:|---:|" + "---:|" * len(RUN_METRICS),
+    ]
+    for task, t in per_task.items():
+        note = f" ({t['errored']} errored)" if t["errored"] else ""
+        lines.append(
+            f"| {task} | {t['runs']}{note} | {t['passed']}/{t['runs'] - t['errored']} | "
+            + " | ".join(cell(t[key], key, t) for key, _ in RUN_METRICS)
+            + " |"
+        )
+    lines += [
+        "",
+        "A difference between two labels smaller than a task's spread is noise.",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -1970,8 +2188,10 @@ def gaps_section(label: str, rows: list[dict[str, Any]]) -> str:
 
 
 def cmd_recompute(args: argparse.Namespace) -> None:
-    """Re-derive doc gaps / outside kinds for stored results (no agent, no
-    gates); generated files move out of ``edited_outside``."""
+    """Re-derive doc gaps / outside kinds and the tier and skills metrics (from
+    the kept transcript and diff) for stored results (no agent, no gates);
+    generated files move out of ``edited_outside``. The tier misses are scored
+    against this checkout's ``sandloom.sdk`` tier, not the run's."""
     for path in sorted((RESULTS_DIR / args.label).glob("[tp][0-9]*.json")):
         row = json.loads(path.read_text())
         outside_ = row.get("edited_outside", [])
@@ -1981,6 +2201,15 @@ def cmd_recompute(args: argparse.Namespace) -> None:
             set(row.get("generated_files", [])) | set(generated)
         )
         row.update(classify(row, row.get("ref") or None))
+        run_dir = eval_home() / row["label"] / row["task"]
+        if (run_dir / "transcript.jsonl").is_file():
+            row.update(
+                tiermetrics.run_metrics(
+                    run_dir / "transcript.jsonl",
+                    run_dir / "changes.patch",
+                    tiermetrics.beginner_tier(),
+                )
+            )
         path.write_text(json.dumps(row, indent=2) + "\n")
     cmd_report(argparse.Namespace(label=args.label, compare=None))
 
@@ -1992,6 +2221,8 @@ def cmd_report(args: argparse.Namespace) -> None:
         x
         for x in (
             table(args.label, small) if small else "",
+            tier_table(args.label, small),
+            runs_section(args.label, small) if small else "",
             product_table(args.label, rows),
             gaps_section(args.label, rows),
         )
@@ -2012,7 +2243,7 @@ def cmd_report(args: argparse.Namespace) -> None:
     text = "\n".join(out) + "\n"
     (RESULTS_DIR / args.label / "summary.md").write_text(text)
     (RESULTS_DIR / args.label / "summary.json").write_text(
-        json.dumps(summarize(rows), indent=2) + "\n"
+        json.dumps({**summarize(rows), "per_task": aggregate(small)}, indent=2) + "\n"
     )
     print(text)
 
@@ -2025,7 +2256,8 @@ def cmd_promote(args: argparse.Namespace) -> None:
         "model": rows[0]["model"] if rows else "",
         "summary": summarize(rows),
         "tasks": {
-            r["task"]: {
+            # one entry per run (a --runs label keeps every run, not the last)
+            result_stem(r["task"], r.get("run", 1), r.get("group", "")): {
                 k: r[k]
                 for k in (
                     "outcome",
@@ -2064,14 +2296,53 @@ def waves(tasks: list[Task]) -> list[list[Task]]:
     return out
 
 
+#: The tier and skills measurement (owner decision 2026-11-24): tier 1 (a first
+#: module, refusals, billing, an Account export, a banner), tier 2 (a projection,
+#: a periodic task), skills (an event version roll). ``--tasks measured`` selects
+#: them, with :data:`MEASURED_RUNS` runs each unless ``--runs`` says otherwise.
+MEASURED = ("t1", "t3", "t5", "t9", "t10", "t6", "t8", "t7")
+MEASURED_RUNS = 3
+
+
+def select_tasks(tasks: str | None) -> list[str] | None:
+    """The ``--tasks`` list: ``measured`` is the measured set, a comma list is
+    task ids or prefixes, none is every task."""
+    if not tasks:
+        return None
+    if tasks == "measured":
+        return list(MEASURED)
+    return tasks.split(",")
+
+
+def resolve_runs(args: argparse.Namespace) -> int:
+    """Runs per task: ``--runs`` (at least 1), else 3 for ``--tasks measured``, else 1."""
+    if args.runs is None:
+        return MEASURED_RUNS if args.tasks == "measured" else 1
+    if args.runs < 1:
+        raise SystemExit(f"--runs must be at least 1, got {args.runs}")
+    return int(args.runs)
+
+
+def for_run(args: argparse.Namespace, run: int, runs: int) -> argparse.Namespace:
+    """``args`` for run ``run`` of ``runs``. One run keeps the label. Several
+    each work under their own label (``<label>.r<run>``: separate app
+    directories, databases and Redis indexes, checkpoints) and share the results
+    directory ``<label>``, where they are stored as ``<task>.r<run>.json``."""
+    own = {**vars(args), "run": run, "results_label": ""}
+    if runs > 1:
+        own.update(label=f"{args.label}.r{run}", results_label=args.label)
+    return argparse.Namespace(**own)
+
+
 def cmd_run(args: argparse.Namespace) -> None:
-    selected = args.tasks.split(",") if args.tasks else None
+    selected = select_tasks(args.tasks)
+    runs = resolve_runs(args)
     tasks, skipped = runnable(
         load_tasks(selected, args.suite, args.mode),
         args.mode,
         explicit=bool(selected),
     )
-    print(f"mode: {args.mode}", flush=True)
+    print(f"mode: {args.mode}; runs per task: {runs}", flush=True)
     for task in skipped:
         why = (
             f"a kernel-contributor task in mode {args.mode} (name it with --tasks)"
@@ -2096,9 +2367,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         args.dist = appmode.build_dist(REPO, args.ref, eval_home())
         print(f"dist: {args.dist.root} ({len(args.dist.packages)} wheels)", flush=True)
     prune_before_run(args.parallel)
+
+    def all_runs(task: Task) -> list[Result]:
+        # A task's runs are serial: they share its Redis index pair.
+        return [run_task(task, for_run(args, k, runs)) for k in range(1, runs + 1)]
+
     for wave in waves(tasks):
         with ThreadPoolExecutor(max_workers=args.parallel) as pool:
-            list(pool.map(lambda t: run_task(t, args), wave))
+            list(pool.map(all_runs, wave))
     cmd_report(
         argparse.Namespace(
             label=args.label, compare=args.compare, force_compare=args.force_compare
@@ -2293,6 +2569,11 @@ def check_modes(other: str, modes: set[str], *, force: bool) -> None:
 def cmd_rescore(args: argparse.Namespace) -> None:
     """Re-score kept worktrees / app directories (after editing a checker or
     gate list); the mode is the stored result's."""
+    if any(row.get("group") for row in load_results(args.label)):
+        raise SystemExit(
+            f"rescore does not handle {args.label}: it holds repeated runs "
+            "(--runs); run `recompute` to refresh their metrics"
+        )
     selected = args.tasks.split(",") if args.tasks else None
     for task in load_tasks(selected, args.suite):
         out_dir = eval_home() / args.label / task.id
@@ -2459,7 +2740,15 @@ def main() -> None:
     run.add_argument("--label", required=True, help="results/<label>/")
     run.add_argument("--ref", default="HEAD", help="git ref the agents start from")
     run.add_argument(
-        "--tasks", help="comma list of task ids or prefixes (t1,t3); default all"
+        "--tasks",
+        help="comma list of task ids or prefixes (t1,t3); default all; `measured` is "
+        f"the tier and skills set ({','.join(MEASURED)}, {MEASURED_RUNS} runs each)",
+    )
+    run.add_argument(
+        "--runs",
+        type=int,
+        help="runs per task (default 1; 3 with --tasks measured): the report gives "
+        "each metric's mean and spread over a task's runs",
     )
     run.add_argument("--suite", choices=sorted(SUITES), default="tasks")
     run.add_argument(

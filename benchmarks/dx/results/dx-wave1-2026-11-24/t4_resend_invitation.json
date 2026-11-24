@@ -67,5 +67,27 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "seed:teamhub",
-  "error": ""
+  "error": "",
+  "docs_lookups": 2,
+  "docs_names": [
+    "bind_tenant"
+  ],
+  "recipes_read": [
+    "org-gate",
+    "retries",
+    "test-service-or-task"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 10,
+  "t009_failures": 0,
+  "advanced_markers": 0,
+  "sdk_names": [],
+  "tier_misses": [],
+  "test_sdk_names": [
+    "sandloom.sdk.tenant.bind_tenant"
+  ],
+  "test_tier_misses": [
+    "sandloom.sdk.tenant.bind_tenant"
+  ]
 }
