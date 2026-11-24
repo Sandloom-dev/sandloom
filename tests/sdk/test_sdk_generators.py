@@ -504,7 +504,7 @@ def test_add_event_by_default_adds_tenant_id(tmp_path: Path) -> None:
 def test_a_generator_that_has_no_tenant_flag_is_unaffected_by_it(
     tmp_path: Path,
 ) -> None:
-    """``--no-tenant`` belongs to ``module`` and ``event`` only: ``projection``
+    """``--no-tenant`` belongs to ``module``, ``event`` and ``consumer``: ``projection``
     keys its rows by tenant either way, and ``sandloom add task`` has no such
     flag to read."""
     root = _app(tmp_path, everything=False)

@@ -8658,11 +8658,19 @@ capabilities:
   - tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
 - id: C-GEN-04
   statement: 'sandloom add consumer writes a view from the producer schema (the tree or the exported file);
-    without one it needs --field and marks the view unverified.'
+    without one it needs --field and marks the view unverified. With a producer the view keeps every required
+    field (tenant_id included; a producer class requires all its fields) and a defaulted field keeps the
+    producer''s default; a --field the producer does not send is refused. Without a producer the view gets
+    tenant_id unless --no-tenant, so the generated test passes whichever of add event and add consumer ran first.'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#5.9 Generators
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_consumer_takes_the_producer_schema_or_marks_unverified
+  - src/sandloom/core/tests/test_add_consumer_view.py::test_a_view_with_field_keeps_the_producers_required_tenant_id
+  - src/sandloom/core/tests/test_add_consumer_view.py::test_a_consumer_added_before_its_event_gets_the_tenant_id_add_event_writes
+  - src/sandloom/core/tests/test_add_consumer_view.py::test_an_app_without_tenants_gets_no_tenant_id_in_either_order
+  - src/sandloom/core/tests/test_add_consumer_view.py::test_a_defaulted_field_is_written_with_the_producers_default
+  - src/sandloom/core/tests/test_add_consumer_view.py::test_a_field_the_producer_does_not_send_is_refused
 - id: C-GEN-05
   statement: 'sandloom add saga writes package files only; an existing target is kept and the output written
     as *.new.'

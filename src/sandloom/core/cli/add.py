@@ -1347,13 +1347,53 @@ def add_contract_use(
 # --------------------------------------------------------------------------- #
 
 
-def _producer_fields(
-    where: Layout, channel: str
-) -> tuple[list[tuple[str, str, bool]], str]:
-    """The producer's fields for a view, as ``(name, annotation, required)``:
-    from the tree, else the exported schema; ``([], "")`` when neither is found.
-    ``required`` is what the channel's schema demands of every payload (a field
-    with no default; the schema's ``required`` list)."""
+@dataclass(frozen=True)
+class _ProducerField:
+    """One field of a producer's event. ``required``: the channel's schema
+    demands it of every payload. The schema a producer class exports lists every
+    field as required, a defaulted one included (``publish`` always sends it:
+    ``wire_schema``), so only a hand-written exported schema has an optional
+    field. ``defaulted``: the producer gives the field a default, which a view
+    must repeat (SANDLOOM-C025). ``default`` is that default's source text;
+    ``None`` on a defaulted field means it is computed (a call, a factory) and
+    cannot be copied into a view."""
+
+    name: str
+    annotation: str
+    required: bool
+    defaulted: bool = False
+    default: str | None = None
+
+
+_SCALAR_DEFAULTS: dict[str, type] = {"str": str, "int": int, "float": float}
+
+
+def _schema_default(kind: str, spec: dict[str, Any]) -> str | None:
+    """A JSON-schema ``default`` as Python source, only for the scalar kinds
+    whose literal is the same text; anything else is computed."""
+    if "default" not in spec:
+        return None
+    value = spec["default"]
+    if kind == "bool":
+        return repr(value) if isinstance(value, bool) else None
+    scalar = _SCALAR_DEFAULTS.get(kind)
+    if scalar is not None and type(value) is scalar:
+        return repr(value)
+    return None
+
+
+def _literal_default(node: ast.expr) -> str | None:
+    """The source of a default that is a plain literal; ``None`` otherwise."""
+    try:
+        ast.literal_eval(node)
+    except (ValueError, TypeError):  # not a literal; an unhashable set member
+        return None
+    return ast.unparse(node)
+
+
+def _producer_fields(where: Layout, channel: str) -> tuple[list[_ProducerField], str]:
+    """The producer's fields for a view: from the tree, else the exported
+    schema; ``([], "")`` when neither is found."""
     for py in api10_rules.iter_python([where.modules_dir]):
         if "tests" in py.parts or "migrations" in py.parts:
             continue
@@ -1361,7 +1401,15 @@ def _producer_fields(
             module = py.relative_to(where.modules_dir).parts[0]
             if event.channel == channel and channel.split(".", 1)[0] == module:
                 return [
-                    (name, annotation, name not in event.optional)
+                    _ProducerField(
+                        name,
+                        annotation,
+                        True,  # the wire schema requires every field it sends
+                        name in event.optional,
+                        _literal_default(event.defaults[name])
+                        if name in event.defaults
+                        else None,
+                    )
                     for name, annotation in event.fields.items()
                 ], f"{py.relative_to(where.modules_dir)}"
     exported = (
@@ -1383,30 +1431,69 @@ def _producer_fields(
                 if spec.get("format") == "uuid"
                 else names.get(spec.get("type"), "str")
             )
-            fields.append((prop, kind, prop in required))
+            fields.append(
+                _ProducerField(
+                    prop,
+                    kind,
+                    prop in required,
+                    prop not in required,
+                    None if prop in required else _schema_default(kind, spec),
+                )
+            )
         return fields, exported.name
     return [], ""
 
 
 def _view_of_producer(
-    found: list[tuple[str, str, bool]], given: list[tuple[str, str]]
-) -> list[tuple[str, str]]:
-    """The fields of a view whose producer is known. Every required field of the
-    producer stays (the channel's schema validates each payload against them, so
-    a test event without one is refused); ``--field`` narrows the optional ones
-    and adds its own. With no ``--field``, all the producer's fields."""
-    if not given:
-        return [(name, annotation) for name, annotation, _ in found]
+    found: list[_ProducerField], given: list[tuple[str, str]], source: str
+) -> tuple[list[tuple[str, str, str | None]], list[str]]:
+    """``(fields, skipped)`` of a view whose producer is known; each field is
+    ``(name, annotation, default)``. Every required field of the producer stays
+    (the channel's schema validates each payload against them, so a test event
+    without one is refused; a producer class makes all its fields required). A
+    defaulted field is written with the producer's default (a view field
+    without one is SANDLOOM-C025); one whose default is computed cannot be
+    written, so the generator refuses. ``--field`` may only name fields the
+    producer sends (a field it does not send is required in the view, and every
+    payload of the channel then fails), and narrows the optional ones of a
+    hand-written schema. With no ``--field``, all the producer's fields;
+    ``skipped`` names the optional ones whose computed default cannot be copied
+    (a view may leave an optional field out)."""
+    by_name = {field.name: field for field in found}
+    unknown = [name for name, _ in given if name not in by_name]
+    if unknown:
+        raise GeneratorError(
+            f"--field {', '.join(unknown)}: the producer ({source}) does not send "
+            f"{'it' if len(unknown) == 1 else 'them'}; its fields are "
+            f"{', '.join(by_name)}. A view field the producer never sends fails "
+            "every payload of the channel: add it to the event first"
+        )
     named = dict(given)
-    view = [
-        (name, named.get(name, annotation))
-        for name, annotation, required in found
-        if required or name in named
-    ]
-    known = {name for name, _, _ in found}
-    return view + [
-        (name, annotation) for name, annotation in given if name not in known
-    ]
+    view: list[tuple[str, str, str | None]] = []
+    skipped: list[str] = []
+    for field in found:
+        if field.required and field.defaulted and field.default is None:
+            raise GeneratorError(
+                f"the producer ({source}) gives {field.name} a computed default, "
+                "which a generated view cannot copy: the channel's schema "
+                "requires the field and a view field needs a default "
+                "(SANDLOOM-C025). Write the view by hand"
+            )
+        if not field.required and field.default is None:
+            if field.name in named:
+                raise GeneratorError(
+                    f"--field {field.name}: the producer ({source}) computes its "
+                    "default, which a generated view cannot copy; write the field "
+                    "in the view by hand, with its default"
+                )
+            if not named:
+                skipped.append(field.name)
+            continue
+        if field.required or field.name in named or not named:
+            view.append(
+                (field.name, named.get(field.name, field.annotation), field.default)
+            )
+    return view, skipped
 
 
 def add_consumer(
@@ -1416,8 +1503,11 @@ def add_consumer(
     ``@on`` handler in ``consumers.py``.
 
     The view's fields come from the producer (its class in the tree, else its
-    exported schema), the required ones always; ``fields`` narrows the optional
-    ones and adds. With no producer found they are ``fields`` plus ``tenant_id``
+    exported schema), the required ones always (every field of a producer
+    class), each with the producer's default; ``fields`` may only name fields
+    the producer sends (refused otherwise) and narrows the optional properties
+    of a hand-written schema. With
+    no producer found they are ``fields`` plus ``tenant_id``
     (unless ``where`` is not tenant-scoped, ``--no-tenant``), the field ``add
     event`` writes by default; the scaffolded test builds the event from every
     field of the view."""
@@ -1426,22 +1516,25 @@ def add_consumer(
         raise GeneratorError(f"not a versioned channel: {channel!r}")
     found, source = _producer_fields(where, channel)
     given = [(n, a) for n, a, _ in parse_fields(fields)]
+    view_fields: list[tuple[str, str, str | None]]
     if found:
-        view_fields = _view_of_producer(found, given)
+        view_fields, skipped = _view_of_producer(found, given, source)
         note = (
-            f"fields from --field and the producer's required ones ({source})"
+            f"the producer's required fields and the --field ones ({source})"
             if given
             else f"fields of the producer ({source})"
         )
+        if skipped:
+            note += f"; left out, their default is computed: {', '.join(skipped)}"
     elif given:
-        view_fields = list(given)
+        view_fields = [(n, a, None) for n, a in given]
         note = "fields from --field"
         # No schema to read yet: `add event` will give the channel `tenant_id`
         # (unless --no-tenant), and a payload without it fails the channel's
         # schema in the test. The same default, so either order of the two
         # generators gives a passing test.
         if where.tenant_scoped and not any(n == "tenant_id" for n, _ in given):
-            view_fields.append(("tenant_id", "UUID"))
+            view_fields.append(("tenant_id", "UUID", None))
             note = "fields from --field, and tenant_id"
     else:
         raise GeneratorError(
@@ -1459,7 +1552,9 @@ def add_consumer(
         f'    """A view: {note}."""',
         "",
     ]
-    lines += [f"    {n}: {a}" for n, a in view_fields]
+    lines += [
+        f"    {n}: {a}" + ("" if d is None else f" = {d}") for n, a, d in view_fields
+    ]
     # The group is named from the function: an explicit name= keeps the stream
     # position when the function is renamed (docs/modules/between/events.md).
     block = (
@@ -1469,7 +1564,7 @@ def add_consumer(
         + '    """Runs once per event (durable), with the event\'s tenant bound."""\n'
     )
     imports = sorted(
-        {imp for _, a in view_fields if (imp := FIELD_TYPES.get(a, ("", None))[1])}
+        {imp for _, a, _ in view_fields if (imp := FIELD_TYPES.get(a, ("", None))[1])}
     )
     path = directory / "consumers.py"
     needed = [*imports, "from sandloom.sdk import Event, on"]
@@ -1489,7 +1584,7 @@ def add_consumer(
     created.append(
         _write(
             directory / "tests" / f"test_{handler}.py",
-            _consumer_test(cls, handler, view_fields),
+            _consumer_test(cls, handler, [(n, a) for n, a, _ in view_fields]),
         )
     )
     return created
@@ -2267,8 +2362,9 @@ def _parser() -> argparse.ArgumentParser:
         help=f"a field of the view, as name:type with type one of {types}; "
         "repeat it for each field (default: the producer's own fields, read "
         "from its class or its exported schema). With a producer found, the "
-        "view keeps its required fields (tenant_id included): --field narrows "
-        "the optional ones and adds its own",
+        "view keeps its required fields (tenant_id included; a producer class "
+        "makes all its fields required), each default as the producer wrote it; "
+        "a field the producer does not send is refused",
     )
     consumer.add_argument(
         "--no-tenant",

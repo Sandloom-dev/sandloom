@@ -194,20 +194,13 @@ def _producer(root: Path, body: str) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("fields", "expected"),
-    [
-        ([], ["contact_id", "nickname", "score", "tenant_id"]),
-        (["nickname:str"], ["contact_id", "nickname", "tenant_id"]),
-        (["score:int"], ["contact_id", "score", "tenant_id"]),
-        (["extra:str"], ["contact_id", "tenant_id", "extra"]),
-    ],
-)
-def test_field_narrows_the_optional_fields_and_adds_its_own(
-    tmp_path: Path, fields: list[str], expected: list[str]
+@pytest.mark.parametrize("fields", [[], ["nickname:str"], ["score:int"]])
+def test_a_producer_class_keeps_all_its_fields_whatever_field_names(
+    tmp_path: Path, fields: list[str]
 ) -> None:
-    """The required fields of the producer class always stay; the optional ones
-    (a default) are the producer's with no ``--field``, else only the named ones."""
+    """The channel's exported schema lists every field of a producer class as
+    required (a defaulted one is always published), so the test event of a view
+    that left one out is refused: ``--field`` cannot narrow a producer class."""
     root, where = _app(tmp_path)
     _producer(
         root,
@@ -215,7 +208,73 @@ def test_field_narrows_the_optional_fields_and_adds_its_own(
         "    tenant_id: UUID\n",
     )
     add.add_consumer("deals", CHANNEL, where, fields)
-    assert _view_fields(root) == expected
+    assert _view_fields(root) == ["contact_id", "nickname", "score", "tenant_id"]
+
+
+def test_a_defaulted_field_is_written_with_the_producers_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A view field with no default is SANDLOOM-C025 ("give it a default"), and
+    the schema requires it: the view keeps the field with the producer's default."""
+    root, where = _app(tmp_path)
+    add.add_event("contacts", "ContactCreated", where, ["nickname:str", "score:int"])
+    events = root / "probe" / "modules" / "contacts" / "events.py"
+    text = events.read_text(encoding="utf-8")
+    assert "    nickname: str\n    score: int\n" in text
+    events.write_text(
+        text.replace(
+            "    nickname: str\n    score: int\n",
+            "    nickname: str = 'anon'\n    score: int = -1\n",
+        ),
+        encoding="utf-8",
+    )
+    add.add_consumer("deals", CHANNEL, where, ["nickname:str"])
+    view = _view(root)
+    assert "    nickname: str = 'anon'\n    score: int = -1\n" in view
+    _generate(root)  # no C025: the view agrees with its producer
+    assert _refusals(root, _scaffolded_payload(root, monkeypatch)) == []
+
+
+@pytest.mark.parametrize("fields", [["extra:str"], ["nickname:str", "extra:str"]])
+def test_a_field_the_producer_does_not_send_is_refused(
+    tmp_path: Path, fields: list[str]
+) -> None:
+    """``--field extra:str`` would make ``extra`` required in the view, so every
+    other consumer test of the channel (and every real event) fails. The refusal
+    names the producer's fields and writes nothing."""
+    root, where = _app(tmp_path)
+    _producer(
+        root, "    contact_id: UUID\n    nickname: str = ''\n    tenant_id: UUID\n"
+    )
+    with pytest.raises(add.GeneratorError, match=r"does not send") as refused:
+        add.add_consumer("deals", CHANNEL, where, fields)
+    assert "contact_id, nickname, tenant_id" in str(refused.value)
+    assert "extra" in str(refused.value)
+    assert not (root / "probe" / "modules" / "deals" / "consumers.py").exists()
+
+
+def test_the_cli_refuses_a_field_the_producer_does_not_send(tmp_path: Path) -> None:
+    root, where = _app(tmp_path)
+    add.add_event("contacts", "ContactCreated", where, ["name:str"])
+    args = ["--root", str(root), "consumer", "deals", CHANNEL, "--field", "extra:str"]
+    assert add.main(args) != 0
+    assert not (root / "probe" / "modules" / "deals" / "consumers.py").exists()
+
+
+@pytest.mark.parametrize("fields", [[], ["nickname:str"]])
+def test_a_computed_default_of_a_producer_class_is_refused(
+    tmp_path: Path, fields: list[str]
+) -> None:
+    """A default such as ``str()`` cannot be copied into a view, yet the schema
+    requires the field and a view field without a default is C025: refused,
+    nothing written, rather than a view the check then rejects."""
+    root, where = _app(tmp_path)
+    _producer(
+        root, "    contact_id: UUID\n    nickname: str = str()\n    tenant_id: UUID\n"
+    )
+    with pytest.raises(add.GeneratorError, match="nickname a computed default"):
+        add.add_consumer("deals", CHANNEL, where, fields)
+    assert not (root / "probe" / "modules" / "deals" / "consumers.py").exists()
 
 
 def test_a_view_of_an_exported_schema_keeps_its_required_properties(
@@ -233,7 +292,8 @@ def test_a_view_of_an_exported_schema_keeps_its_required_properties(
                 "type": "object",
                 "properties": {
                     "contact_id": {"type": "string", "format": "uuid"},
-                    "nickname": {"type": "string"},
+                    "nickname": {"type": "string", "default": ""},
+                    "note": {"type": "string", "default": ""},
                     "tenant_id": {"type": "string", "format": "uuid"},
                 },
                 "required": ["contact_id", "tenant_id"],
@@ -243,5 +303,39 @@ def test_a_view_of_an_exported_schema_keeps_its_required_properties(
     )
     add.add_consumer("deals", CHANNEL, where, ["nickname:str"])
     view = _view(root)
-    assert "    contact_id: UUID\n    nickname: str\n    tenant_id: UUID\n" in view
+    assert "    contact_id: UUID\n    nickname: str = ''\n    tenant_id: UUID\n" in view
+    assert "note" not in view  # not required, not named: narrowed away
     assert "# unverified" not in view
+
+
+def test_an_exported_optional_property_keeps_its_schema_default(
+    tmp_path: Path,
+) -> None:
+    """The schema's ``default`` is the view's default; an optional property with
+    none (a computed default upstream) is left out, and naming it is refused."""
+    root, where = _app(tmp_path)
+    assert where.shared_dir is not None
+    exported = where.shared_dir / "events" / f"{CHANNEL}.json"
+    exported.parent.mkdir(parents=True, exist_ok=True)
+    exported.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "format": "uuid"},
+                    "nickname": {"type": "string", "default": "anon"},
+                    "vip": {"type": "boolean", "default": False},
+                    "created": {"type": "string"},
+                    "tenant_id": {"type": "string", "format": "uuid"},
+                },
+                "required": ["contact_id", "tenant_id"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(add.GeneratorError, match="computes its default"):
+        add.add_consumer("deals", CHANNEL, where, ["created:str"])
+    add.add_consumer("deals", CHANNEL, where, [])
+    view = _view(root)
+    assert "    nickname: str = 'anon'\n    vip: bool = False\n" in view
+    assert "created: " not in view

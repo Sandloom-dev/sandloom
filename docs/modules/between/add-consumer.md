@@ -68,15 +68,19 @@ Both runs above, in one file:
 - **A view, not a producer.** The channel's first segment (`notes`) is
   another module, so the class is a *view* of that channel. It is not
   registered as a schema and `.publish()` on it is refused. Payload fields it
-  does not declare are ignored. You may delete an optional field you do not
-  need; never add one the producer does not send.
+  does not declare are ignored. Never add a field the producer does not send.
 - **Keep the required fields.** `tenant_id` is one of them. The generated test
   builds its event from the view's fields. `deliver` checks that event against
-  the channel's schema, which demands every required field.
-- **Which fields.** With the producer found and no `--field`, the view has all
-  its fields. With `--field`, the view keeps the producer's required fields.
-  Your `--field`s narrow the optional ones (those with a default) and add their
-  own.
+  the channel's schema, which demands every required field. The schema of a
+  producer class requires all its fields, defaulted ones included, because
+  `publish` always sends them.
+- **Which fields.** With the producer found, the view keeps every required
+  field, and a defaulted one keeps the producer's default (a view field without
+  it is SANDLOOM-C025). So `--field` cannot narrow a producer class. A
+  `--field` the producer does not send is refused, and the error names the
+  producer's fields. Such a field would be required in the view and fail every
+  payload of the channel, so add it to the event first. A computed default
+  cannot be copied: the generator refuses, and you write the view by hand.
 - **Verified or not.** A view built from the producer's schema is checked
   against it. A view built from `--field` alone carries the comment
   `# unverified: no producer schema was found`. It gets `tenant_id: UUID`
