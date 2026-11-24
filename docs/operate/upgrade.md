@@ -277,9 +277,9 @@ Nothing changes at runtime, and a module's tests are not scanned.
 | Passes the event name in a variable | Write the name as a string literal. The rule cannot read a variable and reports the call |
 
 The rule cannot be waived: a `# sandloom: allow` comment does not admit a listener, and the
-message says so. The rule catches the mistakes of ordinary code. A deliberate bypass is the
-job of the runtime cursor guard and of row-level security. Review a listener that has to
-exist like raw SQL, and register it outside module code (a driver, the startup, a test).
+message says so. The rule catches the mistakes of ordinary code. A deliberate bypass is not
+caught statically; row-level security, where enabled, is the boundary. Review a listener that
+has to exist like raw SQL, and register it outside module code (a driver, the startup, a test).
 
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 

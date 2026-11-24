@@ -374,6 +374,49 @@ _ENGINE_BAD = {
         "async def f(session):\n"
         "    return (await session.connection()).connection.cursor()\n"
     ),
+    # the DBAPI connection of a connection call, with no cursor taken from it
+    "the DBAPI connection of a session's connection": (
+        "def f(session):\n    return session.connection().connection\n"
+    ),
+    "the DBAPI connection of an awaited connection": (
+        "async def f(session):\n    return (await session.connection()).connection\n"
+    ),
+    "the DBAPI connection of a connect call": (
+        "def f(engine):\n    return engine.connect().connection\n"
+    ),
+    # SQL run on the DBAPI connection itself
+    "execute on the DBAPI connection of a connection": (
+        "def f(conn):\n    return conn.connection.execute('select 1')\n"
+    ),
+    "executemany on the DBAPI connection of a connection": (
+        "def f(conn):\n    return conn.connection.executemany('select ?', [(1,)])\n"
+    ),
+    "executescript on the DBAPI connection of a connection": (
+        "def f(conn):\n    return conn.connection.executescript('select 1')\n"
+    ),
+    # a name bound to the DBAPI connection, in the function that uses it
+    "a cursor of a name bound to a connection's DBAPI connection": (
+        "def f(sync_conn):\n"
+        "    raw = sync_conn.connection\n"
+        "    return raw.cursor().execute('x')\n"
+    ),
+    "execute on a name bound to a connection's DBAPI connection": (
+        "def f(sync_conn):\n    raw = sync_conn.connection\n    return raw.execute('x')\n"
+    ),
+    "an annotated name bound to a connection's DBAPI connection": (
+        "def f(conn):\n    raw: object = conn.connection\n    return raw.cursor()\n"
+    ),
+    "an alias of a name bound to a connection's DBAPI connection": (
+        "def f(conn):\n    raw = conn.connection\n    alias = raw\n"
+        "    return alias.cursor()\n"
+    ),
+    "a name bound in an enclosing function": (
+        "def f(conn):\n    raw = conn.connection\n"
+        "    def g():\n        return raw.cursor()\n    return g\n"
+    ),
+    "a name bound to a connection's DBAPI connection at module level": (
+        "raw = conn.connection\n\ndef f():\n    return raw.execute('x')\n"
+    ),
     "an engine's pool": "def f(engine):\n    return engine.pool.connect()\n",
     "the pool of a bind": (
         "def f(session):\n    return session.get_bind().pool.connect()\n"
@@ -457,6 +500,27 @@ _ENGINE_OK = {
     "a cursor of a pagination object": ("def f(page):\n    return page.cursor()\n"),
     "a connection attribute of a client, then a cursor of the result": (
         "def f(client):\n    return client.cursor().connection\n"
+    ),
+    # a connection the module keeps is SQLAlchemy's: its execute is the guarded one
+    "execute on a connection the module's own object keeps": (
+        "class Repo:\n    def run(self, statement):\n"
+        "        return self.connection.execute(statement)\n"
+    ),
+    "a name bound to the module's own connection, then execute": (
+        "class Repo:\n    def run(self, statement):\n"
+        "        conn = self.connection\n        return conn.execute(statement)\n"
+    ),
+    "execute on a connection of its own": (
+        "def f(conn, statement):\n    return conn.execute(statement)\n"
+    ),
+    # a name is judged in the function that binds it
+    "a name bound to a DBAPI connection in another function": (
+        "def one(conn):\n    raw = conn.connection\n    return raw\n"
+        "def two(raw):\n    return raw.execute('x')\n"
+    ),
+    "a name rebound to something else in the function that uses it": (
+        "def one(conn):\n    raw = conn.connection\n    return raw\n"
+        "def two(session):\n    raw = session\n    return raw.execute('x')\n"
     ),
     "the session's own execute": (
         "async def f(session, statement):\n"

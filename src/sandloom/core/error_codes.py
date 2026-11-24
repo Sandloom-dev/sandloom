@@ -243,17 +243,19 @@ A read the check cannot follow is refused:
 - `sys` or `sys.modules` handed to other code, or stored in a field;
 - the bare key `sys.modules["sandloom"]`, which hands out the package.
 
-The `sandloom` package object is judged like `sys`: after `import sandloom`,
-`import sandloom.sdk` or `__import__("sandloom.sdk")`, only the attributes `sdk`
-and `shared` are public. `sandloom.core.x` read as attributes is reported like
+The `sandloom` package object is judged like `sys`: after `import sandloom.sdk`
+or `__import__("sandloom.sdk")`, only the attributes `sdk` and `shared` are
+public. `sandloom.core.x` read as attributes is reported like
 `import sandloom.core.x`, and so is `from sandloom import *`, which hands out
-whatever the package has bound.
+whatever the package has bound. A bare `import sandloom` (or a constant dynamic
+import of `sandloom`) is not followed here: SANDLOOM-C004 refuses it.
 
 `sys.modules[__name__]` and the keys of other packages pass. A deliberate read
 is waived on its line with `# sandloom: allow framework-imports <reason>`.
 
 The rule catches the mistakes of ordinary code, the ones a module author or an
-AI agent writes in good faith; a deliberate bypass is not its job. Not seen:
+AI agent writes in good faith. A deliberate bypass is not caught statically, and
+nothing at runtime stops a module from importing the kernel. Not seen:
 `pkgutil.resolve_name("sandloom.core.x")`, `runpy`, `importlib.util.find_spec`,
 `getattr` on `builtins` or `importlib`, a module that `collections` or another
 standard module re-exports from `sys`, `eval` and `exec`, and a module's tests
@@ -891,9 +893,9 @@ cursor check and write admission, and the tenant setting is never set for it.
 
 sandloom check refuses, in any file of a business module, the ways that open
 such a connection which ordinary code reaches for. It catches the mistakes a
-module author or an AI agent writes in good faith; it does not promise to stop a
-deliberate bypass, which the runtime cursor guard and the database's row-level
-security stop. It reports:
+module author or an AI agent writes in good faith. A deliberate bypass is not
+caught statically, and the connection a module opens itself never gets the cursor
+guard; row-level security, where enabled, is the boundary. It reports:
 
 - a star import from sqlalchemy or one of its submodules;
 - `create_engine`, `create_async_engine`, `engine_from_config`,
@@ -910,8 +912,11 @@ security stop. It reports:
   name;
 - `.raw_connection()`, `.get_raw_connection()`, `.driver_connection`, and
   `.pool` on an engine, a bind or a connection's engine;
-- `.connection.cursor()`, the DBAPI cursor under a SQLAlchemy connection
-  (`conn.connection.cursor()`, `session.connection().connection.cursor()`).
+- the DBAPI connection and cursor under a SQLAlchemy connection:
+  `.connection.cursor()` and `.connection.execute()` (`conn.connection.cursor()`),
+  `session.connection().connection`, and a name bound to `<x>.connection` in the
+  same function (`raw = conn.connection`, then `raw.cursor()` or `raw.execute()`).
+  `self.connection.execute()` is the module's own object and is not reported.
 
 A method that only happens to be named `create_engine` on an object that is
 not sqlalchemy is not reported. A database a module needs is declared in INFRA
@@ -975,9 +980,9 @@ SANDLOOM-C031 and SANDLOOM-C037 refuse in a module; ADR-0018 decision 8 has the
 seam this rule closes for module code.
 
 This rule catches the mistakes of ordinary code, the ones a module author or an
-AI agent writes in good faith. It does not promise to stop a deliberate bypass:
-that is the job of the runtime cursor guard and of the database's row-level
-security (ADR-0018 decision 8). No `# sandloom: allow` comment admits a hit:
+AI agent writes in good faith. A deliberate bypass is not caught statically;
+row-level security, where enabled, is the boundary (ADR-0018 decision 8). No
+`# sandloom: allow` comment admits a hit:
 the rule cannot be waived, and the message says so when the comment is there.
 
 sandloom check refuses, in any file of a business module (migrations included;
@@ -990,10 +995,14 @@ tests are not scanned):
   connection, the Engine class or a dialect, with retval or not, under an
   aliased import of event or of listen (`from sqlalchemy.event import listen
   as l`), through the event module reached by another sqlalchemy module
-  (`from sqlalchemy.orm.events import event`), through a name imported from a
-  sibling file of the module that binds one (`from .helper import ev`),
-  through `getattr(event, "listen")`, or a name bound to the constant. A dict
-  key and the module's own `self.do_execute` are not a registration;
+  (`from sqlalchemy.orm.events import event`), through a name or a file
+  imported from another file of the importing file's own tree, one hop (the
+  other file's own imports and plain re-bindings): `from .helper import ev`,
+  `from . import event` (bound in the package's `__init__.py`), `from . import
+  helper` then `helper.ev.listen(...)`, `import pkg.helper as h` then
+  `h.ev.listen(...)`; through `getattr(event, "listen")`, or a name bound to the
+  constant. A dict key and the module's own `self.do_execute` are not a
+  registration;
 - `listen` / `listens_for` called with a pool, connect or error event (connect,
   first_connect, checkout, checkin, close, close_detached, detach, reset,
   invalidate, soft_invalidate, do_connect, handle_error, after_execute,
@@ -1039,7 +1048,11 @@ empty), `kernel_package: sandloom` and the kernel itself (`sandloom/core`) under
 location (the directory of the `sandloom` package this process runs), so a
 directory `<modules_path>/sandloom/core` that an application makes by hand does
 not pass for it. A manifest that spells the first two without the kernel is an
-application dressed as the framework. Every other manifest that names either key
+application dressed as the framework. The same refusal reaches the framework's
+own checkout when another checkout's environment runs the check (the kernel that
+process runs is not the `sandloom` under that tree's `modules_path`): the message
+says so, and the fix is to run the check with that checkout's own environment
+(`uv run sandloom check` from its root). Every other manifest that names either key
 is refused before any module is scanned, with the exit code and commands of
 SANDLOOM-C038. The message names the key.
 

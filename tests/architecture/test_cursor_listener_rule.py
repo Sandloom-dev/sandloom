@@ -5,9 +5,8 @@ every ``before_cursor_execute`` listener (ADR-0018, decision 8). A listener at
 the cursor rewrites the SQL text or the parameters after the check read them,
 or makes SQLAlchemy skip the check, so module code is refused it. The rule
 catches the code an author or an AI agent writes in good faith, under the
-spellings that code uses; a deliberate bypass is stopped at runtime, by the
-cursor guard and by row-level security, and the rule says so (it cannot be
-waived either: a comment is no review). The cases of
+spellings that code uses; a deliberate bypass is not caught statically, and the
+rule says so (it cannot be waived either: a comment is no review). The cases of
 ``_fixtures/c039/cases.py.txt`` are one module file each: every ``bad`` one must
 be reported, with the message of the ``kind`` it names (a branch removed from the
 analyzer fails its own cases), and no ``ok`` one. The runtime half, what the
@@ -195,9 +194,9 @@ def test_cursor_listener_runs_in_sandloom_check_on_every_file_but_tests(
 
 
 def test_a_waiver_comment_admits_no_cursor_listener(tmp_path: Path) -> None:
-    """The rule cannot be waived: a comment is no review, and the listener is
-    what the runtime cursor guard exists to stop. The comment is answered, not
-    silently ignored."""
+    """The rule cannot be waived: a comment is no review, and a listener at the
+    cursor skips the tenant check. The comment is answered, not silently
+    ignored."""
     by_rule = _LISTENER.replace(
         "retval=True)",
         "retval=True)  # sandloom: allow cursor-listener reviewed: audit tag",
@@ -337,6 +336,176 @@ def test_an_alias_from_a_parent_directory_is_followed_by_its_level(
     )
     assert find_cursor_listeners(package / "api" / "routes.py")
     assert find_cursor_listeners(package / "api" / "onelevel.py") == []
+
+
+_LISTEN_HANDLE_ERROR = (
+    'def attach(engine):\n    {registrar}.listen(engine, "handle_error", run)\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("package_init", "helper", "service"),
+    [
+        # `from . import event`: the name is bound by the package's __init__.py
+        (
+            "from sqlalchemy import event\n",
+            "",
+            "from . import event\n\n" + _LISTEN_HANDLE_ERROR.format(registrar="event"),
+        ),
+        (
+            "from sqlalchemy import event as ev\n",
+            "",
+            "from . import ev as registrar\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="registrar"),
+        ),
+        # `from . import helper`, then the sibling's alias as an attribute
+        (
+            "",
+            _HELPER,
+            "from . import helper\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="helper.ev"),
+        ),
+        (
+            "",
+            _HELPER,
+            "from . import helper as h\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="h.ev"),
+        ),
+        (
+            "",
+            _HELPER,
+            "from . import helper\nev = helper.ev\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="ev"),
+        ),
+        # `import orders.helper as h` and `import orders.helper`
+        (
+            "",
+            _HELPER,
+            "import orders.helper as h\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="h.ev"),
+        ),
+        (
+            "",
+            _HELPER,
+            "import orders.helper\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="orders.helper.ev"),
+        ),
+        (
+            "",
+            _HELPER,
+            "from orders import helper\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="helper.ev"),
+        ),
+    ],
+    ids=[
+        "name-from-the-package-init",
+        "renamed-name-from-the-package-init",
+        "sibling-module-attribute",
+        "sibling-module-renamed",
+        "sibling-module-attribute-rebound",
+        "import-as",
+        "import-dotted",
+        "from-package-import-module",
+    ],
+)
+def test_a_registrar_reached_through_an_imported_file_is_followed(
+    tmp_path: Path, package_init: str, helper: str, service: str
+) -> None:
+    package = _package(tmp_path, {"helper.py": helper, "service.py": service})
+    (package / "__init__.py").write_text(package_init, encoding="utf-8")
+    hits = find_cursor_listeners(package / "service.py")
+    assert hits and any(_MESSAGE["connection"] in hit for hit in hits), hits
+
+
+@pytest.mark.parametrize(
+    ("package_init", "helper", "service"),
+    [
+        # the package binds the name to something else
+        (
+            "event = object()\n",
+            "",
+            "from . import event\n\n" + _LISTEN_HANDLE_ERROR.format(registrar="event"),
+        ),
+        # the file binds another name than the one used
+        (
+            "",
+            _HELPER,
+            "from . import helper\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="helper.other"),
+        ),
+        # the file's alias is not the event module
+        (
+            "",
+            "ev = object()\n",
+            "from . import helper\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="helper.ev"),
+        ),
+        # an allowed event through the file's alias
+        (
+            "",
+            _HELPER,
+            "from . import helper\n\n"
+            'def attach(model):\n    helper.ev.listen(model, "before_insert", run)\n',
+        ),
+        # a library module, not a file of the tree
+        (
+            "",
+            _HELPER,
+            "import os.path as h\n\n" + _LISTEN_HANDLE_ERROR.format(registrar="h.ev"),
+        ),
+    ],
+    ids=[
+        "package-rebinds-the-name",
+        "another-attribute",
+        "attribute-is-not-the-event-module",
+        "allowed-event",
+        "library",
+    ],
+)
+def test_an_attribute_of_an_imported_file_that_is_not_the_event_module_is_left_alone(
+    tmp_path: Path, package_init: str, helper: str, service: str
+) -> None:
+    package = _package(tmp_path, {"helper.py": helper, "service.py": service})
+    (package / "__init__.py").write_text(package_init, encoding="utf-8")
+    assert find_cursor_listeners(package / "service.py") == []
+
+
+def test_a_sibling_is_read_once_for_every_file_that_imports_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = _package(
+        tmp_path,
+        {
+            "helper.py": _HELPER,
+            "one.py": "from .helper import ev\n\n" + _USE,
+            "two.py": "from . import helper\n\n"
+            + _LISTEN_HANDLE_ERROR.format(registrar="helper.ev"),
+        },
+    )
+    reads: list[str] = []
+    real = analyzers.parse_file
+
+    def counting(path: Path) -> ast.AST:
+        reads.append(path.name)
+        return real(path)
+
+    monkeypatch.setattr(analyzers, "parse_file", counting)
+    assert find_cursor_listeners(package / "one.py")
+    assert find_cursor_listeners(package / "two.py")
+    assert reads.count("helper.py") == 1, reads
+
+
+def test_an_edited_sibling_is_read_again(tmp_path: Path) -> None:
+    package = _package(
+        tmp_path,
+        {
+            "helper.py": "ev = object()\n",
+            "service.py": "from .helper import ev\n\n" + _USE,
+        },
+    )
+    assert find_cursor_listeners(package / "service.py") == []
+    (package / "helper.py").write_text(_HELPER + "# edited\n", encoding="utf-8")
+    assert find_cursor_listeners(package / "service.py")
 
 
 def test_a_sibling_that_cannot_be_read_does_not_stop_the_scan(tmp_path: Path) -> None:

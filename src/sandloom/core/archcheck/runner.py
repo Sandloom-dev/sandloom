@@ -174,8 +174,8 @@ PENDING_RULES.update({k: _catalogue_line(k, v) for k, v in PENDING_RULES.items()
 #: Inline waiver: ``# sandloom: allow <rule-id|code> <reason>`` on the reported line.
 _WAIVER = re.compile(r"#\s*sandloom:\s*allow\s+(\S+)\s+\S")
 #: Rules no inline waiver admits. A listener at the cursor (SANDLOOM-C039) is a
-#: trust rule: a deliberate exception is the runtime cursor guard's and row-level
-#: security's business (ADR-0018 decision 8), never a comment in module code.
+#: trust rule: a deliberate exception is never a comment in module code
+#: (ADR-0018 decision 8).
 NON_WAIVABLE_RULES = frozenset({"cursor-listener"})
 
 

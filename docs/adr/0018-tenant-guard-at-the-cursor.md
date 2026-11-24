@@ -373,13 +373,14 @@ cost of the two designs below stays unpaid and the seam stays open to code that 
 driver, the application's own startup, a test.
 
 **What the rule promises.** It catches the mistakes of ordinary code: what a module author, or an AI
-agent, writes in good faith. It does not promise to stop a deliberate bypass: a registrar reached
+agent, writes in good faith. A deliberate bypass is not caught statically: a registrar reached
 through a container, a computed event name, `getattr` on `builtins` or `importlib`, `exec` and
-`eval`, the internals of `dispatch`. A deliberate bypass is stopped, as far as the guard reaches, by
-the runtime cursor guard (decision 1), and for the seam this decision names by row-level security,
-as the last paragraph of this decision says. The rule cannot be waived: a `# sandloom: allow` comment
-on the line does not admit a listener, and the message says so. The owner chose this scope on
-2026-11-24 (option B, accident-only) over an allowlist of the forms a registration may take.
+`eval`, the internals of `dispatch`. This decision adds no runtime refusal for a cursor listener, and
+the connection a module opens itself (SANDLOOM-C037) never gets the guard; row-level security, where
+it is enabled (PostgreSQL only), is the boundary, as the last paragraph of this decision says. The
+rule cannot be waived: a `# sandloom: allow` comment on the line does not admit a listener, and the
+message says so. The owner chose this scope on 2026-11-24 (option B, accident-only) over an
+allowlist of the forms a registration may take.
 
 TODO(owner, 2026-11-24): revisit — option B (accident-only) chosen over an allowlist of forms; review whether to tighten (tm: archcheck-revisit-allowed-forms)
 
@@ -396,9 +397,10 @@ The rule is wider than the two kinds above, because the cursor-level events shar
   target (`event.listen(Session, "close", fn)`) stays allowed.
 - It reads the event name as a string wherever it stands, so an aliased `event` or `listen`,
   `from sqlalchemy.event import listen as l`, the event module reached through another sqlalchemy
-  module (`from sqlalchemy.orm.events import event`), a name imported from a sibling file of the
-  module that binds one (`from .helper import ev`), a name bound to the constant and a `getattr`
-  lookup are all seen. A dict key and the module's own `self.do_execute` are not a registration. It
+  module (`from sqlalchemy.orm.events import event`), a name or a file imported from another file of
+  the same tree, one hop (`from .helper import ev`, `from . import event`, `from . import helper`
+  then `helper.ev.listen`, `import pkg.helper as h`), a name bound to the constant and a `getattr`
+  lookup are all seen. A name handed on through two files is not. A dict key and the module's own `self.do_execute` are not a registration. It
   refuses a `listen` call whose event name it cannot read, and a use of the registrar
   without a call. A dynamic import of `sqlalchemy.event`, a star import and the module passed around
   are refused as well, because they hide the registrations. It refuses the listener lists
@@ -526,8 +528,9 @@ setting is already the bound tenant.
   name that holds it (unpacking, a container, a call result).
 - C015 and C037 resolve a name by lexical scope, not by control flow. A class body that reads a
   module alias before it assigns the same name is not reported for that read, and an alias that a
-  function re-assigns to an unrelated value is still reported. The runtime cursor guard is the
-  boundary; these rules are a static layer.
+  function re-assigns to an unrelated value is still reported. These rules are a static layer
+  that catches honest mistakes; the runtime cursor guard and, where enabled, row-level security
+  are the boundary.
 
 ## Measured cost of the guard
 

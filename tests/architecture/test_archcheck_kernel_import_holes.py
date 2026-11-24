@@ -337,7 +337,7 @@ def test_a_refusal_carries_its_line() -> None:
 # ``import sandloom.sdk`` binds ``sandloom``, and ``sandloom.core.x`` is then an
 # attribute away: no import statement, no ``sys.modules`` key. Only ``.sdk`` and
 # ``.shared`` are public. The rule catches the code a module author writes by
-# mistake; a deliberate bypass is the runtime's and the database's to stop.
+# mistake; a deliberate bypass is not caught statically.
 
 _CORE = "`sandloom.core` is the kernel"
 _GETATTR = "getattr reads an attribute of sandloom by a name"
@@ -779,6 +779,40 @@ def test_a_made_up_kernel_directory_does_not_make_an_application_the_framework(
     (tmp_path / "acme" / "modules" / "sandloom" / "__init__.py").write_text("")
     message = _refused(manifest, KERNEL_EXEMPT_PACKAGE_CODE)
     assert "`kernel_package: sandloom` and `framework_packages: [orders]`" in message
+
+
+def test_a_framework_shaped_tree_with_another_kernel_names_the_real_cause(
+    tmp_path: Path,
+) -> None:
+    """The framework's own checkout, checked with another checkout's
+    environment, has a ``sandloom`` under ``modules_path`` that is not the kernel
+    the process runs. The refusal says so and says what to run, instead of
+    telling the framework to delete its own manifest keys. A manifest that does
+    not have the framework tree's shape (no ``sandloom`` directory, or another
+    ``modules_package``) gets no such hint."""
+    shaped = (
+        'modules_path: acme/modules\nmodules_package: ""\nkernel_package: sandloom\n'
+    )
+    hint = "is not the kernel this process runs"
+    with_dir = tmp_path / "with-dir"
+    with_dir.mkdir()
+    message = _refused(
+        _manifest(with_dir, shaped, "acme/modules/sandloom"), KERNEL_EXEMPT_PACKAGE_CODE
+    )
+    assert hint in message and "uv run sandloom check" in message, message
+    without_dir = tmp_path / "without-dir"
+    without_dir.mkdir()
+    assert hint not in _refused(
+        _manifest(without_dir, shaped), KERNEL_EXEMPT_PACKAGE_CODE
+    )
+    packaged = tmp_path / "packaged"
+    packaged.mkdir()
+    assert hint not in _refused(
+        _manifest(
+            packaged, _APP + "kernel_package: sandloom\n", "acme/modules/sandloom"
+        ),
+        KERNEL_EXEMPT_PACKAGE_CODE,
+    )
 
 
 def test_the_real_framework_manifest_is_the_framework_tree() -> None:

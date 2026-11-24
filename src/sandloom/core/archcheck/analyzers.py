@@ -2828,10 +2828,6 @@ def _engine_import_findings(line: int, module: str, name: str | None) -> list[st
     return []
 
 
-def _is_attribute(expr: ast.expr, name: str) -> bool:
-    return isinstance(expr, ast.Attribute) and expr.attr == name
-
-
 def _is_connection_call(expr: ast.expr) -> bool:
     """``<x>.connection()`` / ``<x>.connect()``, awaited or not: a SQLAlchemy
     ``Connection``, whose ``.connection`` is the DBAPI connection."""
@@ -2844,8 +2840,63 @@ def _is_connection_call(expr: ast.expr) -> bool:
     )
 
 
+#: Calls of a DBAPI connection that open a cursor or run SQL on it, under none of
+#: the engine's checks.
+_RAW_CONNECTION_CALLS = frozenset({"cursor", "execute", "executemany", "executescript"})
+
+
+def _is_connection_attribute(expr: ast.expr) -> bool:
+    """``<x>.connection``, not a call: for a SQLAlchemy connection, its DBAPI
+    connection. ``self.connection`` / ``cls.connection`` is the module's own
+    object, which a SQLAlchemy connection it keeps is as well."""
+    return (
+        isinstance(expr, ast.Attribute)
+        and expr.attr == "connection"
+        and not (isinstance(expr.value, ast.Name) and expr.value.id in {"self", "cls"})
+    )
+
+
+def _raw_connection_names(tree: ast.AST) -> dict[int, frozenset[str]]:
+    """Per node, the names that hold ``<x>.connection`` in the node's own
+    function scope (``raw = conn.connection``, also through ``alias = raw``): their
+    ``.cursor()`` / ``.execute()`` is the DBAPI's, as that of the attribute itself.
+    A name is judged in the function that binds it, not in another that reuses it
+    for something else (:func:`_names_by_scope`)."""
+
+    def binds(node: ast.AST) -> list[str]:
+        return [
+            name
+            for name, value in _assignment_pairs(node)
+            if _is_connection_attribute(value)
+        ]
+
+    def rebinds(node: ast.AST) -> list[tuple[str, str]]:
+        return [
+            (name, value.id)
+            for name, value in _assignment_pairs(node)
+            if isinstance(value, ast.Name)
+        ]
+
+    return _names_by_scope(tree, binds, rebinds)
+
+
+def _is_dbapi_connection(expr: ast.expr, attr: str, raw: frozenset[str]) -> bool:
+    """``expr`` is the DBAPI connection a ``.<attr>`` call is made on: a name in
+    ``raw`` or ``<x>.connection``. A ``.cursor`` has no other owner than a DBAPI
+    connection, so ``self.connection.cursor()`` is reported too."""
+    if isinstance(expr, ast.Name):
+        return expr.id in raw
+    if attr == "cursor":
+        return isinstance(expr, ast.Attribute) and expr.attr == "connection"
+    return _is_connection_attribute(expr)
+
+
 def _engine_attribute_findings(
-    node: ast.Attribute, bound: frozenset[str], sa_imports: set[int], allowed: set[int]
+    node: ast.Attribute,
+    bound: frozenset[str],
+    sa_imports: set[int],
+    allowed: set[int],
+    raw: frozenset[str],
 ) -> list[str]:
     _root, names = _chain(node.value)
     from_sqlalchemy = _rooted_in_sqlalchemy(node.value, bound, sa_imports)
@@ -2861,10 +2912,12 @@ def _engine_attribute_findings(
         reason = "is the connection pool of an engine, which skips the engine's checks"
     elif node.attr == "__dict__" and from_sqlalchemy:
         reason = "reads sqlalchemy's engine factories by name"
-    elif node.attr == "cursor" and _is_attribute(node.value, "connection"):
+    elif node.attr in _RAW_CONNECTION_CALLS and _is_dbapi_connection(
+        node.value, node.attr, raw
+    ):
         reason = (
-            "opens a raw DBAPI cursor on a connection, which skips the engine's "
-            "cursor tenant check"
+            "opens a raw DBAPI cursor or runs SQL on the DBAPI connection of a "
+            "connection, which skips the engine's cursor tenant check"
         )
     elif node.attr == "connection" and _is_connection_call(node.value):
         reason = "is the DBAPI connection of a connection, under no engine check"
@@ -2886,17 +2939,18 @@ def find_engine_constructors(file_path: Path) -> list[str]:
     import of ``sqlalchemy.engine`` besides its result and URL types, any import
     of ``sqlalchemy.pool``, a star import from ``sqlalchemy``, a DBAPI driver
     (also as a constant-string ``import_module``), ``.raw_connection()`` and its
-    kin, ``conn.connection.cursor()`` and ``session.connection().connection``
-    (a raw DBAPI cursor or connection with no listener), an engine's ``.pool``,
-    and ``getattr`` / ``__dict__`` on ``sqlalchemy``. It does not promise to stop
-    a deliberate bypass: the runtime cursor guard and row-level security do
-    (ADR-0018 decision 8).
+    kin, the DBAPI connection of a connection (``session.connection().connection``,
+    ``conn.connection.cursor()`` / ``.execute()``, also through a name bound to
+    ``conn.connection`` in the same function), an engine's ``.pool``, and
+    ``getattr`` / ``__dict__`` on ``sqlalchemy``. It does not promise to stop
+    a deliberate bypass (ADR-0018 decision 8).
     A ``.create_engine()`` of an object that is not from ``sqlalchemy`` is no
     finding.
     """
     tree = parse_file(file_path)
     sa_imports = _sqlalchemy_dynamic_imports(tree)
     scoped = _sqlalchemy_bound_names(tree, sa_imports)
+    raw_names = _raw_connection_names(tree)
     found: list[str] = []
     allowed: set[int] = set()  # ``sa.engine`` nodes that only lead to a value type
     for node in ast.walk(tree):
@@ -2914,7 +2968,10 @@ def find_engine_constructors(file_path: Path) -> list[str]:
                 node.value, ast.Attribute
             ):
                 allowed.add(id(node.value))
-            found.extend(_engine_attribute_findings(node, bound, sa_imports, allowed))
+            raw = raw_names.get(id(node), frozenset())
+            found.extend(
+                _engine_attribute_findings(node, bound, sa_imports, allowed, raw)
+            )
         elif (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -3012,68 +3069,135 @@ def _assignment_pairs(node: ast.AST) -> Iterator[tuple[str, ast.expr]]:
 
 
 def _sqlalchemy_paths(expr: ast.AST, bound: dict[str, set[str]]) -> set[str]:
-    """The dotted ``sqlalchemy`` paths ``expr`` may name (``bound`` is per name)."""
+    """The dotted ``sqlalchemy`` paths ``expr`` may name. ``bound`` is per name,
+    or per dotted name for an attribute of an imported sibling module
+    (``helper.ev``), so every leading part of the chain is looked up."""
     root, attrs = _root_name_and_attrs(expr)
     if root is None:
         return set()
-    return {".".join([path, *attrs]) for path in bound.get(root, ())}
+    return {
+        ".".join([path, *attrs[cut:]])
+        for cut in range(len(attrs) + 1)
+        for path in bound.get(".".join([root, *attrs[:cut]]), ())
+    }
 
 
-def _imported_file(file_path: Path, node: ast.ImportFrom) -> Path | None:
-    """The file ``from <module> import ...`` names, when it is a file of the
-    importing file's own tree: a relative import (``from .helper import ev``)
-    from the file's directory up, an absolute one from the directory above the
-    first ancestor that holds its top package. ``None`` for ``sqlalchemy``, a
-    library, or ``from . import name`` (a name that may be a module or not)."""
-    if not node.module or (node.module + ".").startswith("sqlalchemy."):
-        return None
-    parts = node.module.split(".")
+def _import_roots(file_path: Path, level: int, top: str | None) -> list[Path]:
+    """The directories an import is looked up in, within the importing file's own
+    tree: a relative one (``level`` dots) is the file's directory ``level - 1``
+    parents up, an absolute one every ancestor directory that holds its top
+    package or module ``top``. Empty for ``sqlalchemy`` and a library."""
     here = file_path.resolve().parent
-    if node.level:
-        ups = node.level - 1
+    if level:
+        ups = level - 1
         if ups > len(here.parents):
-            return None  # beyond the top of the file system: not importable
-        roots = [here, *here.parents][ups : ups + 1]
-    else:
-        roots = [
-            a
-            for a in (here, *here.parents)
-            if (a / parts[0]).exists() or (a / f"{parts[0]}.py").exists()
-        ]
+            return []  # beyond the top of the file system: not importable
+        return [here, *here.parents][ups : ups + 1]
+    if top is None or top == "sqlalchemy":
+        return []
+    return [
+        a
+        for a in (here, *here.parents)
+        if (a / top).exists() or (a / f"{top}.py").exists()
+    ]
+
+
+def _module_file(file_path: Path, roots: list[Path], parts: list[str]) -> Path | None:
+    """The file of the module ``parts`` names under one of ``roots`` (an empty
+    ``parts`` is the package of a relative import: its ``__init__.py``); never the
+    importing file itself."""
     for root in roots:
         target = root.joinpath(*parts)
-        for candidate in (target.with_name(f"{parts[-1]}.py"), target / "__init__.py"):
+        candidates = [target / "__init__.py"]
+        if parts:
+            candidates.insert(0, target.with_name(f"{parts[-1]}.py"))
+        for candidate in candidates:
             if candidate.is_file() and candidate != file_path.resolve():
                 return candidate
     return None
 
 
+@functools.lru_cache(maxsize=4096)
+def _bindings_cached(
+    path: str, _mtime_ns: int, _size: int
+) -> dict[str, frozenset[str]]:
+    return {
+        name: frozenset(paths)
+        for name, paths in _event_bindings(parse_file(Path(path))).items()
+    }
+
+
+def _bindings_of_module(
+    file_path: Path, roots: list[Path], parts: list[str]
+) -> dict[str, frozenset[str]]:
+    """The ``sqlalchemy`` paths the names of the module ``parts`` names are bound
+    to in that module (read-only, computed once per file and revision); empty when
+    it is not a file of the tree. A file that cannot be read is skipped here and
+    reported when it is scanned itself."""
+    path = _module_file(file_path, roots, parts)
+    if path is None:
+        return {}
+    try:
+        stat = path.stat()
+        return _bindings_cached(str(path), stat.st_mtime_ns, stat.st_size)
+    except (OSError, SyntaxError, ValueError):
+        return {}
+
+
+def _import_bindings(
+    file_path: Path, node: ast.Import
+) -> Iterator[tuple[str, frozenset[str]]]:
+    """``import pkg.helper as h`` / ``import pkg.helper``: the attributes of the
+    imported file, under the dotted name the importing file reaches them by."""
+    for alias in node.names:
+        parts = alias.name.split(".")
+        roots = _import_roots(file_path, 0, parts[0])
+        for name, paths in _bindings_of_module(file_path, roots, parts).items():
+            yield f"{alias.asname or alias.name}.{name}", paths
+
+
+def _import_from_bindings(
+    file_path: Path, node: ast.ImportFrom
+) -> Iterator[tuple[str, frozenset[str]]]:
+    """``from <module> import ...``: the names the module binds (by name, renamed
+    or with a star) and, where an imported name is itself a file of the tree
+    (``from . import helper``), that file's attributes as dotted names."""
+    base = node.module.split(".") if node.module else []
+    roots = _import_roots(file_path, node.level, base[0] if base else None)
+    theirs = _bindings_of_module(file_path, roots, base)
+    for alias in node.names:
+        if alias.name == "*":
+            for name, paths in theirs.items():
+                if not name.startswith("_"):
+                    yield name, paths
+            continue
+        local = alias.asname or alias.name
+        if alias.name in theirs:
+            yield local, theirs[alias.name]
+        submodule = _bindings_of_module(file_path, roots, [*base, alias.name])
+        for name, paths in submodule.items():
+            yield f"{local}.{name}", paths
+
+
 def _sibling_event_bindings(tree: ast.AST, file_path: Path) -> dict[str, set[str]]:
-    """The ``sqlalchemy`` paths the names a file imports from a sibling file of
-    its own tree stand for (``from .helper import ev``, where ``helper.py`` has
-    ``from sqlalchemy import event as ev``): one hop, the sibling's own
-    bindings. A sibling that cannot be read is reported when it is scanned
-    itself."""
+    """The ``sqlalchemy`` paths that names stand for through the files of the
+    importing file's own tree, one hop (the other file's own bindings):
+
+    - a name imported from a file (``from .helper import ev``, ``from . import
+      event`` where the package's ``__init__.py`` binds it), by name, renamed or
+      with a star;
+    - an attribute of an imported file, as a dotted name
+      (``from . import helper`` or ``import pkg.helper as h``, then
+      ``helper.ev.listen`` / ``h.ev.listen``)."""
     bound: dict[str, set[str]] = {}
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        sibling = _imported_file(file_path, node)
-        if sibling is None:
-            continue
-        try:
-            theirs = _event_bindings(parse_file(sibling))
-        except (OSError, SyntaxError, ValueError):
-            continue
-        for alias in node.names:
-            if alias.name == "*":
-                names = {n: p for n, p in theirs.items() if not n.startswith("_")}
-                for name, paths in names.items():
-                    bound.setdefault(name, set()).update(paths)
-            elif alias.name in theirs:
-                bound.setdefault(alias.asname or alias.name, set()).update(
-                    theirs[alias.name]
-                )
+        pairs: Iterator[tuple[str, frozenset[str]]] = iter(())
+        if isinstance(node, ast.Import):
+            pairs = _import_bindings(file_path, node)
+        elif isinstance(node, ast.ImportFrom):
+            pairs = _import_from_bindings(file_path, node)
+        for name, paths in pairs:
+            bound.setdefault(name, set()).update(paths)
     return bound
 
 
@@ -3081,8 +3205,9 @@ def _event_bindings(
     tree: ast.AST, file_path: Path | None = None
 ) -> dict[str, set[str]]:
     """Local name -> every ``sqlalchemy`` path it may be bound to: the imports of
-    :func:`_sqlalchemy_bindings`, the names imported from a sibling file that
-    binds one (``file_path`` given: :func:`_sibling_event_bindings`), plus plain
+    :func:`_sqlalchemy_bindings`, the names and files imported from a file of the
+    same tree that binds one (``file_path`` given:
+    :func:`_sibling_event_bindings`), plus plain
     re-binding followed to a fixed point
     (``ev = event``, ``sa2 = sa``, ``ev, other = event, 1``), in whatever order
     the assignments are written. Names resolve file-wide, not by scope: a name
@@ -3286,9 +3411,7 @@ def _event_usage(
     return receivers, aliased, dict_keys, callees
 
 
-# TODO(owner, 2026-11-24): revisit — option B (accident-only) chosen over an
-# allowlist of forms; review whether to tighten
-# (tm: archcheck-revisit-allowed-forms)
+# TODO(owner, 2026-11-24): revisit — option B (accident-only) chosen over an allowlist of forms; review whether to tighten (tm: archcheck-revisit-allowed-forms)  # noqa: E501
 def find_cursor_listeners(file_path: Path) -> list[str]:
     """A business module registering a listener at the cursor (SANDLOOM-C039).
 
@@ -3299,19 +3422,20 @@ def find_cursor_listeners(file_path: Path) -> list[str]:
     hand the raw DBAPI cursor to the listener as well.
 
     The rule catches the mistakes of ordinary code, the ones a module author or an
-    AI agent writes in good faith. It does not promise to stop a deliberate bypass
-    (a registrar reached through a container, a computed event name, a dispatch
-    internal): that is the job of the runtime cursor guard and of row-level
-    security (ADR-0018 decision 8). No waiver comment admits a hit
+    AI agent writes in good faith. A deliberate bypass (a registrar reached
+    through a container, a computed event name, a dispatch internal) is not
+    caught statically; row-level security, where enabled, is the boundary
+    (ADR-0018 decision 8). No waiver comment admits a hit
     (``runner.NON_WAIVABLE_RULES``). It reports:
 
     - any string that is, whole, a cursor-level event name (``_CURSOR_EVENTS``):
       ``event.listen`` / ``@event.listens_for`` on an engine, a connection, the
       ``Engine`` class or a dialect, ``retval`` or not, under any alias of
       ``event`` or ``listen`` (``from sqlalchemy.event import listen as l``,
-      ``from sqlalchemy.orm.events import event``, a name imported from a sibling
-      file that binds one), through ``getattr``, or a name bound to the constant;
-      a dict key is not a registration;
+      ``from sqlalchemy.orm.events import event``, a name or a file imported from
+      another file of the same tree that binds one, one hop:
+      :func:`_sibling_event_bindings`), through ``getattr``, or a name bound to
+      the constant; a dict key is not a registration;
     - ``listen`` / ``listens_for`` used other than as a direct call, called
       with an event name that is not a string literal, or called with an event
       that hands out the DBAPI connection or cursor (``_CONNECTION_EVENTS``)

@@ -329,14 +329,16 @@ guarantees:
 - id: G-TENANT-24
   statement: sandloom check rule engine-in-module reports a business module that reaches a database around
     the framework's engine in the ways ordinary code does it (the rule catches the mistakes of a module
-    author or an AI agent who writes in good faith; a deliberate bypass is stopped at runtime, by the
-    cursor guard and row-level security, not promised here) - an engine or pool factory or class (under
+    author or an AI agent who writes in good faith; a deliberate bypass is not caught statically, the
+    connection a module opens itself never gets the cursor guard, and row-level security, where
+    enabled, is the boundary) - an engine or pool factory or class (under
     any alias, as an attribute, through getattr or a vars / __dict__ lookup, also on a name bound to a
     constant import_module or __import__ of sqlalchemy, or assigned from such a name, however long
     the chain), a star import from sqlalchemy,
     sqlalchemy.pool, sqlalchemy.engine beyond its result and URL types, a DBAPI driver (also through a
-    constant import_module), raw_connection and its kin, the DBAPI cursor under a connection
-    (.connection.cursor()), and an engine's .pool - because such a connection
+    constant import_module), raw_connection and its kin, the DBAPI connection and cursor under a
+    connection (.connection.cursor(), .connection.execute(), session.connection().connection, and a
+    name bound to <x>.connection in the same function), and an engine's .pool - because such a connection
     skips write admission, the cursor tenant check and the tenant_rls session setup that every framework-built
     engine gets; a create_engine method of an object that is not sqlalchemy is not reported.
   sources:
@@ -661,10 +663,9 @@ guarantees:
 - id: G-TENANT-29
   statement: sandloom check rule cursor-listener (SANDLOOM-C039) reports a business module that registers
     a listener at the cursor in the ways ordinary code writes it. The rule catches the mistakes of a
-    module author or an AI agent who writes in good faith; it does not promise to stop a deliberate
-    bypass, which is the job of the runtime cursor guard (G-TENANT-25) and of row-level security
-    (ADR-0018 decision 8; owner decision 2026-11-24, option B, revisit in tm
-    archcheck-revisit-allowed-forms). It reports an event named by a string that is a
+    module author or an AI agent who writes in good faith. A deliberate bypass is not caught
+    statically; row-level security, where enabled, is the boundary (ADR-0018 decision 8; owner
+    decision 2026-11-24, option B, revisit in tm archcheck-revisit-allowed-forms). It reports an event named by a string that is a
     cursor event (before_cursor_execute, after_cursor_execute, do_execute, do_executemany,
     do_execute_no_params, do_setinputsizes) or a pool, connect or error event whose listener is handed the
     raw DBAPI connection, cursor or result (do_connect, connect, first_connect, checkout, checkin, close,
@@ -672,8 +673,10 @@ guarantees:
     engine_connect; an ORM session as the target, `event.listen(Session, "close", fn)`, stays allowed),
     wherever the string stands (event.listen, @event.listens_for, an aliased event, listen or
     listens_for, from sqlalchemy.event import listen as l, the event module reached through another
-    sqlalchemy module such as from sqlalchemy.orm.events import event, a name imported from a sibling
-    file of the module that binds one, a name bound to the constant, a getattr lookup), with retval or
+    sqlalchemy module such as from sqlalchemy.orm.events import event, a name or a file imported from
+    another file of the same tree, one hop - from .helper import ev, from . import event bound in the
+    package's __init__.py, from . import helper then helper.ev.listen, import pkg.helper as h then
+    h.ev.listen; a name handed on through two files is not followed - a name bound to the constant, a getattr lookup), with retval or
     without, on an engine, a connection, the Engine class or a dialect - because such a listener runs
     around the cursor tenant check and can rewrite the statement the check read or make SQLAlchemy skip
     it (ADR-0018 decision 8); a listen call whose event name the check cannot read, a use of the
@@ -700,6 +703,8 @@ guarantees:
   - tests/architecture/test_cursor_listener_rule.py::test_the_other_rules_stay_waivable_and_only_this_one_is_not
   - tests/architecture/test_cursor_listener_rule.py::test_an_event_alias_imported_from_a_sibling_file_is_followed
   - tests/architecture/test_cursor_listener_rule.py::test_a_name_imported_from_a_sibling_file_that_is_not_the_event_module_is_left_alone
+  - tests/architecture/test_cursor_listener_rule.py::test_a_registrar_reached_through_an_imported_file_is_followed
+  - tests/architecture/test_cursor_listener_rule.py::test_an_attribute_of_an_imported_file_that_is_not_the_event_module_is_left_alone
   - tests/architecture/test_cursor_listener_rule.py::test_a_failure_that_is_not_an_unreadable_sibling_is_not_swallowed
   - tests/architecture/test_cursor_listener_rule.py::test_sandloom_check_follows_the_alias_of_a_sibling_file
   - tests/architecture/test_cursor_listener_rule.py::test_the_rule_is_in_the_default_run_and_the_catalogue

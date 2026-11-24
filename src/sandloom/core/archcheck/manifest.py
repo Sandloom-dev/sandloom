@@ -326,12 +326,35 @@ def _is_framework_tree(
     )
 
 
+def _kernel_elsewhere_hint(
+    modules_path: Path, modules_package: str, kernel: str | None
+) -> str:
+    """The cause to name when a manifest has the shape of the framework's own tree
+    (top-level modules, ``kernel_package: sandloom``, a ``sandloom`` directory
+    under ``modules_path``) and is refused anyway: that ``sandloom`` is not the
+    kernel this process runs, as when another checkout's environment checks it.
+    Empty for a manifest that does not look like it."""
+    if (
+        modules_package
+        or kernel != "sandloom"
+        or not (modules_path / "sandloom").is_dir()
+    ):
+        return ""
+    return (
+        "; the `sandloom` package under `modules_path` is not the kernel this "
+        f"process runs ({_kernel_dir()}): in the framework's own checkout, run the "
+        "check with that checkout's environment (`uv run sandloom check`), not "
+        "another checkout's"
+    )
+
+
 def _refuse_kernel_exemptions(
     path: Path,
     *,
     framework_tree: bool,
     kernel: str | None,
     framework: set[str],
+    elsewhere: str = "",
 ) -> None:
     """``kernel_package`` and ``framework_packages`` take every package they name
     out of the import check and out of the business modules, so only the
@@ -360,7 +383,7 @@ def _refuse_kernel_exemptions(
             "as `sandloom` under `modules_path`)",
             where=str(path),
             fix="delete `kernel_package` and `framework_packages` from the "
-            "manifest of an application; see docs/operate/upgrade.md",
+            f"manifest of an application{elsewhere}; see docs/operate/upgrade.md",
         )
     )
 
@@ -516,7 +539,11 @@ def load_rules(path: Path) -> ArchRules:  # noqa: C901
     framework_packages = set(_str_list(data, "framework_packages"))
     framework_tree = _is_framework_tree(modules_path, str(modules_package), kernel)
     _refuse_kernel_exemptions(
-        path, framework_tree=framework_tree, kernel=kernel, framework=framework_packages
+        path,
+        framework_tree=framework_tree,
+        kernel=kernel,
+        framework=framework_packages,
+        elsewhere=_kernel_elsewhere_hint(modules_path, str(modules_package), kernel),
     )
     test_api = set(_str_list(data, "test_api"))
     _refuse_kernel_in_api_lists(path, shared_api, test_api)
