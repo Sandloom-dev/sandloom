@@ -1854,7 +1854,8 @@ def background_modules(root: Path) -> list[str]:
             and edge.get("kind") == "requires_capability"
             and edge.get("capability") == "taskqueue"
             and edge.get("required") is True
-            and "periodic" in (edge.get("features") or ())
+            and isinstance(edge.get("features"), list)
+            and "periodic" in edge["features"]
             and isinstance(edge.get("owner"), str)
         }
     )

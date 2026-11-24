@@ -1737,7 +1737,27 @@ def test_dev_run_says_nothing_about_a_worker_without_a_required_periodic_need(
     assert "sandloom worker" not in out and "sandloom beat" not in out
 
 
-@pytest.mark.parametrize("index", [None, "not an inspection index\n", '{"edges": 3}'])
+@pytest.mark.parametrize(
+    "index",
+    [
+        None,
+        "not an inspection index\n",
+        '{"edges": 3}',
+        encode_index(
+            {
+                "edges": [
+                    {
+                        "kind": "requires_capability",
+                        "owner": "module:billing",
+                        "capability": "taskqueue",
+                        "required": True,
+                        "features": 3,
+                    }
+                ]
+            }
+        ),
+    ],
+)
 def test_dev_run_without_a_readable_composition_record_serves_without_the_line(
     index: str | None,
     repo: Path,
