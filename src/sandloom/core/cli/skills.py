@@ -24,7 +24,7 @@ import shutil
 import sys
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TextIO
 
 import sandloom.core.cli.checkbox as _checkbox
@@ -47,6 +47,11 @@ _TEMPLATES = Path(__file__).resolve().parent / "templates" / "skills"
 #: The application's choice of agents and the hash of each file written for
 #: them, relative to the project root (committed: the team shares it).
 RECORD = ".sandloom/agent-files.json"
+#: What ``sandloom test`` prints once when :func:`outdated_files` is not empty.
+OUTDATED_NOTICE = (
+    "agent files are from an older sandloom: run `sandloom add skills` "
+    "(`--force` replaces a file you edited)"
+)
 #: A pointer file for an agent that reads its own instruction file name.
 _POINTER = "@AGENTS.md\n"
 
@@ -221,6 +226,33 @@ def save_record(root: Path, agents: Sequence[str], hashes: dict[str, str]) -> Pa
     return path
 
 
+def outdated_files(root: Path, app: str) -> list[str]:
+    """The agent files whose content this sandloom would write differently from
+    what :data:`RECORD` holds: the record's hash of each skill (and of the
+    module-author contract, where the record has one) against the installed
+    templates'. A skill the record lacks is outdated too (an older sandloom had
+    fewer). Empty without a record: nothing says which agents the app chose.
+
+    The agent pointer files (``CLAUDE.md``, ``<modules>/CLAUDE.md``) are left
+    out: their content is the constant :data:`_POINTER`, never a template that
+    changes, and ``add skills`` keeps one the user wrote without recording it, so
+    counting it would report it on every run.
+
+    Reads the record and the packaged templates only; no network, no write."""
+    agents, recorded = load_record(root)
+    if agents is None:
+        return []
+    expected = skill_files(app, agents)
+    for rel in recorded:
+        if PurePosixPath(rel).name == "AGENTS.md":
+            expected.update(contract_files(str(PurePosixPath(rel).parent), agents))
+    return sorted(
+        rel
+        for rel, content in expected.items()
+        if content != _POINTER and recorded.get(rel) != _digest(content)
+    )
+
+
 def write_managed(
     root: Path, files: dict[str, str], agents: Sequence[str], *, force: bool = False
 ) -> tuple[list[Path], list[Path]]:
@@ -366,6 +398,7 @@ __all__ = [
     "APP_SKILLS",
     "CODING_AGENTS",
     "DEFAULT_AGENTS",
+    "OUTDATED_NOTICE",
     "RECORD",
     "SHARED_AGENTS",
     "CodingAgent",
@@ -375,6 +408,7 @@ __all__ = [
     "contract_files",
     "detect_agents",
     "load_record",
+    "outdated_files",
     "parse_agents",
     "pick_agents",
     "save_record",

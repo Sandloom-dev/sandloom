@@ -1810,7 +1810,10 @@ def fill_dx_metrics(result: Result, out_dir: Path) -> None:
     if not transcript.is_file():
         return
     metrics = tiermetrics.run_metrics(
-        transcript, out_dir / "changes.patch", tiermetrics.beginner_tier()
+        transcript,
+        out_dir / "changes.patch",
+        tiermetrics.beginner_tier(),
+        tiermetrics.after_first_tier(),
     )
     for key in tiermetrics.METRIC_KEYS:
         setattr(result, key, metrics[key])
@@ -2208,6 +2211,7 @@ def cmd_recompute(args: argparse.Namespace) -> None:
                     run_dir / "transcript.jsonl",
                     run_dir / "changes.patch",
                     tiermetrics.beginner_tier(),
+                    tiermetrics.after_first_tier(),
                 )
             )
         path.write_text(json.dumps(row, indent=2) + "\n")

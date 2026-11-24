@@ -85,6 +85,18 @@
     },
     "docs/reference/testing.md": {
       "D4": 10
+    },
+    "src/sandloom/core/cli/templates/skills/sandloom-background-tasks/SKILL.md": {
+      "D4": 1
+    },
+    "src/sandloom/core/cli/templates/skills/sandloom-cross-module/SKILL.md": {
+      "D4": 1
+    },
+    "src/sandloom/core/cli/templates/skills/sandloom-event-version-roll/SKILL.md": {
+      "D4": 1
+    },
+    "src/sandloom/core/cli/templates/skills/sandloom-new-module/SKILL.md": {
+      "D4": 1
     }
   }
 }

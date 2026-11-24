@@ -22,7 +22,10 @@ Rules:
 
 Scanned: the pages of ``docs_prose_lint.py`` (tracked ``docs/**/*.md`` except
 ``docs/adr/**``, ``docs/design/**``, ``docs/archive/**`` and generated pages:
-their code is fixed in the docstrings and generators they come from). The SDK
+their code is fixed in the docstrings and generators they come from), and the
+Markdown that ``sandloom new`` ships to an application
+(``src/sandloom/core/cli/templates/**/*.md``: the skills and the module-author
+contract; ``api-cheatsheet.md`` is a signature sheet and is skipped). The SDK
 reference (``docs/reference/sdk/**``) is checked as ``docs_reference.py``
 renders it: its signature blocks (under a ``###`` / ``####`` name heading) are
 fragments by construction, and every other Python block, a docstring example,
@@ -88,6 +91,17 @@ GENERATED_PREFIXES = (
     "docs/reference/guarantees.md",  # tools/checks/guarantees.py render
 )
 _GENERATED_HEADER = re.compile(r"^\s*<!--\s*generated\b", re.IGNORECASE)
+
+# The agent files `sandloom new` ships (skills, the module-author contract) are
+# pages too: an agent copies their code, so they pass D1-D4 like docs/**.
+TEMPLATES = "src/sandloom/core/cli/templates/"
+# Roots whose Markdown is scanned (the docs-prose-lint pages, then the templates).
+SCAN_ROOTS = ("docs", TEMPLATES.rstrip("/"))
+# A page that is one signature sheet, not code to run: its single fence lists
+# `name(args) -> type` lines, which are fragments by construction (like the
+# signature blocks of docs/reference/sdk/). Its names are held by
+# tests/architecture/test_agent_context_budget.py and the public API gates.
+SIGNATURE_SHEETS = (TEMPLATES + "api-cheatsheet.md",)
 
 _FENCE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 _WAIVER = re.compile(
@@ -391,7 +405,10 @@ def _check_python(
 def check_text(
     rel: str, text: str, root: Path = ROOT, resolve: Resolver = resolve_import
 ) -> list[Hit]:
-    """Every hit in one page, waived ones removed."""
+    """Every hit in one page, waived ones removed. A shipped template names the
+    application ``<app>`` (``sandloom new`` fills it in): read as ``app``."""
+    if rel.startswith(TEMPLATES):
+        text = text.replace("<app>", "app")
     hits: list[Hit] = []
     for block in blocks(text):
         _check_block(rel, block, root, resolve, hits)
@@ -436,9 +453,9 @@ def sdk_reference_hits(resolve: Resolver) -> list[Hit]:
 
 def in_scope(rel: str, text: str | None = None) -> bool:
     """Whether a repository-relative POSIX path is a page this check covers."""
-    if not rel.startswith("docs/") or not rel.endswith(".md"):
+    if not rel.startswith(("docs/", TEMPLATES)) or not rel.endswith(".md"):
         return False
-    if rel.startswith(EXEMPT_PREFIXES + GENERATED_PREFIXES):
+    if rel.startswith(EXEMPT_PREFIXES + GENERATED_PREFIXES) or rel in SIGNATURE_SHEETS:
         return False
     if text is None:
         return True
@@ -448,10 +465,11 @@ def in_scope(rel: str, text: str | None = None) -> bool:
 
 
 def tracked_files(root: Path) -> list[str]:
-    """The tracked files under docs/, or every docs/**/*.md outside git."""
+    """The tracked files under ``SCAN_ROOTS``, or the Markdown there outside git."""
+    command = ["git", "ls-files", "-z", *SCAN_ROOTS]
     try:
-        out = subprocess.run(
-            ["git", "ls-files", "-z", "docs"],  # noqa: S607 - git from PATH, as CI has it
+        out = subprocess.run(  # noqa: S603 - fixed arguments: git from PATH, as CI has it
+            command,
             cwd=root,
             check=True,
             capture_output=True,
@@ -461,7 +479,8 @@ def tracked_files(root: Path) -> list[str]:
     except (OSError, subprocess.CalledProcessError):
         return [
             p.relative_to(root).as_posix()
-            for p in sorted((root / "docs").rglob("*.md"))
+            for top in SCAN_ROOTS
+            for p in sorted((root / top).rglob("*.md"))
         ]
 
 
@@ -683,6 +702,11 @@ def _self_test_scope() -> int:
             False
         ),
         ("README.md", ""): False,
+        (f"{TEMPLATES}skills/sandloom-x/SKILL.md", "# X\n"): True,
+        (f"{TEMPLATES}module-AGENTS.md", "# X\n"): True,
+        (f"{TEMPLATES}api-cheatsheet.md", "# X\n"): False,
+        (f"{TEMPLATES}deploy/nginx.conf", ""): False,
+        ("src/sandloom/core/other/README.md", ""): False,
     }
     for (rel, text), expected_in in scope.items():
         if in_scope(rel, text) != expected_in:
@@ -696,7 +720,34 @@ def _self_test_scope() -> int:
     ]:
         print(f"self-test FAIL: render {hits}")
         failed += 1
-    return failed
+    return failed + _self_test_templates()
+
+
+def _self_test_templates() -> int:
+    """Failures of the scan of a shipped template: a skill's broken code is a
+    hit, the signature sheet's fragments are not."""
+    broken = "# T\n\n```python\nx = (\n```\n"
+    skill = f"{TEMPLATES}skills/sandloom-x/SKILL.md"
+    placeholder = "```python\nfrom <app>.shared import y\n```\n"
+    for rel, expected in ((skill, []), ("docs/x.md", ["D1"])):
+        got = [h.rule for h in check_text(rel, placeholder, ROOT, _fake_resolve)]
+        if got != expected:
+            print(f"self-test FAIL: <app> in {rel}: got {got}, expected {expected}")
+            return 1
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for rel in (skill, *SIGNATURE_SHEETS):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(broken, encoding="utf-8")
+        got = [h.path for h in scan(root, [skill, *SIGNATURE_SHEETS], _fake_resolve)]
+        if got != [skill]:
+            print(f"self-test FAIL: template scan: got {got}, expected {[skill]}")
+            return 1
+        listed = tracked_files(root)  # outside git: the Markdown of SCAN_ROOTS
+        if skill not in listed:
+            print(f"self-test FAIL: templates not listed: {listed}")
+            return 1
+    return 0
 
 
 def _self_test_baseline() -> int:

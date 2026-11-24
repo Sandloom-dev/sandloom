@@ -487,7 +487,11 @@ def load_rules(path: Path) -> ArchRules:  # noqa: C901
     path = path.resolve()
     if not path.is_file():
         raise ManifestError(f"manifest not found: {path}")
-    raw = _yaml().safe_load(path.read_text(encoding="utf-8"))
+    yaml = _yaml()
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ManifestError(f"{path}: not valid YAML: {exc}") from exc
     if raw is not None and not isinstance(raw, dict):
         raise ManifestError(f"{path}: top level must be a mapping")
     data = cast("dict[str, Any]", raw or {})

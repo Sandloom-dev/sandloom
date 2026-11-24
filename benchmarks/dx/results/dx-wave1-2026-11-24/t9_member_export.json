@@ -84,9 +84,7 @@
   "sdk_names": [
     "sandloom.sdk.authz.Account"
   ],
-  "tier_misses": [
-    "sandloom.sdk.authz.Account"
-  ],
+  "tier_misses": [],
   "test_sdk_names": [],
   "test_tier_misses": []
 }

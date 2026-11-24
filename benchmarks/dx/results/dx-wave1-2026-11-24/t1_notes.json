@@ -141,8 +141,6 @@
     "sandloom.sdk.require"
   ],
   "tier_misses": [
-    "sandloom.sdk.authz.Account",
-    "sandloom.sdk.data.UpdatedAt",
     "sandloom.sdk.data.disable_tenant_rls",
     "sandloom.sdk.data.enable_tenant_rls"
   ],
