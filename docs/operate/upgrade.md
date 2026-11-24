@@ -300,8 +300,8 @@ Nothing changes at runtime. The startup check, the idempotency key and the comma
 the ones they were.
 
 The `args` parameter of `step` is now typed `Callable[[SagaContext[Any]], Mapping[str, Any]]`.
-A function that takes another context type, or returns a value that is not a mapping, is now
-a type error.
+A function whose parameter is not a `SagaContext` is now a type error, and any `Mapping`
+(not only a `dict`) is accepted as its result.
 
 Two command methods whose names differ only in capitals and separators (`a_b` and `aB`) give
 one class name. The generator refuses them with SANDLOOM-C012. Rename one of the methods.

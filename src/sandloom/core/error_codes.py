@@ -401,6 +401,10 @@ contract (use the other module's generated copy from your own generated
 package); in an application, a provider DTO missing from its shared package
 (`sandloom check`, contract-dtos); a hand-edited or stale copy (`sandloom
 test`: run `sandloom generate`).
+
+Also refused by `sandloom generate`: two command methods of one contract whose
+names map to the same `...Args` TypedDict class name (`a_b` and `aB`), or to
+the name of the Protocol or of a DTO copy. Rename one of the methods.
 """,
     ),
     _entry(

@@ -369,6 +369,10 @@ package); in an application, a provider DTO missing from its shared package
 (`sandloom check`, contract-dtos); a hand-edited or stale copy (`sandloom
 test`: run `sandloom generate`).
 
+Also refused by `sandloom generate`: two command methods of one contract whose
+names map to the same `...Args` TypedDict class name (`a_b` and `aB`), or to
+the name of the Protocol or of a DTO copy. Rename one of the methods.
+
 **Fix:** declare the DTO at module level in the provider's own package (its schemas module) inside the closed set of wire shapes, then run `sandloom generate`
 
 ### SANDLOOM-C013
