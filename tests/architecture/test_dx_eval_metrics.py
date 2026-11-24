@@ -293,6 +293,76 @@ def test_the_patch_appmode_writes_gives_the_same_metrics(
     assert got["test_sdk_names"] == ["sandloom.sdk.OnlyInTests"]
 
 
+PYPI_FORK = """
+[[package]]
+name = "sandloom"
+version = "0.7.0a16"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '4'",
+    "python_version < '0'",
+]
+"""
+
+
+def _wheels_dist(appmode: ModuleType, tmp_path: Path) -> Any:
+    wheels = tmp_path / "dist" / "wheels"
+    wheels.mkdir(parents=True)
+    (wheels / "sandloom-0.7.0a16+gabc123-py3-none-any.whl").write_bytes(b"")
+    return appmode.Dist(
+        sha="abc123", root=tmp_path / "dist", wheels=wheels, bin=wheels, packages=[]
+    )
+
+
+def _wheels_fork(registry: str, version: str = "0.7.0a16+gabc123") -> str:
+    return (
+        f'\n[[package]]\nname = "sandloom"\nversion = "{version}"\n'
+        f'source = {{ registry = "{registry}" }}\n'
+        "resolution-markers = [\"python_full_version < '4'\"]\n"
+    )
+
+
+def test_the_lock_check_reads_the_wheels_fork_after_a_pypi_fork(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """uv writes a PyPI ``sandloom`` entry (markers no Python meets) before the
+    find-links one: the check took the first and said the framework did not come
+    from the wheels."""
+    monkeypatch.syspath_prepend(str(DX))
+    appmode = importlib.import_module("appmode")
+    dist = _wheels_dist(appmode, tmp_path)
+    app = tmp_path / "app"
+    app.mkdir()
+    relative = (
+        "../dist/wheels"  # uv.lock records the find-links dir relative to the app
+    )
+    for registry in (relative, str(dist.wheels)):
+        lock = PYPI_FORK + _wheels_fork(registry)
+        assert appmode.lock_resolves_from_wheels(lock, app, dist) is True
+        assert appmode.lock_resolves_from_wheels(_wheels_fork(registry), app, dist)
+
+
+@pytest.mark.parametrize(
+    "lock",
+    [
+        PYPI_FORK,
+        PYPI_FORK + _wheels_fork("../elsewhere"),
+        PYPI_FORK + _wheels_fork("../dist/wheels", version="0.7.0a16+gother"),
+        "",
+    ],
+    ids=["pypi only", "another wheels dir", "another build", "no sandloom entry"],
+)
+def test_the_lock_check_refuses_a_framework_not_from_the_wheels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lock: str
+) -> None:
+    monkeypatch.syspath_prepend(str(DX))
+    appmode = importlib.import_module("appmode")
+    dist = _wheels_dist(appmode, tmp_path)
+    app = tmp_path / "app"
+    app.mkdir()
+    assert appmode.lock_resolves_from_wheels(lock, app, dist) is False
+
+
 AFTER_FIRST = {
     "sandloom.sdk.sagas": {"sagas.py": {"Saga", "step"}},
     "sandloom.sdk.projections": {"projections.py": {"Projection"}},
