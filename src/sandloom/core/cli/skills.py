@@ -2,7 +2,8 @@
 
 The framework's procedures, rewritten for an application's paths and
 commands (packaged under ``sandloom/core/cli/templates/skills/``): map a
-module, create a module, run the gates, roll an event to ``.v2``, split into
+module, create a module, run the gates, talk to another module, run background
+tasks, the rules no check enforces, roll an event to ``.v2``, split into
 services. Each coding agent reads skills from its own folder
 (:data:`CODING_AGENTS`): ``.claude/skills`` for Claude Code, ``.agents/skills``
 for most others, ``.kiro/skills`` for Kiro. The application chooses its agents
@@ -38,6 +39,7 @@ APP_SKILLS: tuple[str, ...] = (
     "sandloom-quality-gates",
     "sandloom-cross-module",
     "sandloom-background-tasks",
+    "sandloom-module-rules",
     "sandloom-event-version-roll",
     "sandloom-split-deploy",
 )
@@ -173,13 +175,17 @@ def skill_dirs(agents: Sequence[str]) -> list[str]:
 
 def skill_files(app: str, agents: Sequence[str] = DEFAULT_AGENTS) -> dict[str, str]:
     """``{path relative to the project root: content}`` of every app skill for
-    ``agents``, with ``<app>`` filled in, and each agent's pointer file."""
+    ``agents``, with ``<app>`` filled in, and each agent's pointer file. A skill
+    is its ``SKILL.md`` and any Markdown beside it that the skill links to
+    (``sandloom-module-rules`` carries one file per rule under ``rules/``)."""
     files: dict[str, str] = {}
     for name in APP_SKILLS:
-        text = (_TEMPLATES / name / "SKILL.md").read_text(encoding="utf-8")
-        text = text.replace("<app>", app)
-        for directory in skill_dirs(agents):
-            files[f"{directory}/{name}/SKILL.md"] = text
+        folder = _TEMPLATES / name
+        for source in sorted(folder.rglob("*.md")):
+            text = source.read_text(encoding="utf-8").replace("<app>", app)
+            relative = source.relative_to(_TEMPLATES).as_posix()
+            for directory in skill_dirs(agents):
+                files[f"{directory}/{relative}"] = text
     for agent in agents_by_key(agents):
         if agent.pointer:
             files[agent.pointer] = _POINTER
