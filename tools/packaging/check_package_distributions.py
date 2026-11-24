@@ -413,14 +413,45 @@ def check_layering(wheels: dict[str, Path]) -> None:
     print(f"Import layering OK across {len(wheels)} distributions", flush=True)
 
 
+#: ``sandloom --help`` headings that are not command groups.
+_HELP_OPTION_HEADINGS = frozenset(
+    {"options", "optional arguments", "positional arguments"}
+)
+
+
+def help_commands(help_text: str) -> list[str]:
+    """The commands of ``sandloom --help``: every ``  name  summary`` line under
+    each command-group heading (``start:``, ``build:``, ``operate:``), in order.
+    A heading with no command, or a command listed twice, is an error: the
+    list this returns is what the lean install runs ``--help`` on."""
+    groups: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for line in help_text.splitlines():
+        heading = re.fullmatch(r"([a-z][a-z ]*):", line)
+        if heading is not None:
+            name = heading.group(1)
+            current = (
+                None if name in _HELP_OPTION_HEADINGS else groups.setdefault(name, [])
+            )
+            continue
+        entry = re.match(r"  ([a-z][a-z0-9_-]*)(?:  |$)", line)
+        if current is not None and entry is not None:
+            current.append(entry.group(1))
+    if not groups:
+        raise RuntimeError(f"no command groups in `sandloom --help`:\n{help_text}")
+    empty = sorted(name for name, listed in groups.items() if not listed)
+    if empty:
+        raise RuntimeError(f"`sandloom --help` groups list no command: {empty}")
+    commands = [name for listed in groups.values() for name in listed]
+    twice = sorted({name for name in commands if commands.count(name) > 1})
+    if twice:
+        raise RuntimeError(f"`sandloom --help` lists a command twice: {twice}")
+    return commands
+
+
 def _subcommands(sandloom: Path, env: dict[str, str], cwd: Path) -> list[str]:
     help_text = _run(str(sandloom), "--help", env=env, cwd=cwd, capture_output=True)
-    match = re.search(r"\{([a-z,_-]+)\}", help_text.stdout)
-    if match is None:
-        raise RuntimeError(
-            f"no subcommand list in `sandloom --help`:\n{help_text.stdout}"
-        )
-    return match.group(1).split(",")
+    return help_commands(help_text.stdout)
 
 
 def _check_battery_handoff(sandloom: Path, env: dict[str, str], work: Path) -> None:

@@ -35,7 +35,7 @@ Usually Enter is all it takes. Where the terminal cannot read single keys, it as
 | `.agents/skills/` | Codex, Gemini CLI and Antigravity, Cursor, GitHub Copilot, OpenCode, Amp, Devin Desktop |
 | `.kiro/skills/` | Kiro |
 
-In a script or CI, pass the choice: `uv run sandloom new shop --agents claude,codex`. With `--yes` and no `--agents`, `sandloom new` writes the shared `.agents/skills` folder and `AGENTS.md`. Most agents read them. Pass `--agents claude` to add `CLAUDE.md` and `.claude/skills`. `sandloom add skills` without a terminal uses the installed agents. The choice is kept in `.sandloom/agent-files.json`; commit it, so the team gets the same files.
+In a script or CI, pass the choice: `uv run sandloom new shop --agents claude,codex`. With `--yes`, or without a terminal, and no `--agents`, `sandloom new` writes the shared `.agents/skills` folder and `AGENTS.md`. Most agents read them. Pass `--agents claude` to add `CLAUDE.md` and `.claude/skills`. `sandloom add skills` without a terminal uses the choice kept in `.sandloom/agent-files.json`. When that file is absent, it uses the agents installed on the machine. The file is written by `sandloom new` and `sandloom add skills`; commit it, so the team gets the same files.
 
 ## What the agent finds in the project
 

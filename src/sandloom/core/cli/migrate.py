@@ -66,6 +66,7 @@ from sandloom.core.migrations.migrations import (
     upgrade_module,
 )
 from sandloom.core.migrations.urls import to_sync_url
+from sandloom.core.observability import log_level as _log_level
 
 #: Composition root whose module set the CLI migrates (``sandloom.main`` by default;
 #: a downstream app may point it at its own ASGI module, e.g. ``myapp.asgi``).
@@ -320,7 +321,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "new",
         help=(
             "Autogenerate a revision in ONE module's chain and add row-level "
-            "security for each new TenantScoped table (spec §5.6). Compares "
+            "security for each new TenantScoped table. Compares "
             "against a scratch database with every chain at head (any state of "
             "your databases works; --against-database compares against the "
             "module's configured database, which must be at its head)"
@@ -507,6 +508,37 @@ def _cmd_databases(
     return 0
 
 
+def _say_core_chain(revision: str, url: str, *, apply: bool) -> None:
+    """The result line of one core-chain upgrade: the command prints its own
+    results (they are not log lines, so ``LOG_LEVEL`` does not hide them)."""
+    where = f"{revision} on {_mask(url)}"
+    if apply:
+        print(f"core chain upgraded to {where}")
+    else:
+        print(f"would upgrade the core chain to {where}")
+
+
+def _say_modules(upgraded: dict[str, list[str]], revision: str, *, apply: bool) -> None:
+    """One result line per module chain (``upgraded`` is ``{module: databases}``
+    from :func:`upgrade_module`); a module with no migration chain says so."""
+    for name, databases in upgraded.items():
+        label = f"module {_module_name(name)}"
+        if not databases:
+            print(f"{label}: no migration chain, nothing to do")
+        elif apply:
+            print(f"{label}: upgraded to {revision} on database {', '.join(databases)}")
+        else:
+            print(
+                f"{label}: would upgrade to {revision} on database "
+                f"{', '.join(databases)}"
+            )
+
+
+def _say_dry_run(*, apply: bool) -> None:
+    if not apply:
+        print("dry run: nothing was changed; add --apply to run it")
+
+
 def _uncovered_refusal(
     core: CoreFacade, command: str, *, chains: frozenset[str] | None = None
 ) -> str | None:
@@ -551,6 +583,8 @@ def _cmd_upgrade_core(
     with migration_lock(urls if args.apply else [], timeout=args.lock_timeout):
         for url in urls:
             run_core_upgrade(head=args.rev, dry_run=not args.apply, database_url=url)
+            _say_core_chain(args.rev, url, apply=args.apply)
+    _say_dry_run(apply=args.apply)
     return 0
 
 
@@ -596,6 +630,11 @@ def _cmd_ensure_outbox(
     for db_name in targets:
         url = resolve_database_sync_url(db_name)
         ensure_core_infra_tables(url, dry_run=not args.apply)
+        if args.apply:
+            print(f"ensured the core infra tables on {_mask(url)}")
+        else:
+            print(f"would ensure the core infra tables on {_mask(url)}")
+    _say_dry_run(apply=args.apply)
     return 0
 
 
@@ -608,7 +647,9 @@ def _cmd_upgrade_module(
         return 1
     urls = [resolve_database_sync_url(db) for db in target.database_instances()]
     with migration_lock(urls if args.apply else [], timeout=args.lock_timeout):
-        upgrade_module(target, revision=args.rev, dry_run=not args.apply)
+        upgraded = upgrade_module(target, revision=args.rev, dry_run=not args.apply)
+    _say_modules({target.name: upgraded}, args.rev, apply=args.apply)
+    _say_dry_run(apply=args.apply)
     return 0
 
 
@@ -708,9 +749,14 @@ def _cmd_upgrade_all(
                 dry_run=not args.apply,
                 database_url=urls[db_name],
             )
+            _say_core_chain("head", urls[db_name], apply=args.apply)
         # 2. Each module's OWN chain goes to the ONE database hosting
         #    its tables (ModuleDescriptor.database_instances()).
-        upgrade_all_modules(descriptors, revision="head", dry_run=not args.apply)
+        upgraded = upgrade_all_modules(
+            descriptors, revision="head", dry_run=not args.apply
+        )
+    _say_modules(upgraded, "head", apply=args.apply)
+    _say_dry_run(apply=args.apply)
     return 0
 
 
@@ -733,4 +779,7 @@ _COMMANDS: dict[
 
 
 if __name__ == "__main__":  # pragma: no cover
+    # `python -m sandloom.core.cli.migrate drift`, a step of `sandloom test`:
+    # a one-shot like the `sandloom migrate` it stands for.
+    _log_level.request_default("WARNING")
     raise SystemExit(main())

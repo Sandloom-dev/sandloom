@@ -1,4 +1,4 @@
-"""``sandloom add`` — generators that write 1.0 code (Public API 1.0, spec §5.9).
+"""``sandloom add`` — generators that write code against the public API.
 
     sandloom add module <m>                       a module (model, route, event, test)
     sandloom add event <m> <Name> [--field n:type ...]   append an event to
@@ -629,7 +629,7 @@ _RLS_IMPORT = (
 
 
 def _rls_block(table: str, *, system_access: bool = False) -> tuple[str, str]:
-    """The upgrade / downgrade lines of a ``TenantScoped`` table (spec §5.6)."""
+    """The upgrade / downgrade lines of a ``TenantScoped`` table."""
     extra = ", system_access=True" if system_access else ""
     guard = 'if op.get_context().config.attributes.get("sandloom_tenant_rls", False):'
     quoted = json.dumps(table)
@@ -998,6 +998,8 @@ _GENERATE = """\
 import sys
 from pathlib import Path
 from sandloom.core.cli.run_tests import load_project_test_env
+from sandloom.core.observability import log_level
+log_level.request_default("WARNING")
 root = Path(sys.argv[1])
 load_project_test_env(root)
 from sandloom.core.cli.generated import main
@@ -1397,7 +1399,7 @@ class {cls}Row(TenantScoped, Base):
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 '''
-    projection = f'''"""The {module}.{name} projection (spec §6.4).
+    projection = f'''"""The {module}.{name} projection.
 
 Full-state events of one aggregate, versioned tombstones, one owning group
 per column.

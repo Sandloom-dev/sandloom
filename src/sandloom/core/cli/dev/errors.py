@@ -10,7 +10,8 @@ never from ``__context__`` (an error raised while handling a connection
 failure is a real error and keeps its traceback). Three one-liners::
 
     error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused).
-    Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]
+    Start the dev services: uv run sandloom dev up (or start your own servers
+    and set DATABASE_URL)   [SANDLOOM-R014]
 
     error: PostgreSQL at 127.0.0.1:5432 refused the login (authentication
     failed): check the user and password in the URL   [SANDLOOM-R014]
@@ -38,6 +39,7 @@ from pathlib import Path
 from typing import TextIO
 
 import sandloom.core.cli.ui as _ui
+import sandloom.core.observability.log_level as _log_level
 from sandloom.core.cli.dev.envfile import ENV_FILE, exported_drift, read_block
 from sandloom.core.observability.unreachable import CODE, connection_failure
 
@@ -95,20 +97,21 @@ def verbose_requested(argv: MutableSequence[str]) -> bool:
     return found
 
 
-def quiet_logs(
-    argv: Sequence[str], environ: MutableMapping[str, str], *, verbose: bool
-) -> None:
+def quiet_logs(argv: Sequence[str], *, verbose: bool) -> None:
     """A one-shot command (``migrate new``, ``add``, ``generate``, ``test`` ...)
-    logs WARNING and above: ``LOG_LEVEL=WARNING`` unless ``LOG_LEVEL`` is
-    already exported or ``verbose`` (``sandloom -v <command>``, ``--debug``).
-    The processes it starts inherit the level. ``dev`` / ``worker`` / ``beat``
-    keep the configured level: their log is what they print."""
+    logs WARNING and above, unless ``verbose`` (``sandloom -v <command>``,
+    ``--debug``). The level is a default of this process
+    (:mod:`sandloom.core.observability.log_level`), not an environment
+    variable: a ``LOG_LEVEL`` set in the environment or in ``.env`` decides
+    instead, and ``sandloom config dump`` still reports that setting.
+    ``dev`` / ``worker`` / ``beat`` keep the configured level: their log is
+    what they print."""
     if verbose:
         return
     command = next((a for a in argv[1:] if not a.startswith("-")), None)
     if command is None or command in _LOGGING_COMMANDS:
         return
-    environ.setdefault("LOG_LEVEL", "WARNING")
+    _log_level.request_default("WARNING")
 
 
 def enable_debug(environ: MutableMapping[str, str]) -> None:

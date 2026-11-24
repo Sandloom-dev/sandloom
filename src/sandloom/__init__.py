@@ -180,7 +180,7 @@ def main() -> None:
     errors = _static_import("sandloom.core.cli.dev.errors")
     debug = errors.debug_requested(sys.argv, errors.environment())
     verbose = errors.verbose_requested(sys.argv)
-    errors.quiet_logs(sys.argv, errors.environment(), verbose=verbose or debug)
+    errors.quiet_logs(sys.argv, verbose=verbose or debug)
     if debug:
         # Child processes too (`dev run`'s server, the wizard's steps).
         errors.enable_debug(errors.environment())

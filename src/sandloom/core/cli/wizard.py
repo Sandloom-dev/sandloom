@@ -275,8 +275,8 @@ def parser() -> argparse.ArgumentParser:
         "--agents",
         default=None,
         help=f"comma-separated coding agents to write skills for: {agents} "
-        "(default: asked at a terminal; with --yes the shared .agents/skills "
-        "folder and AGENTS.md only)",
+        "(default: asked at a terminal; with --yes or without a terminal the "
+        "shared .agents/skills folder and AGENTS.md only)",
     )
     p.add_argument(
         "-y",

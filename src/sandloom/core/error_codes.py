@@ -2013,7 +2013,8 @@ cursor executions from such a task are detected on a best-effort basis.
         "a sandloom command cannot reach a backing service (the database or an "
         "INFRA instance)",
         "start the dev services: `uv run sandloom dev up` (then `uv run sandloom "
-        "dev status` shows the ports and URLs)",
+        "dev status` shows the ports and URLs), or start your own servers and set "
+        "DATABASE_URL (and the INFRA urls) to them",
         """
 The command connected to the DATABASE_URL or the INFRA instance url (cache,
 broker) it was given and nothing answered, or the server refused the login.
@@ -2023,7 +2024,8 @@ SANDLOOM_DEBUG=1) to see the traceback.
 Usual causes:
 
 - the dev services are not running: `uv run sandloom dev up` starts them (it
-  never happens on its own);
+  never happens on its own; with `--services external` it starts nothing: start
+  your own servers and set DATABASE_URL and the INFRA urls);
 - `.env` points elsewhere: `sandloom dev up` writes this checkout's URLs into
   the marked block of `.env`, and a DATABASE_URL or INFRA
   exported in the shell wins over `.env` (the CLI warns when they differ);
@@ -2510,8 +2512,10 @@ Callers compare a bound provider's live describe with it (rolling upgrades);
         "a module imports an advanced sandloom.sdk name without a marker",
         "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
         "Generators and examples teach the 26 beginner names: the 20 code names of "
-        "`sandloom.sdk` and the six test helpers of `sandloom.sdk.testing` "
-        "(`sandloom docs sandloom.sdk` lists them). An application's modules keep "
+        "`sandloom.sdk`, the five test helpers of `sandloom.sdk.testing` and the "
+        "`client` fixture of `sandloom.sdk.testing.plugin` (`sandloom docs "
+        "sandloom.sdk`, `sandloom docs sandloom.sdk.testing` and `sandloom docs "
+        "sandloom.sdk.testing.plugin` list them). An application's modules keep "
         "to them: the `schema & deploy` step of `sandloom test` reports an advanced "
         "import that has no marker.",
     ),
