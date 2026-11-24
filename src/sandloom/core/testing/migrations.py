@@ -52,7 +52,7 @@ from sandloom.core.migrations.migrations import (
 )
 from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.migrations.schema_compare import schema_differences
-from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.sql_alchemy.base import Base, base_mappers
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
 from sandloom.core.url_split import split_url
 
@@ -412,7 +412,7 @@ def model_tables(core: Any = None) -> dict[str, MigrationChain]:
         with suppress(ModuleNotFoundError):
             importlib.import_module(f"{module}.models")
     owners: dict[str, MigrationChain] = {}
-    for mapper in Base.registry.mappers:
+    for mapper in base_mappers():
         owner_module = mapper.class_.__module__
         local = getattr(mapper, "local_table", None)
         table = getattr(local, "name", None)

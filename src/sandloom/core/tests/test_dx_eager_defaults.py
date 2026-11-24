@@ -8,12 +8,14 @@ Runs on the no-Redis lane (``src/sandloom/core/tests``) over in-memory SQLite:
 
 from __future__ import annotations
 
+import gc
 import subprocess
 import sys
 import uuid
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import Engine, ForeignKey, MetaData, create_engine, inspect, select
@@ -25,15 +27,22 @@ from sqlalchemy.orm import (
     registry,
     relationship,
 )
-from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.orm.exc import StaleDataError, UnmappedClassError
 
-from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.cli.extract import module_tables
+from sandloom.core.cli.migrate_rls import tenant_tables
+from sandloom.core.descriptors import ModuleDescriptor
+from sandloom.core.loader.manifest import module_manifest
+from sandloom.core.orm import module_feature_uses
+from sandloom.core.sql_alchemy.base import Base, base_mappers
 from sandloom.core.sql_alchemy.columns import (
     CreatedAt,
     UpdatedAt,
     Versioned,
     new_id,
 )
+from sandloom.core.testing.migrations import model_tables
+from sandloom.core.testing.static_checks import tenant_key_problems
 
 
 class _Models(Base):
@@ -492,3 +501,55 @@ def test_a_versioned_model_that_names_the_check_itself_is_accepted() -> None:
         id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
 
     assert inspect(Checked).version_id_col is not None
+
+
+def test_a_refused_declaration_does_not_break_the_readers_of_the_models() -> None:
+    """A refused class stays in ``Base.registry`` half built until the garbage
+    collector frees it, and ``Base.registry.mappers`` raises meanwhile: the
+    module load (the manifest, the database features) and the migration and
+    tenant checks read the models through ``base_mappers`` and still see every
+    mapped one. Regression: main went red when a later test, on the same xdist
+    worker, loaded a module while ``Unchecked`` above was still registered."""
+    package = "dx_eager_registry"
+
+    class _Isolated(Base):
+        __abstract__ = True
+        metadata = MetaData()
+
+    class Good(_Isolated):
+        __tablename__ = f"{package}_good"
+
+        id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+
+    Good.__module__ = f"{package}.models"  # as if declared in the module package
+
+    with pytest.raises(TypeError, match="stale-write check"):
+
+        class Refused(Versioned, _Isolated):
+            __tablename__ = f"{package}_refused"
+            __mapper_args__ = {"eager_defaults": True}
+
+            id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+
+    # held here, so the half-built class cannot be collected under the test
+    refused = [c for c in _Isolated.__subclasses__() if c.__name__ == "Refused"]
+    assert len(refused) == 1
+    with pytest.raises(UnmappedClassError):
+        assert Base.registry.mappers
+
+    descriptor = ModuleDescriptor(name=package, version="0", migrations_path="/none")
+    core = SimpleNamespace(module_descriptors=[descriptor])
+    try:
+        assert {m.class_ for m in base_mappers()} >= {Good}
+        assert refused[0] not in {m.class_ for m in base_mappers()}
+        assert [
+            m.table for m in module_manifest(descriptor, package=package).models
+        ] == [f"{package}_good"]
+        assert module_feature_uses(package) == []
+        assert tenant_tables(package) == {}
+        assert module_tables(descriptor) == (f"{package}_good",)
+        assert model_tables(core)[f"{package}_good"].module == package
+        assert isinstance(tenant_key_problems(), list)
+    finally:
+        del refused
+        gc.collect()  # the half-built class goes, as it would sooner or later
