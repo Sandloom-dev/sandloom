@@ -114,6 +114,11 @@ class SnapshotReadsUnavailable(PlanningError):
     ``snapshot_reads`` feature (SANDLOOM-B027)."""
 
 
+class UndeclaredOperation(PlanningError):
+    """A planner read of an operation that no loaded module declares
+    (SANDLOOM-R022)."""
+
+
 #: The route dependencies that open a one-snapshot read scope
 #: (``SnapshotReads``), registered by the module that defines them.
 _SNAPSHOT_DEPENDENCIES: set[Any] = set()
@@ -716,13 +721,16 @@ def _require_declared(core: CoreRuntime, op: ReadOperation[Any]) -> None:
     entry = core._facade.__dict__.get(DECLARED_OPERATIONS_ATTR, {}).get(id(op))
     if entry is not None and entry[1] is op:
         return
-    raise PlanningError(
+    raise UndeclaredOperation(
         f"{op.name}: no module declares this operation, so it is not planned at "
         "startup and not listed in /diagnostics/core. Declare it at module "
         f"level in the module that owns {op.entity.__name__} (for instance in "
         "services/operations.py, imported by the module's api or services): "
-        "discovery registers every operation a module declares at boot. An "
-        "operation built at request time is not supported"
+        "discovery registers every operation a module declares at boot. If "
+        f"{op.entity.__name__} lies in no module package (a kernel table, an "
+        "app-level shared model), discovery cannot find it: register it with "
+        "core.register_operations(op) in the setup= of the module that reads "
+        "it. An operation built at request time is not supported"
     )
 
 
@@ -806,8 +814,9 @@ class Reads:
 
     A handle made on a core (every one but a fixed ``adapter=``) refuses, at the
     first read of an operation on an adapter, one that no loaded module
-    declared: :class:`PlanningError`, naming the fix (declare the operation at
-    module level). The cached path of a declared operation carries no check.
+    declared: :class:`UndeclaredOperation` (SANDLOOM-R022), naming the fix
+    (declare the operation at module level). The cached path of a declared
+    operation carries no check.
     """
 
     __slots__ = (
@@ -1037,6 +1046,7 @@ __all__ = [
     "PlanningError",
     "SNAPSHOT_ISOLATION",
     "SnapshotReadsUnavailable",
+    "UndeclaredOperation",
     "ReadOnlyScopeError",
     "ReadOperation",
     "ReadUnit",

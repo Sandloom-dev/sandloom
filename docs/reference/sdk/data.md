@@ -897,8 +897,9 @@ Two modes, fixed when the handle is made:
 
 A handle made on a core (every one but a fixed `adapter=`) refuses, at the
 first read of an operation on an adapter, one that no loaded module
-declared: `PlanningError`, naming the fix (declare the operation at
-module level). The cached path of a declared operation carries no check.
+declared: `UndeclaredOperation` (SANDLOOM-R022), naming the fix
+(declare the operation at module level). The cached path of a declared
+operation carries no check.
 
 #### `Reads.in_unit_of_work`
 

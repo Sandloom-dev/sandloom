@@ -258,10 +258,15 @@ from the module's `api.py` or services. `define_module` finds it at boot, also
 inside a tuple or a dict one level down. Startup plans each one and
 `/diagnostics/core` lists it. No `setup=` registers them.
 
-A read of an operation that no module declares is refused with a
-`PlanningError` that names the fix. One built inside a handler is such an
-operation: declare it at module level. `session_reads(db())` skips the check,
-since it runs on the unit's own session.
+A read of an operation that no module declares is refused with an
+`UndeclaredOperation` (a `PlanningError`, SANDLOOM-R022) that names the fix.
+One built inside a handler is such an operation: declare it at module level.
+`session_reads(db())` skips the check, since it runs on the unit's own session.
+
+Discovery registers an operation whose entity is defined inside a module's
+package. No module package holds a kernel table or an app-level shared model,
+so an operation over one is never discovered. Register it with
+`core.register_operations(op)` in the `setup=` of the module that reads it.
 
 ## Read units: read-only and one snapshot
 

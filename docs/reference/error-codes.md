@@ -132,6 +132,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R019`](#sandloom-r019) | `tenant-model-replace` | runtime | a TenantScoped model's table declares a REPLACE conflict clause | active |
 | [`SANDLOOM-R020`](#sandloom-r020) | `tenant-model-foreign-key` | runtime | a foreign key between TenantScoped tables does not pair tenant_id on both sides | active |
 | [`SANDLOOM-R021`](#sandloom-r021) | `tenant-model-tenant-type` | runtime | a TenantScoped model's tenant column is not one plain mapped Column of the plain Uuid type | active |
+| [`SANDLOOM-R022`](#sandloom-r022) | `undeclared-planner-operation` | runtime | a planner read (Reads.one, Reads.page, ...) of an operation that no loaded module declares | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
 | [`SANDLOOM-T004`](#sandloom-t004) | `contract-snapshot` | test | a module's contracts.snapshot.json does not match its contracts | active |
@@ -2523,6 +2524,39 @@ reads on PostgreSQL, and Uuid(as_uuid=False) fails on SQLite.
 **Fix:** map the attribute tenant_id to one Column of the model's own tables, with no synonym, hybrid_property, expression or comparator of its own, and declare it as SQLAlchemy's Uuid, the type the TenantScoped mixin gives it: drop the TypeDecorator, UserDefinedType or variant
 
 **More:** `docs/modules/database/multi-tenancy.md`
+
+### SANDLOOM-R022
+
+**a planner read (Reads.one, Reads.page, ...) of an operation that no loaded module declares**
+
+Slug: `undeclared-planner-operation` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+The planner compiles a read operation (ReadOperation, ListOperation, JoinRead)
+on its first use. An operation that a module declares is found when the module
+loads (define_module discovery), planned at startup, tied to its module and
+listed in /diagnostics/core. An operation built where no module declares it,
+inside a handler or in a helper no module imports, would be compiled lazily on
+its first request with none of that, so Reads(core).one(op, ...) refuses it with
+UndeclaredOperation (a PlanningError). The check runs once per adapter and
+mode, on the first plan of the operation, never on the cached path, and it is
+skipped for a handle on a fixed adapter (Reads(core, adapter=...)) and for
+session_reads(db()), which runs on the unit's own session.
+
+Fix. Put the operation at module level, in services/operations.py or another
+file of the module that owns the entity, and import that file from the module's
+api.py or services so discovery sees it. Discovery reads module variables, and
+one level of a tuple, list or dict. It only registers an operation whose entity
+is defined inside the module's package. An operation over a table no module
+package holds (a kernel table, an app-level shared model) is never discovered:
+register it explicitly with core.register_operations(op) in the setup= of the
+module that reads it. In a test, build the operation, then call
+ModuleAPI(core).register_operations(op) before reading it.
+
+**Fix:** declare the operation at module level in the module that owns its entity (for instance in services/operations.py, imported by the module's api or services); for an entity no module package holds, call core.register_operations(op) in the setup= of a module that reads it
+
+**More:** `docs/modules/database/units.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
 

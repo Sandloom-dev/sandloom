@@ -26,9 +26,16 @@ from sqlalchemy import Column, String, Uuid
 from sqlalchemy.orm import DeclarativeBase
 
 import sandloom.core.planner as planner
+from sandloom.core.error_codes import code_for_exception, lookup
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import ModuleAPI, ModuleRegistrationDraft
-from sandloom.core.planner import ListOperation, PlanningError, ReadOperation, Reads
+from sandloom.core.planner import (
+    ListOperation,
+    PlanningError,
+    ReadOperation,
+    Reads,
+    UndeclaredOperation,
+)
 from sandloom.core.sql_alchemy.models.consumer_inbox import ConsumerInboxEntry
 from sandloom.core.testing.fixtures import *  # noqa: F403 - the harness app for the refusal tests
 from sandloom.sdk.module import define_module
@@ -243,13 +250,21 @@ def facade(sandloom_app: Any, db_engine: Any) -> Iterator[Any]:
 
 async def test_an_undeclared_one_is_refused_with_the_fix(facade: Any) -> None:
     op = _inbox_op("dxs2.inbox.undeclared")
-    with pytest.raises(PlanningError) as raised:
+    with pytest.raises(UndeclaredOperation) as raised:
         await Reads(facade.runtime_view()).one(op, id=uuid4())
     message = str(raised.value)
     assert message.startswith("dxs2.inbox.undeclared: no module declares")
     assert "Declare it at module level" in message
     assert "services/operations.py" in message
     assert "ConsumerInboxEntry" in message
+    # an entity in no module package is never discovered: the hint names the
+    # explicit registration, not only the module that owns it
+    assert "core.register_operations(op)" in message
+    assert isinstance(raised.value, PlanningError)
+    assert code_for_exception(raised.value) == "SANDLOOM-R022"
+    entry = lookup("SANDLOOM-R022")
+    assert entry is not None
+    assert entry.slug == "undeclared-planner-operation"
 
 
 async def test_an_undeclared_page_is_refused_with_the_fix(facade: Any) -> None:
