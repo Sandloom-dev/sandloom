@@ -42,13 +42,19 @@ async def purge_old_items() -> None:
   `record_audit` work as in a request. Outside a unit they raise.
 - **`cron`** has five fields and runs in UTC. **`id`** is unique across the
   deployment. A periodic function takes no payload.
-- **A run can repeat.** A worker can die, a slot can be sent twice. Make every
-  run harmless to repeat: delete or update by a condition, upsert, or claim a
-  durable inbox key. Work in short units, one `open_uow()` per batch.
-- **`@task(at_least_once=True)`** lets the queue redeliver a task that did not
-  finish. Use it only for an idempotent task whose effects have a dedupe in the
-  database (a UNIQUE operation key); the module also declares the
-  task-queue feature `redelivery` (SANDLOOM-C033).
+- **Delivery.** By default a task runs at most once: the message is
+  acknowledged when the task starts, so a worker that dies mid-run **loses**
+  that run and nothing repeats it. `@task(at_least_once=True)` (also accepted
+  by `@periodic`) lets the queue redeliver a run that did not finish. Use it
+  only for an idempotent task whose effects have a dedupe in the database (a
+  UNIQUE operation key); the module also declares the task-queue feature
+  `redelivery` (SANDLOOM-C033).
+- **Periodic slots.** Each slot is sent once while the lease store answers. It
+  can go out twice when the lease store is down or in the repeated hour of a
+  daylight saving change, and it can be lost when the scheduler is killed
+  between its claim and its send. So make the body idempotent (delete or update
+  by a condition, upsert, or claim a durable inbox key) so that the next run
+  catches up. Work in short units, one `open_uow()` per batch.
 - **Send it** with `await task.enqueue(payload, delay=..., idempotency_key=...)`.
   `await task(payload)` runs the body in your process, which is how a test calls it.
 
@@ -67,8 +73,9 @@ A request binds one tenant; a worker does not. Pick one on purpose:
 1. **Free names.** `task`, `periodic` and `open_uow` are free in the module's
    own `tasks.py` only; in any other file their import needs
    `# sandloom: advanced <reason>` (SANDLOOM-T009).
-2. **A child task opens its own `open_uow()`** (SANDLOOM-R013): never reuse the
-   parent's session.
+2. **A concurrent `asyncio` task opens its own `open_uow()`.** One you start
+   inside a unit (`asyncio.gather`, `create_task`) must not use the parent's
+   `db()`: it owns no unit, and `db()` refuses it (SANDLOOM-R013).
 3. **Each periodic task needs a beat in every profile that serves its module.**
    In the microservices profile `uv run sandloom add deploy <module>` (or
    `sandloom add task --periodic`, or `sandloom add deploy --refresh`) adds
