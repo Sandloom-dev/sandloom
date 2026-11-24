@@ -269,10 +269,10 @@ def missing_key(c: SagaContext[Enroll]) -> SdkgenLedgerV1ChargeArgs:
 
 
 def passes_the_idempotency_key(c: SagaContext[Enroll]) -> SdkgenLedgerV1ChargeArgs:
-    return {
+    return {  # L4
         "customer_id": c.input.customer_id,
         "amount": 1,
-        "operation_key": "k",  # L4
+        "operation_key": "k",
     }
 """
 

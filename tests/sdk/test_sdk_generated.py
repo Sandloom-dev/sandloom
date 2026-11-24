@@ -1292,18 +1292,16 @@ def _stub_providers() -> dict[str, tuple[str, type]]:
     class Commands:
         """Argument ``TypedDict``s at their own line-length edges."""
 
-        # a field that fits, one that overflows and is wrapped at its bracket,
-        # an optional one that overflows (``NotRequired[...]``); a command with
-        # only its key
+        # a field that fits, an optional one whose ``NotRequired[...]`` line
+        # overflows while the Protocol's own line (87 columns) does not, so the
+        # class wraps it at its bracket and the Protocol keeps it on one line;
+        # a command with only its key
         @classmethod
         @contract_method(command=True, idempotency_key="operation_key")
         async def import_ledger_entries_in_batch(
             cls,
             first_entry_in_the_batch: dict[str, _StubDtoWithAVeryLongNameNumberThree],
-            second_entry_in_the_batch_to_import: dict[
-                str, _StubDtoWithAVeryLongNameNumberThree
-            ],
-            reconciliation_window_label_for_the_batch: tuple[
+            batch_reconciliation_tags: tuple[
                 _StubDtoWithAVeryLongNameNumberOne, ...
             ] = (),
             *,
