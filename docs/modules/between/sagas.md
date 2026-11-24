@@ -154,6 +154,12 @@ comes from the contract version and the method: `PaymentsChargesV1ChargeArgs`
 for the `charge` command of `payments.charges.v1`. A parameter with a default
 is `NotRequired`. A new contract version gets new names.
 
+Two commands whose names differ only in capitals and separators (`a_b` and
+`aB`) would share one name. Neither gets a `TypedDict`. The stub keeps a
+comment in its place and `sandloom generate` prints a warning. Their `args`
+functions return a plain mapping. Rename one of the methods in a new major to
+get the classes.
+
 Annotate the `args` function with it, as `charge_args` does above. Then mypy
 checks the keys and their types: a misspelt key, a wrong type or a missing
 argument is an editor error. It shows before the startup check runs.

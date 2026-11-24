@@ -304,10 +304,15 @@ A function whose parameter is not a `SagaContext` is now a type error, and any `
 (not only a `dict`) is accepted as its result.
 
 Two command methods whose names differ only in capitals and separators (`a_b` and `aB`) give
-one class name. The generator refuses them with SANDLOOM-C012. Rename one of the methods
-only in a contract that no caller has used yet. A rename in a published contract removes
-the old method for its callers. Roll a new version instead: `uv run sandloom generate
---new-major <name>` copies the contract to `.v2`, and you rename the method there.
+one class name. The generator writes no class for either. A one-line comment stands in its
+place in the stub, and `sandloom generate` prints a warning naming the pair. Everything else in
+the stub is generated as before. Saga `args` functions of the two return a plain `Mapping`.
+Nothing refuses, so a published contract keeps generating.
+
+To get the classes, rename one of the methods, only in a contract that no caller has used yet.
+A rename in a published contract removes the old method for its callers. Roll a new version
+instead: `uv run sandloom generate --new-major <name>` copies the contract to `.v2`, and you
+rename the method there. `.v1` stays as it is, with the comment, until you retire it.
 
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 

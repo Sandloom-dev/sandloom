@@ -645,22 +645,75 @@ def _render_args_types(
 ) -> list[str]:
     """One argument ``TypedDict`` per command of the contract, by method name.
     Two commands (or a command and the Protocol, an atom or an imported DTO)
-    that map to one name are refused: the second would silently replace the
-    first, or shadow the DTO a signature names."""
-    taken = set(reserved)
+    that map to one name get no class: the second would silently replace the
+    first, or shadow the DTO a signature names. A one-line comment stands in
+    its place (:func:`_clash_comment`); the Protocol method and the rest of the
+    stub are still generated, and a saga's ``args`` for it stays a ``Mapping``."""
+    clashes = _args_clashes(protocol, methods, reserved)
     out: list[str] = []
     for name, runtime in sorted(methods.items()):
         if runtime.kind != "command":
             continue
-        cls = args_name(protocol, name)
-        if cls in taken:
-            raise _dto_copies.CopyError(
-                f"{contract} {name}",
-                f"its argument class {cls} is already a name of this stub",
-                "rename the command method so its PascalCase name differs",
+        if name in clashes:
+            out.append(
+                _clash_comment(contract, name, args_name(protocol, name), clashes[name])
             )
-        taken.add(cls)
+            continue
         out.append(_render_args(protocol, name, runtime, imports, resolver))
+    return out
+
+
+def _args_clashes(
+    protocol: str,
+    methods: Mapping[str, ContractMethodRuntime],
+    reserved: Collection[str],
+) -> dict[str, str]:
+    """``{command: what its argument class name clashes with}``: the other
+    command (every command of a shared name, none is preferred) or another name
+    of the stub (the Protocol, an atom, an imported DTO)."""
+    by_class: dict[str, list[str]] = {}
+    for name, runtime in sorted(methods.items()):
+        if runtime.kind == "command":
+            by_class.setdefault(args_name(protocol, name), []).append(name)
+    out: dict[str, str] = {}
+    for cls, names in by_class.items():
+        for name in names:
+            others = [n for n in names if n != name]
+            if others:
+                out[name] = f"method {others[0]}"
+            elif cls in reserved:
+                out[name] = "another name of this stub"
+    return out
+
+
+_CLASH = re.compile(
+    r"^# no (\w+) for (\w+): clashes with (.+?); rename the method in a new major "
+    r"\(sandloom generate --new-major ([\w.]+)\)$",
+    re.M,
+)
+
+
+def _clash_comment(contract: str, method: str, cls: str, other: str) -> str:
+    return (
+        f"# no {cls} for {method}: clashes with {other}; rename the method in a "
+        f"new major (sandloom generate --new-major {contract})\n"
+    )
+
+
+def args_clash_warnings(stub: str) -> list[str]:
+    """The ``warning:`` lines of a stub's argument classes that were skipped
+    (one per class: a pair of commands is named once)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for cls, method, other, contract in _CLASH.findall(stub):
+        if cls in seen:
+            continue
+        seen.add(cls)
+        out.append(
+            f"warning: contract {contract}: no {cls} for {method}: clashes with "
+            f"{other}; its saga args stay a Mapping. Rename the method in a new "
+            f"major (sandloom generate --new-major {contract})"
+        )
     return out
 
 
@@ -1696,7 +1749,24 @@ def main(argv: list[str] | None = None) -> int:
         apply_files=apply,
     )
     _warn_view_compat(rules, generated_ok=code == 0 and not args.check)
+    _warn_args_clashes(files, generated_ok=code == 0)
     return _after_new_major(code, args.new_major)
+
+
+def _warn_args_clashes(files: Iterable[Generated], *, generated_ok: bool) -> None:
+    """After a successful run (``--check`` included), print each command whose
+    argument class a stub skipped for a name clash, once per contract and class
+    however many consumers hold the stub. Never changes the exit status."""
+    if not generated_ok:
+        return
+    printed: set[str] = set()
+    for file in files:
+        if file.path.suffix != ".py":
+            continue
+        for line in args_clash_warnings(file.content):
+            if line not in printed:
+                printed.add(line)
+                print(line, file=sys.stderr)
 
 
 def _warn_view_compat(rules: ArchRules, *, generated_ok: bool) -> None:

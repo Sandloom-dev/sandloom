@@ -20,7 +20,6 @@ import pytest
 from pydantic import BaseModel
 
 from sandloom.core.cli import consumer_copies, generated
-from sandloom.core.cli.dto_copies import CopyError
 from sandloom.core.cli.generated import args_name, render_stub
 from sandloom.core.module_api import contract_schema
 from sandloom.sdk.contracts import contract_method
@@ -145,40 +144,116 @@ def test_the_typeddict_holds_exactly_the_signature_minus_the_key(
         sys.modules.pop("sdkgen_ledger_v1", None)
 
 
-def test_two_commands_with_one_class_name_are_refused() -> None:
-    """``a_b`` and ``aB`` both become ``...AbArgs``: the second would replace
-    the first, so the generator refuses instead of writing one of them."""
+class Clash:
+    """``a_b`` and ``aB`` both become ``...ABArgs``, ``ok`` is unaffected."""
 
-    class Clash:
-        @classmethod
-        @contract_method(command=True, idempotency_key="operation_key")
-        async def a_b(cls, operation_key: str) -> None:
-            return None
+    @classmethod
+    @contract_method(command=True, idempotency_key="operation_key")
+    async def a_b(cls, operation_key: str) -> None:
+        return None
 
-        @classmethod
-        @contract_method(command=True, idempotency_key="operation_key")
-        async def aB(cls, operation_key: str) -> None:
-            return None
+    @classmethod
+    @contract_method(command=True, idempotency_key="operation_key")
+    async def aB(cls, operation_key: str) -> None:
+        return None
 
-    with pytest.raises(CopyError) as raised:
-        render_stub("sdkgen.clash.v1", Clash)
-    assert "SdkgenClashV1ABArgs" in str(raised.value)
-    assert "rename the command method" in str(raised.value)
+    @classmethod
+    @contract_method(command=True, idempotency_key="operation_key")
+    async def ok(cls, n: int, operation_key: str) -> None:
+        return None
 
 
-def test_a_command_class_may_not_take_the_name_of_another_class_of_the_stub() -> None:
+def test_two_commands_with_one_class_name_get_no_class_but_the_stub_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second would replace the first, so neither gets a class: a comment
+    stands in its place, the Protocol methods and the other commands'
+    classes are still generated, and the stub imports."""
+    stub = render_stub("sdkgen.clash.v1", Clash)
+    contract_hint = "rename the method in a new major (sandloom generate --new-major"
+    assert (
+        "# no SdkgenClashV1ABArgs for aB: clashes with method a_b; "
+        f"{contract_hint} sdkgen.clash.v1)\n"
+    ) in stub
+    assert (
+        "# no SdkgenClashV1ABArgs for a_b: clashes with method aB; "
+        f"{contract_hint} sdkgen.clash.v1)\n"
+    ) in stub
+    assert "class SdkgenClashV1ABArgs" not in stub
+    assert "async def a_b(" in stub and "async def aB(" in stub
+    assert "class SdkgenClashV1OkArgs(TypedDict):" in stub
+    (tmp_path / "sdkgen_clash_v1.py").write_text(stub)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        module = importlib.import_module("sdkgen_clash_v1")
+        assert hasattr(module, "SdkgenClashV1OkArgs")
+        assert not hasattr(module, "SdkgenClashV1ABArgs")
+    finally:
+        sys.modules.pop("sdkgen_clash_v1", None)
+    # without the clash the commands render as before
+    assert "# no " not in render_stub(CONTRACT, Ledger)
+
+
+def test_a_stub_with_a_skipped_class_is_ruff_formatted(tmp_path: Path) -> None:
+    """The comment between and after the classes is what ``ruff format`` writes."""
+    path = tmp_path / "sdkgen_clash_v1.py"
+    path.write_text(render_stub("sdkgen.clash.v1", Clash))
+    proc = subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--check", "--no-cache", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_a_skipped_class_is_warned_once_naming_the_pair_and_the_fix() -> None:
+    stub = render_stub("sdkgen.clash.v1", Clash)
+    warnings = generated.args_clash_warnings(stub + stub)  # two consumers' stubs
+    assert warnings == [
+        "warning: contract sdkgen.clash.v1: no SdkgenClashV1ABArgs for aB: clashes "
+        "with method a_b; its saga args stay a Mapping. Rename the method in a new "
+        "major (sandloom generate --new-major sdkgen.clash.v1)"
+    ]
+    assert generated.args_clash_warnings(render_stub(CONTRACT, Ledger)) == []
+
+
+def test_generate_prints_the_warning_and_keeps_its_exit_status(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stub = render_stub("sdkgen.clash.v1", Clash)
+    files = [
+        generated.Generated(Path("a/sdkgen_clash_v1.py"), stub, "SANDLOOM-T007"),
+        generated.Generated(Path("b/sdkgen_clash_v1.py"), stub, "SANDLOOM-T007"),
+    ]
+    generated._warn_args_clashes(files, generated_ok=True)
+    err = capsys.readouterr().err
+    assert err.count("warning: contract sdkgen.clash.v1: no SdkgenClashV1ABArgs") == 1
+    generated._warn_args_clashes(files, generated_ok=False)
+    assert capsys.readouterr().err == ""
+
+
+def test_a_command_class_taking_a_name_of_the_stub_gets_no_class() -> None:
     """The Protocol and the access atoms already hold names of the stub."""
     runtimes = contract_schema(Ledger).methods
     imports = generated._Imports()
     reserved = [args_name(PROTOCOL, "charge")]
-    with pytest.raises(CopyError):
-        generated._render_args_types(
-            CONTRACT, PROTOCOL, runtimes, reserved, imports, None
-        )
-    # without the clash the same commands render
-    assert len(
-        generated._render_args_types(CONTRACT, PROTOCOL, runtimes, [], imports, None)
-    ) == len([r for r in runtimes.values() if r.kind == "command"])
+    blocks = generated._render_args_types(
+        CONTRACT, PROTOCOL, runtimes, reserved, imports, None
+    )
+    commands = [r for r in runtimes.values() if r.kind == "command"]
+    assert len(blocks) == len(commands)
+    comments = [b for b in blocks if b.startswith("# no ")]
+    assert comments == [
+        "# no SdkgenLedgerV1ChargeArgs for charge: clashes with another name of "
+        "this stub; rename the method in a new major "
+        f"(sandloom generate --new-major {CONTRACT})\n"
+    ]
+    # without the clash every command renders its class
+    plain = generated._render_args_types(
+        CONTRACT, PROTOCOL, runtimes, [], imports, None
+    )
+    assert not [b for b in plain if b.startswith("# no ")]
 
 
 class SdkgenDtoV1PutArgs(BaseModel):
@@ -189,7 +264,7 @@ class SdkgenDtoV1PutArgs(BaseModel):
 
 def test_a_command_class_may_not_shadow_a_dto_the_stub_imports() -> None:
     """A DTO named in a signature is imported into the stub: a TypedDict of
-    that name would shadow it, so the generator refuses instead."""
+    that name would shadow it, so that command gets no class (a comment)."""
 
     class Dto:
         @classmethod
@@ -197,10 +272,10 @@ def test_a_command_class_may_not_shadow_a_dto_the_stub_imports() -> None:
         async def put(cls, body: SdkgenDtoV1PutArgs, operation_key: str) -> None:
             return None
 
-    with pytest.raises(CopyError) as raised:
-        render_stub("sdkgen.dto.v1", Dto)
-    assert "SdkgenDtoV1PutArgs" in str(raised.value)
-    assert "already a name of this stub" in str(raised.value)
+    stub = render_stub("sdkgen.dto.v1", Dto)
+    assert "# no SdkgenDtoV1PutArgs for put: clashes with another name of" in stub
+    assert "class SdkgenDtoV1PutArgs(TypedDict)" not in stub
+    assert "SdkgenDtoV1PutArgs" in stub  # the imported DTO stays
 
     class Other:
         @classmethod
