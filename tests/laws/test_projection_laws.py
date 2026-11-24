@@ -503,7 +503,7 @@ async def test_deltas_under_the_inbox_count_each_event_exactly_once(
     with bind_tenant(tenant):
         for envelope in deliveries:
             if await inbox.claim(index_db, str(envelope["id"])):
-                await consumer.handler(index_db, envelope)
+                await consumer.handler(envelope)
         row = await _row(index_db, tenant, item)
     assert row is not None
     assert (row.likes, row.like_version) == (len(versions), max(versions))

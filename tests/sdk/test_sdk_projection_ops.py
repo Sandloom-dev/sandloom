@@ -351,10 +351,10 @@ async def test_an_event_older_than_the_watermark_is_refused_on_apply(
     }
     old = {"id": "e-old", "payload": payload, "emitted_at": mark - timedelta(seconds=1)}
     with bind_tenant(tenant), pytest.raises(PoisonEventError, match="watermark"):
-        await consumer.handler(index_db, old)
+        await consumer.handler(old)
     new = {"id": "e-new", "payload": payload, "emitted_at": mark + timedelta(seconds=1)}
     with bind_tenant(tenant):
-        await consumer.handler(index_db, new)
+        await consumer.handler(new)
         index_db.expire_all()
         assert (await index_db.get(NoteIndex, (tenant, note))) is not None
 
@@ -685,8 +685,8 @@ async def test_a_waiting_relational_read_reloads_the_rows_it_already_holds(
 
     async def commit(version: int, delay: float = 0.0) -> None:
         await asyncio.sleep(delay)
-        async with sessions() as writer, bind_test_uow(writer):
-            with bind_tenant(tenant):
+        async with sessions() as writer:
+            with bind_test_uow(writer), bind_tenant(tenant):
                 event = NoteSaved(
                     note_id=note, tenant_id=tenant, title=f"v{version}", version=version
                 )

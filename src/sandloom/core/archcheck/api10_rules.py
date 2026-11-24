@@ -1076,7 +1076,7 @@ def find_beginner_tier_problems(
             if all(name in names for name in advanced)
         )
         where = (
-            f"is tier 2, used with no marker only in a module's {files[0]}"
+            f"is not in the beginner tier (tier 2: free only in a module's {files[0]})"
             if files
             else "is not in the beginner tier"
         )

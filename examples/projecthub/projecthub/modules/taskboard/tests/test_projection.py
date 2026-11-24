@@ -35,7 +35,8 @@ from sandloom.sdk.tenant import (  # sandloom: advanced test inspection
     bind_tenant,
     unscoped,
 )
-from sandloom.sdk.testing import (  # sandloom: advanced skip a race where writers take turns
+from sandloom.sdk.testing import (  # sandloom: advanced bind a unit, skip a race
+    bind_test_uow,
     fake_contract,
     skip_unless_db_feature,
 )
@@ -62,7 +63,8 @@ def _committing_opener(sessionmaker: async_sessionmaker):  # noqa: ANN202
     async def opener(_name: str):
         async with sessionmaker() as session:
             try:
-                yield session
+                with bind_test_uow(session):  # the unit the handler's db() reads
+                    yield session
                 await session.commit()
             except Exception:
                 await session.rollback()
@@ -281,7 +283,8 @@ async def test_project_update_waits_for_an_uncommitted_task_insert(
     async def held_opener(_name: str):
         """The task delivery's unit: its transaction stays open until released."""
         async with sessionmaker() as session:
-            yield session
+            with bind_test_uow(session):
+                yield session
             inserted.set()  # the handler returned: the row is inserted, not committed
             await release.wait()
             await session.commit()

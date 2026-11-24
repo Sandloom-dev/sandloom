@@ -32,7 +32,7 @@ from sandloom.core.projections import (
     start_projection_consumers,
 )
 from sandloom.core.projections.registry import ProjectionRegistryError
-from sandloom.core.testing import reload_test_env
+from sandloom.core.testing import bind_test_uow, reload_test_env
 
 
 async def _noop_handler(envelope: object) -> None:  # pragma: no cover
@@ -311,7 +311,8 @@ async def test_consumer_applies_and_is_monotonic_and_idempotent(
     async def opener(_name: str) -> AsyncGenerator[object, None]:
         async with projection_db() as session:
             try:
-                yield session
+                with bind_test_uow(session):  # the unit the handler's db() reads
+                    yield session
                 await session.commit()
             except Exception:
                 await session.rollback()

@@ -214,7 +214,9 @@ def test_add_task_writes_an_idempotent_task_and_its_schedule(tmp_path: Path) -> 
     created, _ = add.add_task("notes", "rollup", where, periodic="*/15 * * * *")
     assert created == [tasks]  # declared once
     source = tasks.read_text()
-    assert "from sandloom.sdk.tasks import periodic  # sandloom: advanced" in source
+    # tier 2 in tasks.py: the imports of `sandloom add task` carry no marker
+    assert "from sandloom.sdk.tasks import periodic\n" in source
+    assert "# sandloom: advanced" not in source
     assert "async def purge() -> None:" in source
     assert '@periodic(cron="0 3 * * *", id="notes.purge")' in source
     assert '@periodic(cron="*/15 * * * *", id="notes.rollup")' in source
@@ -223,9 +225,8 @@ def test_add_task_writes_an_idempotent_task_and_its_schedule(tmp_path: Path) -> 
     # a plain task joins the existing sandloom.sdk.tasks import
     add.add_task("notes", "reindex", where)
     source = tasks.read_text()
-    assert (
-        "from sandloom.sdk.tasks import periodic, task  # sandloom: advanced" in source
-    )
+    assert "from sandloom.sdk.tasks import periodic, task\n" in source
+    assert "# sandloom: advanced" not in source
     assert source.count("from sandloom.sdk.tasks import") == 1
     assert source.count("from sandloom.sdk.data import open_uow") == 1
     assert "@task\nasync def reindex() -> None:" in source

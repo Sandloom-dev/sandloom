@@ -238,7 +238,7 @@ async def test_the_registered_handler_decodes_the_envelope(index_db: Any) -> Non
         },
     }
     with bind_tenant(tenant):
-        await consumer.handler(index_db, envelope)
+        await consumer.handler(envelope)
         row = await _row(index_db, tenant, note)
     assert row.title == "via handler"
 
