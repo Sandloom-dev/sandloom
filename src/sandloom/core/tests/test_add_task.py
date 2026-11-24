@@ -51,7 +51,13 @@ def test_a_periodic_task_teaches_at_least_once_not_a_default_repeat(
     source = (
         tmp_path / "probe" / "probe" / "modules" / "notes" / "tasks.py"
     ).read_text()
-    assert "at most once per slot" in source
-    assert "at_least_once=True" in source
+    # Two facts: a slot is sent twice only in two cases and can be lost (any
+    # ack mode), and a dead worker loses the run unless the task is
+    # at_least_once.
+    assert "A slot is sent twice only when" in source
+    assert "it can\n    be lost" in source
+    assert "harmless to repeat" in source and "next run catch up" in source
+    assert "loses the run unless the task declares\n    at_least_once=True" in source
     assert "redelivery" in source
+    assert "at most once per slot" not in source
     assert "A run can repeat" not in source

@@ -228,9 +228,9 @@ TASKQUEUE_CAPABILITY = CapabilitySpec(
         # ``send(delay=)``.
         "delay": "behaviour",
         # The driver's host runs the scheduler in at least one process while the
-        # deployment runs (G-INFRA-11); a run may repeat, so the module
-        # tolerates duplicates. A module with a ``@periodic`` task needs it
-        # (derived at load, declared: SANDLOOM-C033).
+        # deployment runs (G-INFRA-11); the scheduler can send a slot twice,
+        # so the module tolerates duplicates. A module with a ``@periodic``
+        # task needs it (derived at load, declared: SANDLOOM-C033).
         "periodic": "guarantee",
         # An ``at_least_once`` task is redelivered when its worker dies.
         "redelivery": "guarantee",

@@ -845,13 +845,15 @@ with an alias: `via: str = Field(alias="channel")`.''',
     "periodic-task": (
         "a nightly task: sandloom add task --periodic, an idempotent body, the beat",
         '''`sandloom add task --periodic` writes a `@periodic(cron=..., id=...)` task
-(the scheduler, `sandloom beat`, sends it at its cron slots). By default a task
-is acknowledged when it starts (at most once): a worker that dies mid-run loses
-that slot's work. Work that must not be lost takes `at_least_once=True` (the
-broker redelivers it when the worker dies); the run may then repeat, and a slot
-may also overlap a run that still works. Make every run harmless to repeat
-(delete or update by a condition, upsert, or claim a `durable_inbox` key): the
-purge below is, so it opts in. Work in short units, one `open_uow()` per batch.
+(the scheduler, `sandloom beat`, sends it at its cron slots). Two separate
+facts. The scheduler sends a slot twice only when its slot claim store is down
+or in the repeated daylight-saving hour, and a slot can be lost (a scheduler
+killed between claim and send), whatever the task declares. And by default a
+task is acknowledged when it starts: a worker that dies mid-run loses that run.
+`at_least_once=True` (also on `@periodic`) makes the broker redeliver it. Keep
+the body idempotent (delete or update by a condition, upsert, or claim a
+`durable_inbox` key) and let the next run catch up: the purge below does, so it
+opts in. Work in short units, one `open_uow()` per batch.
 
     uv run sandloom add task <module> purge_old_items --periodic "0 3 * * *"
 
