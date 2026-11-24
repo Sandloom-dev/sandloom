@@ -3240,6 +3240,7 @@
         "changelog.d/dx-module-less-boilerplate.md",
         "changelog.d/dx-config-no-silent.md",
         "changelog.d/dx-eval-t6-t8.md",
+        "changelog.d/dx-eval-tier2-metrics.md",
         "changelog.d/dx-examples-current-path.md",
         "changelog.d/dev-new-row-before-files.md",
         "changelog.d/inspection-merge-conflict.md",

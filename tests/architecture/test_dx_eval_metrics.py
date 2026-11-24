@@ -293,6 +293,118 @@ def test_the_patch_appmode_writes_gives_the_same_metrics(
     assert got["test_sdk_names"] == ["sandloom.sdk.OnlyInTests"]
 
 
+AFTER_FIRST = {
+    "sandloom.sdk.sagas": {"sagas.py": {"Saga", "step"}},
+    "sandloom.sdk.projections": {"projections.py": {"Projection"}},
+}
+
+
+def _app_patch(
+    tm: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    files: dict[str, str],
+) -> str:
+    """The ``changes.patch`` app mode writes for new files ``{path: text}``."""
+    monkeypatch.syspath_prepend(str(DX))
+    appmode = importlib.import_module("appmode")
+    pristine, app = tmp_path / "pristine", tmp_path / "app"
+    for rel, text in files.items():
+        for root, body in ((pristine, ""), (app, text)):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(body)
+    return appmode.app_patch(app, pristine, sorted(files))
+
+
+def test_a_tier_2_name_is_no_miss_in_its_own_file_and_a_miss_elsewhere(
+    tm: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saga = "from sandloom.sdk.sagas import Saga, step, start_saga\n"
+    patch = _app_patch(
+        tm,
+        tmp_path,
+        monkeypatch,
+        {
+            # the file `sandloom add saga` writes: Saga and step are free, start_saga is not
+            "app/modules/x/sagas.py": saga,
+            "app/modules/x/services.py": "from sandloom.sdk.sagas import Saga\n",
+            "app/modules/x/api/sagas.py": "from sandloom.sdk.sagas import step\n",
+            # another sdk module's tier 2 file name does not free this module's name
+            "app/modules/x/projections.py": "from sandloom.sdk.sagas import Saga\n",
+            "app/modules/x/tests/sagas.py": "from sandloom.sdk.sagas import Saga\n",
+        },
+    )
+    assert "diff --git" not in patch
+    got = tm.diff_metrics(patch, TIER, AFTER_FIRST)
+    # the imports still count as names; only the misses differ
+    assert got["sdk_names"] == [
+        "sandloom.sdk.sagas.Saga",
+        "sandloom.sdk.sagas.start_saga",
+        "sandloom.sdk.sagas.step",
+    ]
+    assert got["tier_misses"] == [
+        "sandloom.sdk.sagas.Saga",  # services.py, projections.py
+        "sandloom.sdk.sagas.start_saga",  # sagas.py: not in tier 2 here
+        "sandloom.sdk.sagas.step",  # api/sagas.py
+    ]
+    assert got["test_tier_misses"] == ["sandloom.sdk.sagas.Saga"]  # tests/sagas.py
+    only_sagas = _app_patch(
+        tm,
+        tmp_path / "only",
+        monkeypatch,
+        {"app/modules/x/sagas.py": "from sandloom.sdk.sagas import Saga, step\n"},
+    )
+    assert tm.diff_metrics(only_sagas, TIER, AFTER_FIRST)["tier_misses"] == []
+    # a tier with no tier 2 names (the default) counts them as misses
+    assert tm.diff_metrics(only_sagas, TIER)["tier_misses"] == [
+        "sandloom.sdk.sagas.Saga",
+        "sandloom.sdk.sagas.step",
+    ]
+
+
+def test_the_metric_and_sandloom_test_agree_on_every_file_of_the_real_tier(
+    tm: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One rule, two readers: for each of the real tier 2 names in each file
+    position, the metric calls it a miss exactly when SANDLOOM-T009's
+    ``find_beginner_tier_problems`` flags the same file."""
+    from sandloom.core.archcheck import api10_rules
+
+    beginner, after_first = tm.beginner_tier(), tm.after_first_tier()
+    cases = [
+        (module, file, name)
+        for module, files in after_first.items()
+        for file, names in files.items()
+        for name in sorted(names)
+    ]
+    assert {file for _, file, _ in cases} == {"sagas.py", "projections.py", "tasks.py"}
+    where = ["{f}", "services.py", "api/{f}", "tests/{f}", "other.py"]
+    seen_free = seen_miss = 0
+    for module, file, name in cases:
+        for pattern in where:
+            position = pattern.format(f=file)
+            rel = f"app/modules/x/{position}"
+            src = f"from {module} import {name}\n"
+            case_dir = tmp_path / f"{module}.{name}.{position.replace('/', '_')}"
+            patch = _app_patch(tm, case_dir, monkeypatch, {rel: src})
+            got = tm.diff_metrics(patch, beginner, after_first)
+            missed = bool(got["tier_misses"] or got["test_tier_misses"])
+            real = case_dir / "app" / "app"  # _app_patch's app root, then `rel`
+            flagged = bool(
+                api10_rules.find_beginner_tier_problems(
+                    real / "modules" / "x" / position,
+                    beginner,
+                    after_first,
+                    real / "modules",
+                )
+            )
+            assert missed == flagged, (module, name, rel)
+            seen_free += not missed
+            seen_miss += missed
+    assert seen_free == len(cases)  # one free position each: the file itself
+    assert seen_miss == len(cases) * (len(where) - 1)
+
+
 def test_a_changed_line_that_looks_like_a_header_does_not_start_a_file(
     tm: ModuleType,
 ) -> None:
@@ -570,3 +682,11 @@ def test_wave1_results_carry_the_metrics() -> None:
         (DX / "results/dx-wave1-2026-11-24/t7_credits_event_v2.json").read_text()
     )
     assert t7["skills_read"] == ["sandloom-event-version-roll"]  # the one skill read
+    # tier 2 names in the module's own tasks.py / projections.py are no tier miss
+    for task, name in (
+        ("t8_purge_invitations", "sandloom.sdk.tasks.periodic"),
+        ("t6_team_overview", "sandloom.sdk.projections.Projection"),
+    ):
+        data = json.loads((DX / f"results/dx-wave1-2026-11-24/{task}.json").read_text())
+        assert name in data["sdk_names"]
+        assert name not in data["tier_misses"]

@@ -339,7 +339,7 @@ numbers come from the run's `transcript.jsonl` and `changes.patch`
 | `first_green_turn` | the turn (assistant message, as `turns` counts) of the first `sandloom test` whose output shows a pass: its `sandloom test: OK` line, or `PASS` step lines with no `FAIL`. Output a pipe cut to nothing shows nothing: not counted. `null`: none seen |
 | `t009_failures` | SANDLOOM-T009 lines in the agent's tool results, every rerun counted (the code named in `AGENTS.md` is not) |
 | `advanced_markers` | `# sandloom: advanced` lines the final diff adds to a module's own code |
-| `sdk_names`, `tier_misses` | `sandloom.sdk` names the final diff imports in a module's own code, as `module.Name`, and those outside the tier (a tier miss counts with or without a marker) |
+| `sdk_names`, `tier_misses` | `sandloom.sdk` names the final diff imports in a module's own code, as `module.Name`, and those outside the tier (a tier miss counts with or without a marker). A tier 2 name (`__after_first__`) is no miss in the file of a module's own directory that the tier names for it (`sagas.py`, `projections.py`, `tasks.py`), the rule SANDLOOM-T009 applies (`api10_rules.tier2_names_here`), and a miss anywhere else |
 | `test_sdk_names`, `test_tier_misses` | the same for the module's test files, apart: tests import `sandloom.sdk.testing` names and test doubles |
 
 The diff metrics count as SANDLOOM-T009 does: only files under an application's
