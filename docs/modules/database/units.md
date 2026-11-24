@@ -46,6 +46,11 @@ constructed, and `Note(...).id` can go into an event before the flush.
 A model that mixes in `Versioned` (`sandloom.sdk.data`, advanced) gets a
 `version` that the database counts up with each update. An event carries
 `note.version` after the flush. The code never writes `note.version += 1`.
+The update is checked. If another transaction updated the row after this unit
+read it, the flush raises `sqlalchemy.orm.exc.StaleDataError` and writes
+nothing. No event then carries the newer version with columns this unit never
+saw. To wait for the other transaction instead of failing, read the row with
+`select(Note).where(...).with_for_update()` before changing it.
 
 <!-- lookup -->
 - **Never call `commit()` or `rollback()`** on a session in module code

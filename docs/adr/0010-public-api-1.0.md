@@ -453,8 +453,9 @@ approved migration of the public `sdk` contract and beginner DX.
    `View`, `full_state`, `tombstone`) and the six testing names. The list is
    a proposal that the owner confirms or trims when the change merges;
    `Versioned` stays advanced (`sandloom.sdk.data`), and so does everything
-   else of the two modules. `sandloom check` reports T009 as well as the
-   schema step of `sandloom test`.
+   else of the two modules. `sandloom check` reports T009, and `sandloom test`
+   runs it in its `sandloom check` step; the schema step of `sandloom test` no
+   longer reports it.
 3. **Generation.** A route policy that uses a generated atom adds the
    atom's contract to the module's `consumes` (it already does for the
    kernel's live atoms), so `sandloom generate` writes the stub and the

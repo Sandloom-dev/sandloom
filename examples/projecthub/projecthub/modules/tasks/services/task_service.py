@@ -61,7 +61,7 @@ class TaskService:
     @classmethod
     async def _get_or_404(cls, task_id: UUID) -> Task:
         task = (
-            await db().execute(select(Task).where(Task.id == task_id))
+            await db().execute(select(Task).where(Task.id == task_id).with_for_update())
         ).scalar_one_or_none()
         if task is None:
             raise NotFound("Task not found")

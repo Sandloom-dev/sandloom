@@ -69,7 +69,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`tenant_upsert`](#tenant_upsert) | async function | Insert `rows` of a `TenantScoped` model for the bound tenant and, where a row of that tenant already exists, refresh the `update` columns... |
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
-| [`Versioned`](#versioned) | class | A `version: bigint` column the database counts up: `1` on insert, plus one by every ORM update of the row, so a module never writes `item... |
+| [`Versioned`](#versioned) | class | A `version: bigint` column the database counts up: `1` on insert, plus one by every update of the row, so a module never writes `item.ver... |
 | [`WallClock`](#wallclock) | class | The database's clock when the statement runs ("now, at the call"). |
 
 ## Beginner names
@@ -85,9 +85,10 @@ Base class for all SQLAlchemy models.
 `eager_defaults`: a flush reads back every value the database set
 (`CreatedAt` on insert, `UpdatedAt` on update) with `RETURNING`, so a
 model's `created_at` / `updated_at` are loaded right after
-`flush()`: no `await db().refresh(row)`. A model that declares its own
-`__mapper_args__` (polymorphic inheritance) names `eager_defaults` there
-too.
+`flush()`: no `await db().refresh(row)`. It holds for every model,
+also one that declares its own `__mapper_args__` (polymorphic
+inheritance); a model that names `eager_defaults=False` there keeps
+that choice.
 
 ### `CreatedAt`
 
@@ -1060,7 +1061,7 @@ class Versioned
 ```
 
 A `version: bigint` column the database counts up: `1` on insert,
-plus one by every ORM update of the row, so a module never writes
+plus one by every update of the row, so a module never writes
 `item.version += 1`:
 
 ```python
@@ -1075,6 +1076,17 @@ UPDATE (`eager_defaults`), so no `refresh` is needed. Events carry it
 so a consumer can drop a stale or repeated one. A statement that updates
 no column leaves the version as it was; `version` itself is never set by
 hand.
+
+The update is checked, so the version never goes out with a stale row: the
+ORM writes `WHERE version = <the version this unit loaded>`. When another
+transaction updated the row after this unit read it, the flush raises
+`sqlalchemy.orm.exc.StaleDataError` and writes nothing, so no event
+carries the newer version with columns this unit never saw. To wait for the
+other transaction instead of failing, read the row with
+`select(...).with_for_update()` before changing it. A model that declares
+its own `__mapper_args__` names `version_id_col=Model.version` and
+`version_id_generator=False` there (a model that does not is refused when
+it is declared).
 
 ### `WallClock`
 

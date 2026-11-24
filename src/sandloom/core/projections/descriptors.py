@@ -30,7 +30,7 @@ from sandloom.core.consumers.callbacks import (
     validate_consumer_identity,
 )
 from sandloom.core.eventing.delivery import START_FROM_EARLIEST
-from sandloom.core.utils import binds
+from sandloom.core.utils import takes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,11 +98,13 @@ def _with_session(handler: ProjectionHandlerFn, name: str) -> ProjectionHandler:
     """``handler`` as the runtime's ``(session, envelope)`` function. One that
     takes only the envelope runs on ``db()`` (the unit the runtime opened for
     the event); one that fits neither shape is refused here, not at the first
-    delivery. The signature read is the function's own (``follow_wrapped=False``)
-    so a wrapper the runtime built (``watermark_guarded``) keeps its shape."""
-    if binds(handler, 2, follow_wrapped=False):
+    delivery. Only a required parameter counts: ``apply(envelope, retries=3)``
+    takes the envelope alone. The signature read is the function's own
+    (``follow_wrapped=False``) so a wrapper the runtime built
+    (``watermark_guarded``) keeps its shape."""
+    if takes(handler, 2, follow_wrapped=False):
         return cast(ProjectionHandler, handler)
-    if not binds(handler, 1, follow_wrapped=False):
+    if not takes(handler, 1, follow_wrapped=False):
         raise TypeError(
             f"consumer {name!r}: handler takes `async def f(envelope)` (the "
             f"session is `db()`) or `async def f(session, envelope)`, not "

@@ -50,12 +50,28 @@ LocalFn = (
 KernelLocalFn = Callable[[Any, SagaContext[Any]], Awaitable[Any]]
 
 
-def _binds(signature: inspect.Signature, count: int) -> bool:
+def _takes(signature: inspect.Signature, count: int) -> bool:
+    """Whether the function takes ``count`` positional arguments: it requires
+    that many, or accepts any number (``*args``). Only a required parameter
+    counts, so ``apply(ctx, dry_run=False)`` takes the context alone and its
+    second parameter is never handed the session. (The kernel's
+    ``sandloom.core.utils.takes`` is the same rule; this layer imports no
+    kernel module.)"""
     try:
         signature.bind(*([None] * count))
     except TypeError:
         return False
-    return True
+    parameters = signature.parameters.values()
+    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters):
+        return True
+    required = sum(
+        1
+        for p in parameters
+        if p.kind
+        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        and p.default is inspect.Parameter.empty
+    )
+    return required == count
 
 
 def _with_session(fn: LocalFn, *, what: str) -> KernelLocalFn:
@@ -64,9 +80,9 @@ def _with_session(fn: LocalFn, *, what: str) -> KernelLocalFn:
     inside a local step. A function that fits neither shape is refused; one
     that fits both (``*args``) keeps the earlier ``(session, ctx)`` form."""
     signature = inspect.signature(fn)
-    if _binds(signature, 2):
+    if _takes(signature, 2):
         return cast(KernelLocalFn, fn)
-    if not _binds(signature, 1):
+    if not _takes(signature, 1):
         raise TypeError(
             f"local_step({what}=...) takes `async def f(ctx)` (the session is "
             f"`db()`) or `async def f(session, ctx)`, not {fn!r}"

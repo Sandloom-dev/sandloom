@@ -89,6 +89,20 @@ The row or resource the request names does not exist (404):
 `raise NotFound("item not found")`. Also what a row of another tenant is:
 never reveal that it exists.
 
+Not `sandloom.sdk.infra.NotFound`, the error an object store raises for a
+missing key: an unrelated class (it is no `Refused`), so `except
+NotFound` with this one does not catch a storage miss, and one left
+uncaught is a 500. Catch the storage one and raise this one:
+
+```python
+from sandloom.sdk.infra import NotFound as ObjectMissing
+
+try:
+    data = await objectstore().get(key)
+except ObjectMissing:
+    raise NotFound("report not found") from None
+```
+
 ### `Refused`
 
 ```python

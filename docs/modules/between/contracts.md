@@ -84,6 +84,9 @@ class Credits:
   detail, headers and code, locally and over RPC. An `AttributeError` /
   `ValueError` escaping provider code is a provider failure (500 locally, 503
   remotely).
+- **A storage miss is not a `NotFound`.** `sandloom.sdk.NotFound` and
+  `sandloom.sdk.infra.NotFound` (an object store's missing key) are unrelated
+  classes: catch the storage one and raise yours, or the miss is a 500.
 - **Locks.** Never hold a row lock that a contract you call will also take:
   the call runs in another transaction on another connection, and waits at
   most `CONTRACT_DB_LOCK_TIMEOUT_MS`.

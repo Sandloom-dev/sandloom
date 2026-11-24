@@ -10,6 +10,7 @@ parameter is documented as the earlier form, never a ``DeprecationWarning``
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -29,7 +30,9 @@ from sandloom.core.projections import operations as projection_operations
 from sandloom.core.projections.descriptors import ProjectionConsumerDescriptor
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
 from sandloom.core.tests.saga_fixtures import EnrollInput, enroll_input
+from sandloom.core.utils import takes
 from sandloom.sdk import db as unit_db  # the fixture `db` below keeps its name
+from sandloom.sdk._decl.sagas import _takes as sagas_takes
 from sandloom.sdk.authz import Owner
 from sandloom.sdk.sagas import SagaContext, local_step
 from sandloom.shared.authz import authorize_resource
@@ -74,6 +77,22 @@ async def test_the_earlier_session_and_ctx_form_still_gets_both() -> None:
 async def test_a_function_that_fits_both_shapes_keeps_the_earlier_form() -> None:
     step = local_step("reserve", apply=_greedy)
     assert await step.apply("s", "c") == {"args": 2}
+
+
+async def test_a_defaulted_second_parameter_is_not_the_session() -> None:
+    """``apply(ctx, dry_run=False)`` takes the context alone: its option keeps
+    its default, it is never handed the session."""
+
+    async def apply(ctx: Any, dry_run: bool = False) -> dict[str, Any]:
+        return {"dry_run": dry_run, "price": ctx.input.price}
+
+    step = local_step("reserve", apply=apply, compensate=apply)
+    assert await step.apply("the-session", _CTX) == {"dry_run": False, "price": 7}
+    assert step.compensate is not None
+    assert await step.compensate("the-session", _CTX) == {
+        "dry_run": False,
+        "price": 7,
+    }
 
 
 @pytest.mark.parametrize(
@@ -156,6 +175,21 @@ async def test_the_earlier_two_argument_loader_gets_the_request_session() -> Non
     assert got == [_REQUEST_SESSION]
 
 
+async def test_a_loader_with_a_defaulted_second_parameter_takes_the_id_alone(
+    ambient_uow: Any,
+) -> None:
+    """``load(id, include_archived=False)``: the option keeps its default, so
+    archived rows stay hidden; it is never handed the session (truthy)."""
+    got: list[Any] = []
+
+    async def load(note_id: str, include_archived: bool = False) -> dict[str, Any]:
+        got.append(include_archived)
+        return {"id": note_id, "owner": _OWNER}
+
+    await _authorize(load)
+    assert got == [False]
+
+
 async def test_a_loader_that_returns_nothing_is_a_404(ambient_uow: Any) -> None:
     async def load(note_id: str) -> None:
         return None
@@ -205,6 +239,20 @@ async def test_the_earlier_session_and_envelope_handler_gets_both() -> None:
 
     await _descriptor(apply).apply("s", "e")
     assert seen == [("s", "e")]
+
+
+async def test_a_handler_with_a_defaulted_second_parameter_takes_the_envelope_alone(
+    ambient_uow: Any,
+) -> None:
+    """``apply(envelope, retries=3)``: the option keeps its default, it is
+    never handed the session."""
+    seen: list[Any] = []
+
+    async def apply(envelope: Any, retries: int = 3) -> None:
+        seen.append((envelope, retries))
+
+    await _descriptor(apply).apply("the-session", "e")
+    assert seen == [("e", 3)]
 
 
 @pytest.mark.parametrize(
@@ -364,3 +412,59 @@ async def test_a_wrong_positional_count_is_refused(helper: Any, count: int) -> N
     kwargs["match" if helper is monotonic_update else "key"] = {}
     with pytest.raises(TypeError, match="positional arguments"):
         await helper(*(["x"] * count), **kwargs)
+
+
+# --------------------------------------------------------------------------- #
+# The shape rule: only a required parameter counts
+# --------------------------------------------------------------------------- #
+
+#: ``(function, positional count, takes it)``: the kernel's ``takes`` and the
+#: declarative level's copy of it (it imports no kernel module) must agree.
+_SHAPES = [
+    (lambda a: None, 1, True),
+    (lambda a: None, 2, False),
+    (lambda a, b: None, 2, True),
+    (lambda a, b: None, 1, False),
+    (lambda a, b=1: None, 1, True),
+    (lambda a, b=1: None, 2, False),
+    (lambda a, /, b=1: None, 1, True),
+    (lambda a=1, b=2: None, 1, False),
+    (lambda a=1, b=2: None, 2, False),
+    (lambda *a: None, 1, True),
+    (lambda *a: None, 2, True),
+    (lambda a, *rest: None, 1, True),
+    (lambda a, *rest: None, 2, True),
+    (lambda a, *, flag: None, 1, False),
+    (lambda a, *, flag=False: None, 1, True),
+]
+_SHAPE_IDS = [
+    "one-one",
+    "one-two",
+    "two-two",
+    "two-one",
+    "default-one",
+    "default-two",
+    "positional-only-default-one",
+    "all-default-one",
+    "all-default-two",
+    "star-one",
+    "star-two",
+    "rest-one",
+    "rest-two",
+    "required-keyword",
+    "optional-keyword",
+]
+
+
+@pytest.mark.parametrize(("fn", "count", "expected"), _SHAPES, ids=_SHAPE_IDS)
+def test_takes_counts_only_required_parameters(
+    fn: Any, count: int, expected: bool
+) -> None:
+    assert takes(fn, count) is expected
+
+
+@pytest.mark.parametrize(("fn", "count", "expected"), _SHAPES, ids=_SHAPE_IDS)
+def test_the_declarative_levels_copy_of_the_rule_agrees(
+    fn: Any, count: int, expected: bool
+) -> None:
+    assert sagas_takes(inspect.signature(fn), count) is expected

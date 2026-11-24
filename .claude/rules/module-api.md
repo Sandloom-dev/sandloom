@@ -13,7 +13,7 @@ class Note(TenantScoped, Base): ...        # tenant_id column + automatic filter
     due_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)  # any other time (C029)
 db() -> AsyncSession                       # the running unit's session: add/flush, never commit
 raise NotFound("note not found")           # also Conflict("code taken"), Refused(422, "reason"; status 4xx): service, contract, saga step
-with bind_tenant(tenant_id): ...           # serve one tenant: a task, a test, an organization route
+with bind_tenant(tenant_id): ...           # serve one tenant: a task, a consumer, a script, a test
 router = module_router(*, prefix=None, tags=None, tenant="derive", dependencies=())  # api.py
 public(*, reason: str, issues_tokens=False) -> Depends   # dependencies=[public(reason="...")]
 user: CurrentUser                          # the caller (UserContext: .user_id, roles, claims)

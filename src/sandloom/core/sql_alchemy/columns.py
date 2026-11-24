@@ -34,7 +34,13 @@ from typing import Annotated, Any
 
 from sqlalchemy import BigInteger, event, text
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.orm import Mapped, Mapper, configure_mappers, mapped_column
+from sqlalchemy.orm import (
+    Mapped,
+    Mapper,
+    configure_mappers,
+    declared_attr,
+    mapped_column,
+)
 from sqlalchemy.sql.schema import CallableColumnDefault
 
 from sandloom.core.sql_alchemy.base import Base
@@ -88,7 +94,7 @@ the statement (``clock_timestamp()`` on PostgreSQL).
 
 class Versioned:
     """A ``version: bigint`` column the database counts up: ``1`` on insert,
-    plus one by every ORM update of the row, so a module never writes
+    plus one by every update of the row, so a module never writes
     ``item.version += 1``::
 
         class Project(TenantScoped, Versioned, Base):
@@ -101,11 +107,40 @@ class Versioned:
     so a consumer can drop a stale or repeated one. A statement that updates
     no column leaves the version as it was; ``version`` itself is never set by
     hand.
+
+    The update is checked, so the version never goes out with a stale row: the
+    ORM writes ``WHERE version = <the version this unit loaded>``. When another
+    transaction updated the row after this unit read it, the flush raises
+    ``sqlalchemy.orm.exc.StaleDataError`` and writes nothing, so no event
+    carries the newer version with columns this unit never saw. To wait for the
+    other transaction instead of failing, read the row with
+    ``select(...).with_for_update()`` before changing it. A model that declares
+    its own ``__mapper_args__`` names ``version_id_col=Model.version`` and
+    ``version_id_generator=False`` there (a model that does not is refused when
+    it is declared).
     """
 
     version: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=1, onupdate=text("version + 1")
     )
+
+    @declared_attr.directive
+    def __mapper_args__(cls) -> dict[str, Any]:
+        # ``version_id_generator=False``: the database counts (``onupdate``),
+        # the ORM only checks the version it loaded and reads the new one back.
+        return {"version_id_col": cls.version, "version_id_generator": False}
+
+
+@event.listens_for(Base, "instrument_class", propagate=True)
+def _versioned_is_checked(mapper: Mapper[Any], class_: type) -> None:
+    """A ``Versioned`` model whose own ``__mapper_args__`` replaced the mixin's
+    would count versions with no stale-write check: refuse it when declared."""
+    if issubclass(class_, Versioned) and mapper.version_id_col is None:
+        raise TypeError(
+            f"{class_.__name__} mixes in Versioned but its own __mapper_args__ "
+            "dropped the stale-write check; name "
+            "`version_id_col=<Model>.version, version_id_generator=False` there"
+        )
 
 
 # --------------------------------------------------------------------------- #

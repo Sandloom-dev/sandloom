@@ -38,7 +38,7 @@ from sandloom.core.di import (
     get_db,
     sensitive_effect,
 )
-from sandloom.core.utils import binds
+from sandloom.core.utils import takes
 from sandloom.shared.authz.account import bind_authz_request
 from sandloom.shared.authz.algebra import Requirement
 from sandloom.shared.authz.context import AuthzContext
@@ -229,10 +229,12 @@ ResourceLoader = (
 def _loader_takes_session(loader: ResourceLoader) -> bool:
     """Whether ``loader`` is the earlier ``(id, session)`` form. One that fits
     both shapes (``*args``) keeps that form; one that fits neither is refused
-    when the dependency is built, not at the first request."""
-    if binds(loader, 2):
+    when the dependency is built, not at the first request. Only a required
+    parameter counts: ``load(id, include_archived=False)`` takes the id alone,
+    its second parameter is never handed the session."""
+    if takes(loader, 2):
         return True
-    if binds(loader, 1):
+    if takes(loader, 1):
         return False
     raise TypeError(
         "authorize_resource(loader=...) takes `async def load(id)` (read through "
@@ -255,7 +257,8 @@ def authorize_resource(
         loader: ``async (id_value) -> entity | None``, reading through
             ``db()`` — the module supplies its own loader (keeps ``shared``
             free of ORM imports). The earlier ``async (id_value, session)``
-            form still works.
+            form still works. Only a required parameter counts: a defaulted
+            second one (``include_archived=False``) is not the session.
         by: name of the path parameter holding the resource id.
         policy: requirement to enforce; resource atoms (``Owner``) read the
             loaded entity.

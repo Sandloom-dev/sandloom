@@ -55,8 +55,12 @@ class ProjectService:
 
     @classmethod
     async def _get_or_404(cls, project_id: UUID) -> Project:
+        # FOR UPDATE: a second update of this project waits here for the first
+        # to commit, then reads its columns; the event carries the whole state.
         project = (
-            await db().execute(select(Project).where(Project.id == project_id))
+            await db().execute(
+                select(Project).where(Project.id == project_id).with_for_update()
+            )
         ).scalar_one_or_none()
         if project is None:
             raise NotFound("Project not found")

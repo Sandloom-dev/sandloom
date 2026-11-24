@@ -94,7 +94,7 @@ Load a resource by path id, authorize, and return it to the endpoint.
 
 **Args:**
 
-- `loader`: `async (id_value) -> entity | None`, reading through `db()` — the module supplies its own loader (keeps `shared` free of ORM imports). The earlier `async (id_value, session)` form still works.
+- `loader`: `async (id_value) -> entity | None`, reading through `db()` — the module supplies its own loader (keeps `shared` free of ORM imports). The earlier `async (id_value, session)` form still works. Only a required parameter counts: a defaulted second one (`include_archived=False`) is not the session.
 - `by`: name of the path parameter holding the resource id.
 - `policy`: requirement to enforce; resource atoms (`Owner`) read the loaded entity.
 - `cast`: optional converter applied to the raw path value before `loader` (e.g. `UUID`). Defaults to passing the raw string.
