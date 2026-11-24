@@ -454,13 +454,23 @@ too.
 
 The `sandloom check` rules named here are static. They catch the mistakes of
 ordinary code, the ones a module author or an AI agent writes in good faith.
-They do not promise to stop a deliberate bypass. That is the job of the runtime
-cursor guard and of
-[Row-Level Security](#postgresql-row-level-security-optional). SANDLOOM-C037
-does not see a dynamic import of a name that is not a constant. Nor does it see
-`getattr` with a variable name on `sqlalchemy`. It does not follow a name bound
-to `sqlalchemy` by unpacking. A container or a call result hides it as well. It
-does follow a plain assignment of a name that holds it, however long the chain.
+They do not promise to stop a deliberate bypass. For most rules that is the job
+of the runtime cursor guard and of
+[Row-Level Security](#postgresql-row-level-security-optional).
+
+SANDLOOM-C037 is the exception. An engine or a connection that a module opens
+itself never gets the cursor guard. Only Row-Level Security, where it is
+enabled, holds that case. The rule does not see a dynamic import of a name that
+is not a constant. Nor does it see `getattr` with a variable name on
+`sqlalchemy`. It does not follow a name bound to `sqlalchemy` by unpacking. A
+container or a call result hides it as well. It does follow a plain assignment
+of a name that holds it, however long the chain.
+
+C037 resolves a name by the scope of the function, not by the order of the
+statements. Say a function binds a name to `conn.connection` or to
+`sqlalchemy`. Every use of that name in the function is reported, also after the
+function binds it to something else. Another function that binds the same name
+to something else is not affected.
 
 A module registers no listener at the cursor. `sandloom check` refuses one in a
 module's files. Its tests are not scanned. No `# sandloom: allow` comment admits

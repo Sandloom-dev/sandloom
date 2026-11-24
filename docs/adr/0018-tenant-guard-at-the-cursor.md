@@ -528,9 +528,11 @@ setting is already the bound tenant.
   name that holds it (unpacking, a container, a call result).
 - C015 and C037 resolve a name by lexical scope, not by control flow. A class body that reads a
   module alias before it assigns the same name is not reported for that read, and an alias that a
-  function re-assigns to an unrelated value is still reported. These rules are a static layer
-  that catches honest mistakes; the runtime cursor guard and, where enabled, row-level security
-  are the boundary.
+  function re-assigns to an unrelated value is still reported (so is a name re-bound later in the
+  same function). These rules are a static layer that catches honest mistakes. The boundary differs
+  by rule: for C015 the runtime cursor guard and, where enabled, row-level security hold what the
+  scan misses. For C037 the cursor guard is no boundary, because an engine or a connection a module
+  opens itself never gets it; row-level security, where it is enabled (PostgreSQL only), is.
 
 ## Measured cost of the guard
 
