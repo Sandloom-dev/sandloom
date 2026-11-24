@@ -64,17 +64,13 @@ Each gate below fails with a code; `uv run sandloom explain <code>` gives the wh
   `settings.accepts_risk(id)`. An unknown id fails startup.
 - **Removed settings** (`config_tiers.REMOVED`) fail startup unless set to their inert value.
 - **Read configuration only through `Settings`, never `os.getenv`.** Exceptions:
-  `SANDLOOM_COMPOSITION_ROOT` (process env first), `SANDLOOM_WORKER_TASKQUEUE`, and the CLI's
-  process flags, read only through `sandloom.core.cli.dev.errors.environment()`: `SANDLOOM_DEBUG`,
-  `CI`, `DOCKER_HOST`, `UV`, `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`, `TERM`, `COLORTERM`
-  and the agent markers in `sandloom.core.cli.ui.AGENT_MARKERS`. A new flag joins this list.
-  `sandloom dev token` (`sandloom.core.cli.dev.token`) reads `ENVIRONMENT`, `DATABASE_URL` and
-  `PGHOST` directly, from the process environment and `.env`: its gate runs before any code of the
-  app is imported, and the loaded settings repeat it in the child process. A new direct read
-  there joins this list.
-  `sandloom.core.composition` also reads `[tool.sandloom] composition-root` from the
-  project's `pyproject.toml`, only for an authoring command that passes `project_root`
-  (behind the variable and `.env`; never the runtime, `sandloom migrate` or the pytest suites).
+  `SANDLOOM_COMPOSITION_ROOT` (process env first), `SANDLOOM_WORKER_TASKQUEUE`, the CLI's process
+  flags, read only through `sandloom.core.cli.dev.errors.environment()`: `SANDLOOM_DEBUG`, `CI`,
+  `DOCKER_HOST`, `UV`, `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`, `TERM`, `COLORTERM` and the
+  agent markers in `sandloom.core.cli.ui.AGENT_MARKERS`, and `sandloom dev token` (`ENVIRONMENT`,
+  `DATABASE_URL`, `PGHOST`). A new flag joins this list. `sandloom.core.composition` reads
+  `[tool.sandloom] composition-root` of `pyproject.toml` only for an authoring command with
+  `project_root` (after the variable and `.env`; never the runtime, `migrate` or pytest suites).
 
 ## Infrastructure layer
 
