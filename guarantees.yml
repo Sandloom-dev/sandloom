@@ -700,6 +700,7 @@ guarantees:
   - tests/architecture/test_cursor_listener_rule.py::test_the_other_rules_stay_waivable_and_only_this_one_is_not
   - tests/architecture/test_cursor_listener_rule.py::test_an_event_alias_imported_from_a_sibling_file_is_followed
   - tests/architecture/test_cursor_listener_rule.py::test_a_name_imported_from_a_sibling_file_that_is_not_the_event_module_is_left_alone
+  - tests/architecture/test_cursor_listener_rule.py::test_a_failure_that_is_not_an_unreadable_sibling_is_not_swallowed
   - tests/architecture/test_cursor_listener_rule.py::test_sandloom_check_follows_the_alias_of_a_sibling_file
   - tests/architecture/test_cursor_listener_rule.py::test_the_rule_is_in_the_default_run_and_the_catalogue
   rules:

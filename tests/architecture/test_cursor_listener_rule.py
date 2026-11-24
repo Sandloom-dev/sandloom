@@ -17,12 +17,13 @@ listeners can do once registered, is
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
 import pytest
 
-from sandloom.core.archcheck import load_rules, run_checks
+from sandloom.core.archcheck import analyzers, load_rules, run_checks
 from sandloom.core.archcheck.analyzers import find_cursor_listeners
 from sandloom.core.archcheck.runner import RULES
 from sandloom.core.error_codes import CATALOGUE
@@ -353,6 +354,25 @@ def test_a_sibling_that_cannot_be_read_does_not_stop_the_scan(tmp_path: Path) ->
     hits = find_cursor_listeners(package / "service.py")
     # the string is still reported: the unreadable sibling is skipped, not fatal
     assert hits and all("names a cursor-level event" in hit for hit in hits), hits
+
+
+def test_a_failure_that_is_not_an_unreadable_sibling_is_not_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = _package(
+        tmp_path,
+        {"helper.py": _HELPER, "service.py": "from .helper import ev\n\n" + _USE},
+    )
+    real = analyzers.parse_file
+
+    def parse(path: Path) -> ast.AST:
+        if path.name == "helper.py":
+            raise RuntimeError("not a read error of the sibling")
+        return real(path)
+
+    monkeypatch.setattr(analyzers, "parse_file", parse)
+    with pytest.raises(RuntimeError, match="not a read error"):
+        find_cursor_listeners(package / "service.py")
 
 
 def test_sandloom_check_follows_the_alias_of_a_sibling_file(tmp_path: Path) -> None:
