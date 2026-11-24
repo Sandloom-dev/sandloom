@@ -8,13 +8,14 @@ wraps the same loader and reports a missing file as a usage error.
 
 from __future__ import annotations
 
-import sys
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+import sandloom.core.config.module_settings as _module_settings
+import sandloom.core.config.settings as _settings
 from sandloom.core.testing.connections import apply_test_pool_profile
 from sandloom.core.testing.workers import apply_test_overrides, apply_worker_env
 
@@ -39,6 +40,29 @@ def dev_up_hint(starts: Iterable[Path]) -> str | None:
     if path is None or (path.parent / LOCAL_ENV_FILE).is_file():
         return None
     return DEV_UP_HINT
+
+
+def settings_read() -> bool:
+    """Whether the process settings were loaded already (their environment
+    snapshot taken). Importing the settings module is not reading it: the
+    plugins import it (the kernel's imports reach it), the first attribute
+    access loads it."""
+    return _settings.settings_loaded()
+
+
+def ignore_dotenv() -> None:
+    """Make the process settings of this test run skip the developer's ``.env``.
+
+    ``Settings`` reads shell > ``.env`` > secrets directory, so a key only the
+    dev ``.env`` sets (``TENANCY_MODE=single``) would reach the tests through
+    it. A test run is composed of the shell, ``.env.test``, ``.env.test.local``
+    and ``SANDLOOM_TEST_*`` only: the pytest plugin calls this right after
+    :func:`load_test_env`, before anything loads the settings. Idempotent.
+
+    The settings every module declares (``declare()``, ``settings_of``) read the
+    same sources through the process snapshot, so its ``.env`` goes too."""
+    _settings.Settings.model_config["env_file"] = None
+    _module_settings.set_process_env_file(None)
 
 
 class MissingTestEnvError(RuntimeError):
@@ -72,9 +96,10 @@ def load_test_env(
     On a pytest-xdist worker the URLs are then rewritten to the worker's own
     backends (:mod:`sandloom.core.testing.workers`).
     Raises :class:`MissingTestEnvError` when no file is found. ``warn_if_late``
-    warns when ``sandloom.core.config.settings`` (which snapshots the environment at
-    import) was already imported. ``create_database=False`` leaves an explicitly
-    named test database alone, for a command that connects to none.
+    warns when the process settings were already LOADED (:func:`settings_read`:
+    importing them reads nothing, only the first use does). ``create_database=False``
+    leaves an explicitly named test database alone, for a command that connects
+    to none.
     """
     starts = list(starts)
     path = find_env_file(starts)
@@ -86,12 +111,13 @@ def load_test_env(
             f"least DATABASE_URL pointing at a disposable test database."
         )
 
-    if warn_if_late and "sandloom.core.config.settings" in sys.modules:
+    if warn_if_late and settings_read():
         warnings.warn(
-            f"sandloom.core.config.settings was imported before {path} "
-            "was loaded; settings "
-            "read at import time keep their previous values. Activate the plugin "
-            "with `-p sandloom.core.testing.plugin` in addopts so it loads first.",
+            f"the Sandloom settings were read before {path} was loaded, so they "
+            "keep the values of the environment at that moment. Something used "
+            "them before the Sandloom pytest plugin ran: another pytest plugin "
+            "that is loaded first, or a conftest.py named in `-p`. List "
+            "`-p sandloom.sdk.testing.plugin` first in addopts.",
             stacklevel=2,
         )
     load_dotenv(dotenv_path=path, override=True)
@@ -119,5 +145,7 @@ __all__ = [
     "MissingTestEnvError",
     "dev_up_hint",
     "find_env_file",
+    "ignore_dotenv",
     "load_test_env",
+    "settings_read",
 ]

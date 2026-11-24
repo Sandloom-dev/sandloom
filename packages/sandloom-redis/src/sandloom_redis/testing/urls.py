@@ -117,6 +117,22 @@ def infra_redis_urls(raw: str | None) -> list[str]:
     return found
 
 
+def server_of(url: str) -> str:
+    """``scheme://host:port`` of ``url``, for a message (no credential, path or
+    query)."""
+    return _where(split_url(url))
+
+
+def instance_using(raw: str | None, url: str) -> tuple[str, str] | None:
+    """``(capability, instance)`` of the first ``INFRA`` instance whose Redis URL
+    option is ``url`` (``None``: no instance names it)."""
+    for capability, instances in parse_infra(raw).items():
+        for name, spec in instances.items():
+            if any(spec[option] == url for option in instance_redis_options(spec)):
+                return capability, name
+    return None
+
+
 def redis_urls(values: Mapping[str, str | None]) -> list[str]:
     """Every Redis URL of the run in ``values``, each once; none without the
     client."""
@@ -129,8 +145,10 @@ __all__ = [
     "REDIS_SCHEMES",
     "infra_redis_urls",
     "instance_redis_options",
+    "instance_using",
     "is_redis_url",
     "redis_client_installed",
     "redis_urls",
     "refuse_unplain_database",
+    "server_of",
 ]
