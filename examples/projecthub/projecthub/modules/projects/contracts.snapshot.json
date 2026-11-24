@@ -67,7 +67,7 @@
       }
     },
     "projects.read.v2": {
-      "hash": "bad15a53cbc5e82958944e810efa73e0",
+      "hash": "b74c966452eb9c3d89c4cc3470976c94",
       "methods": {
         "get": {
           "idempotency_key": null,
@@ -126,7 +126,7 @@
                 },
                 "k": "model",
                 "ref": "projecthub.modules.projects.schemas.project:ProjectState",
-                "schema_hash": "81301559856cf42c"
+                "schema_hash": "23d5d87aaab99d7a"
               },
               {
                 "k": "none"
@@ -189,7 +189,7 @@
               },
               "k": "model",
               "ref": "projecthub.modules.projects.schemas.project:ProjectState",
-              "schema_hash": "81301559856cf42c"
+              "schema_hash": "23d5d87aaab99d7a"
             },
             "k": "list"
           }
