@@ -11,9 +11,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic import command
 from alembic import util as alembic_util
 from alembic.config import Config
 from alembic.operations import ops
+from sqlalchemy import String
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from sandloom.core.cli.migrate import check_revision_ids
 from sandloom.core.cli.migrate_checks import (
@@ -22,12 +25,11 @@ from sandloom.core.cli.migrate_checks import (
     not_null_warning,
     not_null_without_default,
 )
-from sandloom.core.cli.migrate_drift import find_drift
-from sandloom.core.composition import load_composition_core
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.migrations import alembic_support
 from sandloom.core.migrations.migrations import MigrationDependencyError
-from sandloom.core.testing.migrations import runs_no_chains
+from sandloom.core.sql_alchemy.portable import search_index
+from sandloom.core.testing.migrations import runs_no_chains, temporary_database
 
 # --------------------------------------------------------------------------- #
 # Numbered revision ids
@@ -344,21 +346,75 @@ def test_only_the_operator_clause_warning_is_ignored() -> None:
     ]
 
 
+class _ProbeBase(DeclarativeBase):
+    """Its own metadata: the test points the chain at it, not at ``Base``."""
+
+
+class _Probe(_ProbeBase):
+    __tablename__ = "trgm_probe"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    full_name: Mapped[str] = mapped_column(String)
+    email: Mapped[str] = mapped_column(String)
+    username: Mapped[str] = mapped_column(String)
+    __table_args__ = (
+        search_index("ix_trgm_probe_search", "full_name", "email", "username"),
+    )
+
+
+_PROBE_REVISION = """\
+import sqlalchemy as sa
+from alembic import op
+
+revision = "0001"
+down_revision = None
+
+
+def upgrade():
+    op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    op.create_table(
+        "trgm_probe",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("full_name", sa.String(), nullable=False),
+        sa.Column("email", sa.String(), nullable=False),
+        sa.Column("username", sa.String(), nullable=False),
+    )
+    op.execute(
+        "CREATE INDEX ix_trgm_probe_search ON trgm_probe USING gin "
+        "(full_name gin_trgm_ops, email gin_trgm_ops, username gin_trgm_ops)"
+    )
+
+
+def downgrade():
+    op.drop_table("trgm_probe")
+"""
+
+
 @pytest.mark.skipif(
     runs_no_chains(os.environ.get("DATABASE_URL", "")),
     reason="needs PostgreSQL: SQLite runs no chain (SANDLOOM-B028)",
 )
-def test_the_chain_check_of_a_search_index_prints_no_warning() -> None:
-    """``sandloom migrate drift`` (``alembic check`` per chain) over identity,
-    whose ``ix_users_search_trgm`` is a three-operand ``search_index``: Alembic
-    warned once per operand."""
-    loaded = load_composition_core().module_descriptors
-    descriptors = [d for d in loaded if d.name == "sandloom_identity"]
-    assert descriptors, f"identity is not loaded; loaded: {[d.name for d in loaded]}"
-    with warnings.catch_warnings(record=True) as seen:
-        warnings.simplefilter("always")
-        drifts = find_drift(descriptors)
-    assert drifts == []
+def test_the_chain_check_of_a_search_index_prints_no_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``alembic check`` (what ``sandloom migrate drift`` runs per chain) over a
+    chain whose model has a three-operand ``search_index``, the form identity's
+    ``ix_users_search_trgm`` has: Alembic warned once per operand. A kernel-only
+    chain (a model and a revision of its own, no bundled module)."""
+    monkeypatch.setattr(alembic_support, "Base", _ProbeBase)
+    (tmp_path / "versions").mkdir()
+    (tmp_path / "env.py").write_text(
+        "from sandloom.core.migrations.alembic_support import run_migrations\n"
+        f"run_migrations(table_names=[{_Probe.__tablename__!r}])\n"
+    )
+    (tmp_path / "versions" / "0001_probe.py").write_text(_PROBE_REVISION)
+    with temporary_database() as url:
+        cfg = Config()
+        cfg.set_main_option("script_location", str(tmp_path))
+        cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+        with warnings.catch_warnings(record=True) as seen:
+            warnings.simplefilter("always")
+            command.upgrade(cfg, "head")
+            command.check(cfg)  # raises when the chain's head differs from the models
     assert [str(w.message) for w in seen if "operator clause" in str(w.message)] == []
 
 
