@@ -9009,8 +9009,8 @@ capabilities:
   - tests/sdk/test_sdk_columns.py::test_sandloom_docs_describes_the_idiom
   - tests/integration/test_migrations_per_chain.py::test_chains_reproduce_orm_schema_exactly
 - id: C-GEN-13
-  statement: sandloom new writes the app's agent skills (sandloom-new-module, sandloom-quality-gates, sandloom-event-version-roll,
-    sandloom-split-deploy), rewritten for the app's paths and commands, to .claude/skills and .agents/skills, and the
+  statement: sandloom new writes the app's agent skills (sandloom-module-context, sandloom-new-module, sandloom-quality-gates,
+    sandloom-cross-module, sandloom-background-tasks, sandloom-event-version-roll, sandloom-split-deploy), rewritten for the app's paths and commands, to .claude/skills and .agents/skills, and the
     app map names them in one line; sandloom add skills writes them into an existing app, keeping an edited file
     unless --force.
   sources:

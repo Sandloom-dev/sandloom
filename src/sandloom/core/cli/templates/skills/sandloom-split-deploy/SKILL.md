@@ -1,6 +1,6 @@
 ---
 name: sandloom-split-deploy
-description: Run this Sandloom app as microservices with no code change: `sandloom add deploy` writes the profile, gateway and database init, then derives services, bindings, RPC allowlists, keys and worker/beat. Use when asked to split the app, deploy a module as its own service, or make a new module reachable in the microservices profile.
+description: Use when asked to split this Sandloom app into services, to deploy a module as its own service, or to make a new module reachable in the microservices profile. `sandloom add deploy` writes the profile, gateway and database init, then derives services, bindings, RPC allowlists, keys and worker/beat, with no code change.
 ---
 
 # Split <app> into services
