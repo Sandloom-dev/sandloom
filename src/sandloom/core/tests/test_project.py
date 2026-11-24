@@ -617,6 +617,61 @@ def test_the_env_files_write_no_flat_storage_default(tmp_path: Path) -> None:
         assert any(line.startswith("STORAGE_PATH=") for line in lines), name
 
 
+def _live_lines(text: str) -> dict[str, str]:
+    """The ``KEY=value`` lines of an env file that are not comments."""
+    return dict(
+        line.split("=", 1)
+        for line in text.splitlines()
+        if "=" in line and not line.startswith("#")
+    )
+
+
+def test_a_no_batteries_app_binds_one_tenant_in_its_env(tmp_path: Path) -> None:
+    """No module vouches for a tenant, so the default ``multi`` mode answers
+    every token's tenant route 400 / 403: the local ``.env`` binds one tenant
+    (a UUID of its own per app), and ``.env.example`` keeps the lines commented
+    for the deployment to decide."""
+    import uuid
+
+    from sandloom.core.config.settings import Settings
+
+    generate_project("probe_one", tmp_path)
+    generate_project("probe_two", tmp_path)
+    ids = []
+    for app in ("probe_one", "probe_two"):
+        root = tmp_path / app
+        live = _live_lines(_read(root, ".env"))
+        assert live["TENANCY_MODE"] == "single"
+        ids.append(uuid.UUID(live["SINGLE_TENANT_ID"]))
+        # the app reads these lines as written
+        loaded = Settings(  # type: ignore[call-arg]
+            _env_file=root / ".env",
+            DATABASE_URL="postgresql+asyncpg://u:p@h:5432/d",
+        )
+        assert loaded.tenancy_mode == "single"
+        assert loaded.single_tenant_id == ids[-1]
+        example = _read(root, ".env.example")
+        assert "TENANCY_MODE" not in _live_lines(example)
+        assert "SINGLE_TENANT_ID" not in _live_lines(example)
+        assert f"# TENANCY_MODE=single\n# SINGLE_TENANT_ID={ids[-1]}\n" in example
+        assert "TENANCY_MODE" not in _read(root, ".env.test")
+        assert "`uv run sandloom dev token`" in _read(root, "README.md")
+    assert ids[0] != ids[1]
+
+
+@pytest.mark.parametrize("battery", ["identity", "tenancy", "billing"])
+def test_an_app_with_batteries_writes_no_tenancy_lines(
+    tmp_path: Path, battery: str
+) -> None:
+    generate_project("probe_with", tmp_path, with_batteries=[battery])
+    root = tmp_path / "probe_with"
+    for name in (".env", ".env.example"):
+        text = _read(root, name)
+        assert "TENANCY_MODE" not in text, name
+        assert "SINGLE_TENANT_ID" not in text, name
+    assert "no identity and no tenancy battery" not in _read(root, "README.md")
+
+
 def test_billing_apps_must_choose_a_psp(tmp_path: Path) -> None:
     generate_project("shop", tmp_path, with_batteries=["billing"])
     env = _compose(tmp_path / "shop")["services"]["app"]["environment"]

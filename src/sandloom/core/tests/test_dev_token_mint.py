@@ -106,6 +106,25 @@ async def test_the_token_gets_exactly_the_rights_it_asks_for(mem_cache: Any) -> 
 
 
 @pytest.mark.asyncio
+async def test_a_flagless_token_reaches_a_tenant_route_only_in_single_tenant_mode(
+    mem_cache: Any,
+) -> None:
+    """An app without the tenancy battery (``sandloom new --no-batteries``):
+    no authority assigns tenants, so a token without flags binds none. Under
+    the default ``TENANCY_MODE=multi`` the tenant route refuses it (400); the
+    ``single`` mode the scaffold's ``.env`` writes binds the canonical tenant
+    and the same token reaches the route (200)."""
+    core = verifier({})
+    token = _mint(core.claim_authorities).token
+    assert (await statuses(core, token))["/tenant"] == 400
+    canonical = uuid4()
+    core.settings = settings.model_copy(
+        update={"tenancy_mode": "single", "single_tenant_id": canonical}
+    )
+    assert (await statuses(core, token))["/tenant"] == 200
+
+
+@pytest.mark.asyncio
 async def test_the_token_carries_the_provenance_of_the_assigned_authority(
     mem_cache: Any,
 ) -> None:
