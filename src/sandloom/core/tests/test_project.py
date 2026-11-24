@@ -617,6 +617,61 @@ def test_the_env_files_write_no_flat_storage_default(tmp_path: Path) -> None:
         assert any(line.startswith("STORAGE_PATH=") for line in lines), name
 
 
+def _live_lines(text: str) -> dict[str, str]:
+    """The ``KEY=value`` lines of an env file that are not comments."""
+    return dict(
+        line.split("=", 1)
+        for line in text.splitlines()
+        if "=" in line and not line.startswith("#")
+    )
+
+
+def test_a_no_batteries_app_binds_one_tenant_in_its_env(tmp_path: Path) -> None:
+    """No module vouches for a tenant, so the default ``multi`` mode answers
+    every token's tenant route 400 / 403: the local ``.env`` binds one tenant
+    (a UUID of its own per app), and ``.env.example`` keeps the lines commented
+    for the deployment to decide."""
+    import uuid
+
+    from sandloom.core.config.settings import Settings
+
+    generate_project("probe_one", tmp_path)
+    generate_project("probe_two", tmp_path)
+    ids = []
+    for app in ("probe_one", "probe_two"):
+        root = tmp_path / app
+        live = _live_lines(_read(root, ".env"))
+        assert live["TENANCY_MODE"] == "single"
+        ids.append(uuid.UUID(live["SINGLE_TENANT_ID"]))
+        # the app reads these lines as written
+        loaded = Settings(  # type: ignore[call-arg]
+            _env_file=root / ".env",
+            DATABASE_URL="postgresql+asyncpg://u:p@h:5432/d",
+        )
+        assert loaded.tenancy_mode == "single"
+        assert loaded.single_tenant_id == ids[-1]
+        example = _read(root, ".env.example")
+        assert "TENANCY_MODE" not in _live_lines(example)
+        assert "SINGLE_TENANT_ID" not in _live_lines(example)
+        assert f"# TENANCY_MODE=single\n# SINGLE_TENANT_ID={ids[-1]}\n" in example
+        assert "TENANCY_MODE" not in _read(root, ".env.test")
+        assert "`uv run sandloom dev token`" in _read(root, "README.md")
+    assert ids[0] != ids[1]
+
+
+@pytest.mark.parametrize("battery", ["identity", "tenancy", "billing"])
+def test_an_app_with_batteries_writes_no_tenancy_lines(
+    tmp_path: Path, battery: str
+) -> None:
+    generate_project("probe_with", tmp_path, with_batteries=[battery])
+    root = tmp_path / "probe_with"
+    for name in (".env", ".env.example"):
+        text = _read(root, name)
+        assert "TENANCY_MODE" not in text, name
+        assert "SINGLE_TENANT_ID" not in text, name
+    assert "no identity and no tenancy battery" not in _read(root, "README.md")
+
+
 def test_billing_apps_must_choose_a_psp(tmp_path: Path) -> None:
     generate_project("shop", tmp_path, with_batteries=["billing"])
     env = _compose(tmp_path / "shop")["services"]["app"]["environment"]
@@ -958,6 +1013,129 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
         # 2 smoke tests and the 2 generated tests of each module (the sample
         # and widgets, both from `sandloom add module`).
         assert passed >= 6, out
+    finally:
+        conn = psycopg2.connect(**admin)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+        conn.close()
+
+
+_DEV_TOKEN_ROUTE_TEST = '''"""A token ``sandloom dev token`` mints reaches the generated route."""
+
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_a_dev_token_reaches_the_generated_route(client) -> None:
+    from sandloom.core.auth.dev_token import mint_dev_token
+    from sandloom.core.composition import load_composition_core
+
+    core = load_composition_core(project_root=Path.cwd())
+    token = mint_dev_token(core.claim_authorities, user_id=uuid4()).token
+    headers = {"Authorization": f"Bearer {token}"}
+    listed = await client.get("/api/v1/gadgets/items", headers=headers)
+    assert listed.status_code == 200, listed.text
+    created = await client.post(
+        "/api/v1/gadgets/items", json={"title": "first"}, headers=headers
+    )
+    assert created.status_code == 201, created.text
+'''
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_a_dev_token_reaches_the_route_of_a_no_batteries_app(tmp_path: Path) -> None:
+    """The acceptance of ``sandloom new --no-batteries``: the app as generated
+    (its ``.env`` binds one tenant) and the token ``sandloom dev token`` mints
+    for it (the mint of ``sandloom.core.auth.dev_token`` on the app's own claim
+    policy, which assigns no tenant) answer 200 on the generated module's tenant
+    route, through the app's real gates, in the app's own test run. The two
+    tenancy lines are read from the generated ``.env`` and handed to the run as
+    its environment, so a scaffold that stops writing them fails here (the
+    default ``multi`` mode answers this token 400 ``tenant_required``)."""
+    import os
+    import uuid
+
+    import psycopg2
+    from sqlalchemy.engine import make_url
+
+    from sandloom.core.testing.ownership import OWNER_ENV, current_owner
+    from sandloom.core.testing.workers import worker_env_values
+
+    env_test = worker_env_values(Path(__file__).resolve().parents[4] / ".env.test")
+    test_url = str({**env_test, **os.environ}.get("DATABASE_URL") or "")
+    if not test_url:
+        pytest.skip("no test DATABASE_URL configured")
+    base = make_url(test_url.replace("+asyncpg", ""))
+    if base.get_backend_name() != "postgresql":
+        pytest.skip("needs the Postgres test service")
+    dbname = f"{base.database}_tok_{uuid.uuid4().hex[:8]}"
+    admin = {
+        "host": base.host,
+        "port": base.port,
+        "user": base.username,
+        "password": base.password,
+        "dbname": base.database,
+    }
+    try:
+        conn = psycopg2.connect(**admin)
+    except psycopg2.OperationalError:
+        pytest.skip("Postgres test service not reachable")
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute(f'CREATE DATABASE "{dbname}"')
+    conn.close()
+
+    try:
+        generate_project("probe", tmp_path, sample_module="gadgets")
+        root = tmp_path / "probe"
+        live = _live_lines(_read(root, ".env"))
+        async_url = base.set(
+            database=dbname, drivername="postgresql+asyncpg"
+        ).render_as_string(hide_password=False)
+        lines = []
+        for line in _read(root, ".env.test").splitlines():
+            key = line.split("=", 1)[0]
+            if key == "DATABASE_URL":
+                line = f"DATABASE_URL={async_url}"
+            elif key == "INFRA":
+                line = f"INFRA='{_nested_infra()}'"
+            lines.append(line)
+        (root / ".env.test").write_text("\n".join(lines) + "\n")
+        (root / "tests" / "test_dev_token_route.py").write_text(_DEV_TOKEN_ROUTE_TEST)
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(("SANDLOOM_", "PYTEST_")) and k != "INFRA"
+        }
+        env[OWNER_ENV] = current_owner()
+        env.update(redis_free_infra_env())
+        # What the app's own `.env` says, as the app would read it.
+        env["TENANCY_MODE"] = live["TENANCY_MODE"]
+        env["SINGLE_TENANT_ID"] = live["SINGLE_TENANT_ID"]
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "tests/test_dev_token_route.py",
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert "1 passed" in out, out
     finally:
         conn = psycopg2.connect(**admin)
         conn.autocommit = True
