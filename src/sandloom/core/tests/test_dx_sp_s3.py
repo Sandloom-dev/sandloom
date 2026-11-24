@@ -17,6 +17,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from sandloom.core.cli import consumer_copies, generated
 from sandloom.core.cli.dto_copies import CopyError
@@ -178,6 +179,67 @@ def test_a_command_class_may_not_take_the_name_of_another_class_of_the_stub() ->
     assert len(
         generated._render_args_types(CONTRACT, PROTOCOL, runtimes, [], imports, None)
     ) == len([r for r in runtimes.values() if r.kind == "command"])
+
+
+class SdkgenDtoV1PutArgs(BaseModel):
+    """A DTO that takes the name the ``put`` command's TypedDict would get."""
+
+    value: int
+
+
+def test_a_command_class_may_not_shadow_a_dto_the_stub_imports() -> None:
+    """A DTO named in a signature is imported into the stub: a TypedDict of
+    that name would shadow it, so the generator refuses instead."""
+
+    class Dto:
+        @classmethod
+        @contract_method(command=True, idempotency_key="operation_key")
+        async def put(cls, body: SdkgenDtoV1PutArgs, operation_key: str) -> None:
+            return None
+
+    with pytest.raises(CopyError) as raised:
+        render_stub("sdkgen.dto.v1", Dto)
+    assert "SdkgenDtoV1PutArgs" in str(raised.value)
+    assert "already a name of this stub" in str(raised.value)
+
+    class Other:
+        @classmethod
+        @contract_method(command=True, idempotency_key="operation_key")
+        async def put(cls, body: SdkgenDtoV1PutArgs, operation_key: str) -> None:
+            return None
+
+        @classmethod
+        @contract_method(command=True, idempotency_key="operation_key")
+        async def put_other(cls, body: int, operation_key: str) -> None:
+            return None
+
+    # the same DTO under a contract whose names differ renders
+    assert "class SdkgenOtherV1PutArgs(TypedDict):" in render_stub(
+        "sdkgen.other.v1", Other
+    )
+
+
+def test_a_class_line_over_the_limit_wraps_as_ruff_format_does() -> None:
+    """``class Name(TypedDict):`` over 88 columns becomes the base on its own
+    line, no trailing comma: a rendered stub equals ``ruff format``'s output."""
+
+    class Long:
+        @classmethod
+        @contract_method(command=True, idempotency_key="operation_key")
+        async def charge_the_customer_for_the_whole_order(
+            cls, amount: int, operation_key: str
+        ) -> None:
+            return None
+
+    stub = render_stub("sdkgen.averylongcontractnamethatgoeson.v1", Long)
+    name = (
+        "SdkgenAverylongcontractnamethatgoesonV1ChargeTheCustomerForTheWholeOrderArgs"
+    )
+    assert len(f"class {name}(TypedDict):") > 88
+    assert f"\n\nclass {name}(\n    TypedDict\n):\n" in stub
+    assert f"class {name}(TypedDict)" not in stub
+    # a short name stays on one line
+    assert "class SdkgenLedgerV1PingArgs(TypedDict):\n" in render_stub(CONTRACT, Ledger)
 
 
 def test_the_generator_format_moved_so_an_old_stub_reads_as_a_generator_change() -> (

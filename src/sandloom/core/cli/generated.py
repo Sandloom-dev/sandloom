@@ -627,7 +627,11 @@ def _render_args(
             text = f"{imports.need('typing', 'NotRequired')}[{text}]"
         fields.extend(_dto_copies.fit_lines(f"    {pname}: {text}"))
     doc = docstring(f"Arguments of ``{name}``, without ``{key}``.", "    ")
-    head = f"class {args_name(protocol, name)}(TypedDict):\n{doc}\n"
+    declaration = f"class {args_name(protocol, name)}(TypedDict):"
+    if len(declaration) > _LINE:
+        # ruff format puts the one base on its own line, without a comma.
+        declaration = declaration.replace("(TypedDict):", "(\n    TypedDict\n):")
+    head = f"{declaration}\n{doc}\n"
     return head + ("\n" + "\n".join(fields) + "\n" if fields else "")
 
 
@@ -640,8 +644,9 @@ def _render_args_types(
     resolver: _dto_copies.Resolver | None,
 ) -> list[str]:
     """One argument ``TypedDict`` per command of the contract, by method name.
-    Two commands (or a command and the Protocol or an atom) that map to one
-    class name are refused: the second would silently replace the first."""
+    Two commands (or a command and the Protocol, an atom or an imported DTO)
+    that map to one name are refused: the second would silently replace the
+    first, or shadow the DTO a signature names."""
     taken = set(reserved)
     out: list[str] = []
     for name, runtime in sorted(methods.items()):
@@ -651,7 +656,7 @@ def _render_args_types(
         if cls in taken:
             raise _dto_copies.CopyError(
                 f"{contract} {name}",
-                f"its argument class {cls} is already a class of this stub",
+                f"its argument class {cls} is already a name of this stub",
                 "rename the command method so its PascalCase name differs",
             )
         taken.add(cls)
@@ -705,8 +710,14 @@ def render_stub(
     atom_classes = [
         c for atom in atoms for c in re.findall(r"^class (\w+)", atom, re.M)
     ]
+    imported = [n for names in imports.names.values() for n in names]
     arg_types = _render_args_types(
-        contract, protocol, schema_methods, [protocol, *atom_classes], imports, resolver
+        contract,
+        protocol,
+        schema_methods,
+        [protocol, *atom_classes, *imported],
+        imports,
+        resolver,
     )
     tail = "".join(f"\n\n{block}" for block in [*arg_types, *atoms])
     return (
