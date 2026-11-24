@@ -1039,13 +1039,29 @@ def find_beginner_tier_problems(
     file_path: Path,
     beginner: dict[str, set[str]],
     after_first: dict[str, dict[str, set[str]]] | None = None,
+    modules_path: Path | None = None,
 ) -> list[str]:
     """``sandloom.sdk`` names outside the beginner tier without a marker (T009).
 
     A tier 2 name (``after_first``) needs no marker in the file its module
-    names for it (``sagas.py``), and one everywhere else."""
+    names for it, at the top of a module's own directory
+    (``<modules_path>/<module>/sagas.py``: not ``<module>/api/sagas.py``, not
+    ``<module>/tests/sagas.py``), and one everywhere else. ``after_first``
+    needs ``modules_path`` to know where a module's directory is; one without
+    the other is refused, never read as "no tier 2"."""
+    if after_first is not None and modules_path is None:
+        raise ValueError(
+            "find_beginner_tier_problems(after_first=...) needs modules_path: "
+            "tier 2 is free only in a module's own top-level file"
+        )
+    in_a_module_root = (
+        modules_path is not None
+        and file_path.resolve().parent.parent == modules_path.resolve()
+    )
 
     def later_here(module: str) -> set[str]:
+        if not in_a_module_root:
+            return set()
         return (after_first or {}).get(module, {}).get(file_path.name, set())
 
     lines = read_source(file_path).splitlines()
@@ -1077,7 +1093,8 @@ def find_beginner_tier_problems(
             if all(name in names for name in advanced)
         )
         where = (
-            f"is not in the beginner tier (tier 2: free only in a module's {files[0]})"
+            "is not in the beginner tier (tier 2: free only in a module's own "
+            f"top-level {files[0]})"
             if files
             else "is not in the beginner tier"
         )

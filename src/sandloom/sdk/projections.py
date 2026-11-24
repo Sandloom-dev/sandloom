@@ -84,9 +84,10 @@ __all__ = [
 __beginner__: tuple[str, ...] = ()
 #: Tier 2 (ADR-0010, "The beginner tier"): what ``sandloom add projection``
 #: writes. ``{file: names}``: a name needs no ``# sandloom: advanced <reason>``
-#: marker in a module's file of that name (``projections.py``), and needs one
-#: in any other file. ``View``, ``ProjectionView`` and ``unscoped`` stay
-#: advanced: the read side of a route is not what a first projection needs.
+#: marker in the module's own top-level file of that name
+#: (``<module>/projections.py``), and needs one in any other file. ``View``,
+#: ``ProjectionView`` and ``unscoped`` stay advanced: the read side of a route
+#: is not what a first projection needs.
 __after_first__ = {
     "projections.py": (
         "Projection",

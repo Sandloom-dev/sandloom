@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 from sdkfix_notes.events import NoteDeleted, NoteLiked, NoteSaved
 from sdkfix_notes.models import FixtureBase, NoteIndex
 from sdkfix_notes.projections import NOTE_INDEX
+from sqlalchemy.orm import Session
 
 from sandloom.sdk import Event
 from sandloom.sdk.errors import ProjectionDefinitionError
@@ -183,6 +184,29 @@ async def test_deltas_increment_and_versions_never_go_back(index_db: Any) -> Non
             )
         row = await _row(index_db, tenant, note)
     assert (row.likes, row.like_version) == (3, 3)
+
+
+@pytest.mark.parametrize("kind", ["async", "sync"])
+async def test_the_earlier_session_form_of_apply_names_the_rewrite(
+    index_db: Any, kind: str
+) -> None:
+    """``apply(session, group, event, mapper)`` is gone: a session right after
+    ``self`` is a ``TypeError`` that names ``db()`` and writes nothing, where
+    Python's own message would say "takes 4 positional arguments"."""
+    tenant, note = uuid4(), uuid4()
+    session = index_db if kind == "async" else Session()
+    saved = NoteSaved(note_id=note, tenant_id=tenant, title="t", version=1)
+    with bind_tenant(tenant):
+        with pytest.raises(TypeError, match=r"apply\(session, .*is gone.*`db\(\)`"):
+            await NOTE_INDEX.apply(  # type: ignore[call-arg, arg-type, misc]
+                session, SAVED_GROUP, saved, SAVED_GROUP.events[NoteSaved]
+            )
+        assert await _row(index_db, tenant, note) is None
+        # any other surplus argument keeps Python's own refusal
+        with pytest.raises(TypeError, match="positional argument"):
+            await NOTE_INDEX.apply(  # type: ignore[call-arg, arg-type, misc]
+                "not a session", SAVED_GROUP, saved, SAVED_GROUP.events[NoteSaved]
+            )
 
 
 class NoteRow(BaseModel):

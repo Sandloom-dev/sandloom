@@ -33,17 +33,19 @@ from __future__ import annotations
 
 import base64
 import binascii
+import functools
 import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Generic, Literal, Protocol, TypeVar, cast
+from typing import Any, ClassVar, Generic, Literal, ParamSpec, Protocol, TypeVar, cast
 from uuid import UUID
 
 from fastapi import Request, Response, params
 from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from sandloom.sdk._decl._owner import OWNER_ATTR, caller_module
 from sandloom.sdk._decl.errors import ProjectionDefinitionError
@@ -74,6 +76,27 @@ STALE_HEADER = "SANDLOOM-Projection-Stale"
 E = TypeVar("E", bound=Event)
 E_contra = TypeVar("E_contra", bound=Event, contravariant=True)
 R = TypeVar("R")
+P = ParamSpec("P")
+
+
+def _writes_through_db(fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    """Refuse the earlier ``projection.apply(session, group, event, mapper)``
+    with the rewrite named: without this Python answers "takes 4 positional
+    arguments but 5 were given". Only a session right after ``self`` is the
+    earlier form; any other surplus argument keeps Python's own error."""
+
+    @functools.wraps(fn)
+    async def checked(*args: P.args, **kwargs: P.kwargs) -> R:
+        if len(args) > 1 and isinstance(args[1], AsyncSession | Session):
+            raise TypeError(
+                "projection.apply(session, group, event, mapper) is gone: it "
+                "writes through `db()`, the unit the consumer runs in; call "
+                "`projection.apply(group, event, mapper)` without the session"
+            )
+        return await fn(*args, **kwargs)
+
+    return checked
+
 
 #: A provider's bound contract read method a projection rebuilds from.
 BoundContractMethod = Callable[..., Awaitable[Any]]
@@ -490,6 +513,7 @@ class Projection:
             c: (v(event) if callable(v) else v) for c, v in self.insert_only.items()
         }
 
+    @_writes_through_db
     async def apply(
         self, group: SourceGroup, event: Event, mapper: Mapper[Any]
     ) -> bool:

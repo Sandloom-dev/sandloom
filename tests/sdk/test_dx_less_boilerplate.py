@@ -120,11 +120,19 @@ def test_the_static_reading_agrees_with_the_runtime_declaration() -> None:
         assert after_first[module] == declared, module
 
 
-def _problems(tmp_path: Path, source: str, *, file: str = "services.py") -> list[str]:
-    py = tmp_path / file
+def _problems(
+    tmp_path: Path, source: str, *, file: str = "services.py", under: str = "orders"
+) -> list[str]:
+    """T009 on ``<tmp_path>/<under>/<file>``, ``tmp_path`` being the modules
+    directory: ``under="orders"`` is a module's root, ``orders/api`` is not."""
+    py = tmp_path / under / file
+    py.parent.mkdir(parents=True, exist_ok=True)
     py.write_text(source)
     return api10_rules.find_beginner_tier_problems(
-        py, api10_rules.beginner_names(SDK), api10_rules.after_first_names(SDK)
+        py,
+        api10_rules.beginner_names(SDK),
+        api10_rules.after_first_names(SDK),
+        tmp_path,
     )
 
 
@@ -229,6 +237,48 @@ def test_an_advanced_name_still_needs_its_marker_in_every_file(
     assert "not in the beginner tier" in found[0]
     marked = source.rstrip("\n") + "  # sandloom: advanced a reason\n"
     assert _problems(tmp_path, marked, file=file) == []
+
+
+@pytest.mark.parametrize(
+    ("under", "file", "source", "names"),
+    [
+        # the probes of the closure review: the file NAME alone is not the rule
+        ("orders/api", "tasks.py", "from sandloom.sdk.tasks import task\n", "task"),
+        ("orders/tests", "sagas.py", "from sandloom.sdk.sagas import Saga\n", "Saga"),
+        (
+            "orders/services",
+            "projections.py",
+            "from sandloom.sdk.projections import Projection\n",
+            "Projection",
+        ),
+        # beside the modules, in no module's directory
+        (".", "sagas.py", "from sandloom.sdk.sagas import start_saga\n", "start_saga"),
+    ],
+)
+def test_a_tier_2_name_below_the_module_root_needs_its_marker(
+    tmp_path: Path, under: str, file: str, source: str, names: str
+) -> None:
+    """Tier 2 is free only in ``<modules>/<module>/<file>``, the top of a
+    module's own directory: the same file name in a subdirectory, or outside
+    every module, is flagged, and a marker waives it."""
+    found = _problems(tmp_path, source, file=file, under=under)
+    assert len(found) == 1 and names in found[0] and "tier 2" in found[0], found
+    assert _problems(tmp_path, source, file=file) == []  # the module root is free
+    marked = source.rstrip("\n") + "  # sandloom: advanced a reason\n"
+    assert _problems(tmp_path, marked, file=file, under=under) == []
+
+
+def test_tier_2_declarations_without_a_modules_directory_are_refused(
+    tmp_path: Path,
+) -> None:
+    """``after_first`` without ``modules_path`` cannot tell where a module's
+    root is: it raises instead of being read as no tier 2 (or as every file)."""
+    py = tmp_path / "sagas.py"
+    py.write_text("from sandloom.sdk.sagas import Saga\n")
+    with pytest.raises(ValueError, match="modules_path"):
+        api10_rules.find_beginner_tier_problems(
+            py, api10_rules.beginner_names(SDK), api10_rules.after_first_names(SDK)
+        )
 
 
 def test_without_the_tier_2_declarations_the_file_rule_is_off(tmp_path: Path) -> None:

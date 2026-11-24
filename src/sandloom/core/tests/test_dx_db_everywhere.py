@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import BigInteger, Column, DateTime, MetaData, Table, Text, select
+from sqlalchemy.orm import Session
 
 from sandloom.core.module_api import Saga
 from sandloom.core.projections import (
@@ -416,6 +417,32 @@ async def test_the_earlier_session_form_is_refused(helper: Any, count: int) -> N
     kwargs["match" if helper is monotonic_update else "key"] = {}
     with pytest.raises(TypeError, match="positional argument"):
         await helper(*(["x"] * count), **kwargs)
+
+
+@pytest.mark.parametrize("kind", ["async", "sync"])
+@pytest.mark.parametrize(
+    "helper", [monotonic_upsert, monotonic_update, monotonic_delete]
+)
+async def test_the_earlier_session_form_names_the_rewrite(
+    helper: Any, kind: str, db_uow: Any
+) -> None:
+    """``helper(session, table, ...)``, the session being a real one, is a
+    ``TypeError`` that names ``db()`` and the call without the session (Python's
+    own message would only count positional arguments); it writes nothing."""
+    kwargs: dict[str, Any] = {
+        "values": {"title": "t", "group_id": "g"},
+        "version_column": "item_version",
+        "incoming_version": 1,
+    }
+    kwargs["match" if helper is monotonic_update else "key"] = {"item_id": "a"}
+    session = db_uow if kind == "async" else Session()
+    name = helper.__name__
+    with pytest.raises(
+        TypeError, match=rf"{name}\(session, \.\.\.\) is gone.*`db\(\)`"
+    ):
+        await helper(session, _ROWS, **kwargs)
+    await _create_table(db_uow)  # the refusal came before any statement ran
+    assert await _rows(db_uow) == {}
 
 
 # --------------------------------------------------------------------------- #

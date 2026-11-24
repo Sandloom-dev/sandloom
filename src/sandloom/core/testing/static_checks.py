@@ -413,7 +413,9 @@ def beginner_tier_findings(rules: ArchRules) -> list[tuple[Path, int, str]]:
     findings: list[tuple[Path, int, str]] = []
     for py in api10_rules.iter_python([rules.modules_path]):
         shown = py.relative_to(root) if py.is_relative_to(root) else py
-        for found in api10_rules.find_beginner_tier_problems(py, beginner, after_first):
+        for found in api10_rules.find_beginner_tier_problems(
+            py, beginner, after_first, rules.modules_path
+        ):
             line, _, message = found.partition(": ")
             findings.append((shown, int(line.removeprefix("Line ")), message))
     return findings

@@ -31,7 +31,8 @@ stubs and contract DTOs:
 
 Each module declares `__all__` and `__beginner__` (the beginner tier is a
 subset). It may also declare `__after_first__ = {file: names}`: tier 2, names
-that need no marker in a module file of that name. The
+that need no marker in the top-level file of that name in a module's own
+directory. The
 [SDK reference](../reference/sdk/index.md) is generated from them.
 `public_api_baseline.json` records every public name and
 signature, and a change fails `sandloom test` (SANDLOOM-T008) until it is reviewed.

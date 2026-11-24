@@ -35,11 +35,15 @@ owning module imports them from core and never names a database.
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, ParamSpec, TypeVar, cast
 
 from sqlalchemy import Table, or_, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from sandloom.core.sql_alchemy.portable import conflict_insert
 from sandloom.core.tenant_context import (
@@ -49,6 +53,29 @@ from sandloom.core.tenant_context import (
     unscoped,
 )
 from sandloom.core.unit_of_work.request import db
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _writes_through_db(fn: Callable[_P, Awaitable[_R]]) -> Callable[_P, Awaitable[_R]]:
+    """Refuse the earlier ``helper(session, table, ...)`` form with the rewrite
+    named: without this Python answers "takes 1 positional argument but 2 were
+    given". Only a first argument that IS a session is the earlier form; any other
+    surplus argument keeps Python's own error. The signature stays the function's
+    (``functools.wraps``)."""
+
+    @functools.wraps(fn)
+    async def checked(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        if args and isinstance(args[0], AsyncSession | Session):
+            raise TypeError(
+                f"{fn.__name__}(session, ...) is gone: it writes through `db()`, "
+                f"the unit the consumer runs in; call "
+                f"`{fn.__name__}(<model or table>, ...)` without the session"
+            )
+        return await fn(*args, **kwargs)
+
+    return checked
 
 
 def _table_of(target: Any) -> Table:
@@ -69,6 +96,7 @@ def _bound_tenant() -> Any:
     return current_tenant_id_optional()
 
 
+@_writes_through_db
 async def monotonic_upsert(
     target: Any,
     *,
@@ -130,6 +158,7 @@ async def monotonic_upsert(
     return bool(result.rowcount)
 
 
+@_writes_through_db
 async def monotonic_update(
     target: Any,
     *,
@@ -180,6 +209,7 @@ async def monotonic_update(
     return int(getattr(result, "rowcount", 0) or 0)
 
 
+@_writes_through_db
 async def monotonic_delete(
     target: Any,
     *,

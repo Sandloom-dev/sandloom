@@ -51,9 +51,10 @@ __all__ = [
 #: tier 2 (below).
 __beginner__: tuple[str, ...] = ()
 #: Tier 2 (ADR-0010, "The beginner tier"): what ``sandloom add saga`` writes
-#: and a service that starts a saga uses. ``{file: names}``: a name needs no
-#: ``# sandloom: advanced <reason>`` marker in a module's file of that name
-#: (``sagas.py``), and needs one in any other file.
+#: into a module's ``sagas.py``. ``{file: names}``: a name needs no
+#: ``# sandloom: advanced <reason>`` marker in the module's own top-level
+#: file of that name (``<module>/sagas.py``), and needs one in any other file,
+#: ``start_saga`` in a ``services.py`` included.
 __after_first__ = {
     "sagas.py": (
         "Saga",

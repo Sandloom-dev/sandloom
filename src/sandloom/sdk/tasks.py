@@ -31,8 +31,8 @@ __beginner__: tuple[str, ...] = ()
 #: Tier 2 (ADR-0010, "The beginner tier"): what ``sandloom add task`` writes
 #: (with ``open_uow`` of ``sandloom.sdk.data``, which a task body opens its unit
 #: with). ``{file: names}``: a name needs no ``# sandloom: advanced <reason>``
-#: marker in a module's file of that name (``tasks.py``), and needs one in any
-#: other file.
+#: marker in the module's own top-level file of that name
+#: (``<module>/tasks.py``), and needs one in any other file.
 __after_first__ = {
     "tasks.py": (
         "periodic",

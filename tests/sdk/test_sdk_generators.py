@@ -832,6 +832,13 @@ def test_migrate_new_adds_row_level_security_to_new_tenant_tables(
 # --------------------------------------------------------------------------- #
 
 
+def _modules_dir(py: Path) -> Path:
+    """The ``modules`` directory above ``py``, as an app's manifest names it. A
+    file under none has no module root: its own directory stands in, so no tier 2
+    name is free there."""
+    return next((p for p in py.parents if p.name == "modules"), py.parent)
+
+
 def _tier_problems(paths: list[Path]) -> list[str]:
     beginner = api10_rules.beginner_names(SDK)
     after_first = api10_rules.after_first_names(SDK)
@@ -839,7 +846,7 @@ def _tier_problems(paths: list[Path]) -> list[str]:
         f"{py}: {problem}"
         for py in api10_rules.iter_python(paths)
         for problem in api10_rules.find_beginner_tier_problems(
-            py, beginner, after_first
+            py, beginner, after_first, _modules_dir(py)
         )
     ]
 

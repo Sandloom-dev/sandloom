@@ -145,3 +145,33 @@ def test_check_reports_a_tier_2_import_in_any_other_file(
     )
     assert check_main(["--rules", str(rules)]) == 0
     assert "SANDLOOM-T009" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("directory", "file", "line"),
+    [
+        ("lib", "tasks.py", "from sandloom.sdk.tasks import task\n"),
+        ("tests", "sagas.py", _SAGA_IMPORT),
+    ],
+)
+def test_check_reports_a_tier_2_import_below_the_module_root(
+    app: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    directory: str,
+    file: str,
+    line: str,
+) -> None:
+    """Tier 2 is free only at the top of a module's own directory: a ``tasks.py``
+    or ``sagas.py`` in a subdirectory of the module is reported, a marker waives
+    it."""
+    rules, services = app
+    nested = services.parent / directory / file
+    nested.parent.mkdir(exist_ok=True)
+    nested.write_text(line)
+    assert check_main(["--rules", str(rules)]) == 1
+    out = capsys.readouterr().out
+    assert "SANDLOOM-T009" in out and f"gadgets/{directory}/{file}:" in out
+    assert "tier 2" in out
+    nested.write_text(line.rstrip("\n") + "  # sandloom: advanced a reason\n")
+    assert check_main(["--rules", str(rules)]) == 0
+    assert "SANDLOOM-T009" not in capsys.readouterr().out

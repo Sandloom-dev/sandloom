@@ -278,9 +278,10 @@ async def test_a_session_as_the_first_argument_is_refused(
     sm: async_sessionmaker,
 ) -> None:
     """The earlier ``monotonic_upsert(session, table, ...)`` form is gone: it
-    fails on its arguments, it is not silently read as ``target=session``."""
+    fails with an error that names ``db()``, it is not silently read as
+    ``target=session``."""
     async with _unit(sm) as session:
-        with pytest.raises(TypeError, match="positional"):
+        with pytest.raises(TypeError, match=r"is gone.*`db\(\)`"):
             await monotonic_upsert(  # type: ignore[call-arg, misc]
                 session,
                 _ROWS,

@@ -293,16 +293,21 @@ write ([Module internals](../advanced/module-internals.md)).
 
 `db()` is the one spelling. Five forms that took the session as a parameter
 are removed, with no deprecated second form. Each now fails with a
-`TypeError` that names the rewrite, in the place where the function is
-declared, not when a request first runs it.
+`TypeError` that names the rewrite. The first three fail where the function is
+declared, not when a request first runs it. The last two fail at the call,
+when the session is the first argument.
 
 | Old form | Now | Rewrite |
 | --- | --- | --- |
 | `local_step("s", apply=fn)` with `async def fn(session, ctx)` (and `compensate=`) | `TypeError: local_step(apply=...) takes async def f(ctx) and writes through db(); ...` when the saga module is imported | `async def fn(ctx)`; read and write through `db()` |
 | `authorize_resource(loader=load, ...)` with `async def load(id, session)` | `TypeError: authorize_resource(loader=...) takes async def load(id) ...` when the route's dependency is built | `async def load(id)` reading through `db()` |
 | a projection consumer handler `async def h(session, envelope)` | `TypeError: consumer '<name>': handler takes async def f(envelope) ...` when the descriptor is built | `async def h(envelope)`, write through `db()` |
-| `monotonic_upsert(session, Row, key=..., ...)`, and `monotonic_update`, `monotonic_delete` | Python's own `TypeError: ... takes 1 positional argument but 2 were given` | `monotonic_upsert(Row, key=..., values=..., version_column=..., incoming_version=...)`; the same keywords as before |
-| `await projection.apply(session, group, event, mapper)` | `TypeError` for the extra positional argument | `await projection.apply(group, event, mapper)` inside a unit |
+| `monotonic_upsert(session, Row, key=..., ...)`, and `monotonic_update`, `monotonic_delete` | `TypeError: monotonic_upsert(session, ...) is gone: it writes through db() ...` when called with a session as the first argument | `monotonic_upsert(Row, key=..., values=..., version_column=..., incoming_version=...)`; the same keywords as before |
+| `await projection.apply(session, group, event, mapper)` | `TypeError: projection.apply(session, group, event, mapper) is gone: it writes through db() ...` when called with a session right after the projection | `await projection.apply(group, event, mapper)` inside a unit |
+
+Any other extra positional argument to these two calls keeps Python's own
+`TypeError`. Only a SQLAlchemy `Session` or `AsyncSession` in the first place
+is read as the earlier form.
 
 The kernel's own runtimes keep `(session, ...)` internally and adapt the
 author's function, so nothing else changes for a module. A raw L2 consumer
