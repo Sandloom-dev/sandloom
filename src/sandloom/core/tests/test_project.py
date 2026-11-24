@@ -1021,6 +1021,129 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
         conn.close()
 
 
+_DEV_TOKEN_ROUTE_TEST = '''"""A token ``sandloom dev token`` mints reaches the generated route."""
+
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_a_dev_token_reaches_the_generated_route(client) -> None:
+    from sandloom.core.auth.dev_token import mint_dev_token
+    from sandloom.core.composition import load_composition_core
+
+    core = load_composition_core(project_root=Path.cwd())
+    token = mint_dev_token(core.claim_authorities, user_id=uuid4()).token
+    headers = {"Authorization": f"Bearer {token}"}
+    listed = await client.get("/api/v1/gadgets/items", headers=headers)
+    assert listed.status_code == 200, listed.text
+    created = await client.post(
+        "/api/v1/gadgets/items", json={"title": "first"}, headers=headers
+    )
+    assert created.status_code == 201, created.text
+'''
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_a_dev_token_reaches_the_route_of_a_no_batteries_app(tmp_path: Path) -> None:
+    """The acceptance of ``sandloom new --no-batteries``: the app as generated
+    (its ``.env`` binds one tenant) and the token ``sandloom dev token`` mints
+    for it (the mint of ``sandloom.core.auth.dev_token`` on the app's own claim
+    policy, which assigns no tenant) answer 200 on the generated module's tenant
+    route, through the app's real gates, in the app's own test run. The two
+    tenancy lines are read from the generated ``.env`` and handed to the run as
+    its environment, so a scaffold that stops writing them fails here (the
+    default ``multi`` mode answers this token 400 ``tenant_required``)."""
+    import os
+    import uuid
+
+    import psycopg2
+    from sqlalchemy.engine import make_url
+
+    from sandloom.core.testing.ownership import OWNER_ENV, current_owner
+    from sandloom.core.testing.workers import worker_env_values
+
+    env_test = worker_env_values(Path(__file__).resolve().parents[4] / ".env.test")
+    test_url = str({**env_test, **os.environ}.get("DATABASE_URL") or "")
+    if not test_url:
+        pytest.skip("no test DATABASE_URL configured")
+    base = make_url(test_url.replace("+asyncpg", ""))
+    if base.get_backend_name() != "postgresql":
+        pytest.skip("needs the Postgres test service")
+    dbname = f"{base.database}_tok_{uuid.uuid4().hex[:8]}"
+    admin = {
+        "host": base.host,
+        "port": base.port,
+        "user": base.username,
+        "password": base.password,
+        "dbname": base.database,
+    }
+    try:
+        conn = psycopg2.connect(**admin)
+    except psycopg2.OperationalError:
+        pytest.skip("Postgres test service not reachable")
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute(f'CREATE DATABASE "{dbname}"')
+    conn.close()
+
+    try:
+        generate_project("probe", tmp_path, sample_module="gadgets")
+        root = tmp_path / "probe"
+        live = _live_lines(_read(root, ".env"))
+        async_url = base.set(
+            database=dbname, drivername="postgresql+asyncpg"
+        ).render_as_string(hide_password=False)
+        lines = []
+        for line in _read(root, ".env.test").splitlines():
+            key = line.split("=", 1)[0]
+            if key == "DATABASE_URL":
+                line = f"DATABASE_URL={async_url}"
+            elif key == "INFRA":
+                line = f"INFRA='{_nested_infra()}'"
+            lines.append(line)
+        (root / ".env.test").write_text("\n".join(lines) + "\n")
+        (root / "tests" / "test_dev_token_route.py").write_text(_DEV_TOKEN_ROUTE_TEST)
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(("SANDLOOM_", "PYTEST_")) and k != "INFRA"
+        }
+        env[OWNER_ENV] = current_owner()
+        env.update(redis_free_infra_env())
+        # What the app's own `.env` says, as the app would read it.
+        env["TENANCY_MODE"] = live["TENANCY_MODE"]
+        env["SINGLE_TENANT_ID"] = live["SINGLE_TENANT_ID"]
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "tests/test_dev_token_route.py",
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert "1 passed" in out, out
+    finally:
+        conn = psycopg2.connect(**admin)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+        conn.close()
+
+
 def beginner_table_names(agents: str) -> set[str]:
     """The names in the second column of the AGENTS.md beginner table (the rows
     after its ``| need | names ... |`` header)."""

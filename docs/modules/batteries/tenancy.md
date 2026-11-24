@@ -229,6 +229,11 @@ schema as deprecated (never emitted); resolve the invitee via `invitation_id`.
 
 ## Integration with multi-tenancy
 
+An app made with `sandloom new --no-batteries` has `TENANCY_MODE=single` and a
+`SINGLE_TENANT_ID` in its `.env`. When you add this battery, set
+`TENANCY_MODE=multi` and delete `SINGLE_TENANT_ID` in `.env`; otherwise every
+organization token answers 403 `tenant_mismatch`.
+
 Tenancy provides the organizational model; the framework's
 [tenant scoping](../database/multi-tenancy.md) (`TenantScoped` / `TenantScope`)
 provides the fail-closed data isolation. They are complementary — tenancy is the
