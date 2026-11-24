@@ -565,7 +565,8 @@ $dev_block
 EVENT_BUS_BACKEND=memory
 
 # ==== Storage ====
-STORAGE_TYPE=local
+# STORAGE_TYPE stays unset: the object store is local files unless the app's
+# composition or INFRA selects another driver.
 STORAGE_PATH=./data
 
 # ==== Security ====
@@ -599,7 +600,6 @@ INFRA='$infra_test'
 # The tests run on the in-process bus, named explicitly (DEFAULT_INFRA selects Streams).
 EVENT_BUS_BACKEND=memory
 
-STORAGE_TYPE=local
 STORAGE_PATH=./test_data
 
 JWT_SECRET=test_super_secret_key_for_testing_only
@@ -1030,7 +1030,7 @@ _NOTIFIER_ENV = """\
   # "smtp", "host": "...", "from_addr": "..."}}}'. A demo
   # without mail adds log_notifier_in_prod to SANDLOOM_ACCEPTED_RISKS (mail is
   # NOT delivered).
-  NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
+  NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-}
 """
 
 # Billing refuses the fake PSP in prod, so a batteries app must choose.
