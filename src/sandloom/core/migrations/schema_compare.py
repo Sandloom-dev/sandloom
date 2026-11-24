@@ -12,7 +12,6 @@ compare. Each difference is one line a reader can act on.
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 from alembic.autogenerate import compare_metadata
@@ -20,7 +19,11 @@ from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, pool
 from sqlalchemy.engine import make_url
 
-from sandloom.core.migrations.alembic_support import COMPARE_OPTIONS, chain_includes
+from sandloom.core.migrations.alembic_support import (
+    COMPARE_OPTIONS,
+    chain_includes,
+    ignore_operator_clause_warning,
+)
 from sandloom.core.migrations.migrations import _ensure_extensions
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
@@ -147,16 +150,9 @@ def schema_differences(url: str, owned: frozenset[str], models_url: str) -> list
                 connection,
                 opts={**COMPARE_OPTIONS, "include_object": include_object},
             )
-            with warnings.catch_warnings():
-                # Alembic cannot compare an index expression that names an
-                # operator class (a search_index's ``gin_trgm_ops``) and says
-                # so with this warning; _index_definition_drift compares those
-                # indexes as the database reflects them instead.
-                warnings.filterwarnings(
-                    "ignore",
-                    message=r"Expression #\d+ .* operator clause",
-                    category=UserWarning,
-                )
+            # _index_definition_drift compares a search_index's operator
+            # classes as the database reflects them.
+            with ignore_operator_clause_warning():
                 diffs = compare_metadata(context, Base.metadata)
             return [
                 *(_describe(diff) for diff in diffs),

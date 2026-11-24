@@ -4,11 +4,14 @@ turns an empty autogenerate into a refusal."""
 
 from __future__ import annotations
 
+import os
 import sys
+import warnings
 from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic import util as alembic_util
 from alembic.config import Config
 from alembic.operations import ops
 
@@ -19,9 +22,12 @@ from sandloom.core.cli.migrate_checks import (
     not_null_warning,
     not_null_without_default,
 )
+from sandloom.core.cli.migrate_drift import find_drift
+from sandloom.core.composition import load_composition_core
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.migrations import alembic_support
 from sandloom.core.migrations.migrations import MigrationDependencyError
+from sandloom.core.testing.migrations import runs_no_chains
 
 # --------------------------------------------------------------------------- #
 # Numbered revision ids
@@ -311,6 +317,49 @@ def test_an_empty_autogenerate_writes_no_revision_when_refusing() -> None:
     hook(_NO_CONTEXT, None, directives)
     assert directives == []
     assert config.attributes[alembic_support.EMPTY_AUTOGENERATE] is True
+
+
+def _alembic_operator_clause_warning(expression: str) -> None:
+    """Alembic's own emission (``alembic/ddl/postgresql.py``), as the index
+    comparison makes it for a ``search_index`` operand."""
+    alembic_util.warn(
+        f"Expression #1 {expression!r} in index 'ix_users_search_trgm' detected "
+        "to include an operator clause. Expression compare cannot proceed. "
+        "Please move the operator clause to the ``postgresql_ops`` dict to "
+        "enable proper compare of the index expressions"
+    )
+
+
+def test_only_the_operator_clause_warning_is_ignored() -> None:
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        with alembic_support.ignore_operator_clause_warning():
+            _alembic_operator_clause_warning("full_name gin_trgm_ops")
+            _alembic_operator_clause_warning("(email::text) gin_trgm_ops")
+            alembic_util.warn("some other alembic warning")
+        _alembic_operator_clause_warning("outside gin_trgm_ops")
+    assert [str(w.message).split(" in index")[0] for w in seen] == [
+        "some other alembic warning",
+        "Expression #1 'outside gin_trgm_ops'",
+    ]
+
+
+@pytest.mark.skipif(
+    runs_no_chains(os.environ.get("DATABASE_URL", "")),
+    reason="needs PostgreSQL: SQLite runs no chain (SANDLOOM-B028)",
+)
+def test_the_chain_check_of_a_search_index_prints_no_warning() -> None:
+    """``sandloom migrate drift`` (``alembic check`` per chain) over identity,
+    whose ``ix_users_search_trgm`` is a three-operand ``search_index``: Alembic
+    warned once per operand."""
+    loaded = load_composition_core().module_descriptors
+    descriptors = [d for d in loaded if d.name == "sandloom_identity"]
+    assert descriptors, f"identity is not loaded; loaded: {[d.name for d in loaded]}"
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        drifts = find_drift(descriptors)
+    assert drifts == []
+    assert [str(w.message) for w in seen if "operator clause" in str(w.message)] == []
 
 
 def test_a_revision_with_changes_is_kept() -> None:

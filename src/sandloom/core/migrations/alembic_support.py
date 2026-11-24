@@ -39,7 +39,9 @@ import json
 import os
 import pkgutil
 import re
-from collections.abc import Callable, Iterable, Sequence
+import warnings
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from logging.config import fileConfig
 from pathlib import Path
 from types import ModuleType
@@ -162,9 +164,29 @@ def _drop_empty_autogenerate(
     return hook
 
 
+@contextmanager
+def ignore_operator_clause_warning() -> Iterator[None]:
+    """Silence Alembic's "index expression includes an operator clause" warning.
+
+    Alembic cannot compare an index expression that names an operator class (a
+    ``search_index``'s ``gin_trgm_ops``) and says so with a ``UserWarning`` per
+    expression, advising ``postgresql_ops``. That advice does not apply: the
+    models write the operator class through the portable ``search_index`` form,
+    not a dialect keyword, and the index is compared by definition as the
+    database reflects it (``schema_compare``'s index check). Only this message
+    is ignored; every other warning still shows."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Expression #\d+ .* operator clause",
+            category=UserWarning,
+        )
+        yield
+
+
 def _run_chain_transaction(connection: Connection, url: str) -> None:
     """Run the configured chain in one transaction on ``connection``."""
-    with context.begin_transaction():
+    with context.begin_transaction(), ignore_operator_clause_warning():
         lock = _direct_run_lock(connection, url)
         if lock is not None:
             # Direct ``alembic upgrade`` (outside sandloom-migrate's
