@@ -28,34 +28,66 @@ from sandloom.core.testing.slots import slot_owner
 # --------------------------------------------------------------------------- #
 
 
-def test_a_slot_run_is_the_owner_of_its_checkouts_slotless_database() -> None:
+_MACHINE = "abcdef123456"  # a machine id is 12 hex
+_OTHER_MACHINE = "fedcba654321"
+
+
+def test_a_slot_run_owns_the_slotless_database_nobody_claimed() -> None:
     """``migrate new`` creates the test database with no run slot, so its owner
-    is the checkout alone (``<machine>:<path>``); the next run is slot 1."""
-    slot = slot_owner("m1", "/work/app2", 1)
-    assert slot == "m1:/work/app2#1"
-    assert ownership.same_owner("m1:/work/app2", slot)  # what migrate new stamped
-    assert ownership.same_owner("/work/app2", slot)  # a legacy bare-path marker
+    is the checkout alone (``<machine>:<path>``); the next run is slot 1. That
+    holds while no run claimed the database: ``unclaimed`` says so."""
+    slot = slot_owner(_MACHINE, Path("/work/app2"), 1)
+    assert slot == f"{_MACHINE}:/work/app2#1"
+    stamped = f"{_MACHINE}:/work/app2"  # what migrate new stamped
+    assert ownership.same_owner(stamped, slot, unclaimed=True)
+    assert ownership.same_owner("/work/app2", slot, unclaimed=True)  # legacy marker
     assert ownership.same_owner(slot, slot)
 
 
+def test_a_slot_run_never_takes_a_slotless_database_a_run_claimed() -> None:
+    """The slot-less holder of a CLAIMED database may be a live run of the same
+    checkout (the one that got no slot): never the next run's."""
+    slot = slot_owner(_MACHINE, Path("/work/app2"), 1)
+    claimed = f"{_MACHINE}:/work/app2"
+    assert not ownership.same_owner(claimed, slot)
+    assert not ownership.same_owner(claimed, slot, unclaimed=False)
+    assert not ownership.same_owner("/work/app2", slot)  # the legacy form too
+    # The owner's own marker needs no claim check.
+    assert ownership.same_owner(slot, slot)
+    assert ownership.same_owner(claimed, claimed)
+    # A slot-less owner is not a slot's: the legacy form stays as it was.
+    assert ownership.same_owner("/work/app2", claimed)
+
+
 def test_the_slotless_owner_never_extends_to_another_run() -> None:
-    slot = slot_owner("m1", "/work/app2", 1)
-    assert not ownership.same_owner("m1:/work/app3", slot)  # another checkout
-    assert not ownership.same_owner("m2:/work/app2", slot)  # another machine
-    assert not ownership.same_owner("m1:/work/app2#2", slot)  # another slot
-    assert not ownership.same_owner("/work/app3", slot)
-    assert not ownership.same_owner(None, slot)
+    slot = slot_owner(_MACHINE, Path("/work/app2"), 1)
+    for holder in (
+        f"{_MACHINE}:/work/app3",  # another checkout
+        f"{_OTHER_MACHINE}:/work/app2",  # another machine
+        f"{_MACHINE}:/work/app2#2",  # another slot
+        "/work/app3",
+        None,
+    ):
+        assert not ownership.same_owner(holder, slot, unclaimed=True), holder
     # One way only: a slot's database is not the slot-less run's.
-    assert not ownership.same_owner(slot, "m1:/work/app2")
+    assert not ownership.same_owner(slot, f"{_MACHINE}:/work/app2", unclaimed=True)
 
 
 def test_an_explicit_owner_id_with_a_hash_is_not_cut() -> None:
-    """Only ``<machine>:<path>#<digits>`` is a slot owner: an agent's own id
-    stays what it was."""
-    assert ownership.slotless_owner("agent#7") == "agent#7"
-    assert ownership.slotless_owner("m1:/work/app2#1") == "m1:/work/app2"
-    assert ownership.slotless_owner("m1:/work/app#2/x#3") == "m1:/work/app#2/x"
-    assert not ownership.same_owner("agent", "agent#7")
+    """Only ``<12 hex machine id>:<absolute path>#<digits>`` is a slot owner: an
+    id a person or a CI job sets stays what it was, even one with a ``#``."""
+    for explicit in ("agent#7", "ci:shard#2", "ci:/builds/app#2", "m1:/work/app#3"):
+        assert ownership.slotless_owner(explicit) == explicit
+        assert not ownership.same_owner("ci:shard", explicit, unclaimed=True)
+    assert ownership.slotless_owner(f"{_MACHINE}:/work/app2#1") == (
+        f"{_MACHINE}:/work/app2"
+    )
+    assert ownership.slotless_owner(f"{_MACHINE}:/work/app#2/x#3") == (
+        f"{_MACHINE}:/work/app#2/x"
+    )
+    assert ownership.slotless_owner(f"{_MACHINE}:relative/app#1") == (
+        f"{_MACHINE}:relative/app#1"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -119,6 +151,37 @@ def test_the_plugin_run_never_reads_the_developers_dotenv(tmp_path: Path) -> Non
     )
     assert result.returncode == 0, result.stderr[-3000:]
     assert result.stdout.strip() == "multi"
+
+
+@pytest.mark.subprocess_probe
+def test_the_settings_a_module_declares_never_read_the_developers_dotenv(
+    tmp_path: Path,
+) -> None:
+    """``declare()`` and ``settings_of`` read through the process snapshot, which
+    a process whose ``Settings`` were never loaded builds on its own: from the
+    same ``.env`` the ``Settings`` read, so none in a test run."""
+    (tmp_path / ".env").write_text(_DEV_DOTENV)
+    (tmp_path / ".env.test").write_text(_TEST_ENV)
+    read = (
+        "from sandloom.core.config.module_settings import process_snapshot\n"
+        "print(process_snapshot().get('tenancy_mode'))\n"
+    )
+    control = _run(
+        "from sandloom.core.testing.env import load_test_env\n"
+        "import pathlib\n"
+        "load_test_env([pathlib.Path.cwd()], create_database=False)\n" + read,
+        tmp_path,
+        {},
+    )
+    assert control.returncode == 0, control.stderr[-3000:]
+    assert control.stdout.strip() == "('single', 'dotenv')"
+    result = _run(
+        _HOOK + "plugin.pytest_load_initial_conftests(cfg, None, [])\n" + read,
+        tmp_path,
+        {},
+    )
+    assert result.returncode == 0, result.stderr[-3000:]
+    assert result.stdout.strip() == "(None, None)"
 
 
 @pytest.mark.subprocess_probe
@@ -269,6 +332,16 @@ def test_a_server_named_by_url_gives_its_host_never_a_credential() -> None:
     )
     assert credential is not None
     assert "1234" not in credential and "user" not in credential
+    # A password that merely STARTS with digits: no prefix of it either.
+    prefixed = connection_failure(
+        _unavailable(
+            "postgresql://app:2024Secret@db.internal:5432/shop did not answer",
+            ConnectionError("Error -2 connecting to db.internal:5432."),
+        )
+    )
+    assert prefixed is not None
+    assert "2024" not in prefixed and "Secret" not in prefixed
+    assert "app:" not in prefixed
 
 
 def _stub_config(tmp_path: Path, workers: int) -> pytest.Config:

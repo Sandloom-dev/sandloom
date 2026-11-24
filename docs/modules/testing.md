@@ -65,8 +65,13 @@ committed and names this repository's test servers.
 `uv run sandloom migrate new` creates the test database before any run holds
 a slot. A first plain `pytest` right after it finds a database stamped with the
 checkout alone (`<machine>:<checkout>`). That run is slot 1 of the same
-checkout, so it takes the database over without a refusal. A database stamped
-by another checkout, machine or slot is still refused.
+checkout, so it takes the database over without a refusal. This holds only
+while no run has used the database yet.
+
+A database a slot-less run of the checkout already used is refused to a slot
+run, because that run may still be using it. Set
+`SANDLOOM_TEST_TAKE_OWNERSHIP=1` once when it is gone. A database stamped by
+another checkout, machine or slot is refused too.
 
 ### What a test run reads
 
@@ -82,10 +87,10 @@ The first row that sets a key wins:
 | 5 | the defaults of the settings | what is left |
 
 The developer's **`.env` is not in the table**. The plugin makes the settings
-of a test run skip it. Keys only your dev `.env` sets (`TENANCY_MODE=single`, a
-`STORAGE_PATH`, a `SANDLOOM_COMPOSITION_ROOT`) never reach a test. If a test
-needs one, put it in `.env.test` or set it in the test. An exported
-`SECRETS_DIR` is still read.
+of a test run skip it, the settings a module declares included. Keys only your
+dev `.env` sets (`TENANCY_MODE=single`, a `STORAGE_PATH`, a
+`SANDLOOM_COMPOSITION_ROOT`) never reach a test. If a test needs one, put it in
+`.env.test` or set it in the test. An exported `SECRETS_DIR` is still read.
 
 - **The composition root** a test run boots is `SANDLOOM_COMPOSITION_ROOT` from
   this environment (an app made by `sandloom new` names it in `.env.test`). Else

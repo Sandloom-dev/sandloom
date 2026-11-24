@@ -123,12 +123,21 @@ def redis_errors() -> tuple[type[Exception], ...]:
 
 def unreachable_errors() -> tuple[type[Exception], ...]:
     """What a Redis that does not answer raises: a refused or lost connection, a
-    timeout (a refused login is a connection error of the client too). Never a
-    ``ResponseError``: the server answered, and what it said is its own error."""
+    timeout. Never a ``ResponseError``: the server answered, and what it said is
+    its own error. A refused login is a ``ConnectionError`` of the client too, so
+    a caller that catches this tuple re-raises it (:func:`refused_login`)."""
     redis = _redis()
     if redis is None:
         return (OSError,)
     return (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, OSError)
+
+
+def refused_login(exc: BaseException) -> bool:
+    """Whether ``exc`` is the server refusing the credentials (``AuthenticationError``,
+    a subclass of the client's ``ConnectionError``): it answered, so it is no
+    outage and starting a server fixes nothing."""
+    redis = _redis()
+    return redis is not None and isinstance(exc, redis.exceptions.AuthenticationError)
 
 
 def _connect_redis(url: str) -> Any:
@@ -412,6 +421,7 @@ __all__ = [
     "allocate_worker_redis",
     "prune_redis",
     "redis_errors",
+    "refused_login",
     "release_redis",
     "scan_redis",
     "unreachable_errors",

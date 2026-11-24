@@ -63,8 +63,9 @@ _ADDRESS = re.compile(
     r"""|(?:(?:host|server at|at)\s+"?(?P<h2>[\w.-]+)"?.*?port\s+(?P<p2>\d+))"""
     r"""|(?:(?P<h3>\d+\.\d+\.\d+\.\d+|localhost|\[[0-9a-f:]+\]):(?P<p3>\d+))"""
     # A server named by URL (a harness message: ``redis://cache.internal:6379``);
-    # never ``user:1234@host``, whose "port" would be a password.
-    r"""|(?:[a-z][a-z0-9+.-]*://(?P<h4>[\w.-]+):(?P<p4>\d+)(?![\d@]))""",
+    # never ``user:1234@host`` or ``user:2024Secret@host``, whose "port" would be
+    # (the start of) a password: no ``@`` may follow before the path.
+    r"""|(?:[a-z][a-z0-9+.-]*://(?P<h4>[\w.-]+):(?P<p4>\d+)(?![^\s/]*@))""",
     re.IGNORECASE,
 )
 

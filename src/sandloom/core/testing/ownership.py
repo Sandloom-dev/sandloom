@@ -38,10 +38,12 @@ paths like ``/workspace/repo``, hence the machine id. A marker written before
 the machine id existed (the bare checkout path) is still this checkout's own.
 A test run started by ``sandloom test`` or the pytest plugin on a checkout
 ``sandloom dev up`` prepared holds a slot (:mod:`sandloom.core.testing.slots`)
-whose owner ends in ``#<slot>``; a resource the same checkout marked without a
-slot (``sandloom migrate new`` creates the checkout's test database before any
-run holds one) is that run's own too (:func:`same_owner`). CI runners start
-from fresh containers, so their resources are always unmarked and simply claimed.
+whose owner ends in ``#<slot>``; a database the same checkout marked without a
+slot, and no run has claimed since (``sandloom migrate new`` creates the
+checkout's test database before any run holds one), is that run's own too
+(:func:`same_owner`, :func:`database_claimed`). A slot-less database a run
+claimed is that run's: a slot run is refused it. CI runners start from fresh
+containers, so their resources are always unmarked and simply claimed.
 
 Imports nothing from the framework (safe before the settings snapshot).
 """
@@ -94,7 +96,10 @@ def current_owner(
 
 #: ``<machine id>:<checkout root>#<slot>``: the owner of a test-run slot
 #: (:func:`slot_owner`); the part before ``#`` is the checkout's slot-less owner.
-_SLOT_OWNER = re.compile(r"(?P<checkout>[^#:]+:.+)#(?P<slot>[0-9]+)")
+#: The machine id is exactly 12 hex (:func:`sandloom.core.testing.machine.machine_id`)
+#: and the checkout an absolute path, so an explicit ``SANDLOOM_TEST_OWNER`` such
+#: as ``ci:shard#2`` or ``agent#7`` is no slot's owner.
+_SLOT_OWNER = re.compile(r"(?P<checkout>[0-9a-f]{12}:(?P<path>.+))#(?P<slot>[0-9]+)")
 
 
 def slot_owner(machine: str, checkout: Path, number: int) -> str:
@@ -108,17 +113,22 @@ def slotless_owner(owner: str) -> str:
     (``<machine id>:<checkout>#2`` is ``<machine id>:<checkout>``); any other
     owner, an explicit ``SANDLOOM_TEST_OWNER`` included, is returned as it is."""
     match = _SLOT_OWNER.fullmatch(owner)
-    return match["checkout"] if match else owner
+    if match is None or not Path(match["path"]).is_absolute():
+        return owner
+    return match["checkout"]
 
 
-def same_owner(holder: str | None, owner: str) -> bool:
+def same_owner(holder: str | None, owner: str, *, unclaimed: bool = False) -> bool:
     """``holder`` is ``owner``, or a form of it the same checkout wrote:
 
-    * the checkout's slot-less owner, for an owner that is a slot's
+    * for an owner that is a slot's, the checkout's slot-less owner
       (``sandloom migrate new`` creates the checkout's test database before
-      any run holds a slot, so it is marked ``<machine id>:<checkout>``): the
-      run that takes the slot takes the database. The other way round never
-      holds: a slot-less run does not take a database a slot's run marked;
+      any run holds a slot, so it is marked ``<machine id>:<checkout>``) and
+      the legacy form below, but ONLY with ``unclaimed``: the caller found that
+      no run has claimed the resource since (:func:`database_claimed`). A
+      slot-less holder that claimed it is a run that may still be using it:
+      another run of the checkout never takes it. The other way round never
+      holds either: a slot-less run does not take what a slot's run marked;
     * the legacy form: a marker written before owners carried the machine id
       (the bare checkout path).
     """
@@ -127,6 +137,8 @@ def same_owner(holder: str | None, owner: str) -> bool:
     if holder == owner:
         return True
     checkout_owner = slotless_owner(owner)
+    if checkout_owner != owner and not unclaimed:
+        return False
     if holder == checkout_owner:
         return True
     _, sep, path = checkout_owner.partition(":")
@@ -185,6 +197,24 @@ def database_owner(cursor: Any) -> str | None:
     return str(comment[len(DB_MARKER_PREFIX) :])
 
 
+def database_claimed(cursor: Any) -> bool:
+    """Whether a run has claimed the connected database since it was created.
+
+    :func:`claim_database` records when the database was last used
+    (``sandloom_test.last_used``); the harness stamps a database it creates
+    (``workers.ensure_database``, what ``sandloom migrate new`` runs) with an
+    owner alone. A marked database without that setting was never used.
+    """
+    cursor.execute(
+        "SELECT 1 FROM pg_db_role_setting s, unnest(s.setconfig) AS c "
+        "WHERE s.setdatabase = (SELECT oid FROM pg_database "
+        "WHERE datname = current_database()) "
+        "AND s.setrole = 0 AND split_part(c, '=', 1) = %s",
+        (DB_LAST_USED_SETTING,),
+    )
+    return cursor.fetchone() is not None
+
+
 def stamp_database(cursor: Any, name: str, owner: str) -> None:
     cursor.execute(
         sql.SQL("COMMENT ON DATABASE {} IS {}").format(
@@ -220,7 +250,14 @@ def claim_database(
         conn.autocommit = True
         with conn.cursor() as cur:
             holder = database_owner(cur)
-            if holder is not None and not same_owner(holder, owner):
+            # Asked only of a foreign marker: a slot's run takes its checkout's
+            # slot-less database only while no run has claimed it.
+            unclaimed = (
+                holder is not None and holder != owner and not database_claimed(cur)
+            )
+            if holder is not None and not same_owner(
+                holder, owner, unclaimed=unclaimed
+            ):
                 if not takeover_requested(environ):
                     raise TestResourceOwnershipError(
                         _refusal("database", repr(name), holder, owner, _DB_HINT)
@@ -332,6 +369,12 @@ def check_holder(
     ``hint`` says how this run points at its own. Raises
     :class:`TestResourceOwnershipError`, unless ``SANDLOOM_TEST_TAKE_OWNERSHIP=1``
     (a warning then, and the caller re-stamps the resource).
+
+    A slot's run never takes the slot-less marker of its checkout here
+    (:func:`same_owner` without ``unclaimed``): a backend's marker is written
+    by a claim alone (``claim_redis`` stamps its owner together with when it was
+    last used), so a marked resource is one a run may still be using. Only
+    ``migrate new`` marks a resource it never claimed, and it creates a database.
     """
     if holder is None or same_owner(holder, owner):
         return

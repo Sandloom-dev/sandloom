@@ -188,12 +188,24 @@ def _read_dotenv(path: Path, encoding: str | None) -> dict[str, str | None]:
 
 
 _PROCESS_SNAPSHOT: SourceSnapshot | None = None
+#: The ``.env`` the process ``Settings`` read (``Settings.model_config``'s
+#: ``env_file``, which this leaf module cannot import): what a snapshot built
+#: here reads too. A test run drops it with the ``Settings`` one
+#: (:func:`sandloom.core.testing.env.ignore_dotenv`).
+_PROCESS_ENV_FILE: str | os.PathLike[str] | None = ".env"
 
 
 def set_process_snapshot(snapshot: SourceSnapshot | None) -> None:
     """Record the snapshot the process ``Settings`` were loaded from."""
     global _PROCESS_SNAPSHOT
     _PROCESS_SNAPSHOT = snapshot
+
+
+def set_process_env_file(env_file: str | os.PathLike[str] | None) -> None:
+    """Set the ``.env`` a snapshot built by :func:`process_snapshot` reads
+    (``None``: none), the file the process ``Settings`` read."""
+    global _PROCESS_ENV_FILE
+    _PROCESS_ENV_FILE = env_file
 
 
 def process_snapshot() -> SourceSnapshot:
@@ -204,7 +216,7 @@ def process_snapshot() -> SourceSnapshot:
     """
     global _PROCESS_SNAPSHOT
     if _PROCESS_SNAPSHOT is None:
-        snapshot = SourceSnapshot()
+        snapshot = SourceSnapshot(env_file=_PROCESS_ENV_FILE)
         secrets_dir = snapshot.env.get("secrets_dir")
         if secrets_dir:
             snapshot.secrets_dir = Path(secrets_dir).expanduser()
@@ -912,6 +924,7 @@ __all__ = [
     "post_load_check",
     "process_snapshot",
     "refusal",
+    "set_process_env_file",
     "set_process_snapshot",
     "validate_module_settings",
 ]

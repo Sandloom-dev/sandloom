@@ -14,6 +14,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import sandloom.core.config.module_settings as _module_settings
 import sandloom.core.config.settings as _settings
 from sandloom.core.testing.connections import apply_test_pool_profile
 from sandloom.core.testing.workers import apply_test_overrides, apply_worker_env
@@ -56,8 +57,12 @@ def ignore_dotenv() -> None:
     dev ``.env`` sets (``TENANCY_MODE=single``) would reach the tests through
     it. A test run is composed of the shell, ``.env.test``, ``.env.test.local``
     and ``SANDLOOM_TEST_*`` only: the pytest plugin calls this right after
-    :func:`load_test_env`, before anything loads the settings. Idempotent."""
+    :func:`load_test_env`, before anything loads the settings. Idempotent.
+
+    The settings every module declares (``declare()``, ``settings_of``) read the
+    same sources through the process snapshot, so its ``.env`` goes too."""
     _settings.Settings.model_config["env_file"] = None
+    _module_settings.set_process_env_file(None)
 
 
 class MissingTestEnvError(RuntimeError):

@@ -148,6 +148,8 @@ class RedisFamily:
                 spares=resources.REDIS_SPARES_PER_BASE,
             )
         except resources.unreachable_errors() as exc:
+            if resources.refused_login(exc):
+                raise  # the server answered: a wrong credential is no outage
             # Imported here, not at the top: ``sandloom.driverkit`` imports the
             # settings and SQLAlchemy, which the harness loads this family ahead of
             # (test_loading_the_family_imports_no_settings_and_no_sqlalchemy).

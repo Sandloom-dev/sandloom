@@ -65,8 +65,12 @@ def test_a_redis_that_does_not_answer_is_unavailable_and_named(
 
 @pytest.mark.parametrize(
     "answer",
-    [redis.exceptions.ResponseError("ERR unknown command"), ValueError("a bug")],
-    ids=["a server that answered", "a bug of the harness"],
+    [
+        redis.exceptions.ResponseError("ERR unknown command"),
+        redis.exceptions.AuthenticationError("invalid username-password pair"),
+        ValueError("a bug"),
+    ],
+    ids=["a server that answered", "a refused login", "a bug of the harness"],
 )
 def test_only_a_server_that_does_not_answer_is_an_outage(
     monkeypatch: pytest.MonkeyPatch, answer: Exception
@@ -93,6 +97,12 @@ def test_unreachable_errors_are_the_connection_faults_not_the_replies() -> None:
         assert issubclass(fault, errors)
     for reply in (redis.exceptions.ResponseError, redis.exceptions.DataError):
         assert not issubclass(reply, errors)
+    # A refused login is a ConnectionError of the client, so the tuple holds it
+    # and the family re-raises it by this predicate.
+    login = redis.exceptions.AuthenticationError("invalid username-password pair")
+    assert isinstance(login, errors) and resources.refused_login(login)
+    assert not resources.refused_login(redis.exceptions.ConnectionError("refused"))
+    assert not resources.refused_login(ConnectionRefusedError())
 
 
 def test_the_server_and_instance_of_a_url_never_carry_a_credential() -> None:
