@@ -130,17 +130,17 @@ says what each argument is.
 
 ### The scaffold is tenant-scoped
 
-`add module` and `add event` always scaffold tenant-scoped, and read no setting.
-A gitignored `.env` is per machine. A scaffold that followed it would write a
-table without row-level security into an app that is multi-tenant in
+`add module`, `add event` and `add consumer` always scaffold tenant-scoped, and read
+no setting. A gitignored `.env` is per machine. A scaffold that followed it would
+write a table without row-level security into an app that is multi-tenant in
 production. `--no-tenant` is the explicit choice for an app without tenants.
 
-| | `add module` | `add event` |
-|---|---|---|
-| default | The example table is `TenantScoped`: a `tenant_id` column, its index and row-level security in the baseline migration. The event, the service and the tests carry the tenant. | Adds `tenant_id: UUID` to the fields. |
-| `--no-tenant` | A plain table (`Base`): no `tenant_id`, no row-level security, and tests that use `as_user(tenant=False)`. | Adds no `tenant_id`: the default is `<entity>_id` alone, and a `--field tenant_id:UUID` you name is written as given. |
+| | `add module` | `add event` | `add consumer` |
+|---|---|---|---|
+| default | The example table is `TenantScoped`: a `tenant_id` column, its index and row-level security in the baseline migration. The event, the service and the tests carry the tenant. | Adds `tenant_id: UUID` to the fields. | A view built from `--field` alone, with no producer schema found, gets `tenant_id: UUID`. A view of a found producer keeps that producer's required fields, `tenant_id` among them. |
+| `--no-tenant` | A plain table (`Base`): no `tenant_id`, no row-level security, and tests that use `as_user(tenant=False)`. | Adds no `tenant_id`: the default is `<entity>_id` alone, and a `--field tenant_id:UUID` you name is written as given. | The view built from `--field` alone gets no `tenant_id`. A found producer's view is unchanged. |
 
-A tenant-less module or event is for an app without tenants. In that app
+A tenant-less scaffold is for an app without tenants. In that app
 (`TENANCY_MODE=single`) one canonical tenant, `SINGLE_TENANT_ID`, is bound and
 still filters a `TenantScoped` model you add yourself. A wrong default costs an extra `tenant_id`. A wrong
 `--no-tenant` in a multi-tenant app costs the isolation, so pass it only where the

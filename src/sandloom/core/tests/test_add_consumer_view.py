@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import ast
 import json
+import sys
+import types
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -64,10 +66,11 @@ def _view_fields(root: Path) -> list[str]:
     ]
 
 
-def _scaffolded_payload(root: Path) -> dict[str, Any]:
+def _scaffolded_payload(root: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """The payload the generated test of the ``deals`` consumer passes to
     ``deliver``: the view class of ``consumers.py`` and the ``event = ...`` line of
-    its test, both run."""
+    its test, both run (in a module of their own: pydantic resolves a view's
+    annotations through ``sys.modules``)."""
     module = root / "probe" / "modules" / "deals"
     consumers = ast.parse((module / "consumers.py").read_text(encoding="utf-8"))
     test = ast.parse(
@@ -84,7 +87,9 @@ def _scaffolded_payload(root: Path) -> dict[str, Any]:
         for node in tree.body
         if isinstance(node, ast.ImportFrom) and node.level == 0
     ]
-    namespace: dict[str, Any] = {}
+    scaffold = types.ModuleType("probe_deals_scaffold")
+    monkeypatch.setitem(sys.modules, scaffold.__name__, scaffold)
+    namespace = scaffold.__dict__
     program = ast.Module([*imports, view], type_ignores=[])
     exec(compile(program, "<consumers.py>", "exec"), namespace)  # noqa: S102 - the generated view class
     call = next(
@@ -114,7 +119,7 @@ def _generate(root: Path) -> None:
 
 
 def test_a_view_with_field_keeps_the_producers_required_tenant_id(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The dogfood run: ``add event contacts ContactCreated --field name:str``, then
     ``add consumer deals <channel> --field name:str``. The view used to be ``name``
@@ -126,13 +131,13 @@ def test_a_view_with_field_keeps_the_producers_required_tenant_id(
     assert "    name: str\n    tenant_id: UUID\n" in view
     assert "# unverified" not in view  # the producer was found
     _generate(root)
-    payload = _scaffolded_payload(root)
+    payload = _scaffolded_payload(root, monkeypatch)
     assert set(payload) == {"name", "tenant_id"}
     assert _refusals(root, payload) == []
 
 
 def test_a_consumer_added_before_its_event_gets_the_tenant_id_add_event_writes(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, where = _app(tmp_path)
     add.add_consumer("deals", CHANNEL, where, ["name:str"])
@@ -141,7 +146,7 @@ def test_a_consumer_added_before_its_event_gets_the_tenant_id_add_event_writes(
     assert "    name: str\n    tenant_id: UUID\n" in view
     add.add_event("contacts", "ContactCreated", where, ["name:str"])
     _generate(root)
-    assert _refusals(root, _scaffolded_payload(root)) == []
+    assert _refusals(root, _scaffolded_payload(root, monkeypatch)) == []
 
 
 def test_a_tenant_id_named_by_the_author_is_not_added_twice(tmp_path: Path) -> None:
@@ -151,7 +156,7 @@ def test_a_tenant_id_named_by_the_author_is_not_added_twice(tmp_path: Path) -> N
 
 
 def test_an_app_without_tenants_gets_no_tenant_id_in_either_order(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``--no-tenant``: the consumer first (no schema to read) and the event first
     (the schema is read) both give the view ``name`` alone, and its test event
@@ -161,7 +166,7 @@ def test_an_app_without_tenants_gets_no_tenant_id_in_either_order(
     assert "tenant_id" not in _view(root)
     add.add_event("contacts", "ContactCreated", where, ["name:str"])
     _generate(root)
-    payload = _scaffolded_payload(root)
+    payload = _scaffolded_payload(root, monkeypatch)
     assert payload.keys() == {"name"}
     assert _refusals(root, payload) == []
     # The producer found in the tree: the view takes its fields and adds none.
