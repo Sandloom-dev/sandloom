@@ -107,13 +107,14 @@ def main(argv: Sequence[str]) -> int:
         )
     policy = core.claim_authorities
     tenant = request["tenant"]
+    ttl = request["ttl_minutes"]  # None: the default; 0 is out of bounds, not "default"
     try:
         minted = mint_dev_token(
             policy,
             user_id=UUID(request["user"]),
             tenant_id=None if tenant is None else UUID(tenant),
             roles=request["roles"],
-            ttl_minutes=request["ttl_minutes"] or DEFAULT_TTL_MINUTES,
+            ttl_minutes=DEFAULT_TTL_MINUTES if ttl is None else ttl,
         )
     except DevTokenRefused as exc:
         return _refuse(str(exc))

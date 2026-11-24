@@ -11,7 +11,7 @@ twice and every refusal has a row that fails without it:
   when run without the parent;
 * CI, a bad argument, a crashing app, and no secret in any output.
 
-The kernel mint is ``test_dev_token.py`` one directory up.
+The kernel mint is ``test_dev_token_mint.py`` one directory up.
 """
 
 from __future__ import annotations
@@ -280,7 +280,7 @@ def no_child(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         started.append("started")
         raise AssertionError("the app's process was started for a refused request")
 
-    monkeypatch.setattr(token._process, "run", fail)
+    monkeypatch.setattr(token, "_child_answer", fail)
     return started
 
 

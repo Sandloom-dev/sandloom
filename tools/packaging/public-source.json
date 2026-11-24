@@ -1895,7 +1895,7 @@
         "src/sandloom/core/tests/test_dev/test_dev_selection_read.py",
         "src/sandloom/core/tests/test_dev/test_dev_test_overrides.py",
         "src/sandloom/core/tests/test_dev/test_dev_token.py",
-        "src/sandloom/core/tests/test_dev_token.py",
+        "src/sandloom/core/tests/test_dev_token_mint.py",
         "src/sandloom/core/tests/test_di_get_db.py",
         "src/sandloom/core/tests/test_doctor_periodic.py",
         "src/sandloom/core/tests/test_driver_compat.py",

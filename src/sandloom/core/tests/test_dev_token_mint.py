@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from typing import Any
 from uuid import uuid4
 
+import jwt
 import pytest
 
 from sandloom.core.auth import dev_token as dt
@@ -56,9 +57,16 @@ def _mint(policy: ClaimAuthorities, **kwargs: Any) -> dt.DevToken:
 
 
 def _claims(minted: dt.DevToken) -> dict[str, Any]:
-    payload = tokens.decode_token(minted.token)
-    assert payload is not None
-    return payload
+    """What the token states, before any verifier's policy trims it (the
+    verified read, ``decode_token``, drops the claims its policy does not
+    trust, and here no active core holds one)."""
+    assert settings.jwt_secret
+    return jwt.decode(
+        minted.token,
+        settings.jwt_secret,
+        algorithms=[settings.jwt_algorithm],
+        options={"verify_aud": False},
+    )
 
 
 # --- the token is what the app's verifier accepts ------------------------------
@@ -96,7 +104,12 @@ async def test_the_token_carries_the_provenance_of_the_assigned_authority(
     minted = _mint(
         verifier(roles_map(ID)).claim_authorities, tenant_id=uuid4(), roles=["admin"]
     )
-    assert await statuses(verifier(roles_map(ACME)), minted.token) == ROLES_401
+    # The roles gates (401, one refresh), not 200; `/perm` stays a plain 403
+    # because no permissions claim was asked for.
+    assert await statuses(verifier(roles_map(ACME)), minted.token) == {
+        **ROLES_401,
+        "/perm": 403,
+    }
 
 
 def test_the_claims_are_what_the_policy_asks_for() -> None:
