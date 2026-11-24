@@ -7,7 +7,9 @@ policy only under the runner's ``sandloom_tenant_rls`` switch.
 
 import pytest
 
-from sandloom.sdk.infra import settings  # sandloom: advanced INFRA override for the RLS switch
+from sandloom.sdk.infra import (  # sandloom: advanced INFRA override for the RLS switch
+    settings,
+)
 from sandloom.sdk.testing import (  # sandloom: advanced migration chain helpers
     migrate_module,
     run_sql,
