@@ -27,7 +27,8 @@ from typing import Any, Literal
 
 from sandloom.core.descriptors import ContractRequirement, ModuleDescriptor
 from sandloom.core.module_api import contract_spec
-from sandloom.core.orm import Base, TenantScoped
+from sandloom.core.orm import TenantScoped
+from sandloom.core.sql_alchemy.base import base_mappers
 
 EventRole = Literal["producer", "view"]
 
@@ -418,7 +419,7 @@ def _models(module: str, package: str | None) -> tuple[ModelEntry, ...]:
     if not package:
         return ()
     out: list[ModelEntry] = []
-    for mapper in Base.registry.mappers:
+    for mapper in base_mappers():
         cls = mapper.class_
         owner = getattr(cls, "__module__", "")
         if owner != package and not owner.startswith(package + "."):
