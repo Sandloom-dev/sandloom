@@ -113,5 +113,23 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "transcript",
-  "error": ""
+  "error": "",
+  "docs_lookups": 3,
+  "docs_names": [
+    "billing.entitlements.v1",
+    "contracts",
+    "tenancy.member_added.v2"
+  ],
+  "recipes_read": [
+    "list-order",
+    "org-gate",
+    "projection-from-platform-events"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 12,
+  "t009_failures": 0,
+  "advanced_markers": 0,
+  "sdk_names": [],
+  "tier_misses": []
 }

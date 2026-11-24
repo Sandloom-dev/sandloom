@@ -115,5 +115,18 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "transcript",
-  "error": ""
+  "error": "",
+  "docs_lookups": 0,
+  "docs_names": [],
+  "recipes_read": [
+    "list-order",
+    "org-gate"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 12,
+  "t009_failures": 0,
+  "advanced_markers": 0,
+  "sdk_names": [],
+  "tier_misses": []
 }

@@ -130,5 +130,34 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "transcript",
-  "error": ""
+  "error": "",
+  "docs_lookups": 14,
+  "docs_names": [
+    "$n",
+    "Notification",
+    "Notifier",
+    "as_user",
+    "contracts",
+    "deliver",
+    "events",
+    "fake_contract",
+    "identity.contact.v1",
+    "identity.user_registered.v1",
+    "notifier",
+    "on",
+    "sandloom.sdk.effects",
+    "tenant_scope_exempt"
+  ],
+  "recipes_read": [
+    "call-contract",
+    "retries",
+    "test-service-or-task"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 23,
+  "t009_failures": 0,
+  "advanced_markers": 0,
+  "sdk_names": [],
+  "tier_misses": []
 }

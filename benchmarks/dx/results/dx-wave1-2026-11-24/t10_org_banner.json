@@ -115,5 +115,20 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "transcript",
-  "error": ""
+  "error": "",
+  "docs_lookups": 2,
+  "docs_names": [
+    "WallClock",
+    "record_audit"
+  ],
+  "recipes_read": [
+    "org-gate"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 9,
+  "t009_failures": 0,
+  "advanced_markers": 0,
+  "sdk_names": [],
+  "tier_misses": []
 }

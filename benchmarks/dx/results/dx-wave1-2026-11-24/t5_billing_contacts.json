@@ -68,5 +68,20 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "seed:teamhub",
-  "error": ""
+  "error": "",
+  "docs_lookups": 2,
+  "docs_names": [
+    "sandloom.sdk.errors"
+  ],
+  "recipes_read": [
+    "list-order",
+    "org-gate"
+  ],
+  "recipe_index_views": 2,
+  "skills_read": [],
+  "first_green_turn": 10,
+  "t009_failures": 0,
+  "advanced_markers": 0,
+  "sdk_names": [],
+  "tier_misses": []
 }

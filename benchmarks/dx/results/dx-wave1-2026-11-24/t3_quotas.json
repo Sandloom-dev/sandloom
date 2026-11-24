@@ -120,5 +120,28 @@
   "app_dir": "teamhub",
   "expected_wiring": [],
   "pristine": "transcript",
-  "error": ""
+  "error": "",
+  "docs_lookups": 8,
+  "docs_names": [
+    "ConflictInsert",
+    "OrgRole",
+    "TenantScoped",
+    "WallClock",
+    "billing.credits.v1",
+    "conflict_insert",
+    "current_tenant_id",
+    "tenancy.membership.v1"
+  ],
+  "recipes_read": [
+    "call-contract",
+    "org-gate",
+    "retries"
+  ],
+  "recipe_index_views": 1,
+  "skills_read": [],
+  "first_green_turn": 21,
+  "t009_failures": 0,
+  "advanced_markers": 0,
+  "sdk_names": [],
+  "tier_misses": []
 }
