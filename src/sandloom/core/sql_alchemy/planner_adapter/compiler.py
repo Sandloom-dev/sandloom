@@ -26,8 +26,8 @@ from sqlalchemy.orm import ColumnProperty
 from sandloom.core.planner import (
     JoinRead,
     ListOperation,
-    Plan,
     OperationSchemaMismatch,
+    Plan,
     ReadOperation,
 )
 from sandloom.core.sql_alchemy.dbapi import RAW_EXECUTOR, dbapi_adapter_of
