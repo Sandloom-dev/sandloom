@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import subprocess
 from dataclasses import asdict
 from pathlib import Path
 from types import ModuleType
@@ -361,6 +362,102 @@ def test_the_lock_check_refuses_a_framework_not_from_the_wheels(
     app = tmp_path / "app"
     app.mkdir()
     assert appmode.lock_resolves_from_wheels(lock, app, dist) is False
+
+
+#: Installed path -> (path in the repo at the built commit, bytes). A driver or
+#: stack package (``sandloom-celery``, ``sandloom-redis``) lives under
+#: ``packages/<x>/src/``, not ``src/``: with only ``src/<rel>`` looked up, every
+#: file of those two distributions (28 files on a real wheels install) differed.
+FRAMEWORK_FILES = {
+    "sandloom/core/a.py": ("src/sandloom/core/a.py", b"A = 1\n"),
+    "sandloom/core/migrations/core_chain/001_x.py": (
+        "migrations/core/001_x.py",
+        b"CHAIN = 1\n",
+    ),
+    "sandloom_billing/b.py": ("src/sandloom_billing/b.py", b"B = 1\n"),
+    "sandloom_celery/c.py": (
+        "packages/sandloom-celery/src/sandloom_celery/c.py",
+        b"C = 1\n",
+    ),
+    "sandloom_redis/r.py": (
+        "packages/sandloom-redis/src/sandloom_redis/r.py",
+        b"R = 1\n",
+    ),
+}
+
+
+def _framework_install(tmp_path: Path) -> tuple[Any, Path, Path]:
+    """A git repo holding ``FRAMEWORK_FILES`` at one commit, and an app venv
+    that has them installed byte for byte (one dist-info per distribution)."""
+    repo = tmp_path / "repo"
+    for source, data in FRAMEWORK_FILES.values():
+        (repo / source).parent.mkdir(parents=True, exist_ok=True)
+        (repo / source).write_bytes(data)
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(repo)]
+    for args in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "x"]):
+        subprocess.run([*git, *args], check=True, capture_output=True)
+    sha = subprocess.run(
+        [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    app = tmp_path / "app"
+    site = app / ".venv" / "lib" / "python3.12" / "site-packages"
+    for installed, (_, data) in FRAMEWORK_FILES.items():
+        (site / installed).parent.mkdir(parents=True, exist_ok=True)
+        (site / installed).write_bytes(data)
+    for package in {name.split("/", 1)[0] for name in FRAMEWORK_FILES}:
+        info = site / f"{package}-1.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(f"Name: {package.replace('_', '-')}\n")
+        files = [n for n in FRAMEWORK_FILES if n.startswith(f"{package}/")]
+        (info / "RECORD").write_text(
+            "".join(f"{n},sha256=x,1\n" for n in files) + f"{info.name}/RECORD,,\n"
+        )
+    return sha, repo, app
+
+
+def test_the_content_check_finds_a_package_file_under_packages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.syspath_prepend(str(DX))
+    appmode = importlib.import_module("appmode")
+    sha, repo, app = _framework_install(tmp_path)
+    dist = appmode.Dist(
+        sha=sha, root=tmp_path, wheels=tmp_path, bin=tmp_path, packages=[]
+    )
+    assert appmode.framework_content_mismatches(app, dist, repo) == []
+
+
+@pytest.mark.parametrize("edited", sorted(FRAMEWORK_FILES))
+def test_the_content_check_names_an_installed_file_that_is_not_the_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edited: str
+) -> None:
+    monkeypatch.syspath_prepend(str(DX))
+    appmode = importlib.import_module("appmode")
+    sha, repo, app = _framework_install(tmp_path)
+    dist = appmode.Dist(
+        sha=sha, root=tmp_path, wheels=tmp_path, bin=tmp_path, packages=[]
+    )
+    site = next(app.glob(".venv/lib/python*/site-packages"))
+    (site / edited).write_bytes(b"EDITED = 1\n")
+    assert appmode.framework_content_mismatches(app, dist, repo) == [edited]
+
+
+def test_the_content_check_names_an_installed_file_the_commit_does_not_have(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.syspath_prepend(str(DX))
+    appmode = importlib.import_module("appmode")
+    sha, repo, app = _framework_install(tmp_path)
+    dist = appmode.Dist(
+        sha=sha, root=tmp_path, wheels=tmp_path, bin=tmp_path, packages=[]
+    )
+    site = next(app.glob(".venv/lib/python*/site-packages"))
+    (site / "sandloom_celery" / "extra.py").write_bytes(b"X = 1\n")
+    record = site / "sandloom_celery-1.dist-info" / "RECORD"
+    record.write_text(record.read_text() + "sandloom_celery/extra.py,sha256=x,1\n")
+    assert appmode.framework_content_mismatches(app, dist, repo) == [
+        "sandloom_celery/extra.py"
+    ]
 
 
 AFTER_FIRST = {
