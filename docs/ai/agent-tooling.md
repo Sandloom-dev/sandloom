@@ -12,7 +12,7 @@ level: first-app
 
 A coding agent knows Python but not this project's layout or rules, and an instruction typed into a prompt is gone by the next task.
 
-A Sandloom application keeps its instructions for agents in its own files. `sandloom new` writes `AGENTS.md`, the module-author contract and seven skills, procedures an agent loads when its task matches one. Four `sandloom` commands answer questions about the installed framework from the command line. The [checks](checks.md) hold the rules these files describe.
+A Sandloom application keeps its instructions for agents in its own files. `sandloom new` writes `AGENTS.md`, the module-author contract and eight skills, procedures an agent loads when its task matches one. Four `sandloom` commands answer questions about the installed framework from the command line. The [checks](checks.md) hold the rules these files describe.
 
 ## Choose your agents
 
@@ -44,7 +44,7 @@ In a script or CI, pass the choice: `uv run sandloom new shop --agents claude,co
 | `AGENTS.md` | The map of the application: where modules live, the command for each kind of change, the import rule, the names a module needs, and the skill folders |
 | `<app>/modules/AGENTS.md` | The module-author contract: every rule a module follows and the check that holds it |
 | `CLAUDE.md`, `GEMINI.md` | One line, `@AGENTS.md`, for Claude Code and Gemini CLI, which read their own file name |
-| The skill folders | The same seven skills, in each chosen agent's folder |
+| The skill folders | The same eight skills, in each chosen agent's folder |
 
 | Skill | The agent loads it to |
 | --- | --- |
@@ -53,6 +53,7 @@ In a script or CI, pass the choice: `uv run sandloom new shop --agents claude,co
 | `sandloom-quality-gates` | Run every check and fix what fails |
 | `sandloom-cross-module` | Choose between an event, a consumer, a contract call, a projection and a saga, and run the command for it |
 | `sandloom-background-tasks` | Write a task or a scheduled task: `@task`, `@periodic`, repeat-safe bodies, tenants |
+| `sandloom-module-rules` | Get right the rules no check enforces: each rule has an Incorrect and a Correct example in its own file |
 | `sandloom-event-version-roll` | Change an event's fields without breaking the modules that react to it |
 | `sandloom-split-deploy` | Run modules as separate services with `sandloom add deploy` |
 

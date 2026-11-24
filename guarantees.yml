@@ -9010,7 +9010,8 @@ capabilities:
   - tests/integration/test_migrations_per_chain.py::test_chains_reproduce_orm_schema_exactly
 - id: C-GEN-13
   statement: sandloom new writes the app's agent skills (sandloom-module-context, sandloom-new-module, sandloom-quality-gates,
-    sandloom-cross-module, sandloom-background-tasks, sandloom-event-version-roll, sandloom-split-deploy), rewritten for the app's paths and commands, to .claude/skills and .agents/skills, and the
+    sandloom-cross-module, sandloom-background-tasks, sandloom-module-rules, sandloom-event-version-roll, sandloom-split-deploy), rewritten for the app's paths and commands, to .claude/skills and .agents/skills, with
+    the rule files its index links to (sandloom-module-rules/rules/*.md), and the
     app map names them in one line; sandloom add skills writes them into an existing app, keeping an edited file
     unless --force.
   sources:
@@ -9018,6 +9019,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_project.py::test_generated_project_ships_the_app_skills
   - src/sandloom/core/tests/test_project.py::test_sandloom_add_skills_refreshes_an_existing_app
+  - src/sandloom/core/tests/test_module_rules_skill.py::test_the_skill_ships_with_its_rule_files
 - id: C-GEN-14
   statement: Example apps pass their own gate - every example app (examples/*) and the tutorial app
     (docs/tutorial-app/*) passes the gate an app developer runs, sandloom test --ci --full (generated files checked,

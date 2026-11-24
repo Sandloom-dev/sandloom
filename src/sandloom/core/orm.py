@@ -24,7 +24,7 @@ from sandloom.core.planner import (
     Reads,
     make_cursor,
 )
-from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.sql_alchemy.base import Base, base_mappers
 from sandloom.core.sql_alchemy.columns import CreatedAt, UpdatedAt, Versioned, new_id
 from sandloom.core.sql_alchemy.money_ledger import MoneyLedger
 from sandloom.core.sql_alchemy.portable import (
@@ -62,7 +62,7 @@ def module_feature_uses(package: str) -> list[FeatureUse]:
     with (``Array`` columns, ``fulltext_index`` indexes), each once; see
     :func:`~sandloom.core.sql_alchemy.portable.table_feature_uses`."""
     tables: dict[str, Any] = {}
-    for mapper in Base.registry.mappers:
+    for mapper in base_mappers(Base):
         owner = getattr(mapper.class_, "__module__", "") or ""
         if owner == package or owner.startswith(f"{package}."):
             for table in mapper.tables:
