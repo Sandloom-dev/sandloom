@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -133,9 +134,14 @@ def test_the_generate_child_asks_for_the_quiet_level() -> None:
     like the command that started it."""
     from sandloom.core.cli import add
 
-    start = add._GENERATE.index("root = ")
-    exec(compile(add._GENERATE[:start], "<generate child>", "exec"), {})  # noqa: S102 - the child's own opening lines, run here to see their effect
-    assert log_level.requested_default() == "WARNING"
+    opening = add._GENERATE[: add._GENERATE.index("root = ")]
+    done = subprocess.run(
+        [sys.executable, "-c", opening + "print(log_level.requested_default())"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert done.stdout.strip() == "WARNING"
 
 
 def test_verbose_is_read_before_the_command_only() -> None:
