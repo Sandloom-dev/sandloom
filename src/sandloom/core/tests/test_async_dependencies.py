@@ -50,7 +50,7 @@ def _factory_products() -> dict[str, Any]:
     from sandloom.shared.authz.algebra import TIER_LIVE, Requirement
     from sandloom.shared.guards import auth as guards
 
-    async def _loader(_id: Any, _db: Any) -> Any:  # pragma: no cover
+    async def _loader(_id: Any) -> Any:  # pragma: no cover
         return None
 
     class _Live(Requirement):
