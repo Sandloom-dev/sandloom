@@ -895,6 +895,11 @@ Two modes, fixed when the handle is made:
   the read sees the unit's own writes, flushed or not). The optimized
   executor is never used there (see the design doc, "mixed operations").
 
+A handle made on a core (every one but a fixed `adapter=`) refuses, at the
+first read of an operation on an adapter, one that no loaded module
+declared: `PlanningError`, naming the fix (declare the operation at
+module level). The cached path of a declared operation carries no check.
+
 #### `Reads.in_unit_of_work`
 
 ```python

@@ -806,8 +806,8 @@ class Reads:
 
     A handle made on a core (every one but a fixed ``adapter=``) refuses, at the
     first read of an operation on an adapter, one that no loaded module
-    declared: :class:`PlanningError` with the fix (:func:`_require_declared`).
-    The cached path of a declared operation carries no check.
+    declared: :class:`PlanningError`, naming the fix (declare the operation at
+    module level). The cached path of a declared operation carries no check.
     """
 
     __slots__ = (
