@@ -845,12 +845,35 @@ with an alias: `via: str = Field(alias="channel")`.''',
     "periodic-task": (
         "a nightly task: sandloom add task --periodic, an idempotent body, the beat",
         '''`sandloom add task --periodic` writes a `@periodic(cron=..., id=...)` task
-(the scheduler, `sandloom beat`, sends it at its cron slots). The scheduler
-may fire while a previous run still works, and a task can run twice (a worker
-dies, a slot is sent again): make every run harmless to repeat (delete or update by a condition, upsert, or claim a
-`durable_inbox` key). Work in short units, one `open_uow()` per batch.
+(the scheduler, `sandloom beat`, sends it at its cron slots). By default a task
+is acknowledged when it starts (at most once): a worker that dies mid-run loses
+that slot's work. Work that must not be lost takes `at_least_once=True` (the
+broker redelivers it when the worker dies); the run may then repeat, and a slot
+may also overlap a run that still works. Make every run harmless to repeat
+(delete or update by a condition, upsert, or claim a `durable_inbox` key): the
+purge below is, so it opts in. Work in short units, one `open_uow()` per batch.
 
     uv run sandloom add task <module> purge_old_items --periodic "0 3 * * *"
+
+The command declares the feature `periodic`; `at_least_once=True` needs
+`redelivery` too (a driver that only sends has neither; SANDLOOM-C033 asks for
+both), so add it to the module's declaration:
+
+    # file: <module>/__init__.py
+    """The <module> module: a nightly purge."""
+
+    from sandloom.sdk import define_module
+    from sandloom.sdk.module import CapabilityRequirement  # sandloom: advanced periodic
+
+    register = define_module(
+        __name__,
+        version="0.1.0",
+        capabilities=[
+            CapabilityRequirement(
+                "taskqueue", features=frozenset({"periodic", "redelivery"})
+            )
+        ],
+    )
 
     # file: <module>/tasks.py
     """Background tasks of <module> (the framework worker imports this file)."""
@@ -892,9 +915,9 @@ dies, a slot is sent again): make every run harmless to repeat (delete or update
                 return total
 
 
-    @periodic(cron="0 3 * * *", id="<module>.purge-old-items")
+    @periodic(cron="0 3 * * *", id="<module>.purge-old-items", at_least_once=True)
     async def purge_old_items() -> None:
-        """Every day at 03:00 UTC."""
+        """Every day at 03:00 UTC; redelivered if the worker dies."""
         await purge_in_batches()
 
     # file: <module>/tests/test_tasks.py

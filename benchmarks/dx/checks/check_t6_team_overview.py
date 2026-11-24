@@ -1,5 +1,7 @@
 """t6_team_overview — cross-module read model (projection)."""
 
+import re
+
 from _dx import module_dir, module_tests, routes, text
 
 TEAM = module_dir("team_overview")
@@ -37,6 +39,21 @@ def test_dev_rebuildable() -> None:
     assert "rebuild_from=" in src or "register_projection_rebuilder" in src
 
 
+def reads_billing(src: str) -> bool:
+    """The billing side of the overview comes from billing's own data: a
+    projection over ``billing.subscription`` events, or a live read of the
+    plan through the ``billing.entitlements.v1`` contract at request time (the
+    recipe ``projection-from-platform-events``: the subscription events carry
+    no version, so the plan is read live). Only an import of the generated
+    contract stub counts, not a comment that names it."""
+    return "billing.subscription" in src or bool(
+        re.search(
+            r"^\s*from\s+\S*billing_entitlements_v1\s+import\b", src, re.MULTILINE
+        )
+    )
+
+
 def test_dev_sources_both_modules() -> None:
     src = text(TEAM)
-    assert "tenancy.member" in src and "billing.subscription" in src
+    assert "tenancy.member" in src
+    assert reads_billing(src)
