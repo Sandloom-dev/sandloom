@@ -24,8 +24,9 @@ RECONCILER_HEALTH_CHECK = "billing_reconciler"
 
 #: What ``/health`` says in development while the reconciler has never run.
 DEV_NEVER_RAN_NOTE = (
-    "no beat in development: run `uv run sandloom worker` and "
-    "`uv run sandloom beat` to exercise billing reconciliation"
+    "the reconciler has not run yet: `sandloom dev run` starts a worker and a "
+    "beat (first run within 5 minutes); with `--no-background` or another "
+    "server, run `uv run sandloom worker` and `uv run sandloom beat`"
 )
 
 RunRecord = tuple[datetime, int]
@@ -146,10 +147,12 @@ class ReconcilerHealthCheck:
         }
         if last is None:
             details["state"] = "never_ran"
-            # ``sandloom dev run`` starts no worker and no beat, so a fresh
-            # development app has never run the reconciler: that alone is not a
-            # failure there (the environment tier, never a setting). A run that
-            # went silent, and open compensation, fail in every environment.
+            # A fresh development app has not run the reconciler yet (the beat
+            # that ``sandloom dev run`` starts schedules its first run within
+            # minutes; an app served by another server has no beat at all):
+            # that alone is not a failure there (the environment tier, never a
+            # setting). A run that went silent, and open compensation, fail in
+            # every environment.
             if self._development() and not (failed or followups):
                 details["note"] = DEV_NEVER_RAN_NOTE
                 return HealthResult(status="ok", details=details)

@@ -47,7 +47,7 @@
  "new_batteries/AGENTS.md": "b925cf728bbf58778c1d4a0219a68006f8e24ffd6ee863ad5522f84fd13e1102",
  "new_batteries/CLAUDE.md": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
  "new_batteries/Dockerfile": "71eedd469e1134ed830d0591c8fac218b79760d938a93548bdadbbab88d522c4",
- "new_batteries/README.md": "3c5154ec3fd808f2808ae00638a27db582e8a02772c854941a1bee665534bad1",
+ "new_batteries/README.md": "49335c4c32ce87e7d5cf035029996e0bd44d76ecbeac0c465d5d03c8ad8601d5",
  "new_batteries/architecture_rules.yml": "687242313ff3035d69bfdbede8ccd7fbca5f57f47987c75e999214ad9d3d27d9",
  "new_batteries/deploy/docker-compose.dev.yml": "4de8ec6a034f91f8cd33583c6309d0cf200c33959780eab999b07e22975134d5",
  "new_batteries/deploy/docker-compose.yml": "18dee41ee1cd44abb552bf283f51af53c5732f9b5a04dcd285018eb3e22be722",

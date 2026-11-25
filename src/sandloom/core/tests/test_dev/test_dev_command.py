@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ from sandloom.core.testing import workers
 from sandloom.core.testing.machine import machine_id
 from sandloom.core.tests._fake_stack import FakeStack
 from sandloom.core.tests._root_support import suite_infra_env
+from sandloom.core.worker import TASKQUEUE_INSTANCE_ENV
 
 # --------------------------------------------------------------------------- #
 # Fixtures
@@ -1669,44 +1671,308 @@ def _taskqueue_edge(
     }
 
 
-def _dev_run_output(
+def _dev_run(
     repo: Path,
     environ: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
     index: str | None,
-) -> str:
+    *,
+    background: bool = True,
+    reload: bool = False,
+    prefork_unavailable: bool = False,
+) -> tuple[str, dict[str, Any]]:
     """What ``dev run`` prints for a checkout whose inspection index is ``index``
-    (``None``: no index)."""
+    (``None``: no index), and what it hands the server loop: its keyword
+    arguments (``background``: the processes it starts beside the app) and the
+    app server's environment (``env``). ``prefork_unavailable``: whether the
+    platform is one where the worker's default pool cannot start (macOS), so
+    that the test does not depend on the machine it runs on."""
     ctx = _ctx(repo, environ)
     (repo / ".env").write_text(envfile.render_block(_VALUES))
     state = _state(ctx)
     commands.checkout_row(ctx, state)
     save_state(ctx.state_dir, state)
     _reachable(monkeypatch, up=True)
-    monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
+    monkeypatch.setattr(commands, "_prefork_unavailable", lambda: prefork_unavailable)
+    served: dict[str, Any] = {}
+    monkeypatch.setattr(
+        commands, "_serve", lambda c, argv, env, **kw: served.update(kw, env=env) or 0
+    )
     if index is not None:
         (repo / ".sandloom").mkdir(exist_ok=True)
         (repo / commands.INSPECTION_INDEX).write_text(index, encoding="utf-8")
-    assert commands.run(ctx, port=None, reload=False) == 0
-    return _text(ctx.out)
+    assert commands.run(ctx, port=None, reload=reload, background=background) == 0
+    return _text(ctx.out), served
 
 
-def test_dev_run_names_the_worker_and_beat_when_a_composed_module_needs_them(
+_BILLING_EDGES = [
+    _taskqueue_edge("billing", required=True, features=["periodic", "redelivery"]),
+    _taskqueue_edge("identity", required=False, features=["periodic"]),
+]
+
+
+def test_dev_run_no_background_names_the_worker_and_beat_when_a_module_needs_them(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`dev run` starts only the web process: billing's reconciler is a
-    required periodic job, so the run says which two commands start it."""
-    edges = [
-        _taskqueue_edge("billing", required=True, features=["periodic", "redelivery"]),
-        _taskqueue_edge("identity", required=False, features=["periodic"]),
-    ]
-    out = _dev_run_output(repo, environ, monkeypatch, encode_index({"edges": edges}))
+    """`dev run --no-background` serves the web process only: billing's
+    reconciler is a required periodic job, so the run says which two commands
+    start it, and starts nothing."""
+    out, served = _dev_run(
+        repo,
+        environ,
+        monkeypatch,
+        encode_index({"edges": _BILLING_EDGES}),
+        background=False,
+    )
     notes = [
         line for line in out.splitlines() if "wait for a worker and a beat" in line
     ]
     assert notes == [commands.background_note(["billing"])]
     assert "uv run sandloom worker" in notes[0] and "uv run sandloom beat" in notes[0]
     assert "identity" not in notes[0]
+    assert "started" not in out
+    assert served["background"] == {}
+    assert served["additions"] == {}
+
+
+def test_dev_run_starts_a_worker_and_a_beat_when_a_composed_module_needs_them(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Billing's reconciler is a required periodic job: `dev run` hands the
+    server loop a worker and a beat (not identity's optional one), says so in
+    one line, and no longer tells the person to start them. Where the default
+    pool can start (not macOS), the worker's environment is the app's."""
+    out, served = _dev_run(
+        repo, environ, monkeypatch, encode_index({"edges": _BILLING_EDGES})
+    )
+    assert set(served["background"]) == {"worker", "beat"}
+    assert served["additions"] == {}
+    assert commands.WORKER_POOL_NOTE not in out
+    # the run marker is where the processes are recorded for a run that is killed
+    assert served["marker"] == commands.run_file(repo)
+    started = [line for line in out.splitlines() if "started for" in line]
+    assert started == [commands.background_started_note(["billing"], reload=False)]
+    assert started[0].startswith("worker and beat started for billing (")
+    assert "--no-background" in started[0] and "Ctrl-C" in started[0]
+    assert "identity" not in started[0]
+    assert "wait for a worker" not in out
+
+
+def test_dev_run_where_prefork_cannot_start_runs_the_worker_in_the_solo_pool(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On macOS a prefork worker refuses to start, so billing would answer 503
+    for ever: `dev run` gives its worker the solo pool, says so once, and
+    leaves the app server's own environment alone."""
+    out, served = _dev_run(
+        repo,
+        environ,
+        monkeypatch,
+        encode_index({"edges": _BILLING_EDGES}),
+        prefork_unavailable=True,
+    )
+    assert out.splitlines().count(commands.WORKER_POOL_NOTE) == 1
+    assert set(served["additions"]) == {"worker"}  # the beat has no pool
+    worker = json.loads(served["additions"]["worker"]["INFRA"])
+    assert worker == {
+        "cache": {"default": {"url": "redis://127.0.0.1:24002/1"}},
+        "taskqueue": {
+            "default": {"broker": "redis://127.0.0.1:24002/2", "worker_pool": "solo"}
+        },
+    }
+    assert json.loads(served["env"]["INFRA"]) == json.loads(_VALUES["INFRA"])
+
+
+def test_dev_run_stops_what_a_killed_run_left_before_it_chooses_the_port(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The app server of the killed run may still hold the port the new run
+    would choose."""
+    calls: list[str] = []
+    monkeypatch.setattr(commands, "stop_leftovers", lambda ctx: calls.append("stop"))
+    monkeypatch.setattr(
+        commands,
+        "app_port",
+        lambda port, *, sticky=None: calls.append("port") or 8765,
+    )
+    _dev_run(repo, environ, monkeypatch, None)
+    assert calls == ["stop", "port"]
+
+
+def _worker_infra(
+    repo: Path,
+    environ: Mapping[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prefork_unavailable: bool = True,
+) -> dict[str, Any] | None:
+    """The ``INFRA`` the worker would get from :func:`commands.background_env`
+    for ``environ`` (``None``: it adds nothing)."""
+    monkeypatch.setattr(commands, "_prefork_unavailable", lambda: prefork_unavailable)
+    added = commands.background_env(_ctx(repo, dict(os.environ)), environ)
+    if not added:
+        return None
+    assert set(added) == {"worker"}
+    assert set(added["worker"]) == {"INFRA"}
+    parsed: dict[str, Any] = json.loads(added["worker"]["INFRA"])
+    return parsed
+
+
+def test_the_solo_pool_is_added_to_the_infra_in_force_and_nothing_else_changes(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    infra = _worker_infra(repo, {"INFRA": _VALUES["INFRA"]}, monkeypatch)
+    assert infra == {
+        "cache": {"default": {"url": "redis://127.0.0.1:24002/1"}},
+        "taskqueue": {
+            "default": {"broker": "redis://127.0.0.1:24002/2", "worker_pool": "solo"}
+        },
+    }
+
+
+def test_the_infra_of_env_is_read_when_the_environment_has_none_and_loses_to_it(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    taskqueue = {"taskqueue": {"default": {"broker": "redis://from-env-file/1"}}}
+    (repo / ".env").write_text(f"INFRA='{json.dumps(taskqueue)}'\n")
+    assert _worker_infra(repo, {}, monkeypatch) == {
+        "taskqueue": {
+            "default": {"broker": "redis://from-env-file/1", "worker_pool": "solo"}
+        }
+    }
+    exported = {"taskqueue": {"default": {"broker": "redis://exported/1"}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(exported)}, monkeypatch) == {
+        "taskqueue": {
+            "default": {"broker": "redis://exported/1", "worker_pool": "solo"}
+        }
+    }
+
+
+def test_without_any_infra_the_worker_gets_the_pool_alone(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _worker_infra(repo, {}, monkeypatch) == {
+        "taskqueue": {"default": {"worker_pool": "solo"}}
+    }
+
+
+@pytest.mark.parametrize("pool", ["prefork", "threads", "solo"])
+def test_a_pool_the_person_chose_is_kept(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, pool: str
+) -> None:
+    infra = {"taskqueue": {"default": {"worker_pool": pool}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(infra)}, monkeypatch) is None
+
+
+def test_a_task_queue_that_is_not_celery_gets_no_pool(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    infra = {"taskqueue": {"default": {"driver": "another"}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(infra)}, monkeypatch) is None
+    # the celery driver named outright is the default one
+    named = {"taskqueue": {"default": {"driver": "celery"}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(named)}, monkeypatch) == {
+        "taskqueue": {"default": {"driver": "celery", "worker_pool": "solo"}}
+    }
+
+
+def test_the_pool_goes_to_the_instance_the_worker_runs(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    infra = {
+        "taskqueue": {
+            "default": {"worker_pool": "threads"},
+            "jobs": {"broker": "redis://jobs/1"},
+        }
+    }
+    selected = {"INFRA": json.dumps(infra), TASKQUEUE_INSTANCE_ENV: "jobs"}
+    assert _worker_infra(repo, selected, monkeypatch) == {
+        "taskqueue": {
+            "default": {"worker_pool": "threads"},
+            "jobs": {"broker": "redis://jobs/1", "worker_pool": "solo"},
+        }
+    }
+    # a pool on the instance the worker runs counts, not one on another
+    chosen = {"taskqueue": {"default": {}, "jobs": {"worker_pool": "threads"}}}
+    selected["INFRA"] = json.dumps(chosen)
+    assert _worker_infra(repo, selected, monkeypatch) is None
+
+
+@pytest.mark.parametrize("raw", ["{not json", "[1]", '{"taskqueue": 1}'])
+def test_an_infra_that_is_not_readable_gets_no_pool_and_is_left_to_the_worker(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    assert _worker_infra(repo, {"INFRA": raw}, monkeypatch) is None
+
+
+def test_elsewhere_than_macos_the_worker_gets_nothing_added(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (
+        _worker_infra(
+            repo, {"INFRA": _VALUES["INFRA"]}, monkeypatch, prefork_unavailable=False
+        )
+        is None
+    )
+
+
+def test_dev_run_reads_the_instance_variable_the_worker_reads() -> None:
+    """`dev run` keeps its own copy of the name (the worker's module loads the
+    settings): the two must not drift apart."""
+    assert commands.WORKER_INSTANCE_ENV == TASKQUEUE_INSTANCE_ENV
+
+
+def test_prefork_is_unavailable_on_macos_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    for platform, unavailable in (("darwin", True), ("linux", False)):
+        monkeypatch.setattr(sys, "platform", platform)
+        assert commands._prefork_unavailable() is unavailable
+
+
+def test_dev_run_with_reload_says_that_only_the_web_process_reloads(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    edges = encode_index({"edges": _BILLING_EDGES})
+    reloading, _ = _dev_run(repo, environ, monkeypatch, edges, reload=True)
+    assert "reloads the web process only" in reloading
+
+
+def test_the_background_processes_are_the_sandloom_commands_of_this_interpreter(
+    repo: Path,
+) -> None:
+    argv = commands.background_argv(repo)
+    assert list(argv) == ["worker", "beat"]
+    assert argv["worker"][0] == argv["beat"][0] == sys.executable
+    assert argv["worker"][-1] == "worker"
+    schedule = argv["beat"][argv["beat"].index("--schedule") + 1]
+    assert argv["beat"][3] == "beat"
+    # the state file lands in the checkout's git-ignored run directory
+    assert Path(schedule).parent == commands.run_file(repo).parent
+    assert Path(schedule).is_relative_to(repo / ".sandloom" / "run")
+    # the entry point is real: the same prefix runs a sandloom command
+    probe = subprocess.run(
+        [*argv["worker"][:-1], "version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert probe.returncode == 0, probe.stderr
+    assert probe.stdout.strip()
+
+
+def test_dev_run_no_background_flag_reaches_the_command(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        dev_cli._commands, "run", lambda ctx, **kw: seen.append(kw) or 0
+    )
+    ctx = _ctx(repo, environ)
+    for flags in ([], ["--no-background"], ["--no-reload", "--no-background"]):
+        args = dev_cli._parser().parse_args(["run", *flags])
+        assert dev_cli._dispatch(ctx, args) == 0
+    assert [kw["background"] for kw in seen] == [True, False, False]
+    assert [kw["reload"] for kw in seen] == [True, True, False]
 
 
 @pytest.mark.parametrize(
@@ -1733,8 +1999,10 @@ def test_dev_run_says_nothing_about_a_worker_without_a_required_periodic_need(
     environ: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    out = _dev_run_output(repo, environ, monkeypatch, encode_index({"edges": edges}))
+    out, served = _dev_run(repo, environ, monkeypatch, encode_index({"edges": edges}))
     assert "sandloom worker" not in out and "sandloom beat" not in out
+    assert "started" not in out
+    assert served["background"] == {}
 
 
 @pytest.mark.parametrize(
@@ -1764,9 +2032,11 @@ def test_dev_run_without_a_readable_composition_record_serves_without_the_line(
     environ: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    out = _dev_run_output(repo, environ, monkeypatch, index)
+    out, served = _dev_run(repo, environ, monkeypatch, index)
     assert "sandloom dev run: http://127.0.0.1:" in out
     assert "sandloom worker" not in out
+    assert "started" not in out
+    assert served["background"] == {}
 
 
 def test_dev_run_names_a_free_port_when_the_sticky_one_is_taken(

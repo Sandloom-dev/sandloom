@@ -6503,9 +6503,10 @@ guarantees:
     check in /health reports missing or overdue progress and outstanding compensation failures.
     It does not gate /ready or /health/simple. New checkout and portal effects require a
     completed run in the last 900 seconds (three 300-second periods). Restarting web never
-    extends that window. Only in ENVIRONMENT=dev, where `sandloom dev run` starts no worker
-    and no beat, does a reconciler that never ran report ok with a note; a run that went
-    silent and open compensation fail in every environment.
+    extends that window. Only in ENVIRONMENT=dev, where the first beat can be minutes
+    away and `sandloom dev run --no-background` starts no worker and no beat, does a reconciler
+    that never ran report ok with a note; a run that went silent and open compensation fail
+    in every environment.
   sources:
   - docs/modules/batteries/billing.md
   - design/kernel-boundary/owner-decision-infra-deps.md

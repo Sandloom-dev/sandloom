@@ -176,10 +176,42 @@ worker registered at boot and cannot run its messages. The worker refuses to sta
 INFRA='{"taskqueue": {"default": {"driver": "celery", "worker_pool": "solo"}}}'
 ```
 
-Or run the worker on Linux, in a container.
+Or run the worker on Linux, in a container. The worker that `sandloom dev run` starts
+needs none of this ([below](#the-worker-and-beat)).
 
-Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
-importable Celery app of the Celery driver is for `celery inspect` and Flower: a
+**In development,** `sandloom dev run` starts them for you. A loaded module may
+require a periodic job: Billing's reconciler is one, a `taskqueue` need with the
+`periodic` feature, `required`. Then `dev run` runs `sandloom worker` and
+`sandloom beat` beside the app server and says so in one line. They get the
+app server's environment and working directory. Their output reaches the same
+terminal behind `worker |` and `beat |`. The beat keeps its schedule file in
+`.sandloom/run/`, which git ignores.
+
+Ctrl-C stops all three, and so does SIGTERM. A closing terminal (SIGHUP) does too,
+and so does the app server exiting. A worker or beat that exits early is reported
+in one line while the app keeps running. On macOS `dev run` starts its worker in
+the `solo` pool and says so, because `prefork` refuses to start there. The option
+goes into that worker's environment only. Your `.env`, the app server and a
+deployed worker are unchanged. A `worker_pool` you set in `INFRA` for the worker's
+instance is kept.
+
+The worker and the beat have a session of their own. A closing terminal then does
+not hang them up. A Celery worker would restart on a hang-up and outlive `dev run`.
+`dev run` receives the hang-up itself and stops them.
+
+A `dev run` that is killed outright (SIGKILL, a crash) runs no cleanup. Its marker,
+`.sandloom/run/dev-run.json`, names the processes it started. The next `dev run` of
+the checkout stops those that still run and says so in one line. It stops a
+process only when its start time is the one recorded. A pid that the system has
+handed to another process since is left alone.
+
+`--reload` restarts the app server only: restart `dev run` after you change a
+task. `--no-background` serves the app alone and prints the two commands. A
+deployment still runs `sandloom worker` and `sandloom beat` as processes of their
+own.
+
+Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`;
+`dev run` runs these two commands. The importable Celery app of the Celery driver is for `celery inspect` and Flower: a
 `celery -A ... worker` or `beat` on it stops with exit code 1. It reads its broker
 from `INFRA.taskqueue.default.broker`, through `Settings`, when the app is first
 used. With no broker it fails and names that option. It has no result backend

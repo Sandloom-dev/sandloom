@@ -61,6 +61,9 @@ another `sandloom dev up` in <path>") and then finds everything already up.
   is taken, say what holds it (`lsof` / `psutil` where available) and suggest a free one; `--port
   auto` picks one and prints the URL (agents use this). A pid file per checkout makes a second `dev
   run` in the same checkout answer "already running at http://127.0.0.1:N" instead of failing.
+  Since owner decision 2026-11-25 (task `dev-run-background`) it also runs `sandloom worker` and
+  `sandloom beat` beside uvicorn when the composition requires a periodic job (see "`dev run` and
+  its background processes" below); `--no-background` keeps uvicorn alone.
 - `sandloom dev reset`: drop and recreate this checkout's database and flush its Redis indexes. The
   servers and every other checkout are untouched.
 - `sandloom dev down [--all]`: stop the repository's containers. Without `--all` it refuses while
@@ -270,3 +273,47 @@ uvicorn's "Application startup complete". Then it prints one block, once, after 
 lines. The block lists the app, the admin console when `/admin/` answers, the API docs when
 `/docs` answers, and `/health`. Outside production the app also serves `/favicon.ico`: the
 caracal of `docs/assets/sandloom-mark.svg` in the brand colours. The start page links it.
+
+**`dev run` and its background processes** (owner decision 2026-11-25). A new app made `--with
+billing` answered 503 on checkout and portal until a reconciler ran once, and that needs a worker
+and a beat, which `dev run` did not start. It now does, when the composition record
+(`.sandloom/inspection.json`) names a module with a required `periodic` taskqueue need
+(`background_modules`). They are children of `dev run`, started after uvicorn with the same
+environment (plus `PYTHONUNBUFFERED=1`) and working directory, through the interpreter's own
+`sandloom` entry point (`python -c "import sandloom; sandloom.main()" worker`; the package has no
+`__main__`). The beat's state file is `.sandloom/run/celerybeat-schedule`, which every scaffold
+git-ignores. Their output reaches the terminal behind a `worker |` / `beat |` prefix; uvicorn's
+output is untouched. Stopping: Ctrl-C, SIGTERM, SIGHUP and uvicorn exiting stop all three (SIGTERM
+to the two, then a kill past one shared deadline of 20 seconds, which the interrupt of uvicorn and
+the stop of the two count down together); a second Ctrl-C while they stop kills at once. A worker or
+beat that exits early is reported in one line, after the last lines it wrote, and uvicorn keeps
+running. `--reload` reloads uvicorn only: there is no reloader for the worker or the beat.
+`--no-background` keeps the old behaviour (uvicorn alone, plus the hint line that names the two
+commands).
+
+The worker and the beat have a **session of their own** (`start_new_session`), not `dev run`'s
+process group, which a first design kept (review round 2, H1). A Celery worker whose output is a
+pipe turns SIGHUP into a restart, so a closing terminal made a new worker image that nothing
+stopped. `dev run` handles SIGHUP like SIGTERM (a closing terminal hangs up `dev run` and uvicorn,
+which share a process group) and stops the three itself. A SIGHUP that reaches uvicorn would end it
+without its own shutdown, so the handler forwards SIGTERM to it whichever signal came.
+
+**macOS runs the worker in the solo pool** (review round 2, H2). `refuse_unusable_pool` stops a
+`prefork` worker where billiard spawns its children (macOS), so the reconciler never ran and billing
+kept answering 503. Where `sys.platform` is `darwin` (a heuristic for "billiard cannot fork"),
+`dev run` adds `worker_pool: solo` to the `INFRA` of the worker child only, laid over the `INFRA`
+in force (the app server's environment, else `.env`) instance by instance, for the instance
+`SANDLOOM_WORKER_TASKQUEUE` selects. Nothing is added when that instance sets `worker_pool` already,
+names another driver, or `INFRA` is not an object (the worker refuses it and says why). The app
+server, the beat, `.env` and a deployed worker are untouched, and `dev run` says it in one line.
+
+**What a killed `dev run` leaves** (review round 2, M3). SIGKILL runs no `finally`, so the worker
+would keep consuming with the old code, the beat would hold its lease so that the next beat only
+stands by, and uvicorn would hold the port. The run marker `.sandloom/run/dev-run.json` therefore
+records `children`: `{name: {pid, started}}` for `web`, `worker` and `beat`, rewritten once the
+processes run. The next `dev run` of the checkout (under the checkout lock, before it chooses the
+port) stops each recorded process that still runs and says so in one line. A pid is only stopped
+when `ps -o lstart=` gives the start time that was recorded (within 10 seconds, `ps` counts whole
+seconds): a pid the system has handed to another process since is left alone. A process whose start
+`ps` cannot give is named and left alone. A marker of another host names nothing. SIGTERM first,
+SIGKILL after 10 seconds.
