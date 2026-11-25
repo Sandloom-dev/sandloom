@@ -50,6 +50,7 @@ from sandloom.core.sql_alchemy.portable import (
 )
 from sandloom.core.sql_alchemy.read_only_policy import read_only_sessions_problem
 from sandloom.core.sql_alchemy.tenant_rls import row_security_problem
+from sandloom.core.sql_alchemy.url_hosts import remote_database_host
 
 
 def configured_database_urls(cfg: Any) -> list[tuple[str, str]]:
@@ -315,6 +316,48 @@ def sql_storage_problems(infra: InfraRegistry, metadata: Any) -> list[str]:
     return problems
 
 
+def environment_unset_problem(cfg: Any) -> str | None:
+    """An unset ``ENVIRONMENT`` with a database that is not on this machine
+    (SANDLOOM-B043).
+
+    Left unset the process runs as ``dev``: no production validator applies, the
+    docs are exposed, a development token verifies. That is a development
+    machine's setting, so it is allowed only against a database on this
+    machine (loopback, ``localhost``, a unix socket, a file database). A
+    deployment that forgot ``ENVIRONMENT`` and reaches a remote database does
+    not start. Reads the URLs the app resolves (``DATABASE_URL`` and every
+    ``INFRA`` database instance, :func:`configured_database_urls`) with the
+    host reading of ``sandloom dev token``
+    (:func:`~sandloom.core.sql_alchemy.url_hosts.remote_database_host`;
+    ``PGHOST`` where a PostgreSQL url names no host). No url is echoed: it
+    carries credentials.
+    """
+    if cfg.environment_explicit:
+        return None
+    pghost = os.environ.get("PGHOST")
+    urls = [("DATABASE_URL", str(cfg.database_url)), *configured_database_urls(cfg)]
+    remote: list[str] = []
+    for label, url in dict.fromkeys(urls):
+        try:
+            host = remote_database_host(url, pghost)
+        except ValueError:
+            remote.append(f"{label} (it does not parse as a url)")
+            continue
+        if host is not None:
+            remote.append(f"{label} (host {host!r})")
+    if not remote:
+        return None
+    return (
+        "ENVIRONMENT is not set and the database is not on this machine: "
+        + ", ".join(remote)
+        + " [SANDLOOM-B043]. An unset ENVIRONMENT runs as dev (no production "
+        "validator, docs exposed, development tokens trusted) and is allowed "
+        "only against 127.0.0.1, localhost, a unix socket or a file database: "
+        "set ENVIRONMENT=prod for a deployment, or ENVIRONMENT=dev to develop "
+        "against this database"
+    )
+
+
 def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[str]:
     """Every startup configuration problem of ``cfg`` (empty = usable).
 
@@ -337,6 +380,8 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       (:func:`development_database_config_problem`, SANDLOOM-B029), and a
       guard for ``DB_READ_ONLY_SESSIONS``
       (:func:`read_only_sessions_config_problem`, SANDLOOM-B031);
+    * no remote database while ``ENVIRONMENT`` is unset
+      (:func:`environment_unset_problem`, SANDLOOM-B043);
     * ``SANDLOOM_SERVICE_NAME`` on a cross-process event bus, the group of the
       kernel's revocation applier
       (:func:`~sandloom.core.app_factory.revocation_applier.revocation_applier_config_problem`);
@@ -365,6 +410,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         development_database_config_problem,
         read_only_sessions_config_problem,
         revocation_applier_config_problem,
+        environment_unset_problem,
     ):
         problem = check(cfg)
         if problem:

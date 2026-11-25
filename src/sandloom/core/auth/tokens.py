@@ -33,7 +33,7 @@ from sandloom.core.claims import (
 )
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import Environment, strict_profile_active
-from sandloom.core.config.settings import settings
+from sandloom.core.config.settings import Settings, settings
 from sandloom.core.signing_keys import (
     KeyConfigError,
     load_private_key,
@@ -45,6 +45,28 @@ from sandloom.core.signing_keys import (
 #: is minted and verified. An allow-list: every other value (``prod`` today, a
 #: new environment tomorrow) is refused.
 DEV_ENVIRONMENTS: tuple[str, ...] = (Environment.dev.value, Environment.test.value)
+
+
+def dev_environment_problem(cfg: Settings) -> str | None:
+    """Why ``cfg`` is not an environment where a development token is minted
+    and verified, or ``None``.
+
+    ``ENVIRONMENT`` must have been *set*, to ``dev`` or ``test``: left unset it
+    reads ``dev`` (the default), and a production deploy that forgot it must
+    not accept a token a developer machine signed with the same key. One rule
+    for the mint (:mod:`sandloom.core.auth.dev_token`) and the verifier."""
+    if not cfg.environment_explicit:
+        return (
+            "ENVIRONMENT is not set: a development token is minted and "
+            f"accepted only with ENVIRONMENT={' or '.join(DEV_ENVIRONMENTS)} "
+            "set explicitly"
+        )
+    if cfg.environment.value not in DEV_ENVIRONMENTS:
+        return (
+            f"ENVIRONMENT={cfg.environment.value}: a development token is "
+            f"minted only with ENVIRONMENT={' or '.join(DEV_ENVIRONMENTS)}"
+        )
+    return None
 
 
 def create_access_token(
@@ -358,8 +380,10 @@ def _verification_settings() -> tuple[Any, ...]:
         s.jwt_audience,
         s.jwt_issuer,
         s.jwt_leeway_seconds,
-        # A development token verifies only where this is dev or test.
+        # A development token verifies only where this is dev or test, and
+        # was set (dev_environment_problem).
         s.environment,
+        s.environment_explicit,
     )
 
 
@@ -430,12 +454,13 @@ def _accepted_payload(payload: Mapping[str, Any]) -> dict[str, Any] | None:
     """The verified ``payload`` as a plain dict, or ``None`` when this process
     must not accept it: an empty one, or a development token
     (``sandloom dev token``) read by a verifier that is not running dev or
-    test. Such a token names itself with a sealed marker, so a development
-    key reused in production signs no token that production trusts (ADR-0014,
-    development token)."""
+    test, or whose ``ENVIRONMENT`` is unset (the dev default is not a
+    development machine). Such a token names itself with a sealed marker, so a
+    development key reused in production signs no token that production trusts
+    (ADR-0014, development token)."""
     if not payload:
         return None
-    if DEV_MINT_CLAIM in payload and settings.environment.value not in DEV_ENVIRONMENTS:
+    if DEV_MINT_CLAIM in payload and dev_environment_problem(settings) is not None:
         return None
     # jwt.decode returns a dict; explicit copy keeps mypy --strict happy.
     return dict(payload)

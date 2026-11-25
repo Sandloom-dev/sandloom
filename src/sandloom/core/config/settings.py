@@ -757,6 +757,18 @@ class Settings(
 
     # ---- Helpers ----
     @property
+    def environment_explicit(self) -> bool:
+        """``ENVIRONMENT`` was given (process environment, ``.env``, a secrets
+        file or a constructor argument), not left at its ``dev`` default.
+
+        ``environment`` itself keeps reading ``dev`` when nothing set it, so
+        code that gates on ``is_prod`` is unchanged; a check that must not
+        mistake a forgotten ``ENVIRONMENT`` for a development machine (a dev
+        token, a remote database) asks this instead.
+        """
+        return "environment" in self.model_fields_set
+
+    @property
     def is_dev(self) -> bool:
         return self.environment == Environment.dev
 

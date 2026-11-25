@@ -77,6 +77,28 @@ PostgreSQL row-level security for that instance, with `system_url` /
 `/diagnostics/infra` reports the configured capabilities, instances,
 stability, registered drivers and per-instance health.
 
+## Set `ENVIRONMENT` on every deployment
+
+`ENVIRONMENT` takes `dev`, `test` or `prod`. <!-- prose-ok: P6 the three values --> Left unset it
+reads `dev`, the setting of a development machine. No production validator applies, and the
+interactive docs are exposed. A token from `sandloom dev token` verifies. A deployment that
+forgot the variable would run that way, so an unset `ENVIRONMENT` is not treated as a choice of
+`dev`:
+
+- Startup logs a warning. Every process that boots the app logs it, the worker and the scheduler
+  included. `sandloom doctor` reports the same thing.
+- A database that is not on this machine refuses startup with
+  [SANDLOOM-B043](../reference/error-codes.md). A database is on this machine when it is
+  `localhost`, a loopback address (`127.0.0.0/8` or `::1`), a unix socket or a SQLite file. <!-- prose-ok: P6 the local hosts -->
+  The check reads `DATABASE_URL` and the `url` of every `INFRA` database instance. A PostgreSQL url
+  that names no host connects where `PGHOST` says, so the check reads that too. The message names
+  the host, never the url.
+- A token from `sandloom dev token` is refused with `401`, and the command refuses to mint one.
+
+Setting the variable ends all three. `ENVIRONMENT=prod` is a deployment. `ENVIRONMENT=dev`, which
+`sandloom new` writes into `.env`, silences the warning and allows a development database on
+another host. A value from any place settings are read from counts as set.
+
 ## Upgrade: flat settings that became driver options
 
 Five groups of flat settings are removed. Each became an option of the driver

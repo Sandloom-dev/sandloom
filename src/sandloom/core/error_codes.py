@@ -2050,6 +2050,30 @@ different refusal and reads as the driver's own options error.
         "docs/infrastructure/configure.md",
     ),
     _entry(
+        "SANDLOOM-B043",
+        "environment-unset-remote-database",
+        "boot",
+        "ENVIRONMENT is not set and a configured database is not on this machine",
+        "set ENVIRONMENT=prod for a deployment, or ENVIRONMENT=dev (or test) to "
+        "develop against that database",
+        """
+ENVIRONMENT left unset reads as dev: no production validator applies, the
+interactive docs are exposed and a token from `sandloom dev token` verifies.
+That is the setting of a development machine, so it is allowed only against a
+database on this machine: 127.0.0.1 or another loopback address, localhost, a
+unix socket or a file database. A deployment that forgot ENVIRONMENT and
+reaches any other host does not start, in the app, the worker, the scheduler
+and every `sandloom` command that boots the configuration. The check reads
+DATABASE_URL and the url of every INFRA database instance the way the app does
+(and PGHOST for a PostgreSQL url that names no host); the message names the
+setting and the host, never the url, which carries credentials. Setting
+ENVIRONMENT, to prod or, for development against that database, to dev or
+test, ends it. Without the refusal, a missing ENVIRONMENT would silently turn
+off every production check of a deployment.
+""",
+        "docs/infrastructure/configure.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",

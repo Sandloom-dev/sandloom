@@ -182,12 +182,14 @@ def check_config(report: Report, cfg: Any) -> None:
         f"PRODUCTION_PROFILE={getattr(cfg, 'production_profile', 'standard')}",
     )
     check_boot(report, cfg)
-    if "environment" not in cfg.model_fields_set:
+    if not cfg.environment_explicit:
         report.add(
             "config",
             "environment",
             WARN,
-            "ENVIRONMENT is not set (defaults to dev); set it explicitly",
+            "ENVIRONMENT is not set: running with dev defaults (a remote database "
+            "is refused, SANDLOOM-B043, and a dev token is not accepted); set "
+            "ENVIRONMENT=prod for a deploy, ENVIRONMENT=dev to silence this",
         )
     if cfg.is_prod:
         if not cfg.internal_api_token:

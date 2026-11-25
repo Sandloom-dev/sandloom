@@ -16,7 +16,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 
 | Env var | Type | Default | Description |
 | --- | --- | --- | --- |
-| `ENVIRONMENT` | `'dev' | 'test' | 'prod'` | `'dev'` | Runtime environment: dev, test or prod. Production activates stricter startup requirements and production defaults. |
+| `ENVIRONMENT` | `'dev' | 'test' | 'prod'` | `'dev'` | Runtime environment: dev, test or prod. Production activates stricter startup requirements and production defaults. Left unset the process runs as dev with a startup warning, refuses a database that is not on this machine (SANDLOOM-B043) and accepts no token from `sandloom dev token`: set it on every deployment. |
 | `SANDLOOM_MODULES` | `list[str]` | `[]` | JSON list of module import paths or installed entry-point names loaded by this process; an application composition root may supply defaults. |
 | `MODULE_WHITELIST` | `list[str]` | `[]` | Optional module allowlist applied by the loader before registration. |
 | `MODULE_BLACKLIST` | `list[str]` | `[]` | Modules excluded by the loader before registration. |
