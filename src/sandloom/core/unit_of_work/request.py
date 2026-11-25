@@ -461,7 +461,8 @@ def join_request_scope(session: Any) -> None:
         return
     borrowed = info.get(BORROWERS_KEY)
     if borrowed is None:
-        borrowed = info[BORROWERS_KEY] = (set(), info.get(OWNER_KEY))
+        live: set[asyncio.Task[Any] | None] = set()
+        borrowed = info[BORROWERS_KEY] = (live, info.get(OWNER_KEY))
     borrowed[0].add(_task())
     claim_unit(session)
     info.pop(SELF_REVOKED_KEY, None)
