@@ -690,6 +690,7 @@ OPS: frozenset[str] = frozenset(
         "SINGLE_TENANT_ID",
         "DATABASE_URL",
         "DATABASE_SYSTEM_URL",
+        "PGHOST",
         "DB_POOL_SIZE",
         "DB_MAX_OVERFLOW",
         "DB_POOL_TIMEOUT",

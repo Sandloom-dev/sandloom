@@ -285,6 +285,12 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `HEALTH_CHECK_TIMEOUT_SECONDS` | `float` | `5.0` | Timeout in seconds applied to health-check execution. |
 | `HEALTH_CACHE_TTL_SECONDS` | `float` | `3.0` | Seconds public health and readiness reuse probe results; zero disables this cache. |
 
+## Other
+
+| Env var | Type | Default | Description |
+| --- | --- | --- | --- |
+| `PGHOST` | `str | None` | `None` | Host the database driver connects to when a PostgreSQL url names none (libpq's PGHOST). Only the startup check for an unset ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url really connects. |
+
 ## Worker process variables
 
 Read by the worker process from its own environment, not by `Settings`: `sandloom config dump` does not show them.

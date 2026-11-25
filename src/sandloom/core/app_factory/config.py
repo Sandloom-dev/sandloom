@@ -329,17 +329,16 @@ def environment_unset_problem(cfg: Any) -> str | None:
     ``INFRA`` database instance, :func:`configured_database_urls`) with the
     host reading of ``sandloom dev token``
     (:func:`~sandloom.core.sql_alchemy.url_hosts.remote_database_host`;
-    ``PGHOST`` where a PostgreSQL url names no host). No url is echoed: it
-    carries credentials.
+    ``Settings.pghost`` where a PostgreSQL url names no host). No url is
+    echoed: it carries credentials.
     """
     if cfg.environment_explicit:
         return None
-    pghost = os.environ.get("PGHOST")
     urls = [("DATABASE_URL", str(cfg.database_url)), *configured_database_urls(cfg)]
     remote: list[str] = []
     for label, url in dict.fromkeys(urls):
         try:
-            host = remote_database_host(url, pghost)
+            host = remote_database_host(url, cfg.pghost)
         except ValueError:
             remote.append(f"{label} (it does not parse as a url)")
             continue

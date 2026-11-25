@@ -26,7 +26,7 @@ def database_hosts(url: str, pghost: str | None = None) -> list[str]:
     ``PGHOST`` says, so those hosts are ``pghost``'s. Empty for a file
     database or a default unix socket. ``ValueError`` for a url that does not
     parse."""
-    import sqlalchemy as sa  # noqa: PLC0415 - cold: the CLI loads this module for every `sandloom dev` command; only a token run reads a database url
+    import sqlalchemy as sa  # noqa: PLC0415 - cold: the CLI loads this module for every `sandloom dev` command; only a token run or a boot check with ENVIRONMENT unset reads a database url
 
     try:
         parsed = sa.engine.make_url(url)

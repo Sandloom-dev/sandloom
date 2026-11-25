@@ -20,6 +20,16 @@ class DatabaseConfig(BaseModel):
             "relational deployments use PostgreSQL."
         ),
     )
+    pghost: str | None = Field(
+        default=None,
+        alias="PGHOST",
+        description=(
+            "Host the database driver connects to when a PostgreSQL url names "
+            "none (libpq's PGHOST). Only the startup check for an unset "
+            "ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url "
+            "really connects."
+        ),
+    )
     # System channel of the default database (only meaningful with the
     # ``tenant_rls`` instance option): DSN of a SEPARATE login role (default
     # ``sandloom_system``) used by framework-internal privileged/cross-tenant work
