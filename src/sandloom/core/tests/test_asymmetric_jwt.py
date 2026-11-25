@@ -32,6 +32,7 @@ from sandloom.core.signing_keys import (
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _BASE_ENV = {
+    "ENVIRONMENT": "dev",  # a database host `h`: an unset ENVIRONMENT is refused (B043)
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
     "INFRA": {
         "cache": {"default": {"url": "redis://h:6379/0"}},

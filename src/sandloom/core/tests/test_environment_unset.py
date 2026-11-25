@@ -30,6 +30,7 @@ from sandloom.core.app_factory import (
     enforce_configuration,
 )
 from sandloom.core.app_factory.config import environment_unset_problem
+from sandloom.core.cli.doctor import WARN, Report, check_config
 from sandloom.core.config import module_settings
 from sandloom.core.config.common import ConfigurationError, Environment
 from sandloom.core.config.settings import _LOAD_SNAPSHOT, Settings, settings
@@ -327,6 +328,31 @@ def test_set_explicitly_logs_no_environment_warning(
     with process_environment(value), caplog.at_level(logging.WARNING, "sandloom.app"):
         _warn_startup_configuration(log)
     assert not [r for r in caplog.records if "ENVIRONMENT" in r.getMessage()]
+
+
+def _doctor_environment_rows(cfg: Settings) -> list[tuple[str, str]]:
+    report = Report()
+    check_config(report, cfg)
+    return [
+        (c.status, c.message)
+        for c in report.checks
+        if (c.section, c.name) == ("config", "environment")
+    ]
+
+
+def test_doctor_warns_when_environment_is_unset() -> None:
+    [(status, message)] = _doctor_environment_rows(_cfg())
+    assert status == WARN
+    assert "ENVIRONMENT is not set" in message
+    assert "SANDLOOM-B043" in message
+
+
+@pytest.mark.parametrize("value", ["dev", "test"])
+def test_doctor_is_quiet_when_environment_is_set(
+    value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", value)
+    assert _doctor_environment_rows(_cfg()) == []
 
 
 def test_the_helper_restores_the_mark() -> None:
