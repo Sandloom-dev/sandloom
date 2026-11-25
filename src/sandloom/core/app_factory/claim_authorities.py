@@ -758,6 +758,27 @@ def install_claim_authorities(
     return authorities
 
 
+def warn_single_tenancy_authority(
+    authorities: ClaimAuthorities, tenancy_mode: str, log: logging.Logger
+) -> str | None:
+    """One startup WARNING when a tenant authority is composed (a module owns
+    ``tenant_ids``) while ``TENANCY_MODE=single``; returns it.
+
+    Single mode binds the configured tenant for every request, so what the
+    authority grants never selects a tenant: the app is likely meant to be
+    multi-tenant, or the authority is not needed. Boot only, no I/O."""
+    owner = authorities.owner_of("tenant_ids")
+    if tenancy_mode != "single" or owner is None:
+        return None
+    message = (
+        f"TENANCY_MODE=single while the tenant authority {owner!r} is composed: "
+        "SINGLE_TENANT_ID binds every request, so the tenants it grants are "
+        "never selected. Set TENANCY_MODE=multi to use them, or drop the module"
+    )
+    log.warning(message)
+    return message
+
+
 def _unprotected_readers(authorities: ClaimAuthorities) -> list[str]:
     """The claim keys an imported generated claim atom reads that the
     composition's policy does not protect (empty: ok)."""
@@ -795,6 +816,7 @@ __all__ = [
     "ClaimAuthorityError",
     "UnprotectedClaimReader",
     "build_claim_authorities",
+    "warn_single_tenancy_authority",
     "claim_authority_problems",
     "declared_policy",
     "filter_to_composition",
