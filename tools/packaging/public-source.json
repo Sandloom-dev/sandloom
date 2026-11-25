@@ -2085,6 +2085,7 @@
         "src/sandloom/core/tests/test_rpc_allowlist.py",
         "src/sandloom/core/tests/test_rpc_binding_key_caches.py",
         "src/sandloom/core/tests/test_rpc_binding_reasons.py",
+        "src/sandloom/core/tests/test_rpc_caller_dev_token.py",
         "src/sandloom/core/tests/test_rpc_client_shutdown.py",
         "src/sandloom/core/tests/test_rpc_intent_window.py",
         "src/sandloom/core/tests/test_rpc_keyed_binding.py",
