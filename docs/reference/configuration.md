@@ -43,6 +43,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CONTRACT_DB_POOL_SIZE` | `int` | `5` | Persistent connections per database in the dedicated local-contract pool, separate from the request pool. |
 | `CONTRACT_DB_MAX_OVERFLOW` | `int` | `5` | Additional temporary connections allowed above CONTRACT_DB_POOL_SIZE. |
 | `CONTRACT_DB_LOCK_TIMEOUT_MS` | `int` | `5000` | PostgreSQL lock timeout in milliseconds on contract-pool connections; zero uses the server default. |
+| `PGHOST` | `str | None` | `None` | Host the database driver connects to when a PostgreSQL url names none (libpq's PGHOST). Only the startup check for an unset ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url really connects. |
 | `DATABASE_SYSTEM_URL` | `str | None` | `None` | Separate privileged database login used only by framework cross-tenant work on the default database; never supplied to business-module sessions. |
 | `DB_CONNECT_TIMEOUT_SECONDS` | `float` | `5.0` | Maximum seconds to establish a database connection. |
 | `DB_RECONNECT_BASE_SECONDS` | `float` | `0.05` | Initial pool-wide backoff delay in seconds for new connections after transport failures; never retries statements. |
@@ -284,12 +285,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `GC_METRICS_ENABLED` | `bool` | `True` | sandloom_gc_pause_seconds / sandloom_gc_collected_objects_total / sandloom_gc_frozen_objects from gc.callbacks in the configured processes. |
 | `HEALTH_CHECK_TIMEOUT_SECONDS` | `float` | `5.0` | Timeout in seconds applied to health-check execution. |
 | `HEALTH_CACHE_TTL_SECONDS` | `float` | `3.0` | Seconds public health and readiness reuse probe results; zero disables this cache. |
-
-## Other
-
-| Env var | Type | Default | Description |
-| --- | --- | --- | --- |
-| `PGHOST` | `str | None` | `None` | Host the database driver connects to when a PostgreSQL url names none (libpq's PGHOST). Only the startup check for an unset ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url really connects. |
 
 ## Worker process variables
 
