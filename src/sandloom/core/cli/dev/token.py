@@ -56,7 +56,7 @@ from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import process as _process
 from sandloom.core.cli.url_text import drop_urls
 from sandloom.core.config.common import Environment
-from sandloom.core.sql_alchemy.url_hosts import database_hosts, remote_database_host
+from sandloom.core.sql_alchemy.url_hosts import database_hosts, remote_database_target
 
 #: The only values of ``ENVIRONMENT`` a dev token is minted under. The kernel's
 #: mint and verifier hold the same list
@@ -105,15 +105,15 @@ def local_refusal(
             "`uv run sandloom dev up` first"
         )
     try:
-        remote = remote_database_host(database_url, pghost)
+        remote = remote_database_target(database_url, pghost)
     except ValueError:
         return "DATABASE_URL does not parse as a url: fix it before minting a token"
     if remote is not None:
         return (
-            f"DATABASE_URL points at {remote!r}, which is not this machine: "
+            f"DATABASE_URL points at {remote}, which is not this machine: "
             "`sandloom dev token` runs only against a database on 127.0.0.1, "
-            "localhost or a unix socket (a token signed with this app's key is "
-            "valid wherever that key is used)"
+            "localhost, a unix socket or a file (a token signed with this "
+            "app's key is valid wherever that key is used)"
         )
     return None
 

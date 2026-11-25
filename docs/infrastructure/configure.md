@@ -81,9 +81,8 @@ stability, registered drivers and per-instance health.
 
 `ENVIRONMENT` takes `dev`, `test` or `prod`. <!-- prose-ok: P6 the three values --> Left unset it
 reads `dev`, the setting of a development machine. No production validator applies, and the
-interactive docs are exposed. A token from `sandloom dev token` verifies. A deployment that
-forgot the variable would run that way, so an unset `ENVIRONMENT` is not treated as a choice of
-`dev`:
+interactive docs are exposed. A deployment that forgot the variable would run that way, so an
+unset `ENVIRONMENT` is not treated as a choice of `dev`:
 
 - Startup logs a warning. Every process that boots the app logs it, the worker and the scheduler
   included. `sandloom doctor` reports the same thing.
@@ -92,8 +91,14 @@ forgot the variable would run that way, so an unset `ENVIRONMENT` is not treated
   `localhost`, a loopback address (`127.0.0.0/8` or `::1`), a unix socket or a SQLite file. <!-- prose-ok: P6 the local hosts -->
   The check reads `DATABASE_URL` and the `url` of every `INFRA` database instance. A PostgreSQL url
   that names no host connects where `PGHOST` says, so the check reads that setting too. The
-  message names the host, never the url.
+  message names the host or the parameter, never the url.
 - A token from `sandloom dev token` is refused with `401`, and the command refuses to mint one.
+  The same holds for a call a `dev` caller makes over internal RPC for such a token's user.
+
+The database check accepts only what it can show is local. A `dsn` or `service` query parameter
+can name any host, so the url is refused. So is a non-SQLite url that names no host. The driver
+takes `PGHOST` from the process environment only, while settings also read `.env`: export it, and
+do not rely on `.env` for it.
 
 Setting the variable ends all three. `ENVIRONMENT=prod` is a deployment. `ENVIRONMENT=dev`, which
 `sandloom new` writes into `.env`, silences the warning and allows a development database on

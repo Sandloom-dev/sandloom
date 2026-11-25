@@ -796,7 +796,9 @@ refusals, each with a test that fails without it:
 - **Database host.** `DATABASE_URL` must name this machine (loopback, `localhost`, a unix socket or a
   file database): an absent or unparsable url, or a url with any host not on this machine, is
   refused. The hosts are read as SQLAlchemy reads them (its authority, its `host` and `hostaddr`
-  query parameters, and `PGHOST` for a PostgreSQL url that names none). This is an early refusal of a
+  query parameters, and `PGHOST` for a PostgreSQL url that names none). The judgement is an
+  allow-list (amendment 2026-11-25): a `dsn` or `service` query parameter, which can name any host,
+  and a non-file url that names no host are refused, not read as local. This is an early refusal of a
   copied production `.env`, not a protection of its key (next item). It covers the default database
   only, not the instances of `INFRA`. No flag overrides it.
 - **The marker, which is what keeps a production key out.** Every dev token carries a sealed
@@ -805,7 +807,9 @@ refusals, each with a test that fails without it:
   `dev` or `test` (the verification cache is keyed on the environment and on whether it was set). A
   deploy that forgot `ENVIRONMENT` reads `dev` and is refused the same way, with the startup warning
   and, against a database that is not on this machine, the boot refusal SANDLOOM-B043
-  (amendment 2026-11-25, env-unset-not-dev). A copied production `.env` with
+  (amendment 2026-11-25, env-unset-not-dev). The marker crosses an internal RPC call: the caller's
+  facts carry it (`dm`) and a provider applies the same rule, answering `401`
+  (`rpc_caller_dev_token`) where its own verifier would refuse the token. A copied production `.env` with
   `ENVIRONMENT=dev` (or one that `sandloom dev up` rewrote to a local `DATABASE_URL`) still passes
   the three checks above and mints a token signed with the production key; that token is refused by
   every verifier running as `prod`, whichever role and tenant it names. What the marker does not do:

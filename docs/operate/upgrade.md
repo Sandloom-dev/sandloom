@@ -314,6 +314,29 @@ A rename in a published contract removes the old method for its callers. Roll a 
 instead: `uv run sandloom generate --new-major <name>` copies the contract to `.v2`, and you
 rename the method there. `.v1` stays as it is, with the comment, until you retire it.
 
+## Upgrading an application: set `ENVIRONMENT`
+
+An application that leaves `ENVIRONMENT` unset now refuses to start against a database that is
+not on its own machine. Startup stops with
+[SANDLOOM-B043](../reference/error-codes.md#sandloom-b043). Before, an unset value ran as `dev`
+and started. A development token, the kind `sandloom dev token` mints, is refused with `401`
+while the value is unset. An unset value also logs a warning at startup, and `sandloom doctor`
+reports it.
+
+A deployment is the case that breaks, so set the variable there:
+
+- A production deployment: `ENVIRONMENT=prod`, in the environment of every process (the web
+  process, the worker and the scheduler). The production validators then apply, as they should
+  have all along.
+- A development or CI run against a database on another host: `ENVIRONMENT=dev` or
+  `ENVIRONMENT=test`. `sandloom new` already writes `ENVIRONMENT=dev` into `.env`.
+
+A call over internal RPC for the user of a development token is refused with `401` by a provider
+whose `ENVIRONMENT` is not `dev` or `test`. Before, the provider served it.
+
+[Set `ENVIRONMENT` on every deployment](../infrastructure/configure.md#set-environment-on-every-deployment)
+says what counts as a database on this machine.
+
 ## Upgrading to 0.7.0a16: tenant selection errors carry a code
 
 Four answers of `TenantScope` have a stable `code`, and two of them new

@@ -1939,16 +1939,20 @@ Slug: `environment-unset-remote-database` · kind: boot · status: active
 
 **What happened and why it matters**
 
-ENVIRONMENT left unset reads as dev: no production validator applies, the
-interactive docs are exposed and a token from `sandloom dev token` verifies.
-That is the setting of a development machine, so it is allowed only against a
-database on this machine: 127.0.0.1 or another loopback address, localhost, a
-unix socket or a file database. A deployment that forgot ENVIRONMENT and
-reaches any other host does not start, in the app, the worker, the scheduler
-and every `sandloom` command that boots the configuration. The check reads
-DATABASE_URL and the url of every INFRA database instance the way the app does
-(and PGHOST for a PostgreSQL url that names no host); the message names the
-setting and the host, never the url, which carries credentials. Setting
+ENVIRONMENT left unset reads as dev: no production validator applies and the
+interactive docs are exposed. That is the setting of a development machine, so
+it is allowed only against a database on this machine: 127.0.0.1 or another
+loopback address, localhost, a unix socket or a file database. A deployment
+that forgot ENVIRONMENT and reaches any other host does not start, in the app,
+the worker, the scheduler and every `sandloom` command that boots the
+configuration. The check accepts only what it can show is local: a `dsn` or
+`service` query parameter, which can name any host, is refused, and so is a
+non-file url that names no host. It reads DATABASE_URL and the url of every
+INFRA database instance the way the app does (and PGHOST for a PostgreSQL url
+that names no host; the driver reads PGHOST from the process environment only,
+so one that only .env holds can refuse a local database). The message names the
+setting and the host or parameter, never the url, which carries credentials.
+Left unset, a token from `sandloom dev token` is not accepted either. Setting
 ENVIRONMENT, to prod or, for development against that database, to dev or
 test, ends it. Without the refusal, a missing ENVIRONMENT would silently turn
 off every production check of a deployment.

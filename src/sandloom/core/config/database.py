@@ -27,7 +27,11 @@ class DatabaseConfig(BaseModel):
             "Host the database driver connects to when a PostgreSQL url names "
             "none (libpq's PGHOST). Only the startup check for an unset "
             "ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url "
-            "really connects."
+            "really connects. The driver reads PGHOST from the process "
+            "environment only, while Settings also reads .env: a PGHOST that "
+            "only .env holds is judged here though the driver ignores it, so "
+            "the check can refuse a database that is local. Export it, or "
+            "remove it from .env."
         ),
     )
     # System channel of the default database (only meaningful with the

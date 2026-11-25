@@ -13,7 +13,13 @@ checks read off the request scope of a LOCAL call —
 * ``op`` and ``ik``: the request's operation key and whether the client sent
   an ``Idempotency-Key`` (money dedupe);
 * ``sr``: a committed unit of the request revoked its own subject ("check,
-  then revoke"), so the re-check of a later unit skips it, as locally.
+  then revoke"), so the re-check of a later unit skips it, as locally;
+* ``dm``: the end user's token is a development token
+  (:data:`~sandloom.core.claims.DEV_MINT_CLAIM`). The provider applies the
+  verifier's own rule to it (:func:`caller_facts_problem`): a development
+  token is trusted only where ``ENVIRONMENT`` was set to ``dev`` or ``test``,
+  so a production provider does not serve a call a dev-environment caller made
+  for one.
 
 The provider binds them as the call's request scope
 (:func:`_caller_scope`), so its checks run exactly as for a local call and a
@@ -47,6 +53,8 @@ from fastapi import HTTPException, status
 import sandloom.core.auth.verification as _verification
 import sandloom.core.unit_of_work.risk as _risk
 from sandloom.core import rpc_identity
+from sandloom.core.auth.tokens import dev_environment_problem
+from sandloom.core.claims import DEV_MINT_CLAIM
 from sandloom.core.rpc.wire import _b64
 from sandloom.core.tenant import current_tenant_id_optional
 from sandloom.core.unit_of_work.request import RequestScope, current_request_scope
@@ -84,16 +92,26 @@ def _context_payload(
     return payload
 
 
+def _token_facts(claims: dict[str, Any]) -> dict[str, Any]:
+    """What the end user's token alone adds to the caller facts: its issue and
+    authentication instants and, for a development token, the marker the
+    provider judges against its own environment (``dm``: the verifier's own
+    test, presence and not value)."""
+    facts: dict[str, Any] = {}
+    for name in ("iat_us", "auth_time"):
+        value = _number(claims.get(name))
+        if value is not None:
+            facts[name] = value
+    if DEV_MINT_CLAIM in claims:
+        facts["dm"] = 1
+    return facts
+
+
 def _caller_facts(scope: RequestScope | None) -> dict[str, Any] | None:
     """The caller facts of the request scope (``None``: no end user)."""
     if scope is None or scope.claims is None or not scope.subject:
         return None
-    claims = scope.claims
-    facts: dict[str, Any] = {"sub": scope.subject}
-    for name in ("iat_us", "auth_time"):
-        value = claims.get(name)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            facts[name] = value
+    facts: dict[str, Any] = {"sub": scope.subject, **_token_facts(scope.claims)}
     if scope.check is not None and (scope.intent is None or scope.at_commit):
         # the re-check reaches a command unit here (an operation-intent route
         # re-checks in release_check, not at its units' commits)
@@ -117,6 +135,21 @@ def _caller_facts(scope: RequestScope | None) -> dict[str, Any] | None:
 def _number(value: Any) -> int | float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return value
+    return None
+
+
+def caller_facts_problem(cfg: Any, facts: Any) -> str | None:
+    """Why a provider with settings ``cfg`` refuses a call carrying the caller
+    ``facts``, or ``None``.
+
+    A development token verifies only where ``ENVIRONMENT`` was set to ``dev``
+    or ``test`` (:func:`~sandloom.core.auth.tokens.dev_environment_problem`);
+    the caller's facts say the end user holds one (``dm``), so a provider that
+    would not verify it does not run the call: dropping the marker would let
+    a production provider serve a development token's subject, role and
+    tenant."""
+    if isinstance(facts, dict) and facts.get("dm"):
+        return dev_environment_problem(cfg)
     return None
 
 

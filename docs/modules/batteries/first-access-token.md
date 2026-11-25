@@ -83,11 +83,14 @@ It runs only on a developer machine, and it says why when it does not:
 - `ENVIRONMENT` must be `dev` or `test`, written exactly so in the environment
   or in `.env`. `prod` and a typo such as `Dev` are refused. So is a missing
   value: the app runs as `dev` then, but a command that signs a credential does
-  not guess.
+  not guess. The app refuses a development token under an unset `ENVIRONMENT`
+  too, so a token minted there would not verify.
 - `DATABASE_URL` must point at this machine. A unix socket and a file database
   count as this machine. Every host the url can reach is checked: the one in its
   address and those of its `host` and `hostaddr` parameters. When a PostgreSQL
-  url names no host, `PGHOST` is checked instead. A `.env` copied from production that still says
+  url names no host, `PGHOST` is checked instead. A `dsn` or `service`
+  parameter is refused, since it can name any host, and so is a non-file url
+  that names no host. A `.env` copied from production that still says
   `ENVIRONMENT=dev` is refused for its remote database. No flag overrides
   this. The check covers `DATABASE_URL` only, not the urls under `INFRA`.
 - `CI` must not be set to a true value (`1`, `true`, `yes` or `on`). A test mints
@@ -95,10 +98,13 @@ It runs only on a developer machine, and it says why when it does not:
 
 Those checks do not protect a key. Every token the command mints carries a
 `dev_mint` marker. An app refuses that marker unless its own `ENVIRONMENT` is
-`dev` or `test`. A token minted on a machine that holds a production key
-therefore answers `401` on production, whatever role and tenant it names. A
-holder of a signing key can still sign anything, so keep production secrets out
-of a development checkout.
+set to `dev` or `test`; unset is refused too (`401`). A token minted on a
+machine that holds a production key therefore answers `401` on production,
+whatever role and tenant it names. Internal RPC follows the same rule. A
+service that serves a call made for such a token's user refuses it with `401`
+(code `rpc_caller_dev_token`) unless its own `ENVIRONMENT` is `dev` or `test`.
+The holder of a signing key can still sign anything, so keep production
+secrets out of a development checkout.
 
 The signing key is never printed. When the app's settings or its composition
 root do not load, the command says so. It leaves out the settings' own error

@@ -29,7 +29,10 @@ from sandloom.core.app_factory import (
     configuration_problems,
     enforce_configuration,
 )
-from sandloom.core.app_factory.config import environment_unset_problem
+from sandloom.core.app_factory.config import (
+    UNSET_ENVIRONMENT_WARNING,
+    environment_unset_problem,
+)
 from sandloom.core.cli.doctor import WARN, Report, check_config
 from sandloom.core.config import module_settings
 from sandloom.core.config.common import ConfigurationError, Environment
@@ -38,7 +41,7 @@ from sandloom.core.error_codes import CATALOGUE
 from sandloom.core.sql_alchemy.url_hosts import (
     database_hosts,
     is_local_host,
-    remote_database_host,
+    remote_database_target,
 )
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
@@ -188,7 +191,51 @@ def test_not_this_machine(host: str) -> None:
 def test_the_hosts_of_a_url_are_read_by_sqlalchemy() -> None:
     url = "postgresql+asyncpg://localhost:pa/ss@db.prod.example.com/x"
     assert database_hosts(url) == ["db.prod.example.com"]
-    assert remote_database_host(url) == "db.prod.example.com"
+    assert remote_database_target(url) == "host 'db.prod.example.com'"
+
+
+# A url is local only when the allow-list shows it: whatever it does not let us
+# read is remote (review of env-unset-not-dev, L1).
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite+aiosqlite:///./dev.db",
+        "sqlite+aiosqlite:///:memory:",
+        "postgresql+asyncpg://u:p@localhost/d",
+        "postgresql+asyncpg://u:p@/d",  # libpq's default: the unix socket
+        "postgresql+asyncpg://u:p@/d?host=/var/run/postgresql",
+        "mysql+aiomysql://u:p@127.0.0.1:3306/d",
+    ],
+)
+def test_the_target_of_a_local_url_is_none(url: str) -> None:
+    assert remote_database_target(url) is None
+
+
+@pytest.mark.parametrize(
+    ("url", "phrase"),
+    [
+        (
+            "postgresql+asyncpg://u:p@/db?dsn=postgresql://u:p@db.prod.example/app",
+            "'dsn' query parameter",
+        ),
+        ("postgresql+asyncpg://u:p@localhost/db?DSN=x", "'dsn' query parameter"),
+        ("postgresql+asyncpg://u:p@127.0.0.1/db?service=prod", "'service' query"),
+        ("postgresql+psycopg://u:p@/db?service=prod", "'service' query"),
+        ("mysql+aiomysql://u:p@/d", "a mysql url that names no host"),
+        ("mssql+aioodbc://u:p@/d", "a mssql url that names no host"),
+        ("foo://u:p@/d", "a foo url that names no host"),
+        ("foo://u:p@db.example.com/d", "host 'db.example.com'"),
+    ],
+)
+def test_the_target_of_a_url_that_is_not_shown_local(url: str, phrase: str) -> None:
+    target = remote_database_target(url)
+    assert target is not None and phrase in target
+    assert "u:p" not in target and "db.prod.example" not in target
+
+
+def test_a_dsn_parameter_wins_over_a_local_pghost() -> None:
+    url = "postgresql+asyncpg://u:p@/db?dsn=postgresql://u:p@db.prod.example/app"
+    assert remote_database_target(url, "127.0.0.1") is not None
 
 
 # --- 4. SANDLOOM-B043: unset with a database that is not on this machine --------
@@ -225,6 +272,10 @@ def test_an_in_memory_sqlite_database_is_this_machine() -> None:
         "postgresql+asyncpg://u:p@[2001:db8::1]/d",
         "postgresql+asyncpg://u:p@localhost/d?host=db.example.com",
         "postgresql+asyncpg://u:p@127.0.0.1/d?hostaddr=10.1.1.1",
+        # not shown local: the url names no host we can judge
+        "postgresql+asyncpg://u:p@/db?dsn=postgresql://u:p@db.prod.example/app",
+        "postgresql+asyncpg://u:p@localhost/db?service=prod",
+        "mysql+aiomysql://u:p@/d",
     ],
 )
 def test_unset_with_a_remote_database_does_not_start(url: str) -> None:
@@ -244,6 +295,36 @@ def test_the_refusal_names_the_host_and_never_a_credential() -> None:
     assert "db.internal.example" in problem
     for secret in ("s3cr3t-pw", "app:", "postgresql"):
         assert secret not in problem
+
+
+def test_a_url_shared_by_two_labels_is_named_once() -> None:
+    # DATABASE_URL and the `default` instance resolve to one url: one finding
+    cfg = _cfg(
+        _REMOTE_DB, extra_infra={"database": {"default": {"driver": "sqlalchemy"}}}
+    )
+    problem = environment_unset_problem(cfg)
+    assert problem is not None
+    assert problem.count("db.internal.example") == 1
+    assert "DATABASE_URL and default (host 'db.internal.example')" in problem
+
+
+def test_two_different_urls_are_both_named() -> None:
+    cfg = _cfg(
+        _REMOTE_DB,
+        extra_infra={
+            "database": {
+                "default": {"driver": "sqlalchemy"},
+                "analytics": {
+                    "driver": "sqlalchemy",
+                    "url": "postgresql+asyncpg://u:p@db.other.example/x",
+                },
+            }
+        },
+    )
+    problem = environment_unset_problem(cfg)
+    assert problem is not None
+    assert "db.internal.example" in problem and "db.other.example" in problem
+    assert "analytics (host 'db.other.example')" in problem
 
 
 def test_pghost_decides_for_a_url_without_a_host(
@@ -318,6 +399,15 @@ def test_unset_logs_one_startup_warning(caplog: pytest.LogCaptureFixture) -> Non
     warned = [r for r in caplog.records if "ENVIRONMENT is not set" in r.getMessage()]
     assert len(warned) == 1
     assert warned[0].levelno == logging.WARNING
+    message = warned[0].getMessage()
+    # the owner's sentence (2026-11-25), word for word, then what the unset value costs
+    assert message.startswith(
+        "ENVIRONMENT is not set: running with dev defaults; set ENVIRONMENT=prod "
+        "for a deploy, ENVIRONMENT=dev to silence this."
+    )
+    assert "development token is not accepted" in message
+    assert "SANDLOOM-B043" in message
+    assert message == UNSET_ENVIRONMENT_WARNING
 
 
 @pytest.mark.parametrize("value", [Environment.dev, Environment.test])
@@ -343,8 +433,7 @@ def _doctor_environment_rows(cfg: Settings) -> list[tuple[str, str]]:
 def test_doctor_warns_when_environment_is_unset() -> None:
     [(status, message)] = _doctor_environment_rows(_cfg())
     assert status == WARN
-    assert "ENVIRONMENT is not set" in message
-    assert "SANDLOOM-B043" in message
+    assert message == UNSET_ENVIRONMENT_WARNING  # the one text the app logs too
 
 
 @pytest.mark.parametrize("value", ["dev", "test"])
@@ -353,6 +442,16 @@ def test_doctor_is_quiet_when_environment_is_set(
 ) -> None:
     monkeypatch.setenv("ENVIRONMENT", value)
     assert _doctor_environment_rows(_cfg()) == []
+
+
+def test_the_suite_runs_with_an_explicit_environment() -> None:
+    """The root ``conftest.py`` writes ``ENVIRONMENT=dev`` when the shell leaves
+    it unset: a contributor whose ``SANDLOOM_TEST_DATABASE_URL`` is not
+    loopback (a devcontainer, a LAN host) must not fail SANDLOOM-B043 in every
+    test that boots the app (review of env-unset-not-dev, M2). Fails where the
+    seeding is removed and the shell sets nothing."""
+    assert settings.environment_explicit
+    assert environment_unset_problem(settings) is None
 
 
 def test_the_helper_restores_the_mark() -> None:

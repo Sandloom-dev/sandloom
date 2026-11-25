@@ -43,7 +43,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CONTRACT_DB_POOL_SIZE` | `int` | `5` | Persistent connections per database in the dedicated local-contract pool, separate from the request pool. |
 | `CONTRACT_DB_MAX_OVERFLOW` | `int` | `5` | Additional temporary connections allowed above CONTRACT_DB_POOL_SIZE. |
 | `CONTRACT_DB_LOCK_TIMEOUT_MS` | `int` | `5000` | PostgreSQL lock timeout in milliseconds on contract-pool connections; zero uses the server default. |
-| `PGHOST` | `str | None` | `None` | Host the database driver connects to when a PostgreSQL url names none (libpq's PGHOST). Only the startup check for an unset ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url really connects. |
+| `PGHOST` | `str | None` | `None` | Host the database driver connects to when a PostgreSQL url names none (libpq's PGHOST). Only the startup check for an unset ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url really connects. The driver reads PGHOST from the process environment only, while Settings also reads .env: a PGHOST that only .env holds is judged here though the driver ignores it, so the check can refuse a database that is local. Export it, or remove it from .env. |
 | `DATABASE_SYSTEM_URL` | `str | None` | `None` | Separate privileged database login used only by framework cross-tenant work on the default database; never supplied to business-module sessions. |
 | `DB_CONNECT_TIMEOUT_SECONDS` | `float` | `5.0` | Maximum seconds to establish a database connection. |
 | `DB_RECONNECT_BASE_SECONDS` | `float` | `0.05` | Initial pool-wide backoff delay in seconds for new connections after transport failures; never retries statements. |

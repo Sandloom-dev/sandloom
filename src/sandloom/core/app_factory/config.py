@@ -50,7 +50,7 @@ from sandloom.core.sql_alchemy.portable import (
 )
 from sandloom.core.sql_alchemy.read_only_policy import read_only_sessions_problem
 from sandloom.core.sql_alchemy.tenant_rls import row_security_problem
-from sandloom.core.sql_alchemy.url_hosts import remote_database_host
+from sandloom.core.sql_alchemy.url_hosts import remote_database_target
 
 
 def configured_database_urls(cfg: Any) -> list[tuple[str, str]]:
@@ -316,6 +316,18 @@ def sql_storage_problems(infra: InfraRegistry, metadata: Any) -> list[str]:
     return problems
 
 
+#: The one startup warning of an unset ``ENVIRONMENT``, what the app logs and
+#: ``sandloom doctor`` reports. The first sentence is the owner's (2026-11-25);
+#: the second says what the unset value costs (SANDLOOM-B043 and the
+#: development token rule, :func:`~sandloom.core.auth.tokens.dev_environment_problem`).
+UNSET_ENVIRONMENT_WARNING = (
+    "ENVIRONMENT is not set: running with dev defaults; set ENVIRONMENT=prod "
+    "for a deploy, ENVIRONMENT=dev to silence this. Until it is set a "
+    "development token is not accepted and a database that is not on this "
+    "machine is refused (SANDLOOM-B043)."
+)
+
+
 def environment_unset_problem(cfg: Any) -> str | None:
     """An unset ``ENVIRONMENT`` with a database that is not on this machine
     (SANDLOOM-B043).
@@ -328,32 +340,41 @@ def environment_unset_problem(cfg: Any) -> str | None:
     not start. Reads the URLs the app resolves (``DATABASE_URL`` and every
     ``INFRA`` database instance, :func:`configured_database_urls`) with the
     host reading of ``sandloom dev token``
-    (:func:`~sandloom.core.sql_alchemy.url_hosts.remote_database_host`;
-    ``Settings.pghost`` where a PostgreSQL url names no host). No url is
-    echoed: it carries credentials.
+    (:func:`~sandloom.core.sql_alchemy.url_hosts.remote_database_target`, an
+    allow-list: a ``dsn`` / ``service`` parameter or a non-file backend that
+    names no host is remote; ``Settings.pghost`` where a PostgreSQL url names
+    no host). A url shared by several labels is named once. No url is echoed:
+    it carries credentials.
     """
     if cfg.environment_explicit:
         return None
-    urls = [("DATABASE_URL", str(cfg.database_url)), *configured_database_urls(cfg)]
+    # One entry per url: DATABASE_URL and the ``default`` instance resolve to
+    # the same one, and naming it twice reads as two databases.
+    labels_by_url: dict[str, list[str]] = {}
+    for label, url in [
+        ("DATABASE_URL", str(cfg.database_url)),
+        *configured_database_urls(cfg),
+    ]:
+        labels_by_url.setdefault(url, []).append(label)
     remote: list[str] = []
-    for label, url in dict.fromkeys(urls):
+    for url, labels in labels_by_url.items():
+        name = " and ".join(labels)
         try:
-            host = remote_database_host(url, cfg.pghost)
+            target = remote_database_target(url, cfg.pghost)
         except ValueError:
-            remote.append(f"{label} (it does not parse as a url)")
+            remote.append(f"{name} (it does not parse as a url)")
             continue
-        if host is not None:
-            remote.append(f"{label} (host {host!r})")
+        if target is not None:
+            remote.append(f"{name} ({target})")
     if not remote:
         return None
     return (
         "ENVIRONMENT is not set and the database is not on this machine: "
         + ", ".join(remote)
         + " [SANDLOOM-B043]. An unset ENVIRONMENT runs as dev (no production "
-        "validator, docs exposed, development tokens trusted) and is allowed "
-        "only against 127.0.0.1, localhost, a unix socket or a file database: "
-        "set ENVIRONMENT=prod for a deployment, or ENVIRONMENT=dev to develop "
-        "against this database"
+        "validator, docs exposed) and is allowed only against 127.0.0.1, "
+        "localhost, a unix socket or a file database: set ENVIRONMENT=prod for "
+        "a deployment, or ENVIRONMENT=dev to develop against this database"
     )
 
 

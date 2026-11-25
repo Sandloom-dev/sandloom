@@ -65,7 +65,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import sandloom.core.infra.fenced_lease as _beat_lease
-from sandloom.core.app_factory import configuration_problems
+from sandloom.core.app_factory import UNSET_ENVIRONMENT_WARNING, configuration_problems
 from sandloom.core.cli.config import redact_value
 from sandloom.core.cli.migrate import _hosting_databases
 from sandloom.core.cli.url_text import mask_url_credentials
@@ -187,9 +187,7 @@ def check_config(report: Report, cfg: Any) -> None:
             "config",
             "environment",
             WARN,
-            "ENVIRONMENT is not set: running with dev defaults (a remote database "
-            "is refused, SANDLOOM-B043, and a dev token is not accepted); set "
-            "ENVIRONMENT=prod for a deploy, ENVIRONMENT=dev to silence this",
+            UNSET_ENVIRONMENT_WARNING,
         )
     if cfg.is_prod:
         if not cfg.internal_api_token:
