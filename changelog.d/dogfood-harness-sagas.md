@@ -5,7 +5,7 @@
 
 ### Fixed
 
-- **A contract call in a `client` request runs on the test's session even when the route never opened `db()`** (dogfood-harness-sagas). Such a route ran the contract on the provider's own unit and missed the rows the test had flushed, against `docs/reference/testing.md`. The `client` fixture now binds the contract session for every request at the router, inside the app's request boundary; the production request path is untouched.
+- **A contract call in a `client` request runs on the test's session even when the route never opened `db()`** (dogfood-harness-sagas). Such a route ran the contract on the provider's own unit and missed the rows the test had flushed, against `docs/reference/testing.md`. The `client` fixture now binds the contract session for every request at the router, inside the app's request boundary; the production request path is untouched. A `client` request that runs in another context (a concurrent actor of the test) now gives the shared session back to its previous owner when it ends.
 
 ### Added
 
