@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import func, select
 
 import sandloom.core.sql_alchemy.saga_store as store
-from sandloom.core.module_api import ContractCallInProgress
+from sandloom.core.module_api import ContractCallError, ContractCallInProgress
 from sandloom.core.sagas import runtime as saga_runtime
 from sandloom.core.sagas import sweep as saga_sweep
 from sandloom.core.sagas.outcomes import Outcome, classify_exception
@@ -296,6 +296,34 @@ def test_a_missing_sweep_lease_logs_at_info_outside_prod(
 
     [record] = [r for r in caplog.records if "without a lease" in r.getMessage()]
     assert record.levelname == level
+
+
+async def test_a_remote_step_with_no_tenant_parks_at_once(saga_harness) -> None:
+    """Over RPC the provider's ``MissingTenantError`` is a ``400 tenant_required``
+    (``ContractCallError`` at the caller): the same wiring error, parked at once."""
+    _ledger(saga_harness)
+    saga_harness.fail_step(
+        "charge",
+        times=100,
+        exception=ContractCallError(
+            "the call ran with no tenant bound",
+            status_code=400,
+            code="tenant_required",
+        ),
+    )
+
+    run = await saga_harness.run(ENROLL, input=enroll_input())
+
+    assert run.status == "parked"
+    assert run.park_reason == "misconfigured"
+    assert run.calls == ["charge:do"]
+
+
+def test_a_400_with_another_code_stays_a_refusal() -> None:
+    """Only the ``tenant_required`` code is promoted, not every 400."""
+    refused = classify_exception(ContractCallError("no", status_code=400, code="x"))
+
+    assert refused.outcome is Outcome.REFUSED
 
 
 def test_missing_tenant_error_classifies_as_misconfigured() -> None:

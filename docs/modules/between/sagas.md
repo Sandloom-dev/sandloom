@@ -370,7 +370,10 @@ one-liners `assert_compensations_idempotent(DEF)` /
 A saga of a tenant-scoped module needs a tenant bound when it starts, and so does
 the test: `run()`, `start()` and both one-liners take `tenant_id=`.
 Without it the first step raises `MissingTenantError`, and the saga parks at once
-as `misconfigured` (`last_error.code == "tenant_required"`) instead of retrying:
+as `misconfigured` (`last_error.code == "tenant_required"`) instead of retrying.
+In operation such an instance cannot be re-driven. It holds no tenant, so
+`sandloom sagas retry` parks it again. Start the work again under a tenant with
+a new business id.
 
 ```python
 run = await saga_harness.run(ENROLL, input=..., tenant_id=tenant_id)

@@ -16,6 +16,7 @@ import sandloom.core.unit_of_work.request as _request
 import sandloom.core.unit_of_work.risk as _risk
 from sandloom.core import contract_wire
 from sandloom.core.http.error_handlers import describe_exception
+from sandloom.core.http.tenant_scope import TENANT_REQUIRED
 from sandloom.core.module_api import (
     ContractCallError,
     ContractMethodRuntime,
@@ -28,6 +29,7 @@ from sandloom.core.rpc.context import _call_effects, _caller_scope
 from sandloom.core.rpc.envelope import _error_response, _ok_response
 from sandloom.core.rpc.wire import RpcRequest
 from sandloom.core.tenant import bind_tenant
+from sandloom.core.tenant_context import MissingTenantError
 
 logger = logging.getLogger("sandloom.core.rpc")
 
@@ -194,6 +196,16 @@ async def _handle_rpc_call(
             message=detail if isinstance(detail, str) else json.dumps(detail),
             details={"detail": detail, "headers": dict(exc.headers or {})},
             # a failed call's committed nested effects mark the caller alike
+            fx=_call_effects(scope, observed),
+        )
+    except MissingTenantError:
+        # the provider ran with no tenant bound (the caller sent none): the
+        # answer the request boundary gives the same error, so a saga step
+        # classifies it as a wiring error and parks (never the internal text)
+        return _error_response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code=TENANT_REQUIRED,
+            message="the call ran with no tenant bound",
             fx=_call_effects(scope, observed),
         )
     except Exception as exc:  # normalize provider failures

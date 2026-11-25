@@ -1,11 +1,11 @@
 ### Changed
 
-- **A saga step that raises `MissingTenantError` parks the saga at once** (dogfood-harness-sagas). The error is now classed `misconfigured` with code `tenant_required`, where it used to be `transient`: a saga started with no tenant bound retried until its deadline and then compensated or parked as `deadline_exceeded`. A tenant-less saga now parks on the first attempt as `misconfigured`, and `sandloom sagas retry` re-drives it once the saga starts under a tenant. Upgrade: if you relied on the retries (a tenant bound by something that runs late), bind the tenant before the saga starts; tests pass `tenant_id=` to `saga_harness.run()`.
+- **A saga step that raises `MissingTenantError` parks the saga at once** (dogfood-harness-sagas). The error is now classed `misconfigured` with code `tenant_required`, where it used to be `transient`: a saga started with no tenant bound retried until its deadline and then compensated or parked as `deadline_exceeded`. A remote provider's `MissingTenantError` now answers `400 tenant_required` over RPC (it was `500 provider_error`), and a step reads that code as `misconfigured` too. Upgrade: a tenant-less instance cannot be re-driven. It holds no tenant, so `sandloom sagas retry` parks it again, and starting the same business id under a tenant raises `SagaInputConflict`. Start the work again under a tenant with a new business id; the parked row is kept. If you relied on the retries (a tenant bound by something that runs late), bind the tenant before the saga starts; tests pass `tenant_id=` to `saga_harness.run()`.
 - **The saga sweep logs a missing lease at INFO outside production** (dogfood-harness-sagas). An unleased sweeper is the normal development shape; it stays a WARNING in production.
 
 ### Fixed
 
-- **A contract call in a `client` request runs on the test's session even when the route never opened `db()`** (dogfood-harness-sagas). Such a route ran the contract on the provider's own unit and missed the rows the test had flushed, against `docs/reference/testing.md`. Under the `client` fixture a contract call that finds no bound session now opens the request's test unit first (a test-only path; production reads one extra module attribute per contract call).
+- **A contract call in a `client` request runs on the test's session even when the route never opened `db()`** (dogfood-harness-sagas). Such a route ran the contract on the provider's own unit and missed the rows the test had flushed, against `docs/reference/testing.md`. The `client` fixture now binds the contract session for every request at the router, inside the app's request boundary; the production request path is untouched.
 
 ### Added
 

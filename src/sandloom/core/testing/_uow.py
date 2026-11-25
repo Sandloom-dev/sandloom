@@ -40,6 +40,9 @@ from types import ModuleType
 from typing import Any
 from uuid import uuid4
 
+from starlette.routing import Router
+from starlette.types import ASGIApp, Receive, Scope, Send
+
 import sandloom.core.unit_of_work as _unit_of_work
 import sandloom.core.unit_of_work.request as _request
 from sandloom.core.descriptors import HealthResult
@@ -535,6 +538,44 @@ class SharedRequestUnit:
                 pass
 
 
+class _ContractSessionBinder:
+    """The router's ASGI app with the test's contract session bound per request."""
+
+    __slots__ = ("_app", "_session")
+
+    def __init__(self, app: ASGIApp, session: Any) -> None:
+        self._app = app
+        self._session = session
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        with bind_contract_session(self._session):
+            await self._app(scope, receive, send)
+
+
+@contextmanager
+def contract_session_per_request(router: Router, session: Any) -> Iterator[None]:
+    """Every request routed by ``router`` binds ``session`` as the contract
+    session, whether or not the route opens ``db()``.
+
+    :meth:`SharedRequestUnit.bind_lazily` binds it on the first ``db()`` only,
+    so a route that calls a contract without one ran the contract on the
+    provider's own unit and missed the test's rows. The binding sits at the
+    router, inside the app's request boundary (``RequestAuthorityMiddleware``
+    resets the contract variables per request, so a binding outside it never
+    reaches the route), and costs the production request path nothing: it
+    exists only while the ``client`` fixture does.
+    """
+    inner = router.middleware_stack
+    router.middleware_stack = _ContractSessionBinder(inner, session)
+    try:
+        yield
+    finally:
+        router.middleware_stack = inner
+
+
 @contextmanager
 def shared_request_unit(core: Any, session: Any) -> Iterator[None]:
     """``db()`` in a request runs on ``session`` for the block."""
@@ -559,6 +600,7 @@ __all__ = [
     "bind_test_uow",
     "capture_effects",
     "committing_uow",
+    "contract_session_per_request",
     "recording_uow",
     "run_on_commit",
     "shared_request_unit",

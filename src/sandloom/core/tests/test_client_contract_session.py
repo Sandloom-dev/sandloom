@@ -18,7 +18,8 @@ from sandloom.core import di
 from sandloom.core.http.route_runtime import install_route_runtime
 from sandloom.core.module_api import contract_method, contract_session
 from sandloom.core.testing.fixtures import *  # noqa: F403
-from sandloom.core.unit_of_work.request import open_test_request_unit
+from sandloom.core.testing._uow import _ContractSessionBinder
+from sandloom.core.unit_of_work import db_session
 
 PREFIX = "/__contract_session"
 CONTRACT = "ctprobe.session.v1"
@@ -50,6 +51,12 @@ def probe(sandloom_app: Any) -> Iterator[None]:
         di.db()
         return {"ok": await core.get_service(CONTRACT).which()}
 
+    @sandloom_app.get(f"{PREFIX}/unit", dependencies=[di.public(reason="probe")])
+    async def with_explicit_unit() -> Any:
+        async with db_session() as own:
+            await core.get_service(CONTRACT).which()
+            return {"own_unit_current_after": di.db() is own}
+
     added = [r for r in sandloom_app.router.routes if r not in before]
     install_route_runtime(added, core)
     try:
@@ -69,6 +76,16 @@ async def test_a_contract_call_runs_on_the_tests_session_however_the_route_gets_
     assert Probe._seen == [db]
 
 
-async def test_the_seam_opens_nothing_outside_a_request(client: Any) -> None:
-    """No request scope, nothing to open (the test body is no request)."""
-    assert open_test_request_unit() is None
+async def test_a_contract_call_inside_an_explicit_unit_leaves_that_unit_current(
+    probe: None, client: Any, db: Any
+) -> None:
+    response = await client.get(f"{PREFIX}/unit")
+
+    assert response.status_code == 200, response.text
+    assert Probe._seen == [db]  # the contract ran on the test's session
+    assert response.json() == {"own_unit_current_after": True}
+
+
+async def test_the_binding_ends_with_the_test(sandloom_app: Any, db: Any) -> None:
+    """Outside the ``client`` fixture the router is the app's own."""
+    assert not isinstance(sandloom_app.router.middleware_stack, _ContractSessionBinder)
