@@ -173,13 +173,14 @@ ${prefix}SINGLE_TENANT_ID=$tenant_id
 """
 )
 
-#: The README's note for an app with billing: ``sandloom dev run`` serves the
-#: web process only, and billing's reconciler is a periodic job.
+#: The README's note for an app with billing: billing's reconciler is a periodic
+#: job, so ``sandloom dev run`` also starts a worker and a beat.
 _BILLING_NOTE = """
-With billing, `sandloom dev run` serves the web process only: start
-`uv run sandloom worker` and `uv run sandloom beat` in two more terminals to
-run its reconciler (until a run completes, checkout and portal answer 503 and
-`/health` reports `never_ran`).
+With billing, `sandloom dev run` also starts `uv run sandloom worker` and
+`uv run sandloom beat` beside the web process, to run its reconciler. Until its
+first run completes (within 5 minutes), checkout and portal answer 503 and
+`/health` reports `never_ran`. `--no-background` skips them: start the two
+commands in other terminals then.
 """
 
 #: The ``.env`` line that prints email links (verification, password reset)

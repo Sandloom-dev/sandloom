@@ -142,8 +142,8 @@ def test_the_readme_hard_codes_no_app_port(
 def test_the_readme_names_the_worker_and_beat_only_with_billing(
     batteries: list[str], named: bool, tmp_path: Path
 ) -> None:
-    """`dev run` serves the web process only: billing's reconciler needs a
-    worker and a beat, and the quick start says so in that app alone."""
+    """Billing's reconciler needs a worker and a beat, which `dev run` starts:
+    the quick start says so (and how to skip them) in that app alone."""
     generate_project(
         "probe", tmp_path, framework_source="pypi", with_batteries=batteries
     )
@@ -152,6 +152,8 @@ def test_the_readme_names_the_worker_and_beat_only_with_billing(
     for command in ("uv run sandloom worker", "uv run sandloom beat"):
         assert (command in quick) is named, command
     assert ("`never_ran`" in quick) is named
+    assert ("`sandloom dev run` also starts" in quick) is named
+    assert ("`--no-background`" in quick) is named
 
 
 def test_dev_service_ports_are_configurable(tmp_path: Path) -> None:

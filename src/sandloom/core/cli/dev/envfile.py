@@ -142,7 +142,7 @@ def managed_infra(
     return managed
 
 
-def _infra_object(raw: str, source: str) -> InfraMap:
+def infra_object(raw: str, source: str) -> InfraMap:
     """``raw`` as ``{capability: {instance: {option: value}}}``, else
     :class:`InvalidInfra` naming ``source``."""
     try:
@@ -188,7 +188,7 @@ def user_infra(text: str) -> InfraMap:
     raw, _ = _user_infra_raw(text)
     if raw is None:
         return {}
-    return _infra_object(raw.strip().strip("'\""), "the INFRA in .env")
+    return infra_object(raw.strip().strip("'\""), "the INFRA in .env")
 
 
 def merge_infra(managed: InfraMap, user: InfraMap) -> InfraMap:
@@ -257,7 +257,7 @@ def replace_block(text: str, values: dict[str, str]) -> str:
     before, block, after = _split(text)
     values = dict(values)
     if INFRA in values or _user_infra_raw(text)[1]:
-        managed = _infra_object(values.get(INFRA, "{}"), "the managed INFRA")
+        managed = infra_object(values.get(INFRA, "{}"), "the managed INFRA")
         values[INFRA] = json.dumps(
             merge_infra(managed, user_infra(text)), separators=(",", ":")
         )
@@ -398,6 +398,7 @@ __all__ = [
     "empty_block",
     "env_mode",
     "exported_drift",
+    "infra_object",
     "managed_infra",
     "merge_infra",
     "read_block",

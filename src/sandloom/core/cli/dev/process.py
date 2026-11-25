@@ -19,6 +19,10 @@ from typing import TextIO
 #: running task, say) after it asked them to stop; then they are killed.
 STOP_GRACE_SECONDS = 20.0
 
+#: How far the start time ``ps`` reports may be from the one ``dev run``
+#: recorded when it started the process (``ps`` counts whole seconds).
+START_TOLERANCE_SECONDS = 10.0
+
 
 def which(name: str) -> str | None:
     return shutil.which(name)
@@ -56,17 +60,19 @@ def run(
 
 
 def _popen(
-    argv: Sequence[str], *, env: Mapping[str, str], cwd: Path, piped: bool
+    argv: Sequence[str], *, env: Mapping[str, str], cwd: Path, background: bool
 ) -> subprocess.Popen[bytes]:
-    """The one place ``dev run`` starts its own processes. ``piped``: stdout
-    and stderr in one pipe the caller reads, and no stdin."""
+    """The one place ``dev run`` starts its own processes. ``background``: a
+    process of its own session (a terminal's hang-up and Ctrl-C do not reach
+    it), no stdin, and stdout and stderr in one pipe the caller reads."""
     return subprocess.Popen(  # noqa: S603 - sys.executable with arguments built by `sandloom dev run` (uvicorn, worker, beat), no shell
         list(argv),
         cwd=cwd,
         env=dict(env),
-        stdin=subprocess.DEVNULL if piped else None,
-        stdout=subprocess.PIPE if piped else None,
-        stderr=subprocess.STDOUT if piped else None,
+        stdin=subprocess.DEVNULL if background else None,
+        stdout=subprocess.PIPE if background else None,
+        stderr=subprocess.STDOUT if background else None,
+        start_new_session=background,
     )
 
 
@@ -75,7 +81,7 @@ def spawn(
 ) -> subprocess.Popen[bytes]:
     """Start the app server (``sys.executable -m uvicorn ...``) in the
     foreground of this process."""
-    return _popen(argv, env=env, cwd=cwd, piped=False)
+    return _popen(argv, env=env, cwd=cwd, background=False)
 
 
 def spawn_piped(
@@ -83,9 +89,31 @@ def spawn_piped(
 ) -> subprocess.Popen[bytes]:
     """Start a background process of ``dev run`` (``sys.executable`` with the
     ``sandloom worker`` / ``sandloom beat`` entry point), its output in a pipe.
-    It stays in this process's group, so a terminal that closes reaches it as
-    it reaches the app server."""
-    return _popen(argv, env=env, cwd=cwd, piped=True)
+
+    It has a session of its own, so a terminal that closes does not hang it up
+    directly: a Celery worker whose output is a pipe turns SIGHUP into a
+    restart on Linux, and the new image would outlive ``dev run``. ``dev run``
+    receives the hang-up and Ctrl-C itself and stops the process
+    (:func:`stop_all`)."""
+    return _popen(argv, env=env, cwd=cwd, background=True)
+
+
+def started_at(pid: int, env: Mapping[str, str]) -> float | None:
+    """When process ``pid`` started (epoch seconds, whole seconds), as ``ps``
+    reports it; ``None`` without such a process, or when ``ps`` is missing or
+    says something unreadable."""
+    try:
+        done = run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            env={**env, "LC_ALL": "C"},
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    try:
+        return time.mktime(time.strptime(done.stdout.strip(), "%a %b %d %H:%M:%S %Y"))
+    except ValueError:
+        return None
 
 
 class Background:
@@ -110,6 +138,8 @@ class Background:
     ) -> None:
         self.name = name
         self.child = spawn_piped(argv, env=env, cwd=cwd)
+        #: Just after the start, for the run marker (:func:`started_at` checks it).
+        self.started = time.time()
         stream = self.child.stdout
         if stream is None:
             raise RuntimeError(f"{name}: spawn_piped gave no output pipe")
@@ -130,12 +160,20 @@ class Background:
     def _copy(self) -> None:
         for raw in self._stream:
             line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-            with self._lock:
-                self._out.write(f"{self.name} | {line}\n")
-                self._out.flush()
+            try:
+                with self._lock:
+                    self._out.write(f"{self.name} | {line}\n")
+                    self._out.flush()
+            except (OSError, UnicodeError):
+                # A terminal that went away (EPIPE) or cannot show this line
+                # (an encoding it lacks): the line is lost, but the pipe is
+                # still read, or the process would block once it filled.
+                continue
 
     def _watch(self) -> None:
         code = self.child.wait()
+        # Its last lines first: the copier may still be relaying them.
+        self._copier.join(timeout=1.0)
         if not self._stopping.is_set():
             with self._lock:
                 self._died(self.name, code)
@@ -149,10 +187,11 @@ class Background:
                 self.child.send_signal(signal.SIGTERM)
 
     def finish(self, deadline: float) -> None:
-        """Wait for the exit until ``deadline`` (``time.monotonic``), then kill."""
+        """Wait for the exit until ``deadline`` (``time.monotonic``), then kill.
+        A second Ctrl-C while it waits is no more waiting: kill."""
         try:
             self.child.wait(timeout=max(0.0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, KeyboardInterrupt):
             self.child.kill()
             self.child.wait()
         self._copier.join(timeout=1.0)
@@ -161,24 +200,31 @@ class Background:
 
 
 def stop_all(
-    background: Sequence[Background], *, grace: float = STOP_GRACE_SECONDS
+    background: Sequence[Background],
+    *,
+    grace: float = STOP_GRACE_SECONDS,
+    deadline: float | None = None,
 ) -> None:
     """Stop every process of ``background`` together: all are asked first, then
     each is waited for under one deadline and killed past it. Nothing of
-    ``dev run`` outlives it."""
+    ``dev run`` outlives it. ``deadline`` (``time.monotonic``) is the one the
+    caller already started counting from; without it ``grace`` seconds from
+    now."""
     for process in background:
         process.terminate()
-    deadline = time.monotonic() + grace
+    end = time.monotonic() + grace if deadline is None else deadline
     for process in background:
-        process.finish(deadline)
+        process.finish(end)
 
 
 __all__ = [
+    "START_TOLERANCE_SECONDS",
     "STOP_GRACE_SECONDS",
     "Background",
     "run",
     "spawn",
     "spawn_piped",
+    "started_at",
     "stop_all",
     "which",
 ]

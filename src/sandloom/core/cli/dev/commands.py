@@ -25,7 +25,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -576,6 +576,104 @@ def live_run(root: Path) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         alive = False
     return data if alive else None
+
+
+#: How long :func:`stop_leftovers` lets a leftover exit after SIGTERM, then kills it.
+LEFTOVER_STOP_SECONDS = 10.0
+
+
+def _record_children(marker: Path, children: Mapping[str, tuple[int, float]]) -> None:
+    """Put the pid and start time of each process this ``dev run`` started
+    (``{name: (pid, started)}``: the app server, the worker, the beat) into its
+    run marker, for :func:`stop_leftovers` of a run that is killed."""
+    with contextlib.suppress(OSError, ValueError):
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and data.get("pid") == os.getpid():
+            data["children"] = {
+                name: {"pid": pid, "started": started}
+                for name, (pid, started) in children.items()
+            }
+            atomic_write(marker, json.dumps(data) + "\n")
+
+
+def _recorded_children(root: Path) -> dict[str, tuple[int, float]]:
+    """The processes the run marker of ``root`` records (``{name: (pid,
+    started)}``): none when it records none, is unreadable, or is another
+    host's."""
+    try:
+        data = json.loads(run_file(root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("host") not in (
+        None,
+        socket.gethostname(),
+    ):
+        return {}
+    recorded = data.get("children")
+    found: dict[str, tuple[int, float]] = {}
+    for name, entry in (recorded if isinstance(recorded, dict) else {}).items():
+        pid = entry.get("pid") if isinstance(entry, dict) else None
+        started = entry.get("started") if isinstance(entry, dict) else None
+        if (
+            isinstance(pid, int)
+            and not isinstance(pid, bool)
+            and isinstance(started, int | float)
+        ):
+            found[str(name)] = (pid, float(started))
+    return found
+
+
+def _live_recorded(ctx: Context) -> tuple[dict[str, int], list[str]]:
+    """``(leftovers, unverified)`` of the run marker: the recorded processes
+    that still run and started when recorded (``{name: pid}``), and those that
+    run but whose start time ``ps`` cannot give. A pid that runs with another
+    start time is another process, in neither."""
+    leftovers: dict[str, int] = {}
+    unverified: list[str] = []
+    for name, (pid, started) in _recorded_children(ctx.root).items():
+        if not pid_alive(pid):
+            continue
+        actual = _process.started_at(pid, ctx.environ)
+        if actual is None:
+            unverified.append(f"{name} (pid {pid})")
+        elif abs(actual - started) <= _process.START_TOLERANCE_SECONDS:
+            leftovers[name] = pid
+    return leftovers, unverified
+
+
+def stop_leftovers(ctx: Context) -> None:
+    """Stop what a ``dev run`` of this checkout left running when it was killed
+    (SIGKILL, a crash: no ``finally`` ran). Its worker would keep consuming
+    with the old code, its beat would hold the lease so that the next beat only
+    stands by, and its app server would hold the port.
+
+    The run marker names those processes. One is stopped only when it is still
+    the process that was started: ``ps`` says it started when the marker
+    recorded, so a pid the system handed to another process since is left
+    alone. One line says what was stopped; a process whose start time ``ps``
+    cannot give is left alone and named."""
+    leftovers, unverified = _live_recorded(ctx)
+    if unverified:
+        ctx.warn(
+            f"{', '.join(unverified)} of a previous dev run may still be running: "
+            "`ps` could not say when it started, so it was left alone"
+        )
+    if not leftovers:
+        return
+    for pid in leftovers.values():
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + LEFTOVER_STOP_SECONDS
+    while time.monotonic() < deadline and any(pid_alive(p) for p in leftovers.values()):
+        time.sleep(0.1)
+    for pid in leftovers.values():
+        if pid_alive(pid):
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
+    ctx.warn(
+        "a previous dev run did not shut down; stopped what it left running: "
+        + ", ".join(f"{name} (pid {pid})" for name, pid in leftovers.items())
+    )
 
 
 def _sha(text: str) -> str:
@@ -1761,7 +1859,8 @@ def run(
     A composition with a required periodic job (:func:`background_modules`)
     also gets a worker and a beat, started beside the app server with the same
     environment and stopped with it; ``background=False`` (``--no-background``)
-    serves the app alone and prints the hint instead."""
+    serves the app alone and prints the hint instead. What a run that was
+    killed left behind (:func:`stop_leftovers`) is stopped first."""
     block = _read_block(ctx.root)
     own_database = _own_database_url(ctx.root)
     own_services = not own_database and (
@@ -1793,6 +1892,9 @@ def run(
                 f"already running at {existing.get('url')} (pid {existing.get('pid')})"
             )
             return 0
+        # The marker of a run that was killed names what it left behind: stop
+        # that before the port is chosen (its app server may hold it).
+        stop_leftovers(ctx)
         number = app_port(port, sticky=sticky)
         url = f"http://127.0.0.1:{number}"
         record = {
@@ -1827,15 +1929,19 @@ def run(
         *(["--reload"] if reload else []),
     ]
     ctx.say(f"sandloom dev run: {ctx.style.accent(url)} (health: {url}/health)")
-    needing = background_modules(ctx.root)
-    processes: dict[str, list[str]] = {}
-    if needing and background:
-        processes = background_argv(ctx.root)
-        ctx.say(background_started_note(needing, reload=reload))
-    elif needing:
-        ctx.say(background_note(needing))
     try:
-        return _serve(ctx, argv, env, url=url, background=processes)
+        processes, overrides = _background_plan(
+            ctx, env, background=background, reload=reload
+        )
+        return _serve(
+            ctx,
+            argv,
+            env,
+            url=url,
+            background=processes,
+            additions=overrides,
+            marker=marker,
+        )
     finally:
         with contextlib.suppress(OSError, ValueError):
             data = json.loads(marker.read_text(encoding="utf-8"))
@@ -1914,6 +2020,91 @@ def background_argv(root: Path) -> dict[str, list[str]]:
     }
 
 
+#: The pool ``dev run`` gives its worker where the default one cannot start
+#: (the ``worker_pool`` option of the ``celery`` task queue: one message at a
+#: time, in the worker process itself).
+WORKER_POOL = "solo"
+
+#: The variable that names the task queue instance a worker runs. It is
+#: ``sandloom.core.worker.TASKQUEUE_INSTANCE_ENV`` (a test keeps the two equal):
+#: that module loads the settings and the infra registry, which no other
+#: ``sandloom dev`` command needs.
+WORKER_INSTANCE_ENV = "SANDLOOM_WORKER_TASKQUEUE"
+
+WORKER_POOL_NOTE = (
+    f"the worker runs the {WORKER_POOL} pool here (a prefork worker cannot start "
+    "on macOS); set worker_pool in INFRA to choose another"
+)
+
+
+def _prefork_unavailable() -> bool:
+    """Whether the task queue's default pool (``prefork``) cannot start here:
+    on macOS its children are spawned, not forked, and a spawned child never
+    sees the task table, so the worker refuses to start."""
+    return sys.platform == "darwin"
+
+
+def _infra_in_force(ctx: Context, env: Mapping[str, str]) -> _envfile.InfraMap | None:
+    """The ``INFRA`` a process started with ``env`` in this checkout reads: the
+    environment's, else the last assignment of ``.env`` (the order settings read
+    them in). ``{}`` without one; ``None`` when it is not an INFRA object, which
+    the process refuses itself, saying why."""
+    raw = env.get(_envfile.INFRA)
+    if raw is None:
+        try:
+            text = (ctx.root / _envfile.ENV_FILE).read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        raw = _envfile.winning_assignment(text, _envfile.INFRA)[0]
+    if not raw.strip():
+        return {}
+    try:
+        return _envfile.infra_object(raw, "INFRA")
+    except _envfile.InvalidInfra:
+        return None
+
+
+def background_env(ctx: Context, env: Mapping[str, str]) -> dict[str, dict[str, str]]:
+    """What ``dev run`` adds to the environment of one background process, by
+    name (``env`` is the app server's): where ``prefork`` cannot start, the
+    worker gets the :data:`WORKER_POOL` pool through ``INFRA``, for that child
+    alone. The app server and a production worker are untouched. Nothing is
+    added when ``INFRA`` already sets ``worker_pool`` for the worker's task queue
+    instance, names a driver other than ``celery`` for it, or is not readable."""
+    if not _prefork_unavailable():
+        return {}
+    instance = env.get(WORKER_INSTANCE_ENV) or "default"
+    infra = _infra_in_force(ctx, env)
+    if infra is None:
+        return {}
+    spec = infra.get("taskqueue", {}).get(instance, {})
+    if "worker_pool" in spec or spec.get("driver", "celery") != "celery":
+        return {}
+    pool: _envfile.InfraMap = {"taskqueue": {instance: {"worker_pool": WORKER_POOL}}}
+    merged = _envfile.merge_infra(infra, pool)
+    return {"worker": {_envfile.INFRA: json.dumps(merged, separators=(",", ":"))}}
+
+
+def _background_plan(
+    ctx: Context, env: Mapping[str, str], *, background: bool, reload: bool
+) -> tuple[dict[str, list[str]], dict[str, dict[str, str]]]:
+    """``(argv, environment additions)`` of the processes ``dev run`` starts
+    beside the app server, each by name, and the one line it says about them:
+    none (and the hint) with ``background`` off, none when no module needs a
+    worker and a beat."""
+    needing = background_modules(ctx.root)
+    if not needing:
+        return {}, {}
+    if not background:
+        ctx.say(background_note(needing))
+        return {}, {}
+    overrides = background_env(ctx, env)
+    ctx.say(background_started_note(needing, reload=reload))
+    if overrides:
+        ctx.say(WORKER_POOL_NOTE)
+    return background_argv(ctx.root), overrides
+
+
 #: The setting ``dev run`` turns on for the app it serves
 #: (``DB_RECREATE_ON_MODEL_CHANGE``, SANDLOOM-B028).
 RECREATE_ON_MODEL_CHANGE_ENV = "DB_RECREATE_ON_MODEL_CHANGE"
@@ -1988,11 +2179,13 @@ def _start_background(
     env: Mapping[str, str],
     processes: Mapping[str, list[str]],
     started: list[_process.Background],
+    additions: Mapping[str, Mapping[str, str]],
 ) -> None:
     """Start each of ``processes`` (name to argv) beside the app server, into
     ``started``, which the caller stops. They get the app server's
-    environment (unbuffered, so their lines are not held back by the pipe);
-    one that cannot start is reported and the others still run."""
+    environment (unbuffered, so their lines are not held back by the pipe) and
+    the ``additions`` of their name (:func:`background_env`); one that cannot
+    start is reported and the others still run."""
     lock = threading.Lock()
 
     def died(name: str, code: int) -> None:
@@ -2007,7 +2200,7 @@ def _start_background(
                 _process.Background(
                     name,
                     argv,
-                    env={**env, "PYTHONUNBUFFERED": "1"},
+                    env={**env, "PYTHONUNBUFFERED": "1", **additions.get(name, {})},
                     cwd=ctx.root,
                     out=ctx.out,
                     lock=lock,
@@ -2018,16 +2211,66 @@ def _start_background(
             ctx.warn(f"{name} did not start: {exc}")
 
 
-def _stop_app(child: subprocess.Popen[bytes]) -> None:
-    """Interrupt the app server like Ctrl-C does and wait for it; it is killed
-    after 20 seconds."""
+def _stop_app(child: subprocess.Popen[bytes], deadline: float) -> None:
+    """Interrupt the app server like Ctrl-C does and wait for it until
+    ``deadline`` (``time.monotonic``); then it is killed."""
     with contextlib.suppress(ProcessLookupError):
         child.send_signal(signal.SIGINT)
     try:
-        child.wait(timeout=20)
+        child.wait(timeout=max(0.0, deadline - time.monotonic()))
     except (subprocess.TimeoutExpired, KeyboardInterrupt):
         child.kill()
         child.wait()
+
+
+#: The signals that ask ``dev run`` to stop everything: SIGTERM, and the hang-up
+#: of a closing terminal (a process that handles neither dies without its
+#: ``finally``, and the worker it started stays behind).
+_STOP_SIGNALS = (
+    (signal.SIGTERM,) if sys.platform == "win32" else (signal.SIGTERM, signal.SIGHUP)
+)
+
+
+class _StopClock:
+    """When ``dev run`` began to stop, so that the app server and the background
+    processes share one grace period (:data:`_process.STOP_GRACE_SECONDS`)."""
+
+    def __init__(self) -> None:
+        self.deadline: float | None = None
+
+    def begin(self) -> float:
+        if self.deadline is None:
+            self.deadline = time.monotonic() + _process.STOP_GRACE_SECONDS
+        return self.deadline
+
+
+def _stop_run(
+    child: subprocess.Popen[bytes],
+    started: Sequence[_process.Background],
+    clock: _StopClock,
+) -> None:
+    """Stop the app server and ask the background processes to stop."""
+    for process in started:
+        process.terminate()
+    _stop_app(child, clock.begin())
+
+
+def _record(
+    marker: Path | None,
+    child: subprocess.Popen[bytes],
+    web_started: float,
+    started: Sequence[_process.Background],
+) -> None:
+    """Write the running processes into the run marker (``marker``: none in
+    some tests), where :func:`stop_leftovers` of a killed run finds them."""
+    if marker is not None:
+        _record_children(
+            marker,
+            {
+                "web": (child.pid, web_started),
+                **{p.name: (p.child.pid, p.started) for p in started},
+            },
+        )
 
 
 def _serve(
@@ -2037,14 +2280,19 @@ def _serve(
     *,
     url: str | None = None,
     background: Mapping[str, list[str]] | None = None,
+    additions: Mapping[str, Mapping[str, str]] | None = None,
+    marker: Path | None = None,
 ) -> int:
     """Run the app server in the foreground and the ``background`` processes
-    (name to argv) beside it. Ctrl-C and SIGTERM stop all of them, and so does
-    the app server exiting; a background process that exits early is reported
-    and the app server keeps running."""
+    (name to argv, with the environment ``additions`` adds to each) beside
+    it. Ctrl-C, SIGTERM and a hang-up stop all of them, and so does the app
+    server exiting; a background process that exits early is reported and the
+    app server keeps running. Their pids go into ``marker`` while they run."""
     child = _process.spawn(argv, cwd=ctx.root, env=env)
+    web_started = time.time()
     stop = threading.Event()
     started: list[_process.Background] = []
+    clock = _StopClock()
     if url is not None:
         threading.Thread(
             target=announce_when_up,
@@ -2053,33 +2301,37 @@ def _serve(
         ).start()
 
     def _forward(signum: int, _frame: object) -> None:
+        # The app server gets SIGTERM whichever signal came: a hang-up would
+        # kill it without its own shutdown.
+        clock.begin()
         with contextlib.suppress(ProcessLookupError):
-            child.send_signal(signum)
+            child.send_signal(signal.SIGTERM)
         for process in started:
             process.terminate()
 
-    previous = signal.signal(signal.SIGTERM, _forward)
+    previous = {signum: signal.signal(signum, _forward) for signum in _STOP_SIGNALS}
     try:
-        _start_background(ctx, env, background or {}, started)
+        _record(marker, child, web_started, started)
+        _start_background(ctx, env, background or {}, started, additions or {})
+        _record(marker, child, web_started, started)
         return int(child.wait())
     except KeyboardInterrupt:
         # Ctrl-C is how a person stops the server: a clean stop, exit 0.
-        for process in started:
-            process.terminate()
-        _stop_app(child)
+        _stop_run(child, started, clock)
         return 0
     except Exception:
         # A failure of ours (a background process that cannot be started for a
         # reason other than the system refusing it) is not a stop: the app
         # server does not stay behind it.
-        for process in started:
-            process.terminate()
-        _stop_app(child)
+        _stop_run(child, started, clock)
         raise
     finally:
         stop.set()
-        _process.stop_all(started)
-        signal.signal(signal.SIGTERM, previous)
+        try:
+            _process.stop_all(started, deadline=clock.deadline)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
 
 
 # --------------------------------------------------------------------------- #

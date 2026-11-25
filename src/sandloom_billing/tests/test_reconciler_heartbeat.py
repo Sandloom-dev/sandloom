@@ -76,16 +76,19 @@ async def test_restarting_the_web_process_never_grants_startup_grace() -> None:
 async def test_in_development_a_reconciler_that_never_ran_does_not_fail_health() -> (
     None
 ):
-    """`sandloom dev run` starts no worker and no beat: the first look at a
-    fresh app is `never_ran`, reported with what to run, not as a failure."""
+    """The first look at a fresh app, before the reconciler's first run (the
+    beat of `sandloom dev run` starts it within minutes), is `never_ran`,
+    reported with what starts it, not as a failure."""
     result = await _check(None, development=True)()
 
     assert result.status == "ok"
     assert result.details["state"] == "never_ran"
     assert "error" not in result.details
     assert result.details["note"] == DEV_NEVER_RAN_NOTE
+    assert "`sandloom dev run` starts a worker and a beat" in DEV_NEVER_RAN_NOTE
     assert "uv run sandloom worker" in DEV_NEVER_RAN_NOTE
     assert "uv run sandloom beat" in DEV_NEVER_RAN_NOTE
+    assert "--no-background" in DEV_NEVER_RAN_NOTE
 
 
 async def test_in_development_a_reconciler_that_went_silent_still_fails() -> None:

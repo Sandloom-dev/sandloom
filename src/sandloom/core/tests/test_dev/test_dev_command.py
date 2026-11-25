@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ from sandloom.core.testing import workers
 from sandloom.core.testing.machine import machine_id
 from sandloom.core.tests._fake_stack import FakeStack
 from sandloom.core.tests._root_support import suite_infra_env
+from sandloom.core.worker import TASKQUEUE_INSTANCE_ENV
 
 # --------------------------------------------------------------------------- #
 # Fixtures
@@ -1677,19 +1679,24 @@ def _dev_run(
     *,
     background: bool = True,
     reload: bool = False,
+    prefork_unavailable: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """What ``dev run`` prints for a checkout whose inspection index is ``index``
     (``None``: no index), and what it hands the server loop: its keyword
-    arguments (``background``: the processes it starts beside the app)."""
+    arguments (``background``: the processes it starts beside the app) and the
+    app server's environment (``env``). ``prefork_unavailable``: whether the
+    platform is one where the worker's default pool cannot start (macOS), so
+    that the test does not depend on the machine it runs on."""
     ctx = _ctx(repo, environ)
     (repo / ".env").write_text(envfile.render_block(_VALUES))
     state = _state(ctx)
     commands.checkout_row(ctx, state)
     save_state(ctx.state_dir, state)
     _reachable(monkeypatch, up=True)
+    monkeypatch.setattr(commands, "_prefork_unavailable", lambda: prefork_unavailable)
     served: dict[str, Any] = {}
     monkeypatch.setattr(
-        commands, "_serve", lambda c, argv, env, **kw: served.update(kw) or 0
+        commands, "_serve", lambda c, argv, env, **kw: served.update(kw, env=env) or 0
     )
     if index is not None:
         (repo / ".sandloom").mkdir(exist_ok=True)
@@ -1725,6 +1732,7 @@ def test_dev_run_no_background_names_the_worker_and_beat_when_a_module_needs_the
     assert "identity" not in notes[0]
     assert "started" not in out
     assert served["background"] == {}
+    assert served["additions"] == {}
 
 
 def test_dev_run_starts_a_worker_and_a_beat_when_a_composed_module_needs_them(
@@ -1732,17 +1740,192 @@ def test_dev_run_starts_a_worker_and_a_beat_when_a_composed_module_needs_them(
 ) -> None:
     """Billing's reconciler is a required periodic job: `dev run` hands the
     server loop a worker and a beat (not identity's optional one), says so in
-    one line, and no longer tells the person to start them."""
+    one line, and no longer tells the person to start them. Where the default
+    pool can start (not macOS), the worker's environment is the app's."""
     out, served = _dev_run(
         repo, environ, monkeypatch, encode_index({"edges": _BILLING_EDGES})
     )
     assert set(served["background"]) == {"worker", "beat"}
+    assert served["additions"] == {}
+    assert commands.WORKER_POOL_NOTE not in out
+    # the run marker is where the processes are recorded for a run that is killed
+    assert served["marker"] == commands.run_file(repo)
     started = [line for line in out.splitlines() if "started for" in line]
     assert started == [commands.background_started_note(["billing"], reload=False)]
     assert started[0].startswith("worker and beat started for billing (")
     assert "--no-background" in started[0] and "Ctrl-C" in started[0]
     assert "identity" not in started[0]
     assert "wait for a worker" not in out
+
+
+def test_dev_run_where_prefork_cannot_start_runs_the_worker_in_the_solo_pool(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On macOS a prefork worker refuses to start, so billing would answer 503
+    for ever: `dev run` gives its worker the solo pool, says so once, and
+    leaves the app server's own environment alone."""
+    out, served = _dev_run(
+        repo,
+        environ,
+        monkeypatch,
+        encode_index({"edges": _BILLING_EDGES}),
+        prefork_unavailable=True,
+    )
+    assert out.splitlines().count(commands.WORKER_POOL_NOTE) == 1
+    assert set(served["additions"]) == {"worker"}  # the beat has no pool
+    worker = json.loads(served["additions"]["worker"]["INFRA"])
+    assert worker == {
+        "cache": {"default": {"url": "redis://127.0.0.1:24002/1"}},
+        "taskqueue": {
+            "default": {"broker": "redis://127.0.0.1:24002/2", "worker_pool": "solo"}
+        },
+    }
+    assert json.loads(served["env"]["INFRA"]) == json.loads(_VALUES["INFRA"])
+
+
+def test_dev_run_stops_what_a_killed_run_left_before_it_chooses_the_port(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The app server of the killed run may still hold the port the new run
+    would choose."""
+    calls: list[str] = []
+    monkeypatch.setattr(commands, "stop_leftovers", lambda ctx: calls.append("stop"))
+    monkeypatch.setattr(
+        commands,
+        "app_port",
+        lambda port, *, sticky=None: calls.append("port") or 8765,
+    )
+    _dev_run(repo, environ, monkeypatch, None)
+    assert calls == ["stop", "port"]
+
+
+def _worker_infra(
+    repo: Path,
+    environ: Mapping[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prefork_unavailable: bool = True,
+) -> dict[str, Any] | None:
+    """The ``INFRA`` the worker would get from :func:`commands.background_env`
+    for ``environ`` (``None``: it adds nothing)."""
+    monkeypatch.setattr(commands, "_prefork_unavailable", lambda: prefork_unavailable)
+    added = commands.background_env(_ctx(repo, dict(os.environ)), environ)
+    if not added:
+        return None
+    assert set(added) == {"worker"}
+    assert set(added["worker"]) == {"INFRA"}
+    parsed: dict[str, Any] = json.loads(added["worker"]["INFRA"])
+    return parsed
+
+
+def test_the_solo_pool_is_added_to_the_infra_in_force_and_nothing_else_changes(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    infra = _worker_infra(repo, {"INFRA": _VALUES["INFRA"]}, monkeypatch)
+    assert infra == {
+        "cache": {"default": {"url": "redis://127.0.0.1:24002/1"}},
+        "taskqueue": {
+            "default": {"broker": "redis://127.0.0.1:24002/2", "worker_pool": "solo"}
+        },
+    }
+
+
+def test_the_infra_of_env_is_read_when_the_environment_has_none_and_loses_to_it(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    taskqueue = {"taskqueue": {"default": {"broker": "redis://from-env-file/1"}}}
+    (repo / ".env").write_text(f"INFRA='{json.dumps(taskqueue)}'\n")
+    assert _worker_infra(repo, {}, monkeypatch) == {
+        "taskqueue": {
+            "default": {"broker": "redis://from-env-file/1", "worker_pool": "solo"}
+        }
+    }
+    exported = {"taskqueue": {"default": {"broker": "redis://exported/1"}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(exported)}, monkeypatch) == {
+        "taskqueue": {
+            "default": {"broker": "redis://exported/1", "worker_pool": "solo"}
+        }
+    }
+
+
+def test_without_any_infra_the_worker_gets_the_pool_alone(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _worker_infra(repo, {}, monkeypatch) == {
+        "taskqueue": {"default": {"worker_pool": "solo"}}
+    }
+
+
+@pytest.mark.parametrize("pool", ["prefork", "threads", "solo"])
+def test_a_pool_the_person_chose_is_kept(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, pool: str
+) -> None:
+    infra = {"taskqueue": {"default": {"worker_pool": pool}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(infra)}, monkeypatch) is None
+
+
+def test_a_task_queue_that_is_not_celery_gets_no_pool(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    infra = {"taskqueue": {"default": {"driver": "another"}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(infra)}, monkeypatch) is None
+    # the celery driver named outright is the default one
+    named = {"taskqueue": {"default": {"driver": "celery"}}}
+    assert _worker_infra(repo, {"INFRA": json.dumps(named)}, monkeypatch) == {
+        "taskqueue": {"default": {"driver": "celery", "worker_pool": "solo"}}
+    }
+
+
+def test_the_pool_goes_to_the_instance_the_worker_runs(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    infra = {
+        "taskqueue": {
+            "default": {"worker_pool": "threads"},
+            "jobs": {"broker": "redis://jobs/1"},
+        }
+    }
+    selected = {"INFRA": json.dumps(infra), TASKQUEUE_INSTANCE_ENV: "jobs"}
+    assert _worker_infra(repo, selected, monkeypatch) == {
+        "taskqueue": {
+            "default": {"worker_pool": "threads"},
+            "jobs": {"broker": "redis://jobs/1", "worker_pool": "solo"},
+        }
+    }
+    # a pool on the instance the worker runs counts, not one on another
+    chosen = {"taskqueue": {"default": {}, "jobs": {"worker_pool": "threads"}}}
+    selected["INFRA"] = json.dumps(chosen)
+    assert _worker_infra(repo, selected, monkeypatch) is None
+
+
+@pytest.mark.parametrize("raw", ["{not json", "[1]", '{"taskqueue": 1}'])
+def test_an_infra_that_is_not_readable_gets_no_pool_and_is_left_to_the_worker(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    assert _worker_infra(repo, {"INFRA": raw}, monkeypatch) is None
+
+
+def test_elsewhere_than_macos_the_worker_gets_nothing_added(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (
+        _worker_infra(
+            repo, {"INFRA": _VALUES["INFRA"]}, monkeypatch, prefork_unavailable=False
+        )
+        is None
+    )
+
+
+def test_dev_run_reads_the_instance_variable_the_worker_reads() -> None:
+    """`dev run` keeps its own copy of the name (the worker's module loads the
+    settings): the two must not drift apart."""
+    assert commands.WORKER_INSTANCE_ENV == TASKQUEUE_INSTANCE_ENV
+
+
+def test_prefork_is_unavailable_on_macos_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    for platform, unavailable in (("darwin", True), ("linux", False)):
+        monkeypatch.setattr(sys, "platform", platform)
+        assert commands._prefork_unavailable() is unavailable
 
 
 def test_dev_run_with_reload_says_that_only_the_web_process_reloads(

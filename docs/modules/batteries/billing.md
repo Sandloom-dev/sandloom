@@ -339,9 +339,9 @@ Set up once:
    server. It says so in one line. Wait for the first beat, up to 5 minutes.
    With `--no-background` you start `uv run sandloom worker` and
    `uv run sandloom beat` yourself. So you do when you serve the app another
-   way. On macOS set `"worker_pool": "solo"` in the `taskqueue` instance of
-   `INFRA`. Otherwise the worker refuses to start. `dev run` then reports its
-   exit ([the worker and beat](../background/tasks.md#the-worker-and-beat)).
+   way; on macOS give that worker `"worker_pool": "solo"` in `INFRA`
+   ([why](../background/tasks.md#the-worker-and-beat)). `dev run` reports a
+   worker or beat that exits early.
 4. **An access token** of the user who buys (register, verify and log in:
    [Identity](identity.md)).
 
