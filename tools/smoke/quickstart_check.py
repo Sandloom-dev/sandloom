@@ -499,6 +499,11 @@ class Runner:
                 200,
                 {"refresh_token": tokens["refresh_token"]},
             )
+        if "tenancy" not in self.batteries:
+            # A real login names no tenant: the generated route works only
+            # because `.env` binds one (TENANCY_MODE=single), not for a minted
+            # test token alone.
+            self.expect("GET", f"/api/v1/{self.module}/items", 200, headers=auth)
         if "tenancy" in self.batteries:
             org = json.loads(
                 self.expect(
@@ -534,7 +539,7 @@ class Runner:
 
     def single_tenant(self) -> str | None:
         """The tenant a single-tenant app binds (``TENANCY_MODE=single`` and
-        ``SINGLE_TENANT_ID`` in its ``.env``, as ``--no-batteries`` writes):
+        ``SINGLE_TENANT_ID`` in its ``.env``, as an app without tenancy has):
         a token for any other tenant answers 403 ``tenant_mismatch``."""
         env = self.cwd / ".env"
         if not env.is_file():

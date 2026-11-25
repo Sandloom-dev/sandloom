@@ -2095,6 +2095,7 @@
         "src/sandloom/core/tests/test_run_module_migrations.py",
         "src/sandloom/core/tests/test_run_tests_cli.py",
         "src/sandloom/core/tests/test_saga_requirement_merge.py",
+        "src/sandloom/core/tests/test_single_tenancy_warning.py",
         "src/sandloom/core/tests/test_skills.py",
         "src/sandloom/core/tests/test_saga_store_prebuilt.py",
         "src/sandloom/core/tests/test_sagas_channel.py",
