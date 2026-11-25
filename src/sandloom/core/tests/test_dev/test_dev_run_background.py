@@ -284,7 +284,16 @@ def test_a_process_that_ignores_sigterm_is_killed_after_the_grace(
     )
     try:
         _eventually(lambda: "worker | ready" in out.getvalue(), "the handler")
-        process.stop_all([background], grace=0.5)
+        # in a thread: a stop that never kills would wait for this process for ever
+        stopper = threading.Thread(
+            target=process.stop_all, args=([background],), kwargs={"grace": 0.5}
+        )
+        stopper.daemon = True
+        stopper.start()
+        stopper.join(timeout=15)
+        assert not stopper.is_alive(), (
+            "stop_all waits for a process that ignores SIGTERM"
+        )
         assert background.child.returncode == -signal.SIGKILL
     finally:
         if background.child.poll() is None:
