@@ -442,15 +442,30 @@ def db() -> Any:
     )
 
 
-def join_request_scope(session: Any) -> None:
+def join_request_scope(session: Any) -> Any:
     """A test-owned session stands in for the request unit: it takes the
-    request's scope (commit-time re-check, ownership) like a real unit."""
+    request's scope (commit-time re-check, ownership) like a real unit.
+
+    Returns the task that owned the session before, for
+    :func:`return_request_scope`."""
+    info = getattr(session, "info", None)
+    if not isinstance(info, dict):
+        return None
+    previous = info.get(OWNER_KEY)
+    claim_unit(session)
+    info.pop(SELF_REVOKED_KEY, None)
+    info.pop(SELF_REVOKED_FINAL_KEY, None)
+    info.pop(WRITES_KEY, None)
+    return previous
+
+
+def return_request_scope(session: Any, previous: Any) -> None:
+    """The request ended: the test's session goes back to its previous owner,
+    so a request that ran in another context (a concurrent actor of the test)
+    does not leave it owned by a task that is gone."""
     info = getattr(session, "info", None)
     if isinstance(info, dict):
-        claim_unit(session)
-        info.pop(SELF_REVOKED_KEY, None)
-        info.pop(SELF_REVOKED_FINAL_KEY, None)
-        info.pop(WRITES_KEY, None)
+        info[OWNER_KEY] = previous
 
 
 def stash_test_pending_check(core: Any, session: Any) -> None:
@@ -571,6 +586,7 @@ __all__ = [
     "record_self_revocation",
     "release_unit",
     "request_scope_get",
+    "return_request_scope",
     "unit_database",
     "unit_write_count",
 ]

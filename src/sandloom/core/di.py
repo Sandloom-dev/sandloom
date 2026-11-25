@@ -267,20 +267,23 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
         # wrote to.
         with configured_tenant_scope(getattr(core, "settings", None)):
             async for session in _yield_from_provider(overrides[provider]):
-                _uow_request.join_request_scope(session)
-                _uow_request.stash_test_pending_check(core, session)
-                with bind_contract_session(session):
-                    yield session
-                # Reached only when the request succeeded (an exception is
-                # thrown in at the yield): the test treats it as committed, so
-                # post-commit effects queued via on_commit run now — exactly
-                # as after a real UoW commit, and never after a failure.
-                # The request's before-commit checks run here too (a failing
-                # one propagates, and on_commit never runs).
-                # The commit pipeline without its outbox stage (the test's
-                # outbox rows never commit): COMMIT_PIPELINE in unit_of_work.
-                await _uow_hooks._run_before_commit_callbacks(session)
-                await _uow._dispatch_outbox_after_commit(session, dispatch=False)
+                previous_owner = _uow_request.join_request_scope(session)
+                try:
+                    _uow_request.stash_test_pending_check(core, session)
+                    with bind_contract_session(session):
+                        yield session
+                    # Reached only when the request succeeded (an exception is
+                    # thrown in at the yield): the test treats it as committed,
+                    # so post-commit effects queued via on_commit run now —
+                    # exactly as after a real UoW commit, and never after a
+                    # failure. The request's before-commit checks run here too
+                    # (a failing one propagates, and on_commit never runs).
+                    # The commit pipeline without its outbox stage (the test's
+                    # outbox rows never commit): COMMIT_PIPELINE in unit_of_work.
+                    await _uow_hooks._run_before_commit_callbacks(session)
+                    await _uow._dispatch_outbox_after_commit(session, dispatch=False)
+                finally:
+                    _uow_request.return_request_scope(session, previous_owner)
         return
 
     async with _uow.open_uow(core, factory=core.get_uow_factory()) as session:

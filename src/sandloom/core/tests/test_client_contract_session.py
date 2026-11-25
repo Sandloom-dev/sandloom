@@ -9,6 +9,8 @@ had flushed.
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
 from collections.abc import Iterator
 from typing import Any
 
@@ -20,6 +22,7 @@ from sandloom.core.module_api import contract_method, contract_session
 from sandloom.core.testing.fixtures import *  # noqa: F403
 from sandloom.core.testing._uow import _ContractSessionBinder
 from sandloom.core.unit_of_work import db_session
+from sandloom.core.unit_of_work.request import OWNER_KEY
 
 PREFIX = "/__contract_session"
 CONTRACT = "ctprobe.session.v1"
@@ -84,6 +87,21 @@ async def test_a_contract_call_inside_an_explicit_unit_leaves_that_unit_current(
     assert response.status_code == 200, response.text
     assert Probe._seen == [db]  # the contract ran on the test's session
     assert response.json() == {"own_unit_current_after": True}
+
+
+async def test_a_request_in_another_context_gives_the_session_back(
+    probe: None, client: Any, db: Any
+) -> None:
+    """A concurrent actor of the test borrows the shared session for its
+    request: the test's own task owns it again afterwards."""
+    before = db.info.get(OWNER_KEY)
+
+    response = await asyncio.create_task(
+        client.get(f"{PREFIX}/db"), context=contextvars.Context()
+    )
+
+    assert response.status_code == 200, response.text
+    assert db.info.get(OWNER_KEY) is before
 
 
 async def test_the_binding_ends_with_the_test(sandloom_app: Any, db: Any) -> None:
