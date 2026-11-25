@@ -17,8 +17,10 @@ from sqlalchemy import func, select
 import sandloom.core.sql_alchemy.saga_store as store
 from sandloom.core.module_api import ContractCallInProgress
 from sandloom.core.sagas import runtime as saga_runtime
+from sandloom.core.sagas.outcomes import Outcome, classify_exception
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
+from sandloom.core.tenant_context import MissingTenantError
 from sandloom.core.testing.infra import has_serial_writers, skip_unless_db_feature
 from sandloom.core.tests.saga_fixtures import (
     DurableLedger,
@@ -257,6 +259,32 @@ async def test_provider_in_flight_is_transient_and_retried(saga_harness) -> None
     assert saga_runtime.RETRY_SCHEDULED in run.transitions
     assert run.step_row("charge")["attempts"] == 2
     assert ledger.balance == 70
+
+
+async def test_a_step_with_no_tenant_bound_parks_at_once(saga_harness) -> None:
+    """``MissingTenantError`` is a wiring error (``tenant_required``): the saga
+    parks on the first attempt, it is not retried until its deadline."""
+    _ledger(saga_harness)
+    saga_harness.fail_step(
+        "charge", times=100, exception=MissingTenantError("no tenant bound")
+    )
+
+    run = await saga_harness.run(ENROLL, input=enroll_input())
+
+    assert run.status == "parked"
+    assert run.park_reason == "misconfigured"
+    assert run.instance.last_error["code"] == "tenant_required"
+    assert run.calls == ["charge:do"]
+    assert run.step_row("charge")["attempts"] == 1
+
+
+def test_missing_tenant_error_classifies_as_misconfigured() -> None:
+    outcome = classify_exception(MissingTenantError("no tenant bound"))
+
+    assert outcome.outcome is Outcome.MISCONFIGURED
+    assert outcome.code == "tenant_required"
+    # another RuntimeError stays transient: only this error type is promoted
+    assert classify_exception(RuntimeError("bug")).outcome is Outcome.TRANSIENT
 
 
 # The claim's own FOR UPDATE SKIP LOCKED while another worker holds the row:

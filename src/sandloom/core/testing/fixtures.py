@@ -274,6 +274,7 @@ async def client(
 
     from sandloom.core._internal.db_provider import get_db  # noqa: PLC0415 - cold: settings snapshot - the pytest plugin imports this module before .env.test is loaded
     from sandloom.core.testing._uow import (  # noqa: PLC0415 - cold: settings snapshot - the pytest plugin imports this module before .env.test is loaded
+        ContractSessionApp,
         bind_test_uow,
         shared_request_unit,
     )
@@ -291,8 +292,12 @@ async def client(
         # own connection): how a route obtains its session never changes the
         # test's semantics
         with shared_request_unit(sandloom_app.state.core, db):
+            # the contract session is bound for the whole request, so a route
+            # that never opens db() still has its contract calls see the
+            # test's rows (docs/reference/testing.md)
             async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=sandloom_app), base_url="http://test"
+                transport=httpx.ASGITransport(app=ContractSessionApp(sandloom_app, db)),
+                base_url="http://test",
             ) as http:
                 with _surface_server_errors(request, http):
                     yield http

@@ -23,7 +23,9 @@ class               what maps to it
                     ``ContractIdempotencyKeyMissing`` (422 from the binding
                     layer, not the provider's domain code) and a contract
                     nobody provides (``ServiceNotFound`` that is not the 501
-                    deployment gap): a wiring bug, not a business answer
+                    deployment gap), and ``MissingTenantError`` (code
+                    ``tenant_required``: the saga runs with no tenant bound,
+                    which no retry fixes): a wiring bug, not a business answer
 ==================  ========================================================
 
 A step narrows the table with ``refuse_on`` (e.g. ``{409}`` for a provider
@@ -45,6 +47,7 @@ from sandloom.core.module_api._service_registry import (
     ServiceNotFound,
     ServiceUnavailableInDeployment,
 )
+from sandloom.core.tenant_context import MissingTenantError
 
 
 class Outcome(StrEnum):
@@ -65,6 +68,9 @@ MISCONFIGURED_STATUSES = frozenset({401})
 MISCONFIGURED_CODES = frozenset(
     {"contract_argument_invalid", "contract_idempotency_key_missing"}
 )
+#: The code of a ``MissingTenantError`` raised in a step (the 400 code the
+#: request boundary gives the same error): a saga started with no tenant bound.
+MISSING_TENANT_CODE = "tenant_required"
 #: Framework 409s -> the park reason each one maps to.
 CONFLICT_CODES: Mapping[str, str] = {
     "contract_idempotency_conflict": "nondeterministic_args",
@@ -145,6 +151,10 @@ def classify_exception(
         return StepOutcome(
             Outcome.MISCONFIGURED, None, "service_not_found", str(exc), name
         )
+    if isinstance(exc, MissingTenantError):
+        return StepOutcome(
+            Outcome.MISCONFIGURED, None, MISSING_TENANT_CODE, str(exc), name
+        )
     declared = _error_handlers.http_status_of(exc)
     if declared is not None:
         code = getattr(exc, "code", None)
@@ -193,8 +203,9 @@ PARK_REMEDIATIONS: Mapping[str, str] = {
         "outcome at the provider and `sandloom sagas resolve --step S --as applied`"
     ),
     "misconfigured": (
-        "a wiring error (401, argument names, a missing contract): fix the "
-        "binding / the args function and deploy, then `sandloom sagas retry`"
+        "a wiring error (401, argument names, a missing contract, no tenant "
+        "bound): fix the binding / the args function / the tenant the saga "
+        "starts under and deploy, then `sandloom sagas retry`"
     ),
     "unknown_definition": (
         "no definition (type, version) is registered in this process: deploy "

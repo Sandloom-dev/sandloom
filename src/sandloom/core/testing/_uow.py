@@ -40,6 +40,8 @@ from types import ModuleType
 from typing import Any
 from uuid import uuid4
 
+from starlette.types import ASGIApp, Receive, Scope, Send
+
 import sandloom.core.unit_of_work as _unit_of_work
 import sandloom.core.unit_of_work.request as _request
 from sandloom.core.descriptors import HealthResult
@@ -535,6 +537,27 @@ class SharedRequestUnit:
                 pass
 
 
+class ContractSessionApp:
+    """An ASGI app that runs every request with the test's contract session bound.
+
+    :meth:`SharedRequestUnit.bind_lazily` binds it only when the route opens
+    ``db()``; a route that calls a contract without ever opening ``db()`` would
+    otherwise make the contract runtime open its own unit and miss the rows the
+    test flushed. Binding around the whole request makes it independent of how
+    (or whether) the route obtains its session.
+    """
+
+    __slots__ = ("_app", "_session")
+
+    def __init__(self, app: ASGIApp, session: Any) -> None:
+        self._app = app
+        self._session = session
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        with bind_contract_session(self._session):
+            await self._app(scope, receive, send)
+
+
 @contextmanager
 def shared_request_unit(core: Any, session: Any) -> Iterator[None]:
     """``db()`` in a request runs on ``session`` for the block."""
@@ -552,6 +575,7 @@ def shared_request_unit(core: Any, session: Any) -> Iterator[None]:
 
 __all__ = [
     "Captured",
+    "ContractSessionApp",
     "SharedRequestUnit",
     "InMemoryAtomicStore",
     "InMemoryCache",

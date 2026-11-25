@@ -121,7 +121,7 @@ ENROLL = Saga(
   when it is declared with a function that takes the session
   (`fn(session, ctx)`). A local step refuses definitively by raising
   `NotFound(...)`, `Refused(402, ...)` or any exception whose `http_status` is
-  400, 402, 403, 404, 410 or 422. Status 401 parks the saga as misconfigured. Anything else is
+  400, 402, 403, 404, 410 or 422. Status 401 and a `MissingTenantError` (no tenant bound, code `tenant_required`) park the saga as misconfigured. Anything else is
   retried until the saga's deadline, `Conflict` (409) included: a step that
   must refuse for good raises `Refused(422, ...)`. Its JSON-able return value
   is stored as the step's result.
@@ -273,7 +273,7 @@ production does.
 | refuses (400/402/403/404/410/422 from domain code) | **compensate** | park (`retriable_refused`) | park (`compensation_refused`) |
 | fails transiently (408/423/425/429/5xx, timeouts, anything unknown) | retry with full-jitter backoff until the deadline, then compensate | retry until the deadline, then park (`deadline_exceeded`) | retry until `compensation_deadline`, then park (`compensation_deadline_exceeded`) |
 | conflicts (409: same key, other arguments) | park (`nondeterministic_args`) | park | park |
-| is miswired (401, argument binding errors) | park (`misconfigured`) | park | park |
+| is miswired (401, argument binding errors, no tenant bound) | park (`misconfigured`) | park | park |
 
 **Resolve before compensating.** A step whose last call was ambiguous (a
 timeout: the provider may have committed) is never compensated blindly. The
@@ -366,6 +366,18 @@ protocol against the test database: `run()` / `drive()`,
 `fake_contract(name, **fns)` (still through the command log), and the
 one-liners `assert_compensations_idempotent(DEF)` /
 `assert_resolves_before_compensating(DEF)`.
+
+A saga of a tenant-scoped module needs a tenant bound when it starts, and so does
+the test: `run()`, `start()` and both one-liners take `tenant_id=`.
+Without it the first step raises `MissingTenantError`, and the saga parks at once
+as `misconfigured` (`last_error.code == "tenant_required"`) instead of retrying:
+
+```python
+async def test_enroll_for_a_tenant(saga_harness, tenant_id):
+    run = await saga_harness.run(ENROLL, input=..., tenant_id=tenant_id)
+    assert run.status == "completed"
+    await saga_harness.assert_compensations_idempotent(ENROLL, tenant_id=tenant_id)
+```
 
 ### Operating
 

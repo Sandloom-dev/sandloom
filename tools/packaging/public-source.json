@@ -1874,6 +1874,7 @@
         "src/sandloom/core/tests/test_cli_wizard_bare_kernel.py",
         "src/sandloom/core/tests/test_cli_wizard_first_run.py",
         "src/sandloom/core/tests/test_cli_worker.py",
+        "src/sandloom/core/tests/test_client_contract_session.py",
         "src/sandloom/core/tests/test_client_ip.py",
         "src/sandloom/core/tests/test_command_risk_parity.py",
         "src/sandloom/core/tests/test_composition_root.py",
