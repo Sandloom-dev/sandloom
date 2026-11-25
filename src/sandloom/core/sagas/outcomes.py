@@ -23,7 +23,9 @@ class               what maps to it
                     ``ContractIdempotencyKeyMissing`` (422 from the binding
                     layer, not the provider's domain code) and a contract
                     nobody provides (``ServiceNotFound`` that is not the 501
-                    deployment gap): a wiring bug, not a business answer
+                    deployment gap), and ``MissingTenantError`` (code
+                    ``tenant_required``: the saga runs with no tenant bound,
+                    which no retry fixes): a wiring bug, not a business answer
 ==================  ========================================================
 
 A step narrows the table with ``refuse_on`` (e.g. ``{409}`` for a provider
@@ -41,10 +43,12 @@ from typing import Any
 from fastapi import HTTPException
 
 import sandloom.core.http.error_handlers as _error_handlers
+from sandloom.core.http.tenant_scope import TENANT_REQUIRED
 from sandloom.core.module_api._service_registry import (
     ServiceNotFound,
     ServiceUnavailableInDeployment,
 )
+from sandloom.core.tenant_context import MissingTenantError
 
 
 class Outcome(StrEnum):
@@ -61,9 +65,16 @@ REFUSED_STATUSES = frozenset({400, 402, 403, 404, 410, 422})
 TRANSIENT_STATUSES = frozenset({408, 423, 425, 429})
 #: Statuses that mean "the call never reached a business decision".
 MISCONFIGURED_STATUSES = frozenset({401})
-#: Framework error codes of the binding layer (argument / key wiring).
+#: Framework error codes of the binding layer (argument / key wiring), and
+#: ``tenant_required``: a provider that ran with no tenant bound (a remote one
+#: answers a ``MissingTenantError`` with this 400, rpc/dispatch.py) — a saga
+#: started with no tenant, which no retry fixes.
 MISCONFIGURED_CODES = frozenset(
-    {"contract_argument_invalid", "contract_idempotency_key_missing"}
+    {
+        "contract_argument_invalid",
+        "contract_idempotency_key_missing",
+        TENANT_REQUIRED,
+    }
 )
 #: Framework 409s -> the park reason each one maps to.
 CONFLICT_CODES: Mapping[str, str] = {
@@ -145,6 +156,8 @@ def classify_exception(
         return StepOutcome(
             Outcome.MISCONFIGURED, None, "service_not_found", str(exc), name
         )
+    if isinstance(exc, MissingTenantError):
+        return StepOutcome(Outcome.MISCONFIGURED, None, TENANT_REQUIRED, str(exc), name)
     declared = _error_handlers.http_status_of(exc)
     if declared is not None:
         code = getattr(exc, "code", None)
@@ -194,7 +207,13 @@ PARK_REMEDIATIONS: Mapping[str, str] = {
     ),
     "misconfigured": (
         "a wiring error (401, argument names, a missing contract): fix the "
-        "binding / the args function and deploy, then `sandloom sagas retry`"
+        "binding / the args function and deploy, then `sandloom sagas retry`; "
+        "with last_error code tenant_required the instance holds no tenant and "
+        "`retry` parks it again. Steps already applied stay applied (the park "
+        "does not compensate them): establish each applied step's outcome and "
+        "reconcile it (compensate or account for it) before starting the work "
+        "again under a tenant with a new business id, which derives new step "
+        "keys (the parked row is kept)"
     ),
     "unknown_definition": (
         "no definition (type, version) is registered in this process: deploy "

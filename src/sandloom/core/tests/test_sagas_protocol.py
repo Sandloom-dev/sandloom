@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from sqlalchemy import func, select
 
 import sandloom.core.sql_alchemy.saga_store as store
-from sandloom.core.module_api import ContractCallInProgress
+from sandloom.core.module_api import ContractCallError, ContractCallInProgress
 from sandloom.core.sagas import runtime as saga_runtime
+from sandloom.core.sagas import sweep as saga_sweep
+from sandloom.core.sagas.outcomes import Outcome, classify_exception
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
+from sandloom.core.tenant_context import MissingTenantError
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
 from sandloom.core.testing.infra import has_serial_writers, skip_unless_db_feature
 from sandloom.core.tests.saga_fixtures import (
@@ -257,6 +261,78 @@ async def test_provider_in_flight_is_transient_and_retried(saga_harness) -> None
     assert saga_runtime.RETRY_SCHEDULED in run.transitions
     assert run.step_row("charge")["attempts"] == 2
     assert ledger.balance == 70
+
+
+async def test_a_step_with_no_tenant_bound_parks_at_once(saga_harness) -> None:
+    """``MissingTenantError`` is a wiring error (``tenant_required``): the saga
+    parks on the first attempt, it is not retried until its deadline."""
+    _ledger(saga_harness)
+    saga_harness.fail_step(
+        "charge", times=100, exception=MissingTenantError("no tenant bound")
+    )
+
+    run = await saga_harness.run(ENROLL, input=enroll_input())
+
+    assert run.status == "parked"
+    assert run.park_reason == "misconfigured"
+    assert run.instance.last_error["code"] == "tenant_required"
+    assert run.calls == ["charge:do"]
+    assert run.step_row("charge")["attempts"] == 1
+
+
+@pytest.mark.parametrize(("is_prod", "level"), [(False, "INFO"), (True, "WARNING")])
+def test_a_missing_sweep_lease_logs_at_info_outside_prod(
+    saga_harness, monkeypatch, caplog, is_prod: bool, level: str
+) -> None:
+    def _no_store(_core: Any) -> Any:
+        raise RuntimeError("no lease instance")
+
+    monkeypatch.setattr(saga_sweep, "beat_lease_store", _no_store)
+    sweeper = saga_sweep.SagaSweeper(saga_harness.runtime)
+    sweeper.runtime = SimpleNamespace(settings=SimpleNamespace(is_prod=is_prod))  # type: ignore[assignment]
+
+    with caplog.at_level("INFO", logger="sandloom.sagas.sweep"):
+        assert sweeper._lease("default") is None
+
+    [record] = [r for r in caplog.records if "without a lease" in r.getMessage()]
+    assert record.levelname == level
+
+
+async def test_a_remote_step_with_no_tenant_parks_at_once(saga_harness) -> None:
+    """Over RPC the provider's ``MissingTenantError`` is a ``400 tenant_required``
+    (``ContractCallError`` at the caller): the same wiring error, parked at once."""
+    _ledger(saga_harness)
+    saga_harness.fail_step(
+        "charge",
+        times=100,
+        exception=ContractCallError(
+            "the call ran with no tenant bound",
+            status_code=400,
+            code="tenant_required",
+        ),
+    )
+
+    run = await saga_harness.run(ENROLL, input=enroll_input())
+
+    assert run.status == "parked"
+    assert run.park_reason == "misconfigured"
+    assert run.calls == ["charge:do"]
+
+
+def test_a_400_with_another_code_stays_a_refusal() -> None:
+    """Only the ``tenant_required`` code is promoted, not every 400."""
+    refused = classify_exception(ContractCallError("no", status_code=400, code="x"))
+
+    assert refused.outcome is Outcome.REFUSED
+
+
+def test_missing_tenant_error_classifies_as_misconfigured() -> None:
+    outcome = classify_exception(MissingTenantError("no tenant bound"))
+
+    assert outcome.outcome is Outcome.MISCONFIGURED
+    assert outcome.code == "tenant_required"
+    # another RuntimeError stays transient: only this error type is promoted
+    assert classify_exception(RuntimeError("bug")).outcome is Outcome.TRANSIENT
 
 
 # The claim's own FOR UPDATE SKIP LOCKED while another worker holds the row:
