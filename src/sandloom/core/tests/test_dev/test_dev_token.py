@@ -169,6 +169,30 @@ def test_the_raw_check_reads_pghost_from_the_process_environment() -> None:
     assert token.raw_refusal(base, _dotenv(PGHOST="db.example.com")) is None
 
 
+@pytest.mark.parametrize(
+    ("name", "value", "text"),
+    [("PGHOSTADDR", "10.0.0.5", "10.0.0.5"), ("PGSERVICE", "replica", "PGSERVICE")],
+)
+def test_the_raw_check_reads_the_other_libpq_variables_too(
+    name: str, value: str, text: str
+) -> None:
+    """``sandloom migrate`` connects through libpq, so ``PGHOSTADDR`` and
+    ``PGSERVICE`` of the process environment move the database like ``PGHOST``,
+    and `.env` (not exported to the driver) does not."""
+    base = {"ENVIRONMENT": "dev", "DATABASE_URL": NO_HOST_URL}
+    why = token.raw_refusal({**base, name: value}, "")
+    assert why is not None and "not this machine" in why and text in why
+    assert token.raw_refusal(base, _dotenv(**{name: value})) is None
+
+
+def test_a_local_pghostaddr_or_an_empty_service_passes() -> None:
+    assert token.local_refusal("dev", NO_HOST_URL, pghostaddr="127.0.0.1") is None
+    assert token.local_refusal("dev", NO_HOST_URL, pgservice="") is None
+    assert token.local_refusal("dev", NO_HOST_URL, pghostaddr="10.0.0.5") is not None
+    # an address of the url's own host moves it too: libpq connects to the address
+    assert token.local_refusal("dev", LOCAL_URL, pghostaddr="10.0.0.5") is not None
+
+
 @pytest.mark.parametrize("url", [None, "", "not a url", "//127.0.0.1/db", "127.0.0.1"])
 def test_an_absent_or_unparsable_database_url_is_refused(url: str | None) -> None:
     why = token.local_refusal("dev", url)
@@ -338,6 +362,8 @@ def environ(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "ENVIRONMENT",
         "DATABASE_URL",
         "PGHOST",
+        "PGHOSTADDR",
+        "PGSERVICE",
         "JWT_SECRET",
         "JWT_PRIVATE_KEY",
         "JWT_PUBLIC_KEY",
@@ -395,6 +421,17 @@ def no_child(monkeypatch: pytest.MonkeyPatch) -> list[str]:
                 "PGHOST": "pg.example.com",
             },
             "pg.example.com",
+        ),
+        (
+            {
+                "DATABASE_URL": "postgresql+asyncpg://u:pw@/x",
+                "PGHOSTADDR": "10.0.0.5",
+            },
+            "10.0.0.5",
+        ),
+        (
+            {"DATABASE_URL": "postgresql+asyncpg://u:pw@/x", "PGSERVICE": "replica"},
+            "PGSERVICE",
         ),
     ],
 )
@@ -667,6 +704,8 @@ def test_the_child_alone_mints_in_dev(checkout: Path, environ: dict[str, str]) -
         {"DATABASE_URL": "postgresql+asyncpg://u:pw@localhost/x?host=db.example.com"},
         {"DATABASE_URL": "postgresql+asyncpg://localhost:pa/ss@db.prod.example.com/x"},
         {"DATABASE_URL": "postgresql+asyncpg://u:pw@/x", "PGHOST": "pg.example.com"},
+        {"DATABASE_URL": "postgresql+asyncpg://u:pw@/x", "PGHOSTADDR": "10.0.0.5"},
+        {"DATABASE_URL": "postgresql+asyncpg://u:pw@/x", "PGSERVICE": "replica"},
     ],
 )
 def test_the_child_refuses_on_its_own_loaded_settings(

@@ -166,6 +166,12 @@ def _caller_scope(core: Any, facts: Any) -> RequestScope | None:
         value = _number(facts.get(name))
         if value is not None:
             claims[name] = value
+    if facts.get("dm"):
+        # the served call is itself a caller: the marker goes on to a call it
+        # makes (:func:`_caller_facts` reads it back from these claims), or a
+        # second hop would drop it and a provider that refuses a development
+        # token would serve its user
+        claims[DEV_MINT_CLAIM] = True
     scope = RequestScope(core=core, policy=None)
     scope.subject = subject
     scope.claims = claims

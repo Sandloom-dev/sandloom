@@ -19,7 +19,8 @@ composition is read elsewhere in ``sandloom dev``):
   (:func:`sandloom.core.auth.tokens.dev_environment_problem`), so a minting tool
   must not guess;
 * every host of ``DATABASE_URL`` (read as SQLAlchemy reads it: its authority,
-  its ``host`` / ``hostaddr`` query parameters, and ``PGHOST`` when the url
+  its ``host`` / ``hostaddr`` query parameters, and the ``PGHOST``,
+  ``PGHOSTADDR`` and ``PGSERVICE`` of the process environment where the url
   names none) must be this machine: loopback, ``localhost`` or a unix socket;
   a file database has no host and passes. A copied production ``.env`` that
   still says ``ENVIRONMENT=dev`` carries a remote database, and this is the
@@ -30,7 +31,8 @@ composition is read elsewhere in ``sandloom dev``):
 * not with ``CI`` set to a true value (``1``, ``true``, ``yes`` or ``on``; the
   same reading ``sandloom dev up`` gives it).
 
-``ENVIRONMENT``, ``DATABASE_URL`` and ``PGHOST`` are read raw here, not through
+``ENVIRONMENT``, ``DATABASE_URL``, ``PGHOST``, ``PGHOSTADDR`` and ``PGSERVICE``
+are read raw here, not through
 ``Settings``, on purpose: this gate runs before any code of the app is
 imported, and the loaded settings repeat it in the child process.
 
@@ -81,12 +83,18 @@ def uuid_argument(text: str) -> UUID:
 
 
 def local_refusal(
-    environment: str | None, database_url: str | None, pghost: str | None = None
+    environment: str | None,
+    database_url: str | None,
+    pghost: str | None = None,
+    *,
+    pghostaddr: str | None = None,
+    pgservice: str | None = None,
 ) -> str | None:
     """Why a dev token is not minted for this ``ENVIRONMENT`` and
-    ``DATABASE_URL`` (``PGHOST`` is where a url with no host connects), or
-    ``None``. One rule for the raw values (before the app is imported) and
-    for the loaded settings (in the child)."""
+    ``DATABASE_URL`` (``PGHOST``, ``PGHOSTADDR`` and ``PGSERVICE`` are what
+    libpq fills in where the url names no host or address), or ``None``. One
+    rule for the raw values (before the app is imported) and for the loaded
+    settings (in the child)."""
     if not environment:
         return (
             "ENVIRONMENT is not set: `sandloom dev token` runs only with "
@@ -105,7 +113,9 @@ def local_refusal(
             "`uv run sandloom dev up` first"
         )
     try:
-        remote = remote_database_target(database_url, pghost)
+        remote = remote_database_target(
+            database_url, pghost, pghostaddr=pghostaddr, pgservice=pgservice
+        )
     except ValueError:
         return "DATABASE_URL does not parse as a url: fix it before minting a token"
     if remote is not None:
@@ -151,6 +161,8 @@ def raw_refusal(environ: Mapping[str, str], dotenv_text: str) -> str | None:
         _raw_setting(environ, dotenv, "ENVIRONMENT"),
         _raw_setting(environ, dotenv, "DATABASE_URL"),
         environ.get("PGHOST"),
+        pghostaddr=environ.get("PGHOSTADDR"),
+        pgservice=environ.get("PGSERVICE"),
     )
 
 

@@ -691,6 +691,8 @@ OPS: frozenset[str] = frozenset(
         "DATABASE_URL",
         "DATABASE_SYSTEM_URL",
         "PGHOST",
+        "PGHOSTADDR",
+        "PGSERVICE",
         "DB_POOL_SIZE",
         "DB_MAX_OVERFLOW",
         "DB_POOL_TIMEOUT",

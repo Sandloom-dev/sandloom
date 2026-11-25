@@ -342,9 +342,10 @@ def environment_unset_problem(cfg: Any) -> str | None:
     host reading of ``sandloom dev token``
     (:func:`~sandloom.core.sql_alchemy.url_hosts.remote_database_target`, an
     allow-list: a ``dsn`` / ``service`` parameter or a non-file backend that
-    names no host is remote; ``Settings.pghost`` where a PostgreSQL url names
-    no host). A url shared by several labels is named once. No url is echoed:
-    it carries credentials.
+    names no host is remote; ``Settings.pghost``, ``pghostaddr`` and
+    ``pgservice`` where a PostgreSQL url leaves the connection to libpq's
+    environment, which ``sandloom migrate`` reads). A url shared by several
+    labels is named once. No url is echoed: it carries credentials.
     """
     if cfg.environment_explicit:
         return None
@@ -360,7 +361,9 @@ def environment_unset_problem(cfg: Any) -> str | None:
     for url, labels in labels_by_url.items():
         name = " and ".join(labels)
         try:
-            target = remote_database_target(url, cfg.pghost)
+            target = remote_database_target(
+                url, cfg.pghost, pghostaddr=cfg.pghostaddr, pgservice=cfg.pgservice
+            )
         except ValueError:
             remote.append(f"{name} (it does not parse as a url)")
             continue

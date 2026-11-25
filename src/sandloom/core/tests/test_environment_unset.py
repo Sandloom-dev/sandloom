@@ -47,6 +47,9 @@ from sandloom.core.sql_alchemy.url_hosts import (
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _LOCAL_DB = "postgresql+asyncpg://dev:dev-pw@127.0.0.1:5433/shop"
 _REMOTE_DB = "postgresql+asyncpg://app:s3cr3t-pw@db.internal.example:5432/shop"
+#: What libpq reads where a url leaves the connection out (``Settings.pghost``,
+#: ``pghostaddr``, ``pgservice``): none may leak in from the developer's shell.
+_LIBPQ_VARIABLES = ("PGHOST", "PGHOSTADDR", "PGSERVICE")
 
 
 @contextmanager
@@ -78,7 +81,8 @@ def _no_environment_in_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """``Settings`` built below read the process environment too: a developer
     shell that exports ``ENVIRONMENT`` must not make a row's "unset" explicit."""
     monkeypatch.delenv("ENVIRONMENT", raising=False)
-    monkeypatch.delenv("PGHOST", raising=False)
+    for name in _LIBPQ_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _cfg(
@@ -238,6 +242,76 @@ def test_a_dsn_parameter_wins_over_a_local_pghost() -> None:
     assert remote_database_target(url, "127.0.0.1") is not None
 
 
+# libpq fills in what a PostgreSQL url leaves out from its environment, and
+# `sandloom migrate` connects through it (review of env-unset-not-dev, closure).
+@pytest.mark.parametrize(
+    ("url", "libpq", "phrase"),
+    [
+        ("postgresql+asyncpg://u:p@/d", {"pghost": "db.example.com"}, "(PGHOST)"),
+        ("postgresql+asyncpg://u:p@/d", {"pghostaddr": "10.0.0.5"}, "(PGHOSTADDR)"),
+        # an address is where libpq connects, whatever the host says
+        (
+            "postgresql+asyncpg://u:p@localhost/d",
+            {"pghostaddr": "10.0.0.5"},
+            "host '10.0.0.5' (PGHOSTADDR)",
+        ),
+        (
+            "postgresql+psycopg://u:p@/d",
+            {"pghostaddr": "127.0.0.1,10.0.0.5"},
+            "host '10.0.0.5' (PGHOSTADDR)",
+        ),
+        ("postgresql+asyncpg://u:p@/d", {"pgservice": "billing-replica"}, "PGSERVICE"),
+    ],
+)
+def test_the_libpq_environment_reaches_a_url_that_leaves_it_out(
+    url: str, libpq: dict[str, str], phrase: str
+) -> None:
+    target = remote_database_target(url, **libpq)
+    assert target is not None and phrase in target
+    assert "billing-replica" not in target  # the service name is not echoed
+
+
+def test_the_hosts_include_what_libpq_adds() -> None:
+    bare = "postgresql+asyncpg://u:p@/d"
+    named = "postgresql+asyncpg://u:p@localhost/d"
+    assert database_hosts(bare, "a.example", pghostaddr="10.0.0.5") == [
+        "a.example",
+        "10.0.0.5",
+    ]
+    # PGHOST yields to the url's host, PGHOSTADDR does not
+    assert database_hosts(named, "a.example", pghostaddr="10.0.0.5") == [
+        "localhost",
+        "10.0.0.5",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("url", "libpq"),
+    [
+        ("postgresql+asyncpg://u:p@/d", {"pghostaddr": "127.0.0.1"}),
+        ("postgresql+asyncpg://u:p@/d", {"pghostaddr": "::1"}),
+        ("postgresql+asyncpg://u:p@/d", {"pghostaddr": "", "pgservice": " "}),
+        # a url that names a host is not moved to another one by a service
+        ("postgresql+asyncpg://u:p@localhost/d", {"pgservice": "billing-replica"}),
+        # a hostaddr of the url's own beats PGHOSTADDR
+        (
+            "postgresql+asyncpg://u:p@/d?host=/var/run/postgresql&hostaddr=127.0.0.1",
+            {"pghostaddr": "10.0.0.5"},
+        ),
+        # only a PostgreSQL url reads the libpq variables
+        (
+            "mysql+aiomysql://u:p@127.0.0.1/d",
+            {"pghost": "db.example.com", "pghostaddr": "10.0.0.5", "pgservice": "x"},
+        ),
+        ("sqlite+aiosqlite:///./dev.db", {"pghostaddr": "10.0.0.5", "pgservice": "x"}),
+    ],
+)
+def test_the_libpq_environment_does_not_refuse_what_it_does_not_reach(
+    url: str, libpq: dict[str, str]
+) -> None:
+    assert remote_database_target(url, **libpq) is None
+
+
 # --- 4. SANDLOOM-B043: unset with a database that is not on this machine --------
 @pytest.mark.parametrize(
     "url",
@@ -336,6 +410,31 @@ def test_pghost_decides_for_a_url_without_a_host(
     monkeypatch.setenv("PGHOST", "db.internal.example")
     problem = environment_unset_problem(_cfg(url))
     assert problem is not None and "db.internal.example" in problem
+
+
+def test_pghostaddr_and_pgservice_decide_for_the_migrate_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``sandloom migrate`` reads the libpq environment too: a remote target set
+    there does not pass B043, and the service name is not echoed."""
+    url = "postgresql+asyncpg://u:p@/d"
+    monkeypatch.setenv("PGHOSTADDR", "127.0.0.1")
+    assert environment_unset_problem(_cfg(url)) is None
+    monkeypatch.setenv("PGHOSTADDR", "10.0.0.5")
+    problem = environment_unset_problem(_cfg(url))
+    assert problem is not None and "10.0.0.5" in problem
+    with pytest.raises(ConfigurationError, match="SANDLOOM-B043"):
+        enforce_configuration(_cfg(url))
+    # an address the url's own host contradicts still decides where it connects
+    assert environment_unset_problem(_cfg(_LOCAL_DB)) is not None
+    monkeypatch.delenv("PGHOSTADDR")
+    monkeypatch.setenv("PGSERVICE", "billing-replica")
+    problem = environment_unset_problem(_cfg(url))
+    assert problem is not None and "PGSERVICE" in problem
+    assert "billing-replica" not in problem
+    with pytest.raises(ConfigurationError, match="SANDLOOM-B043"):
+        enforce_configuration(_cfg(url))
+    assert environment_unset_problem(_cfg(_LOCAL_DB)) is None  # the url names a host
 
 
 def test_an_infra_database_instance_is_checked_too() -> None:

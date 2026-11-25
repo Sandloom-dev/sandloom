@@ -80,6 +80,35 @@ def test_the_marker_is_in_the_signed_context_a_call_sends() -> None:
     assert payload["usr"]["dm"] == 1
 
 
+# --- a second hop keeps it (closure review, L) ------------------------------------
+def _second_hop_facts(first: dict[str, Any]) -> dict[str, Any]:
+    """The caller facts a provider sends on when the call it serves (``first``,
+    what the first caller sent) makes a call of its own."""
+    served = rpc_context._caller_scope(None, first)
+    facts = rpc_context._caller_facts(served)
+    assert facts is not None
+    return facts
+
+
+def test_the_marker_survives_a_second_hop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """dev caller -> dev provider A -> prod provider B: A rebuilds the request
+    scope from the facts, and B must still see a development token's user."""
+    first = rpc_context._caller_facts(_scope(dev_mint=True))
+    assert first is not None
+    second = _second_hop_facts(first)
+    assert second["dm"] == 1 and second["sub"] == first["sub"]
+    prod = _settings("prod", monkeypatch)
+    assert rpc_context.caller_facts_problem(prod, second) is not None
+    # one more hop changes nothing
+    assert _second_hop_facts(second)["dm"] == 1
+
+
+def test_a_second_hop_adds_no_marker_to_an_ordinary_token_user() -> None:
+    first = rpc_context._caller_facts(_scope(dev_mint=False))
+    assert first is not None
+    assert "dm" not in _second_hop_facts(first)
+
+
 # --- the provider applies the verifier's rule ------------------------------------
 @pytest.mark.parametrize(
     ("environment", "refused"),

@@ -62,19 +62,38 @@ def _named_hosts(parsed: URL) -> list[str]:
     ]
 
 
-def database_hosts(url: str, pghost: str | None = None) -> list[str]:
+def _targets(
+    parsed: URL, pghost: str | None, pghostaddr: str | None
+) -> list[tuple[str, str]]:
+    """Every host the driver connects to for ``parsed``, each with where it
+    came from (``""``: the url itself).
+
+    libpq (``sandloom migrate`` connects through it) fills what the url leaves
+    out from the environment: ``PGHOST`` for a url that names no host, and
+    ``PGHOSTADDR`` for one that carries no ``hostaddr`` of its own, whatever
+    its host (an address given connects there, the host is then only a name).
+    Only a PostgreSQL url reads them."""
+    targets = [(host, "") for host in _named_hosts(parsed)]
+    if parsed.get_backend_name() == "postgresql":
+        if not targets:
+            targets = [(host, " (PGHOST)") for host in _query_hosts(pghost)]
+        if "hostaddr" not in parsed.query:
+            targets += [(host, " (PGHOSTADDR)") for host in _query_hosts(pghostaddr)]
+    return targets
+
+
+def database_hosts(
+    url: str, pghost: str | None = None, *, pghostaddr: str | None = None
+) -> list[str]:
     """Every host the database driver can connect to for ``url``: the host of
     its authority (a comma list included) and its ``host`` / ``hostaddr``
-    query parameters. A PostgreSQL url that names none connects where
-    ``PGHOST`` says, so those hosts are ``pghost``'s. Empty for a file
-    database or a default unix socket. This lists the named hosts only: a
-    ``dsn`` / ``service`` parameter is no host, :func:`remote_database_target`
-    judges it. ``ValueError`` for a url that does not parse."""
-    parsed = _parse(url)
-    hosts = _named_hosts(parsed)
-    if not hosts and parsed.get_backend_name() == "postgresql":
-        hosts = _query_hosts(pghost)
-    return hosts
+    query parameters, then what ``PGHOST`` (``pghost``, for a url that names
+    no host) and ``PGHOSTADDR`` (``pghostaddr``, for a url with no
+    ``hostaddr``) add. Empty for a file database or a default unix socket.
+    This lists hosts only: a ``dsn`` / ``service`` parameter or ``PGSERVICE``
+    is no host, :func:`remote_database_target` judges them. ``ValueError`` for
+    a url that does not parse."""
+    return [host for host, _ in _targets(_parse(url), pghost, pghostaddr)]
 
 
 def is_local_host(host: str) -> bool:
@@ -90,7 +109,13 @@ def is_local_host(host: str) -> bool:
         return False
 
 
-def remote_database_target(url: str, pghost: str | None = None) -> str | None:
+def remote_database_target(
+    url: str,
+    pghost: str | None = None,
+    *,
+    pghostaddr: str | None = None,
+    pgservice: str | None = None,
+) -> str | None:
     """What of ``url`` is not shown to be on this machine, as a phrase that
     follows "points at" (``None`` when it all is). Never the url: it carries
     credentials.
@@ -99,7 +124,12 @@ def remote_database_target(url: str, pghost: str | None = None) -> str | None:
     * a ``dsn`` or ``service`` query parameter takes the connection from
       elsewhere, so the url proves nothing;
     * a PostgreSQL url takes its hosts from the url, else from ``PGHOST``
-      (``pghost``), and none at all is libpq's default unix socket;
+      (``pghost``), and ``PGHOSTADDR`` (``pghostaddr``) too when the url has no
+      ``hostaddr``; a url that names no host and has a ``PGSERVICE``
+      (``pgservice``) takes it from that service entry, which can name any
+      host (a service file is not read, so one that adds a ``hostaddr`` to a
+      url that names its own host is not seen); no host at all is libpq's
+      default unix socket;
     * every other backend must name a host: one that names none is not shown
       to be local, and so is refused.
 
@@ -111,14 +141,16 @@ def remote_database_target(url: str, pghost: str | None = None) -> str | None:
     indirect = [key for key in parsed.query if key.lower() in _INDIRECT_PARAMETERS]
     if indirect:
         return f"a {indirect[0].lower()!r} query parameter (it can name any host)"
-    hosts = _named_hosts(parsed)
-    if not hosts and backend == "postgresql":
-        hosts = _query_hosts(pghost)
-        if not hosts:
-            return None  # the default unix socket
-    if not hosts:
+    if (
+        backend == "postgresql"
+        and not _named_hosts(parsed)
+        and (pgservice or "").strip()
+    ):
+        return "a PGSERVICE service entry (it can name any host)"
+    targets = _targets(parsed, pghost, pghostaddr)
+    if not targets and backend != "postgresql":
         return f"a {backend} url that names no host"
-    for host in hosts:
+    for host, origin in targets:
         if not is_local_host(host):
-            return f"host {host!r}"
-    return None
+            return f"host {host!r}{origin}"
+    return None  # on this machine, or libpq's default unix socket

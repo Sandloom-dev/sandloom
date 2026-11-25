@@ -88,7 +88,8 @@ It runs only on a developer machine, and it says why when it does not:
 - `DATABASE_URL` must point at this machine. A unix socket and a file database
   count as this machine. Every host the url can reach is checked: the one in its
   address and those of its `host` and `hostaddr` parameters. When a PostgreSQL
-  url names no host, `PGHOST` is checked instead. A `dsn` or `service`
+  url names no host, `PGHOST` is checked instead. `PGHOSTADDR` is checked when the
+  url has no `hostaddr`. With `PGSERVICE` set, a url with no host is refused. A `dsn` or `service`
   parameter is refused, since it can name any host, and so is a non-file url
   that names no host. A `.env` copied from production that still says
   `ENVIRONMENT=dev` is refused for its remote database. No flag overrides

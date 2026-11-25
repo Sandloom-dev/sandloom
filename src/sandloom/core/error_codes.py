@@ -2066,10 +2066,13 @@ the worker, the scheduler and every `sandloom` command that boots the
 configuration. The check accepts only what it can show is local: a `dsn` or
 `service` query parameter, which can name any host, is refused, and so is a
 non-file url that names no host. It reads DATABASE_URL and the url of every
-INFRA database instance the way the app does (and PGHOST for a PostgreSQL url
-that names no host; the driver reads PGHOST from the process environment only,
-so one that only .env holds can refuse a local database). The message names the
-setting and the host or parameter, never the url, which carries credentials.
+INFRA database instance the way the app does, and for a PostgreSQL url the
+libpq variables that fill in what it leaves out: PGHOST when it names no host,
+PGHOSTADDR when it carries no hostaddr, and any PGSERVICE when it names no host
+(a service entry can name any host). The driver reads these from the process
+environment only, so one that only .env holds can refuse a local database. The
+message names the setting and the host or parameter, never the url, which
+carries credentials.
 Left unset, a token from `sandloom dev token` is not accepted either. Setting
 ENVIRONMENT, to prod or, for development against that database, to dev or
 test, ends it. Without the refusal, a missing ENVIRONMENT would silently turn
