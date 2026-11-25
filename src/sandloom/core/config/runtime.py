@@ -23,7 +23,10 @@ class RuntimeConfig(BaseModel):
         alias="ENVIRONMENT",
         description=(
             "Runtime environment: dev, test or prod. Production activates "
-            "stricter startup requirements and production defaults."
+            "stricter startup requirements and production defaults. Left unset "
+            "the process runs as dev with a startup warning, refuses a "
+            "database that is not on this machine (SANDLOOM-B043) and accepts "
+            "no token from `sandloom dev token`: set it on every deployment."
         ),
     )
     # Modules list for plugin loader: import paths or `sandloom.modules`

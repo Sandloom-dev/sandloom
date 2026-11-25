@@ -493,6 +493,7 @@ async def test_a_forged_response_without_the_pair_key_is_rejected(
 # --------------------------------------------------------------------------
 
 _BASE_ENV = {
+    "ENVIRONMENT": "dev",  # a database host `h`: an unset ENVIRONMENT is refused (B043)
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
     "INFRA": {
         "cache": {"default": {"url": "redis://h:6379/0"}},

@@ -50,6 +50,7 @@ from sandloom.core.sql_alchemy.portable import (
 )
 from sandloom.core.sql_alchemy.read_only_policy import read_only_sessions_problem
 from sandloom.core.sql_alchemy.tenant_rls import row_security_problem
+from sandloom.core.sql_alchemy.url_hosts import remote_database_target
 
 
 def configured_database_urls(cfg: Any) -> list[tuple[str, str]]:
@@ -315,6 +316,71 @@ def sql_storage_problems(infra: InfraRegistry, metadata: Any) -> list[str]:
     return problems
 
 
+#: The one startup warning of an unset ``ENVIRONMENT``, what the app logs and
+#: ``sandloom doctor`` reports. The first sentence is the owner's (2026-11-25);
+#: the second says what the unset value costs (SANDLOOM-B043 and the
+#: development token rule, :func:`~sandloom.core.auth.tokens.dev_environment_problem`).
+UNSET_ENVIRONMENT_WARNING = (
+    "ENVIRONMENT is not set: running with dev defaults; set ENVIRONMENT=prod "
+    "for a deploy, ENVIRONMENT=dev to silence this. Until it is set a "
+    "development token is not accepted and a database that is not on this "
+    "machine is refused (SANDLOOM-B043)."
+)
+
+
+def environment_unset_problem(cfg: Any) -> str | None:
+    """An unset ``ENVIRONMENT`` with a database that is not on this machine
+    (SANDLOOM-B043).
+
+    Left unset the process runs as ``dev``: no production validator applies, the
+    docs are exposed, a development token verifies. That is a development
+    machine's setting, so it is allowed only against a database on this
+    machine (loopback, ``localhost``, a unix socket, a file database). A
+    deployment that forgot ``ENVIRONMENT`` and reaches a remote database does
+    not start. Reads the URLs the app resolves (``DATABASE_URL`` and every
+    ``INFRA`` database instance, :func:`configured_database_urls`) with the
+    host reading of ``sandloom dev token``
+    (:func:`~sandloom.core.sql_alchemy.url_hosts.remote_database_target`, an
+    allow-list: a ``dsn`` / ``service`` parameter or a non-file backend that
+    names no host is remote; ``Settings.pghost``, ``pghostaddr`` and
+    ``pgservice`` where a PostgreSQL url leaves the connection to libpq's
+    environment, which ``sandloom migrate`` reads). A url shared by several
+    labels is named once. No url is echoed: it carries credentials.
+    """
+    if cfg.environment_explicit:
+        return None
+    # One entry per url: DATABASE_URL and the ``default`` instance resolve to
+    # the same one, and naming it twice reads as two databases.
+    labels_by_url: dict[str, list[str]] = {}
+    for label, url in [
+        ("DATABASE_URL", str(cfg.database_url)),
+        *configured_database_urls(cfg),
+    ]:
+        labels_by_url.setdefault(url, []).append(label)
+    remote: list[str] = []
+    for url, labels in labels_by_url.items():
+        name = " and ".join(labels)
+        try:
+            target = remote_database_target(
+                url, cfg.pghost, pghostaddr=cfg.pghostaddr, pgservice=cfg.pgservice
+            )
+        except ValueError:
+            remote.append(f"{name} (it does not parse as a url)")
+            continue
+        if target is not None:
+            remote.append(f"{name} ({target})")
+    if not remote:
+        return None
+    return (
+        "ENVIRONMENT is not set and the database is not on this machine: "
+        + ", ".join(remote)
+        + " [SANDLOOM-B043]. An unset ENVIRONMENT runs as dev (no production "
+        "validator, docs exposed) and is allowed only against 127.0.0.1, "
+        "localhost, a unix socket or a file database: set ENVIRONMENT=prod for "
+        "a deployment, or ENVIRONMENT=dev to develop against this database"
+    )
+
+
 def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[str]:
     """Every startup configuration problem of ``cfg`` (empty = usable).
 
@@ -337,6 +403,8 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       (:func:`development_database_config_problem`, SANDLOOM-B029), and a
       guard for ``DB_READ_ONLY_SESSIONS``
       (:func:`read_only_sessions_config_problem`, SANDLOOM-B031);
+    * no remote database while ``ENVIRONMENT`` is unset
+      (:func:`environment_unset_problem`, SANDLOOM-B043);
     * ``SANDLOOM_SERVICE_NAME`` on a cross-process event bus, the group of the
       kernel's revocation applier
       (:func:`~sandloom.core.app_factory.revocation_applier.revocation_applier_config_problem`);
@@ -365,6 +433,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         development_database_config_problem,
         read_only_sessions_config_problem,
         revocation_applier_config_problem,
+        environment_unset_problem,
     ):
         problem = check(cfg)
         if problem:

@@ -32,6 +32,7 @@ from sandloom.core import planner as _planner
 from sandloom.core._internal.db_provider import get_db
 from sandloom.core.app_factory.config import (
     DEVELOPMENT_DATABASE_RISK,
+    UNSET_ENVIRONMENT_WARNING,
     application_enforced_isolation,
     configuration_problems,
     configured_database_urls,
@@ -119,6 +120,7 @@ __all__ = [
     "ContractDiffRequest",
     "DEVELOPMENT_DATABASE_RISK",
     "POST_COMMIT_DRAIN_TIMEOUT_SECONDS",
+    "UNSET_ENVIRONMENT_WARNING",
     "_API_DOCS",
     "_BindActiveCore",
     "_HealthCache",
@@ -362,12 +364,8 @@ def create_app(
 
 
 def _warn_startup_configuration(main_logger: logging.Logger) -> None:
-    if "environment" not in settings.model_fields_set:
-        main_logger.warning(
-            "ENVIRONMENT is not set; defaulting to 'dev' (docs exposed, rate "
-            "limiting off, volatile event bus allowed). Set ENVIRONMENT=prod "
-            "explicitly for any real deployment."
-        )
+    if not settings.environment_explicit:
+        main_logger.warning(UNSET_ENVIRONMENT_WARNING)
     if not settings.internal_api_token and not (
         settings.internal_endpoints_open_in_dev and not settings.is_prod
     ):

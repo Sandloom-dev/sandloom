@@ -22,6 +22,7 @@ from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import RemoteServiceProxy, install_service_rpc_routes
 from sandloom.core.rpc import proxy as rpc_proxy
 from sandloom.core.rpc.wire import _CTX_HEADER, _pack, _unb64, _unpack
+from sandloom.core.tenant_context import MissingTenantError
 from sandloom.core.testing import InMemoryAtomicStore
 
 _Responder = Callable[[str, bytes, dict[str, str]], httpx.Response]
@@ -582,6 +583,11 @@ async def test_rpc_errors_inside_provider_are_not_masked_as_404_or_422(
 
         @classmethod
         @contract_method
+        async def no_tenant(cls, n: int) -> int:
+            raise MissingTenantError("INTERNAL: no tenant bound for NotesNote")
+
+        @classmethod
+        @contract_method
         async def ok(cls, n: int) -> int:
             return n + 1
 
@@ -608,6 +614,12 @@ async def test_rpc_errors_inside_provider_are_not_masked_as_404_or_422(
     proto = await _call("protocol_error", {"args": [1]})
     assert proto.status_code == 403
     assert _unpack(proto.content)["error"]["code"] == "denied"
+    # a provider with no tenant bound: the boundary's 400, never the internal text
+    no_tenant = await _call("no_tenant", {"args": [1]})
+    assert no_tenant.status_code == 400
+    error = _unpack(no_tenant.content)["error"]
+    assert error["code"] == "tenant_required"
+    assert "INTERNAL" not in str(error)
     # Genuine lookup / binding failures keep their statuses.
     missing = await _call("nope", {"args": [1]})
     assert missing.status_code == 404

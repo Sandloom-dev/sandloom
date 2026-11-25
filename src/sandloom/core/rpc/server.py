@@ -17,7 +17,7 @@ from sandloom.core.http.error_handlers import describe_exception
 from sandloom.core.module_api._service_registry import ServiceNotFound
 from sandloom.core.observability import metrics
 from sandloom.core.rpc.binding import _bind_response, _binding_inputs, _BindingSend
-from sandloom.core.rpc.context import _parse_rpc_tenant
+from sandloom.core.rpc.context import _parse_rpc_tenant, caller_facts_problem
 from sandloom.core.rpc.dispatch import (
     _handle_call,
     _is_command,
@@ -124,6 +124,15 @@ class _RpcEndpoints:
                 status_code=exc.status_code,
                 code="rpc_context_invalid",
                 message=str(exc.detail),
+            )
+        refusal = caller_facts_problem(cfg, context.get("usr"))
+        if refusal is not None:
+            # the end user's development token, which this provider's own
+            # verifier would refuse (the caller's environment is not ours)
+            return _error_response(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                code="rpc_caller_dev_token",
+                message=refusal,
             )
         # Decode only AFTER the MAC over the raw bytes verified:
         # MessagePack allocates by declared sizes, so an unauthenticated

@@ -5,7 +5,8 @@ the outbox relay, which is off by default outside prod: dev drives sagas
 exactly as prod does. Per database, one holder at a time runs it, guarded by
 a fenced lease (:class:`sandloom.core.infra.fenced_lease.FencedLease` on the
 ``lease`` instance ``INFRA.lease.beat``; without a usable one it runs unleased
-with a warning — two sweepers are still safe, only redundant). Each tick:
+and logs it, at WARNING in production and at INFO elsewhere — two sweepers are
+still safe, only redundant). Each tick:
 
 1. selects active instances whose ``next_attempt_at`` (backoff elapsed) or
    applicable deadline is due and that were not nudged within the last
@@ -150,7 +151,10 @@ class SagaSweeper:
                 label="[saga-sweep]",
             )
         else:
-            logger.warning(
+            # an unleased sweeper is the normal development shape: WARNING
+            # only where two sweepers would be a deployment mistake (prod)
+            log = logger.warning if self.runtime.settings.is_prod else logger.info
+            log(
                 "saga sweep on database/%s runs without a lease: the lease "
                 "instance %r is unavailable (%s); several sweepers are safe, "
                 "only redundant",

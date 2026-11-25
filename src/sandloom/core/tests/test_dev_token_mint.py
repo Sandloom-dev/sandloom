@@ -44,6 +44,7 @@ from sandloom.core.tests.test_claims_split_matrix import (
     statuses,
     verifier,
 )
+from sandloom.core.tests.test_environment_unset import process_environment
 
 mem_cache = _revocation.mem_cache
 
@@ -53,6 +54,15 @@ NO_ROLE = {"/role": 403, "/perm": 403, "/admin": 403, "/operator": 403}
 @pytest.fixture(autouse=True)
 def _standard_entry_points() -> Iterator[None]:
     with installed_entry_points():
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _explicit_dev_environment() -> Iterator[None]:
+    """The rows run as an app with ``ENVIRONMENT=dev`` set: the framework suite
+    leaves it unset, and an unset ``ENVIRONMENT`` accepts no dev token (the
+    ``unset`` rows below set that state themselves)."""
+    with process_environment(Environment.dev):
         yield
 
 
@@ -241,6 +251,17 @@ def test_the_environment_is_checked_before_the_policy(
         _mint(NO_AUTHORITIES, roles=["admin"], tenant_id=uuid4())
 
 
+def test_it_refuses_to_mint_while_environment_is_unset() -> None:
+    """Unset reads ``dev``, but is not a development machine: the verifier
+    refuses what this would mint, so it does not mint."""
+    with process_environment(None):
+        assert settings.is_dev  # the value is the default one
+        with pytest.raises(dt.DevTokenRefused, match="ENVIRONMENT is not set"):
+            _mint(NO_AUTHORITIES)
+        with pytest.raises(dt.DevTokenRefused, match="ENVIRONMENT is not set"):
+            _mint(NO_AUTHORITIES, roles=["admin"], tenant_id=uuid4())
+
+
 # --- bounds ---------------------------------------------------------------------
 @pytest.mark.parametrize("ttl", [0, -1, dt.MAX_TTL_MINUTES + 1, 10**9])
 def test_a_ttl_out_of_bounds_is_refused(ttl: int) -> None:
@@ -395,6 +416,40 @@ def test_the_verification_cache_is_keyed_on_the_environment(
     assert tokens.decode_token(minted.token) is not None
 
 
+def test_a_verifier_with_environment_unset_refuses_a_dev_token() -> None:
+    """A deploy that forgot ``ENVIRONMENT`` reads ``dev``, and holds the key a
+    developer machine signed with: the token is nobody there, and accepted
+    again once ``ENVIRONMENT=dev`` is set."""
+    minted = _mint(NO_AUTHORITIES)
+    assert tokens.decode_token(minted.token) is not None
+    with process_environment(None):
+        assert settings.is_dev
+        assert tokens.decode_token(minted.token) is None
+    assert tokens.decode_token(minted.token) is not None
+
+
+def test_the_verification_cache_is_keyed_on_whether_the_environment_was_set() -> None:
+    """A token verified (and cached) with ``ENVIRONMENT=dev`` set is not served
+    from the cache to the same process once it reads the default."""
+    minted = _mint(NO_AUTHORITIES)
+    assert tokens.decode_token(minted.token) is not None
+    assert tokens.decode_token(minted.token) is not None  # the cached answer
+    with process_environment(None):
+        assert tokens.decode_token(minted.token) is None
+        assert tokens.decode_token(minted.token) is None
+
+
+@pytest.mark.asyncio
+async def test_an_app_with_environment_unset_answers_401_at_every_gate(
+    mem_cache: Any,
+) -> None:
+    core = verifier(roles_map(ID))
+    token = _mint(core.claim_authorities, tenant_id=uuid4(), roles=["admin"]).token
+    assert await statuses(core, token) == {**OK, "/perm": 403}  # ENVIRONMENT=dev
+    with process_environment(None):
+        assert await statuses(core, token) == {**ALL_401, "/tenant": 400}
+
+
 def test_a_token_without_the_marker_is_unaffected_in_production(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -411,5 +466,7 @@ def test_the_marker_refuses_whatever_its_value(
     """Presence decides, not truthiness: no spelling of the claim slips through."""
     token = _marked(value)
     assert tokens.decode_token(token) is not None  # dev/test: a plain token
+    with process_environment(None):
+        assert tokens.decode_token(token) is None  # nor with it unset
     monkeypatch.setattr(settings, "environment", Environment.prod)
     assert tokens.decode_token(token) is None

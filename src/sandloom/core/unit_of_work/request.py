@@ -52,6 +52,9 @@ from sandloom.core.unit_of_work.scope import stash_pending_check as _stash_pendi
 OWNER_KEY = "sandloom_unit_owner"
 #: ``session.info`` key: the unit has exited; any later use is refused.
 CLOSED_KEY = "sandloom_unit_closed"
+#: ``(live borrower tasks, owner before the first)``: the requests that joined
+#: a test-owned session (:func:`join_request_scope`).
+BORROWERS_KEY = "sandloom_unit_borrowers"
 #: ``session.info`` key: write statements this unit executed (admission count).
 WRITES_KEY = "sandloom_unit_writes"
 #: ``session.info`` key: the request scope a unit was opened in (or ``None``).
@@ -403,6 +406,9 @@ def release_unit(session: Any) -> None:
 def _refuse_foreign(session: Any) -> None:
     owner = session.info.get(OWNER_KEY)
     if owner is not None and owner is not _task():
+        borrowed = session.info.get(BORROWERS_KEY)
+        if borrowed is not None and _task() in borrowed[0]:
+            return  # one of the test's overlapping requests
         raise ConcurrentSessionUseError(
             "db() from a task that does not own the unit: a child task (asyncio."
             "create_task / gather) inherits its parent's unit but may not use "
@@ -444,13 +450,46 @@ def db() -> Any:
 
 def join_request_scope(session: Any) -> None:
     """A test-owned session stands in for the request unit: it takes the
-    request's scope (commit-time re-check, ownership) like a real unit."""
+    request's scope (commit-time re-check, ownership) like a real unit.
+
+    Requests of the test that overlap (a concurrent actor in another context)
+    are all live borrowers: ``db()`` accepts each of them, and
+    :func:`return_request_scope` gives the session back to the task that owned
+    it before the first one when the last one ends."""
     info = getattr(session, "info", None)
-    if isinstance(info, dict):
-        claim_unit(session)
-        info.pop(SELF_REVOKED_KEY, None)
-        info.pop(SELF_REVOKED_FINAL_KEY, None)
-        info.pop(WRITES_KEY, None)
+    if not isinstance(info, dict):
+        return
+    borrowed = info.get(BORROWERS_KEY)
+    if borrowed is None:
+        live: set[asyncio.Task[Any] | None] = set()
+        borrowed = info[BORROWERS_KEY] = (live, info.get(OWNER_KEY))
+    borrowed[0].add(_task())
+    claim_unit(session)
+    info.pop(SELF_REVOKED_KEY, None)
+    info.pop(SELF_REVOKED_FINAL_KEY, None)
+    info.pop(WRITES_KEY, None)
+
+
+def return_request_scope(session: Any) -> None:
+    """A request that joined the test's session ended: it leaves the live
+    borrowers (finished tasks leave with it). While one is left the session
+    belongs to it; when none is, it goes back to the task that owned it before
+    the first one, never staying with a task that is gone."""
+    info = getattr(session, "info", None)
+    if not isinstance(info, dict):
+        return
+    borrowed = info.get(BORROWERS_KEY)
+    if borrowed is None:
+        return
+    live, owner = borrowed
+    live.discard(_task())
+    live.difference_update({t for t in live if t is not None and t.done()})
+    if live:
+        if info.get(OWNER_KEY) not in live:
+            info[OWNER_KEY] = next(iter(live))
+        return
+    del info[BORROWERS_KEY]
+    info[OWNER_KEY] = owner
 
 
 def stash_test_pending_check(core: Any, session: Any) -> None:
@@ -571,6 +610,7 @@ __all__ = [
     "record_self_revocation",
     "release_unit",
     "request_scope_get",
+    "return_request_scope",
     "unit_database",
     "unit_write_count",
 ]

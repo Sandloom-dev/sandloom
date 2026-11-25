@@ -77,6 +77,35 @@ PostgreSQL row-level security for that instance, with `system_url` /
 `/diagnostics/infra` reports the configured capabilities, instances,
 stability, registered drivers and per-instance health.
 
+## Set `ENVIRONMENT` on every deployment
+
+`ENVIRONMENT` takes `dev`, `test` or `prod`. <!-- prose-ok: P6 the three values --> Left unset it
+reads `dev`, the setting of a development machine. No production validator applies, and the
+interactive docs are exposed. A deployment that forgot the variable would run that way, so an
+unset `ENVIRONMENT` is not treated as a choice of `dev`:
+
+- Startup logs a warning. Every process that boots the app logs it, the worker and the scheduler
+  included. `sandloom doctor` reports the same thing.
+- A database that is not on this machine refuses startup with
+  [SANDLOOM-B043](../reference/error-codes.md). A database is on this machine when it is
+  `localhost`, a loopback address (`127.0.0.0/8` or `::1`), a unix socket or a SQLite file. <!-- prose-ok: P6 the local hosts -->
+  The check reads `DATABASE_URL` and the `url` of every `INFRA` database instance. libpq fills in
+  what a PostgreSQL url leaves out, and the check follows it. It reads `PGHOST` for a url with no
+  host and `PGHOSTADDR` for a url with no `hostaddr`. A url with no host and a set `PGSERVICE` is
+  refused, because a service entry can name any host. The message names the host or the parameter,
+  never the url.
+- A token from `sandloom dev token` is refused with `401`, and the command refuses to mint one.
+  The same holds for a call a `dev` caller makes over internal RPC for such a token's user.
+
+The database check accepts only what it can show is local. A `dsn` or `service` query parameter
+can name any host, so the url is refused. So is a non-SQLite url that names no host. The driver
+reads the three libpq variables from the process environment only. Settings also read `.env`.
+Export the variables and do not rely on `.env` for them.
+
+Setting the variable ends all three. `ENVIRONMENT=prod` is a deployment. `ENVIRONMENT=dev`, which
+`sandloom new` writes into `.env`, silences the warning and allows a development database on
+another host. A value from any place settings are read from counts as set.
+
 ## Upgrade: flat settings that became driver options
 
 Five groups of flat settings are removed. Each became an option of the driver

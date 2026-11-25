@@ -97,6 +97,9 @@ _CATEGORIES: dict[str, str] = {
     "DB_POOL_SIZE": "Infrastructure",
     "DB_MAX_OVERFLOW": "Infrastructure",
     "DB_POOL_TIMEOUT": "Infrastructure",
+    "PGHOST": "Database",
+    "PGHOSTADDR": "Database",
+    "PGSERVICE": "Database",
     # Eventing
     "EVENT_BUS_BACKEND": "Eventing & Outbox",
     "OUTBOX_RELAY_ENABLED": "Eventing & Outbox",

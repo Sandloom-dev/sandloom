@@ -16,7 +16,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 
 | Env var | Type | Default | Description |
 | --- | --- | --- | --- |
-| `ENVIRONMENT` | `'dev' | 'test' | 'prod'` | `'dev'` | Runtime environment: dev, test or prod. Production activates stricter startup requirements and production defaults. |
+| `ENVIRONMENT` | `'dev' | 'test' | 'prod'` | `'dev'` | Runtime environment: dev, test or prod. Production activates stricter startup requirements and production defaults. Left unset the process runs as dev with a startup warning, refuses a database that is not on this machine (SANDLOOM-B043) and accepts no token from `sandloom dev token`: set it on every deployment. |
 | `SANDLOOM_MODULES` | `list[str]` | `[]` | JSON list of module import paths or installed entry-point names loaded by this process; an application composition root may supply defaults. |
 | `MODULE_WHITELIST` | `list[str]` | `[]` | Optional module allowlist applied by the loader before registration. |
 | `MODULE_BLACKLIST` | `list[str]` | `[]` | Modules excluded by the loader before registration. |
@@ -43,6 +43,9 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CONTRACT_DB_POOL_SIZE` | `int` | `5` | Persistent connections per database in the dedicated local-contract pool, separate from the request pool. |
 | `CONTRACT_DB_MAX_OVERFLOW` | `int` | `5` | Additional temporary connections allowed above CONTRACT_DB_POOL_SIZE. |
 | `CONTRACT_DB_LOCK_TIMEOUT_MS` | `int` | `5000` | PostgreSQL lock timeout in milliseconds on contract-pool connections; zero uses the server default. |
+| `PGHOST` | `str | None` | `None` | Host the database driver connects to when a PostgreSQL url names none (libpq's PGHOST). Only the startup check for an unset ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url really connects. The driver reads PGHOST from the process environment only, while Settings also reads .env: a PGHOST that only .env holds is judged here though the driver ignores it, so the check can refuse a database that is local. Export it, or remove it from .env. |
+| `PGHOSTADDR` | `str | None` | `None` | Address libpq connects to instead of resolving the host, for a PostgreSQL url that carries no hostaddr (libpq's PGHOSTADDR; `sandloom migrate` connects through libpq). Only the startup check for an unset ENVIRONMENT reads it (SANDLOOM-B043), like PGHOST, with the same .env caveat. |
+| `PGSERVICE` | `str | None` | `None` | Service entry libpq takes the connection from for a PostgreSQL url that names no host (libpq's PGSERVICE; `sandloom migrate` connects through libpq). The entry can name any host, so a set one is judged remote by the startup check for an unset ENVIRONMENT (SANDLOOM-B043), like PGHOST, with the same .env caveat. |
 | `DATABASE_SYSTEM_URL` | `str | None` | `None` | Separate privileged database login used only by framework cross-tenant work on the default database; never supplied to business-module sessions. |
 | `DB_CONNECT_TIMEOUT_SECONDS` | `float` | `5.0` | Maximum seconds to establish a database connection. |
 | `DB_RECONNECT_BASE_SECONDS` | `float` | `0.05` | Initial pool-wide backoff delay in seconds for new connections after transport failures; never retries statements. |

@@ -8,8 +8,10 @@ no rights. A developer has no issuer to ask in the first hour, so this module
 plays the assigned authority for the one claim set a developer asks for. That
 is a forgery of provenance by design, and the reason for every refusal below:
 
-* it mints only in ``ENVIRONMENT=dev`` or ``test`` (:func:`mint_dev_token`
-  checks the loaded settings again, whatever the caller checked);
+* it mints only in ``ENVIRONMENT=dev`` or ``test``, set explicitly: an unset
+  ``ENVIRONMENT`` reads ``dev`` but is not a development machine
+  (:func:`mint_dev_token` checks the loaded settings again, whatever the
+  caller checked);
 * it takes a claim only when the policy assigns an authority for it: an
   unassigned key would be dropped by the app's trusted view, so asking for it
   is an error, never a token that looks fine and answers 403;
@@ -18,7 +20,7 @@ is a forgery of provenance by design, and the reason for every refusal below:
 * every token it mints carries the sealed marker ``dev_mint``
   (:data:`~sandloom.core.claims.DEV_MINT_CLAIM`), and the verifier
   (:func:`sandloom.core.auth.tokens.decode_token`) refuses that marker unless
-  its own ``ENVIRONMENT`` is ``dev`` or ``test``. This is what keeps a
+  its own ``ENVIRONMENT`` is set to ``dev`` or ``test``. This is what keeps a
   production app from accepting a token minted with its key on a developer
   machine (a copied production ``.env`` with ``ENVIRONMENT=dev`` passes the
   checks of the command; the key it holds is not protected by them).
@@ -35,7 +37,11 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from sandloom.core.auth.tokens import DEV_ENVIRONMENTS, create_access_token
+from sandloom.core.auth.tokens import (
+    DEV_ENVIRONMENTS,
+    create_access_token,
+    dev_environment_problem,
+)
 from sandloom.core.claims import (
     CPV_CLAIM,
     CPV_VERSION,
@@ -73,12 +79,9 @@ class DevToken:
 
 
 def _check_environment() -> None:
-    environment = settings.environment.value
-    if environment not in DEV_ENVIRONMENTS:
-        raise DevTokenRefused(
-            f"ENVIRONMENT={environment}: a development token is minted only "
-            f"with ENVIRONMENT={' or '.join(DEV_ENVIRONMENTS)}"
-        )
+    problem = dev_environment_problem(settings)
+    if problem is not None:
+        raise DevTokenRefused(problem)
 
 
 def _check_request(roles: Sequence[str], ttl_minutes: int) -> tuple[str, ...]:

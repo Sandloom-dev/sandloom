@@ -789,17 +789,29 @@ refusals, each with a test that fails without it:
 - **Environment.** `ENVIRONMENT` must be exactly `dev` or `test`: unset, a typo (`Dev`) and `prod`
   are refused. The command checks the raw environment and `.env` before the app's code is imported,
   the loaded settings again in a child process, and the mint checks the loaded settings a third time
-  (an allow-list, so a new environment is refused by default).
+  (an allow-list, so a new environment is refused by default). "Unset" is read from the settings
+  themselves (`Settings.environment_explicit`: no source of settings gave `ENVIRONMENT`, though
+  `environment` still reads its `dev` default), so the mint and the verifier share one rule
+  (`sandloom.core.auth.tokens.dev_environment_problem`).
 - **Database host.** `DATABASE_URL` must name this machine (loopback, `localhost`, a unix socket or a
   file database): an absent or unparsable url, or a url with any host not on this machine, is
   refused. The hosts are read as SQLAlchemy reads them (its authority, its `host` and `hostaddr`
-  query parameters, and `PGHOST` for a PostgreSQL url that names none). This is an early refusal of a
+  query parameters, and the libpq variables for a PostgreSQL url that leaves them out: `PGHOST` when
+  it names no host, `PGHOSTADDR` when it has no `hostaddr`, a set `PGSERVICE` when it names no host).
+  The judgement is an allow-list (amendment 2026-11-25): a `dsn` or `service` query parameter, which
+  can name any host, and a non-file url that names no host are refused, not read as local. This is an early refusal of a
   copied production `.env`, not a protection of its key (next item). It covers the default database
   only, not the instances of `INFRA`. No flag overrides it.
 - **The marker, which is what keeps a production key out.** Every dev token carries a sealed
   `dev_mint` claim (`DEV_MINT_CLAIM`, in `PROVENANCE_KEYS`, so no `data=` of a mint can write it), and
-  `decode_token` refuses a token that carries it unless the verifier's own `ENVIRONMENT` is `dev` or
-  `test` (the verification cache is keyed on the environment). A copied production `.env` with
+  `decode_token` refuses a token that carries it unless the verifier's own `ENVIRONMENT` is set to
+  `dev` or `test` (the verification cache is keyed on the environment and on whether it was set). A
+  deploy that forgot `ENVIRONMENT` reads `dev` and is refused the same way, with the startup warning
+  and, against a database that is not on this machine, the boot refusal SANDLOOM-B043
+  (amendment 2026-11-25, env-unset-not-dev). The marker crosses an internal RPC call: the caller's
+  facts carry it (`dm`) and a provider applies the same rule, answering `401`
+  (`rpc_caller_dev_token`) where its own verifier would refuse the token. A served call keeps the
+  marker for a call it makes itself, so a second hop is judged the same way. A copied production `.env` with
   `ENVIRONMENT=dev` (or one that `sandloom dev up` rewrote to a local `DATABASE_URL`) still passes
   the three checks above and mints a token signed with the production key; that token is refused by
   every verifier running as `prod`, whichever role and tenant it names. What the marker does not do:
