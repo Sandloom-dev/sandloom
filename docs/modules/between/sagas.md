@@ -369,11 +369,15 @@ one-liners `assert_compensations_idempotent(DEF)` /
 
 A saga of a tenant-scoped module needs a tenant bound when it starts, and so does
 the test: `run()`, `start()` and both one-liners take `tenant_id=`.
-Without it the first step raises `MissingTenantError`, and the saga parks at once
-as `misconfigured` (`last_error.code == "tenant_required"`) instead of retrying.
+Without it the first step that needs a tenant raises `MissingTenantError`, and the saga
+parks at once as `misconfigured` (`last_error.code == "tenant_required"`) instead of retrying.
 In operation such an instance cannot be re-driven. It holds no tenant, so
-`sandloom sagas retry` parks it again. Start the work again under a tenant with
-a new business id.
+`sandloom sagas retry` parks it again.
+
+Steps applied before the park stay applied: the park does not compensate them.
+Establish each applied step's outcome and reconcile it (compensate it or account for it).
+Only then start the work again under a tenant with a new business id.
+The new id derives new step keys, so a step left unreconciled would apply twice.
 
 ```python
 run = await saga_harness.run(ENROLL, input=..., tenant_id=tenant_id)

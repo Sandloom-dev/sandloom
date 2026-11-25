@@ -495,13 +495,12 @@ class InMemoryAtomicStore:
 class SharedRequestUnit:
     """The request unit of a ``client`` request: the test's session."""
 
-    __slots__ = ("_core", "_owner", "_stack", "session")
+    __slots__ = ("_core", "_stack", "session")
 
     def __init__(self, core: Any, session: Any) -> None:
         self._core = core
         self.session = session
         self._stack: ExitStack | None = None
-        self._owner: Any = None
 
     def bind_lazily(self) -> Any:
         """The test session, bound as the request's unit (as ``get_db``'s
@@ -513,7 +512,7 @@ class SharedRequestUnit:
                 configured_tenant_scope(getattr(self._core, "settings", None))
             )
             stack.enter_context(bind_test_uow(session))
-            self._owner = _request.join_request_scope(session)
+            _request.join_request_scope(session)
             _request.stash_test_pending_check(self._core, session)
             stack.enter_context(bind_contract_session(session))
             self._stack = stack
@@ -533,7 +532,7 @@ class SharedRequestUnit:
                     self.session, dispatch=False
                 )
         finally:
-            _request.return_request_scope(self.session, self._owner)
+            _request.return_request_scope(self.session)
             try:
                 stack.close()
             except ValueError:  # bound in another context: it ends with it

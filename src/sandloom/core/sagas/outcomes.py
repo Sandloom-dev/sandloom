@@ -209,8 +209,11 @@ PARK_REMEDIATIONS: Mapping[str, str] = {
         "a wiring error (401, argument names, a missing contract): fix the "
         "binding / the args function and deploy, then `sandloom sagas retry`; "
         "with last_error code tenant_required the instance holds no tenant and "
-        "`retry` parks it again: start the work again under a tenant with a "
-        "new business id (the parked row is kept)"
+        "`retry` parks it again. Steps already applied stay applied (the park "
+        "does not compensate them): establish each applied step's outcome and "
+        "reconcile it (compensate or account for it) before starting the work "
+        "again under a tenant with a new business id, which derives new step "
+        "keys (the parked row is kept)"
     ),
     "unknown_definition": (
         "no definition (type, version) is registered in this process: deploy "

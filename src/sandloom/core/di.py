@@ -267,7 +267,7 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
         # wrote to.
         with configured_tenant_scope(getattr(core, "settings", None)):
             async for session in _yield_from_provider(overrides[provider]):
-                previous_owner = _uow_request.join_request_scope(session)
+                _uow_request.join_request_scope(session)
                 try:
                     _uow_request.stash_test_pending_check(core, session)
                     with bind_contract_session(session):
@@ -283,7 +283,7 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
                     await _uow_hooks._run_before_commit_callbacks(session)
                     await _uow._dispatch_outbox_after_commit(session, dispatch=False)
                 finally:
-                    _uow_request.return_request_scope(session, previous_owner)
+                    _uow_request.return_request_scope(session)
         return
 
     async with _uow.open_uow(core, factory=core.get_uow_factory()) as session:
