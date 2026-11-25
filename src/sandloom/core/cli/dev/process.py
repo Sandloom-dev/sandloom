@@ -55,29 +55,37 @@ def run(
     )
 
 
+def _popen(
+    argv: Sequence[str], *, env: Mapping[str, str], cwd: Path, piped: bool
+) -> subprocess.Popen[bytes]:
+    """The one place ``dev run`` starts its own processes. ``piped``: stdout
+    and stderr in one pipe the caller reads, and no stdin."""
+    return subprocess.Popen(  # noqa: S603 - sys.executable with arguments built by `sandloom dev run` (uvicorn, worker, beat), no shell
+        list(argv),
+        cwd=cwd,
+        env=dict(env),
+        stdin=subprocess.DEVNULL if piped else None,
+        stdout=subprocess.PIPE if piped else None,
+        stderr=subprocess.STDOUT if piped else None,
+    )
+
+
 def spawn(
     argv: Sequence[str], *, env: Mapping[str, str], cwd: Path
 ) -> subprocess.Popen[bytes]:
     """Start the app server (``sys.executable -m uvicorn ...``) in the
     foreground of this process."""
-    return subprocess.Popen(list(argv), cwd=cwd, env=dict(env))  # noqa: S603 - sys.executable -m uvicorn with arguments built by `sandloom dev run`, no shell
+    return _popen(argv, env=env, cwd=cwd, piped=False)
 
 
 def spawn_piped(
     argv: Sequence[str], *, env: Mapping[str, str], cwd: Path
 ) -> subprocess.Popen[bytes]:
     """Start a background process of ``dev run`` (``sys.executable`` with the
-    ``sandloom worker`` / ``sandloom beat`` entry point): stdout and stderr in
-    one pipe the caller reads, no stdin. It stays in this process's group, so a
-    terminal that closes reaches it as it reaches the app server."""
-    return subprocess.Popen(  # noqa: S603 - sys.executable with arguments built by `sandloom dev run`, no shell
-        list(argv),
-        cwd=cwd,
-        env=dict(env),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    ``sandloom worker`` / ``sandloom beat`` entry point), its output in a pipe.
+    It stays in this process's group, so a terminal that closes reaches it as
+    it reaches the app server."""
+    return _popen(argv, env=env, cwd=cwd, piped=True)
 
 
 class Background:

@@ -120,11 +120,13 @@ def spawned(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[subprocess.Popen[b
 
 
 def _out(ctx: commands.Context) -> str:
-    return ctx.out.getvalue()  # type: ignore[attr-defined, no-any-return]
+    assert isinstance(ctx.out, io.StringIO)
+    return ctx.out.getvalue()
 
 
 def _err(ctx: commands.Context) -> str:
-    return ctx.err.getvalue()  # type: ignore[attr-defined, no-any-return]
+    assert isinstance(ctx.err, io.StringIO)
+    return ctx.err.getvalue()
 
 
 def _both_ready(ctx: commands.Context) -> bool:
@@ -247,6 +249,37 @@ def test_a_background_process_that_cannot_start_is_reported_and_the_other_runs(
     assert report[0].startswith("warning: worker did not start: ")
     assert len(spawned) == 1  # the beat
     assert _terminated(spawned) == [-signal.SIGTERM]
+
+
+def test_a_failure_other_than_the_system_refusing_stops_the_app_and_the_started_ones(
+    ctx: commands.Context,
+    spawned: list[subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only an ``OSError`` is reported and survived: anything else is ours, it
+    raises, and neither the app server nor the worker already started stays."""
+    web = _Web(lambda: True)
+    monkeypatch.setattr(process, "spawn", lambda argv, env, cwd: web)
+    recording = process.spawn_piped
+
+    def refuse_the_beat(
+        argv: list[str], *, env: dict[str, str], cwd: Path
+    ) -> subprocess.Popen[bytes]:
+        if "refuse" in argv:
+            raise ValueError("not an OSError")
+        return recording(argv, env=env, cwd=cwd)
+
+    monkeypatch.setattr(process, "spawn_piped", refuse_the_beat)
+    background = {
+        "worker": [sys.executable, "-c", _WORKER],
+        "beat": [sys.executable, "-c", _BEAT, "refuse"],
+    }
+    with pytest.raises(ValueError, match="not an OSError"):
+        commands._serve(ctx, ["uvicorn"], {}, background=background)
+    assert web.signals == [signal.SIGINT]
+    assert len(spawned) == 1  # the worker
+    assert _terminated(spawned) == [-signal.SIGTERM]
+    assert _err(ctx) == ""
 
 
 def test_without_background_processes_only_the_app_runs(

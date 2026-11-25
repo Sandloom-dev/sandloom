@@ -2018,6 +2018,18 @@ def _start_background(
             ctx.warn(f"{name} did not start: {exc}")
 
 
+def _stop_app(child: subprocess.Popen[bytes]) -> None:
+    """Interrupt the app server like Ctrl-C does and wait for it; it is killed
+    after 20 seconds."""
+    with contextlib.suppress(ProcessLookupError):
+        child.send_signal(signal.SIGINT)
+    try:
+        child.wait(timeout=20)
+    except (subprocess.TimeoutExpired, KeyboardInterrupt):
+        child.kill()
+        child.wait()
+
+
 def _serve(
     ctx: Context,
     argv: list[str],
@@ -2052,16 +2064,18 @@ def _serve(
         return int(child.wait())
     except KeyboardInterrupt:
         # Ctrl-C is how a person stops the server: a clean stop, exit 0.
-        with contextlib.suppress(ProcessLookupError):
-            child.send_signal(signal.SIGINT)
         for process in started:
             process.terminate()
-        try:
-            child.wait(timeout=20)
-        except (subprocess.TimeoutExpired, KeyboardInterrupt):
-            child.kill()
-            child.wait()
+        _stop_app(child)
         return 0
+    except Exception:
+        # A failure of ours (a background process that cannot be started for a
+        # reason other than the system refusing it) is not a stop: the app
+        # server does not stay behind it.
+        for process in started:
+            process.terminate()
+        _stop_app(child)
+        raise
     finally:
         stop.set()
         _process.stop_all(started)
