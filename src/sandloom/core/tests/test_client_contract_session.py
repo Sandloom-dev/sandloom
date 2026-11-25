@@ -19,8 +19,8 @@ import pytest
 from sandloom.core import di
 from sandloom.core.http.route_runtime import install_route_runtime
 from sandloom.core.module_api import contract_method, contract_session
-from sandloom.core.testing.fixtures import *  # noqa: F403
 from sandloom.core.testing._uow import _ContractSessionBinder
+from sandloom.core.testing.fixtures import *  # noqa: F403
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.request import OWNER_KEY
 
