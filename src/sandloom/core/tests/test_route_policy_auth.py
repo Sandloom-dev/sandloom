@@ -15,6 +15,7 @@ import pytest
 from fastapi import APIRouter, Depends, FastAPI, Header, WebSocket
 
 from sandloom.core import error_codes
+from sandloom.core.claims import NO_AUTHORITIES
 from sandloom.core.guard_order import authenticates, authenticator_kind
 from sandloom.core.route_markers import prune_marker_dependencies
 from sandloom.core.route_policy import (
@@ -169,7 +170,7 @@ def test_create_app_refuses_an_unauthenticated_route(
     monkeypatch.setattr(
         app_factory._claim_authorities,
         "install_claim_authorities",
-        lambda *_a, **_k: None,
+        lambda *_a, **_k: NO_AUTHORITIES,  # what the real step returns
     )
     with pytest.raises(RoutePolicyError, match="POST /bad: no authenticator"):
         app_factory.create_app()
