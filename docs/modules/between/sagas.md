@@ -373,10 +373,8 @@ Without it the first step raises `MissingTenantError`, and the saga parks at onc
 as `misconfigured` (`last_error.code == "tenant_required"`) instead of retrying:
 
 ```python
-async def test_enroll_for_a_tenant(saga_harness, tenant_id):
-    run = await saga_harness.run(ENROLL, input=..., tenant_id=tenant_id)
-    assert run.status == "completed"
-    await saga_harness.assert_compensations_idempotent(ENROLL, tenant_id=tenant_id)
+run = await saga_harness.run(ENROLL, input=..., tenant_id=tenant_id)
+await saga_harness.assert_compensations_idempotent(ENROLL, tenant_id=tenant_id)
 ```
 
 ### Operating

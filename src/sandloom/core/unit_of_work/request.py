@@ -494,6 +494,24 @@ def _lazy_unit(scope: RequestScope) -> Any:
     return session
 
 
+def open_test_request_unit() -> Any | None:
+    """Test seam (:data:`request_unit_override` set, the ``client`` fixture): open
+    the running request's unit for a contract call that found no bound contract
+    session, so a route that never opens ``db()`` still runs its contract calls
+    on the test's session (binding is :meth:`SharedRequestUnit.bind_lazily`'s).
+    ``None`` where there is nothing to open: outside a request, a route without
+    a lazy unit, an intent route, or a child task of the handler."""
+    scope = _request_scope.get()
+    if (
+        scope is None
+        or scope.lazy_factory is None
+        or scope.intent is not None
+        or scope.handler_task is not _task()
+    ):
+        return None
+    return _lazy_unit(scope)
+
+
 def open_request_unit(scope: RequestScope) -> Any:
     """Open the request's lazy unit from the handler task (the route
     runtime: the mandatory audit row of a request whose risky command

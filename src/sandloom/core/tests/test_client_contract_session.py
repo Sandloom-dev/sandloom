@@ -1,5 +1,5 @@
-"""Under the ``client`` fixture a contract call made by a route that never opens
-``db()`` still runs on the test's session (docs/reference/testing.md).
+"""Under the ``client`` fixture a contract call runs on the test's session, even
+when the route never opens ``db()`` (docs/reference/testing.md).
 
 Regression (apps dogfood): the contract session was bound only when the route
 first opened ``db()`` (``SharedRequestUnit.bind_lazily``), so a route that only
@@ -13,48 +13,62 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from sqlalchemy import text
 
 from sandloom.core import di
 from sandloom.core.http.route_runtime import install_route_runtime
-from sandloom.core.module_api import contract_method
+from sandloom.core.module_api import contract_method, contract_session
 from sandloom.core.testing.fixtures import *  # noqa: F403
-from sandloom.core.unit_of_work.request import db as unit_db
+from sandloom.core.unit_of_work.request import open_test_request_unit
 
-PATH = "/__contract_session/rows"
+PREFIX = "/__contract_session"
+CONTRACT = "ctprobe.session.v1"
 
 
 class Probe:
+    _seen: list[Any] = []
+
     @classmethod
     @contract_method
-    async def rows(cls) -> list[str]:
-        result = await unit_db().execute(text("SELECT v FROM contract_probe"))
-        return sorted(result.scalars())
+    async def which(cls) -> bool:
+        cls._seen.append(contract_session())
+        return True
 
 
 @pytest.fixture
-def probe_route(sandloom_app: Any) -> Iterator[None]:
+def probe(sandloom_app: Any) -> Iterator[None]:
+    core = sandloom_app.state.core
+    core.register_service(CONTRACT, Probe, database="default")
+    Probe._seen.clear()
     before = list(sandloom_app.router.routes)
 
-    @sandloom_app.get(PATH, dependencies=[di.public(reason="probe")])
-    async def rows() -> Any:  # never opens db() or DbSession itself
-        return {"rows": await Probe.rows()}
+    @sandloom_app.get(f"{PREFIX}/nodb", dependencies=[di.public(reason="probe")])
+    async def without_db() -> Any:  # never opens db() or DbSession
+        return {"ok": await core.get_service(CONTRACT).which()}
+
+    @sandloom_app.get(f"{PREFIX}/db", dependencies=[di.public(reason="probe")])
+    async def with_db() -> Any:
+        di.db()
+        return {"ok": await core.get_service(CONTRACT).which()}
 
     added = [r for r in sandloom_app.router.routes if r not in before]
-    install_route_runtime(added, sandloom_app.state.core)
+    install_route_runtime(added, core)
     try:
         yield
     finally:
         sandloom_app.router.routes[:] = before
+        core.service_registry.remove(CONTRACT)
 
 
-async def test_a_contract_call_from_a_route_without_db_sees_the_tests_rows(
-    probe_route: None, client: Any, db: Any
+@pytest.mark.parametrize("route", ["nodb", "db"])
+async def test_a_contract_call_runs_on_the_tests_session_however_the_route_gets_its_unit(
+    probe: None, client: Any, db: Any, route: str
 ) -> None:
-    await db.execute(text("CREATE TEMP TABLE contract_probe (v text)"))
-    await db.execute(text("INSERT INTO contract_probe (v) VALUES ('seeded')"))
-
-    response = await client.get(PATH)
+    response = await client.get(f"{PREFIX}/{route}")
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"rows": ["seeded"]}
+    assert Probe._seen == [db]
+
+
+async def test_the_seam_opens_nothing_outside_a_request(client: Any) -> None:
+    """No request scope, nothing to open (the test body is no request)."""
+    assert open_test_request_unit() is None

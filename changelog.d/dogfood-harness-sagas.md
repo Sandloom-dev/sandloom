@@ -5,7 +5,7 @@
 
 ### Fixed
 
-- **The `client` fixture binds the contract session for the whole request** (dogfood-harness-sagas). A route that called a contract without ever opening `db()` ran the contract on the provider's own unit and missed the rows the test had flushed, against `docs/reference/testing.md`. The session is now bound around every request.
+- **A contract call in a `client` request runs on the test's session even when the route never opened `db()`** (dogfood-harness-sagas). Such a route ran the contract on the provider's own unit and missed the rows the test had flushed, against `docs/reference/testing.md`. Under the `client` fixture a contract call that finds no bound session now opens the request's test unit first (a test-only path; production reads one extra module attribute per contract call).
 
 ### Added
 

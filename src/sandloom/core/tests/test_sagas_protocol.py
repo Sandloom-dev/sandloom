@@ -21,8 +21,8 @@ from sandloom.core.sagas import runtime as saga_runtime
 from sandloom.core.sagas import sweep as saga_sweep
 from sandloom.core.sagas.outcomes import Outcome, classify_exception
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
-from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
 from sandloom.core.tenant_context import MissingTenantError
+from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
 from sandloom.core.testing.infra import has_serial_writers, skip_unless_db_feature
 from sandloom.core.tests.saga_fixtures import (
     DurableLedger,

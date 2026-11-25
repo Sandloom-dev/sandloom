@@ -109,6 +109,11 @@ async def _run_contract_call(  # noqa: C901
         )
 
     override = _contract_session_override.get()
+    if override is None and _request.request_unit_override is not None:
+        # the ``client`` fixture: the route may never have opened db(), which
+        # is what binds the test's session; open the request's unit now
+        _request.open_test_request_unit()
+        override = _contract_session_override.get()
     if override is not None:
         # Test seam: the test owns the transaction; no own UoW, no dedupe store
         # (a test transaction that rolls back must not leave a replayable
