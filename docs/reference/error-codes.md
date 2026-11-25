@@ -110,6 +110,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B040`](#sandloom-b040) | `operator-owner-substitution` | runtime | the service an operator command would call for &lt;owner>.security.v1 is not the owner the claim map names: its binding names another service than the owner's other bindings, or its describe states another provider, or its answer is not bound to the pinned service | active |
 | [`SANDLOOM-B041`](#sandloom-b041) | `kernel-capability-refused` | boot | module code resolved or required a kernel-facing capability (atomic_store, lease, broadcast) | active |
 | [`SANDLOOM-B042`](#sandloom-b042) | `unknown-driver-option` | boot | an INFRA instance carries an option its driver does not accept | active |
+| [`SANDLOOM-B043`](#sandloom-b043) | `environment-unset-remote-database` | boot | ENVIRONMENT is not set and a configured database is not on this machine | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1927,6 +1928,39 @@ probably meant. A value of the wrong type or a missing required option is a
 different refusal and reads as the driver's own options error.
 
 **Fix:** fix the option name the refusal lists (the accepted keys are named, with the nearest one), or remove it
+
+**More:** `docs/infrastructure/configure.md`
+
+### SANDLOOM-B043
+
+**ENVIRONMENT is not set and a configured database is not on this machine**
+
+Slug: `environment-unset-remote-database` · kind: boot · status: active
+
+**What happened and why it matters**
+
+ENVIRONMENT left unset reads as dev: no production validator applies and the
+interactive docs are exposed. That is the setting of a development machine, so
+it is allowed only against a database on this machine: 127.0.0.1 or another
+loopback address, localhost, a unix socket or a file database. A deployment
+that forgot ENVIRONMENT and reaches any other host does not start, in the app,
+the worker, the scheduler and every `sandloom` command that boots the
+configuration. The check accepts only what it can show is local: a `dsn` or
+`service` query parameter, which can name any host, is refused, and so is a
+non-file url that names no host. It reads DATABASE_URL and the url of every
+INFRA database instance the way the app does, and for a PostgreSQL url the
+libpq variables that fill in what it leaves out: PGHOST when it names no host,
+PGHOSTADDR when it carries no hostaddr, and any PGSERVICE when it names no host
+(a service entry can name any host). The driver reads these from the process
+environment only, so one that only .env holds can refuse a local database. The
+message names the setting and the host or parameter, never the url, which
+carries credentials.
+Left unset, a token from `sandloom dev token` is not accepted either. Setting
+ENVIRONMENT, to prod or, for development against that database, to dev or
+test, ends it. Without the refusal, a missing ENVIRONMENT would silently turn
+off every production check of a deployment.
+
+**Fix:** set ENVIRONMENT=prod for a deployment, or ENVIRONMENT=dev (or test) to develop against that database
 
 **More:** `docs/infrastructure/configure.md`
 

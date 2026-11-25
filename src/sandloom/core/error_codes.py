@@ -2050,6 +2050,37 @@ different refusal and reads as the driver's own options error.
         "docs/infrastructure/configure.md",
     ),
     _entry(
+        "SANDLOOM-B043",
+        "environment-unset-remote-database",
+        "boot",
+        "ENVIRONMENT is not set and a configured database is not on this machine",
+        "set ENVIRONMENT=prod for a deployment, or ENVIRONMENT=dev (or test) to "
+        "develop against that database",
+        """
+ENVIRONMENT left unset reads as dev: no production validator applies and the
+interactive docs are exposed. That is the setting of a development machine, so
+it is allowed only against a database on this machine: 127.0.0.1 or another
+loopback address, localhost, a unix socket or a file database. A deployment
+that forgot ENVIRONMENT and reaches any other host does not start, in the app,
+the worker, the scheduler and every `sandloom` command that boots the
+configuration. The check accepts only what it can show is local: a `dsn` or
+`service` query parameter, which can name any host, is refused, and so is a
+non-file url that names no host. It reads DATABASE_URL and the url of every
+INFRA database instance the way the app does, and for a PostgreSQL url the
+libpq variables that fill in what it leaves out: PGHOST when it names no host,
+PGHOSTADDR when it carries no hostaddr, and any PGSERVICE when it names no host
+(a service entry can name any host). The driver reads these from the process
+environment only, so one that only .env holds can refuse a local database. The
+message names the setting and the host or parameter, never the url, which
+carries credentials.
+Left unset, a token from `sandloom dev token` is not accepted either. Setting
+ENVIRONMENT, to prod or, for development against that database, to dev or
+test, ends it. Without the refusal, a missing ENVIRONMENT would silently turn
+off every production check of a deployment.
+""",
+        "docs/infrastructure/configure.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",

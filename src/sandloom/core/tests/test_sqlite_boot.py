@@ -167,7 +167,12 @@ def test_a_system_url_on_sqlite_is_refused_not_ignored() -> None:
 
 def test_postgresql_with_a_system_url_and_no_tenant_rls_still_boots() -> None:
     pg = "postgresql+asyncpg://u:p@h/d"
-    cfg = _cfg(pg, database_system_url="postgresql+asyncpg://sys:p@h/d")
+    # host `h` is not this machine: an unset ENVIRONMENT would be refused (B043)
+    cfg = _cfg(
+        pg,
+        environment=Environment.dev,
+        database_system_url="postgresql+asyncpg://sys:p@h/d",
+    )
     assert app_factory.row_security_config_problem(cfg) is None
     assert app_factory.configuration_problems(cfg, include_profile=False) == []
 

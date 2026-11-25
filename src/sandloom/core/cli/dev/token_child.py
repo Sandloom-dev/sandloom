@@ -6,8 +6,9 @@ the app's package is the checkout's and nothing of it, settings included, is
 imported into the CLI. In order:
 
 1. load the app's settings and apply the dev-only rule to them again (the
-   parent checked the raw ``ENVIRONMENT`` / ``DATABASE_URL`` / ``PGHOST``;
-   this is the value the app would run with, ``SECRETS_DIR`` included);
+   parent checked the raw ``ENVIRONMENT`` / ``DATABASE_URL`` and the libpq
+   ``PGHOST`` / ``PGHOSTADDR`` / ``PGSERVICE``; this is the value the app
+   would run with, ``SECRETS_DIR`` included);
 2. import the composition root, which composes the modules and so assigns the
    claim authorities;
 3. mint (:func:`sandloom.core.auth.dev_token.mint_dev_token`, which checks the
@@ -102,6 +103,8 @@ def main(argv: Sequence[str]) -> int:
         loaded.environment.value,
         loaded.database_url,
         _errors.environment().get("PGHOST"),
+        pghostaddr=_errors.environment().get("PGHOSTADDR"),
+        pgservice=_errors.environment().get("PGSERVICE"),
     )
     if problem is not None:
         return _refuse(problem)

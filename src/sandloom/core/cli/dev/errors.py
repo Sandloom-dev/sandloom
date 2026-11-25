@@ -53,8 +53,10 @@ def environment() -> Mapping[str, str]:
     ``SANDLOOM_DEBUG``, ``CI``, ``DOCKER_HOST``, the terminal's ``NO_COLOR``,
     ``FORCE_COLOR``, ``CLICOLOR_FORCE``, ``TERM``, ``COLORTERM``, ``UV`` and
     the coding-agent markers of :data:`sandloom.core.cli.ui.AGENT_MARKERS`.
-    ``sandloom dev token`` also reads ``PGHOST`` here: the host the database
-    driver uses for a url that names none, which no ``Settings`` field holds."""
+    ``sandloom dev token`` also reads ``PGHOST``, ``PGHOSTADDR`` and
+    ``PGSERVICE`` here: what the database driver (libpq) uses for a url that
+    leaves the host or address out, from the process environment only (a
+    ``.env`` is not exported to the driver)."""
     return os.environ
 
 

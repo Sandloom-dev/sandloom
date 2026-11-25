@@ -65,7 +65,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import sandloom.core.infra.fenced_lease as _beat_lease
-from sandloom.core.app_factory import configuration_problems
+from sandloom.core.app_factory import UNSET_ENVIRONMENT_WARNING, configuration_problems
 from sandloom.core.cli.config import redact_value
 from sandloom.core.cli.migrate import _hosting_databases
 from sandloom.core.cli.url_text import mask_url_credentials
@@ -182,12 +182,12 @@ def check_config(report: Report, cfg: Any) -> None:
         f"PRODUCTION_PROFILE={getattr(cfg, 'production_profile', 'standard')}",
     )
     check_boot(report, cfg)
-    if "environment" not in cfg.model_fields_set:
+    if not cfg.environment_explicit:
         report.add(
             "config",
             "environment",
             WARN,
-            "ENVIRONMENT is not set (defaults to dev); set it explicitly",
+            UNSET_ENVIRONMENT_WARNING,
         )
     if cfg.is_prod:
         if not cfg.internal_api_token:

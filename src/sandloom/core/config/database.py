@@ -20,6 +20,43 @@ class DatabaseConfig(BaseModel):
             "relational deployments use PostgreSQL."
         ),
     )
+    pghost: str | None = Field(
+        default=None,
+        alias="PGHOST",
+        description=(
+            "Host the database driver connects to when a PostgreSQL url names "
+            "none (libpq's PGHOST). Only the startup check for an unset "
+            "ENVIRONMENT reads it (SANDLOOM-B043): it must see where such a url "
+            "really connects. The driver reads PGHOST from the process "
+            "environment only, while Settings also reads .env: a PGHOST that "
+            "only .env holds is judged here though the driver ignores it, so "
+            "the check can refuse a database that is local. Export it, or "
+            "remove it from .env."
+        ),
+    )
+    pghostaddr: str | None = Field(
+        default=None,
+        alias="PGHOSTADDR",
+        description=(
+            "Address libpq connects to instead of resolving the host, for a "
+            "PostgreSQL url that carries no hostaddr (libpq's PGHOSTADDR; "
+            "`sandloom migrate` connects through libpq). Only the startup "
+            "check for an unset ENVIRONMENT reads it (SANDLOOM-B043), like "
+            "PGHOST, with the same .env caveat."
+        ),
+    )
+    pgservice: str | None = Field(
+        default=None,
+        alias="PGSERVICE",
+        description=(
+            "Service entry libpq takes the connection from for a PostgreSQL "
+            "url that names no host (libpq's PGSERVICE; `sandloom migrate` "
+            "connects through libpq). The entry can name any host, so a set "
+            "one is judged remote by the startup check for an unset "
+            "ENVIRONMENT (SANDLOOM-B043), like PGHOST, with the same .env "
+            "caveat."
+        ),
+    )
     # System channel of the default database (only meaningful with the
     # ``tenant_rls`` instance option): DSN of a SEPARATE login role (default
     # ``sandloom_system``) used by framework-internal privileged/cross-tenant work

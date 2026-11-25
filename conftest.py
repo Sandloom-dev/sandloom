@@ -19,6 +19,13 @@ from sandloom.core.testing.workers import seed_test_environ
 #: ``is_test``).
 _SEED_SKIP = frozenset({"ENVIRONMENT"})
 
+#: What the suite runs as when the shell leaves ``ENVIRONMENT`` unset: ``dev``,
+#: written explicitly. An unset one refuses a database that is not on this
+#: machine (SANDLOOM-B043), and a contributor's ``SANDLOOM_TEST_DATABASE_URL``
+#: is often not loopback (a devcontainer's, a LAN host's). A test of the unset
+#: path unsets it itself (``test_environment_unset.py``).
+_SUITE_ENVIRONMENT = "dev"
+
 
 def _seed_test_env() -> None:
     """Seed the settings snapshot from ``.env.test``, not a developer's ``.env``.
@@ -31,11 +38,12 @@ def _seed_test_env() -> None:
     key the shell leaves unset, an explicit ``SANDLOOM_TEST_DATABASE_URL`` /
     ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL`` wins over the
     file (the cache and broker urls of its ``INFRA``) and over a
-    shell-exported ``DATABASE_URL``, and ``ENVIRONMENT`` stays the dev
-    default. A shell that
+    shell-exported ``DATABASE_URL``, and ``ENVIRONMENT`` is ``dev`` unless the
+    shell sets it (:data:`_SUITE_ENVIRONMENT`, explicit). A shell that
     exports ``DATABASE_URL`` itself without an override (CI) is left alone
     (:func:`~sandloom.core.testing.workers.seed_test_environ`).
     """
+    os.environ.setdefault("ENVIRONMENT", _SUITE_ENVIRONMENT)
     env_test = Path(__file__).resolve().parents[0] / ".env.test"
     if not env_test.is_file():
         return
