@@ -137,8 +137,19 @@ tenant-scoped route such as the generated module's needs only a token:
 ([guide](https://sandloom.dev/docs/modules/batteries/first-access-token/)).
 """
 
-#: The tenant lines of an app with no tenancy module (``--no-batteries``): no
-#: module vouches for a tenant, so under the default ``TENANCY_MODE=multi`` a
+#: The README's note for an app with bundled modules but no tenancy.
+_SINGLE_TENANT_NOTE = """
+This app composes no tenancy battery, so no token names a tenant: `.env` binds
+one tenant for every request (`TENANCY_MODE=single` with a generated
+`SINGLE_TENANT_ID`; uncomment the two lines of `.env.example` when you
+recreate `.env`). Add the tenancy battery and switch to `TENANCY_MODE=multi`
+for several tenants.
+"""
+
+#: The tenant lines of an app with no tenancy module (``--no-batteries``, or
+#: identity / billing / admin without tenancy): no module grants a tenant (a
+#: login token carries no ``tenant_ids``), so under the default
+#: ``TENANCY_MODE=multi`` a
 #: tenant-scoped route (the generated module's) answers 400 ``tenant_required``
 #: and, with ``X-Tenant-Id``, 403 ``tenant_not_authorized`` for every token.
 #: Single mode binds one tenant for every request, so ``sandloom dev token``
@@ -1510,9 +1521,12 @@ def generate_project(
         "port_hint": _stack_files.PORT_HINT,
         # The stack's lines: tokens here, its package's text after the render.
         **{key: _stack_files.token(key) for key in _stack_files.KEYS},
-        "identity_note": _IDENTITY_NOTE
-        if "identity" in bundled
-        else (_BARE_APP_NOTE if not bundled else ""),
+        "identity_note": (
+            _IDENTITY_NOTE
+            if "identity" in bundled
+            else (_BARE_APP_NOTE if not bundled else "")
+        )
+        + (_SINGLE_TENANT_NOTE if bundled and "tenancy" not in bundled else ""),
         "billing_note": _BILLING_NOTE if "billing" in bundled else "",
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
@@ -1522,11 +1536,13 @@ def generate_project(
         + (_env_text(_BILLING_ENV) if "billing" in bundled else "")
         + (_env_text(_ADMIN_ENV) if "admin" in bundled else ""),
     }
-    # No bundled module (``--no-batteries``): nothing vouches for a tenant.
+    # No tenancy module (``--no-batteries``, or identity / billing / admin
+    # without tenancy): nothing vouches for a tenant.
+    single_tenant = "tenancy" not in bundled
     tenant_id = str(uuid.uuid4())
     example_ctx = {
         **ctx,
-        "tenancy": _single_tenant_env(tenant_id, local=False) if not bundled else "",
+        "tenancy": _single_tenant_env(tenant_id, local=False) if single_tenant else "",
         "jwt_secret": "change_me_in_production_use_openssl_rand_hex_32",
         "open_internal": "# INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
         "log_links": _LOG_LINKS if "identity" in bundled else "",
@@ -1535,7 +1551,7 @@ def generate_project(
     # is never what a developer actually runs with.
     local_env_ctx = {
         **ctx,
-        "tenancy": _single_tenant_env(tenant_id, local=True) if not bundled else "",
+        "tenancy": _single_tenant_env(tenant_id, local=True) if single_tenant else "",
         "jwt_secret": secrets.token_hex(32),
         "open_internal": "INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
         "log_links": _LOG_LINKS.replace("# NOTIFIER_LOG_LINKS", "NOTIFIER_LOG_LINKS")

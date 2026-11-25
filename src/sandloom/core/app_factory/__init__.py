@@ -284,7 +284,7 @@ def create_app(
     )
     # ADR-0014 decisions 1, 2, 7: the root's claim authorities, verified
     # against the composition, then applied by the mint check.
-    _claim_authorities.install_claim_authorities(
+    installed_authorities = _claim_authorities.install_claim_authorities(
         core_facade,
         module_summary.loaded,
         claim_authorities=claim_authorities,
@@ -292,6 +292,9 @@ def create_app(
         bindings=settings.service_bindings,
         log=main_logger,
         booted_root=settings.sandloom_composition_root,
+    )
+    _claim_authorities.warn_single_tenancy_authority(
+        installed_authorities, settings.tenancy_mode, main_logger
     )
     # ADR-0014 decision 13: a route policy stating Account.bound_tenant()
     # consumes the assigned tenant authority's witness (boot only, no I/O).

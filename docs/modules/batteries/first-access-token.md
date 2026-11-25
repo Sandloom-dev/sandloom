@@ -115,8 +115,10 @@ A tenant-scoped route, such as the generated module's, still has to know the
 tenant. With `TENANCY_MODE=multi`, the default of the settings, nothing can
 bind one for any token. The route answers `400 tenant_required`. When the
 request names a tenant in `X-Tenant-Id`, it answers `403 tenant_not_authorized`,
-since no token lists one. So the generated `.env` of a `--no-batteries` app
-binds one tenant for every request:
+since no token lists one. The same holds for any app made without `tenancy`,
+such as `--with identity` alone: a real login carries no tenant either. So the
+generated `.env` of an app without the tenancy battery binds one tenant for
+every request:
 
 ```dotenv
 TENANCY_MODE=single
@@ -127,7 +129,9 @@ SINGLE_TENANT_ID=<a UUID generated for your app>
 answers `200`. `.env.example` carries the same two lines commented out, since a
 production deployment decides its own tenancy. An app made earlier sets the two
 lines itself, with any UUID. For several tenants, add the tenancy battery and
-set `TENANCY_MODE=multi`.
+set `TENANCY_MODE=multi`. Startup logs a warning when a module is the tenant
+authority (`tenant_ids`) under `TENANCY_MODE=single`. The configured tenant
+binds every request there, so the tenants that module grants are never used.
 
 ## The real flow
 

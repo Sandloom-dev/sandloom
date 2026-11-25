@@ -659,17 +659,57 @@ def test_a_no_batteries_app_binds_one_tenant_in_its_env(tmp_path: Path) -> None:
     assert ids[0] != ids[1]
 
 
-@pytest.mark.parametrize("battery", ["identity", "tenancy", "billing"])
-def test_an_app_with_batteries_writes_no_tenancy_lines(
-    tmp_path: Path, battery: str
+@pytest.mark.parametrize(
+    "batteries",
+    [["tenancy"], ["identity", "tenancy"], ["identity", "tenancy", "billing"]],
+)
+def test_an_app_with_tenancy_writes_no_tenancy_lines(
+    tmp_path: Path, batteries: list[str]
 ) -> None:
-    generate_project("probe_with", tmp_path, with_batteries=[battery])
+    """The tenancy module grants tenants, so the default ``multi`` mode stays."""
+    generate_project("probe_with", tmp_path, with_batteries=batteries)
     root = tmp_path / "probe_with"
     for name in (".env", ".env.example"):
         text = _read(root, name)
         assert "TENANCY_MODE" not in text, name
         assert "SINGLE_TENANT_ID" not in text, name
-    assert "no identity and no tenancy battery" not in _read(root, "README.md")
+    readme = _read(root, "README.md")
+    assert "no identity and no tenancy battery" not in readme
+    assert "composes no tenancy battery" not in readme
+
+
+@pytest.mark.parametrize(
+    "batteries",
+    [["identity"], ["billing"], ["admin"], ["identity", "billing"]],
+)
+def test_an_app_with_batteries_but_no_tenancy_binds_one_tenant(
+    tmp_path: Path, batteries: list[str]
+) -> None:
+    """Without the tenancy module no token names a tenant, so the default
+    ``multi`` mode answers 400 ``tenant_required`` to every token, a real login
+    included: the local ``.env`` binds one tenant, ``.env.example`` keeps the
+    lines commented, and the README says so."""
+    import uuid
+
+    from sandloom.core.config.settings import Settings
+
+    generate_project("probe_notenancy", tmp_path, with_batteries=batteries)
+    root = tmp_path / "probe_notenancy"
+    live = _live_lines(_read(root, ".env"))
+    assert live["TENANCY_MODE"] == "single"
+    tenant = uuid.UUID(live["SINGLE_TENANT_ID"])
+    loaded = Settings(  # type: ignore[call-arg]
+        _env_file=root / ".env",
+        DATABASE_URL="postgresql+asyncpg://u:p@h:5432/d",
+    )
+    assert loaded.tenancy_mode == "single"
+    assert loaded.single_tenant_id == tenant
+    example = _read(root, ".env.example")
+    assert "TENANCY_MODE" not in _live_lines(example)
+    assert "SINGLE_TENANT_ID" not in _live_lines(example)
+    assert f"# TENANCY_MODE=single\n# SINGLE_TENANT_ID={tenant}\n" in example
+    assert "TENANCY_MODE" not in _read(root, ".env.test")
+    assert "composes no tenancy battery" in _read(root, "README.md")
 
 
 def test_billing_apps_must_choose_a_psp(tmp_path: Path) -> None:
