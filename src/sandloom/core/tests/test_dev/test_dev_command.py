@@ -1669,44 +1669,127 @@ def _taskqueue_edge(
     }
 
 
-def _dev_run_output(
+def _dev_run(
     repo: Path,
     environ: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
     index: str | None,
-) -> str:
+    *,
+    background: bool = True,
+    reload: bool = False,
+) -> tuple[str, dict[str, Any]]:
     """What ``dev run`` prints for a checkout whose inspection index is ``index``
-    (``None``: no index)."""
+    (``None``: no index), and what it hands the server loop: its keyword
+    arguments (``background``: the processes it starts beside the app)."""
     ctx = _ctx(repo, environ)
     (repo / ".env").write_text(envfile.render_block(_VALUES))
     state = _state(ctx)
     commands.checkout_row(ctx, state)
     save_state(ctx.state_dir, state)
     _reachable(monkeypatch, up=True)
-    monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
+    served: dict[str, Any] = {}
+    monkeypatch.setattr(
+        commands, "_serve", lambda c, argv, env, **kw: served.update(kw) or 0
+    )
     if index is not None:
         (repo / ".sandloom").mkdir(exist_ok=True)
         (repo / commands.INSPECTION_INDEX).write_text(index, encoding="utf-8")
-    assert commands.run(ctx, port=None, reload=False) == 0
-    return _text(ctx.out)
+    assert commands.run(ctx, port=None, reload=reload, background=background) == 0
+    return _text(ctx.out), served
 
 
-def test_dev_run_names_the_worker_and_beat_when_a_composed_module_needs_them(
+_BILLING_EDGES = [
+    _taskqueue_edge("billing", required=True, features=["periodic", "redelivery"]),
+    _taskqueue_edge("identity", required=False, features=["periodic"]),
+]
+
+
+def test_dev_run_no_background_names_the_worker_and_beat_when_a_module_needs_them(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`dev run` starts only the web process: billing's reconciler is a
-    required periodic job, so the run says which two commands start it."""
-    edges = [
-        _taskqueue_edge("billing", required=True, features=["periodic", "redelivery"]),
-        _taskqueue_edge("identity", required=False, features=["periodic"]),
-    ]
-    out = _dev_run_output(repo, environ, monkeypatch, encode_index({"edges": edges}))
+    """`dev run --no-background` serves the web process only: billing's
+    reconciler is a required periodic job, so the run says which two commands
+    start it, and starts nothing."""
+    out, served = _dev_run(
+        repo,
+        environ,
+        monkeypatch,
+        encode_index({"edges": _BILLING_EDGES}),
+        background=False,
+    )
     notes = [
         line for line in out.splitlines() if "wait for a worker and a beat" in line
     ]
     assert notes == [commands.background_note(["billing"])]
     assert "uv run sandloom worker" in notes[0] and "uv run sandloom beat" in notes[0]
     assert "identity" not in notes[0]
+    assert "started" not in out
+    assert served["background"] == {}
+
+
+def test_dev_run_starts_a_worker_and_a_beat_when_a_composed_module_needs_them(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Billing's reconciler is a required periodic job: `dev run` hands the
+    server loop a worker and a beat (not identity's optional one), says so in
+    one line, and no longer tells the person to start them."""
+    out, served = _dev_run(
+        repo, environ, monkeypatch, encode_index({"edges": _BILLING_EDGES})
+    )
+    assert set(served["background"]) == {"worker", "beat"}
+    started = [line for line in out.splitlines() if "started for" in line]
+    assert started == [commands.background_started_note(["billing"], reload=False)]
+    assert started[0].startswith("worker and beat started for billing (")
+    assert "--no-background" in started[0] and "Ctrl-C" in started[0]
+    assert "identity" not in started[0]
+    assert "wait for a worker" not in out
+
+
+def test_dev_run_with_reload_says_that_only_the_web_process_reloads(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    edges = encode_index({"edges": _BILLING_EDGES})
+    reloading, _ = _dev_run(repo, environ, monkeypatch, edges, reload=True)
+    assert "reloads the web process only" in reloading
+
+
+def test_the_background_processes_are_the_sandloom_commands_of_this_interpreter(
+    repo: Path,
+) -> None:
+    argv = commands.background_argv(repo)
+    assert list(argv) == ["worker", "beat"]
+    assert argv["worker"][0] == argv["beat"][0] == sys.executable
+    assert argv["worker"][-1] == "worker"
+    schedule = argv["beat"][argv["beat"].index("--schedule") + 1]
+    assert argv["beat"][3] == "beat"
+    # the state file lands in the checkout's git-ignored run directory
+    assert Path(schedule).parent == commands.run_file(repo).parent
+    assert Path(schedule).is_relative_to(repo / ".sandloom" / "run")
+    # the entry point is real: the same prefix runs a sandloom command
+    probe = subprocess.run(
+        [*argv["worker"][:-1], "version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert probe.returncode == 0, probe.stderr
+    assert probe.stdout.strip()
+
+
+def test_dev_run_no_background_flag_reaches_the_command(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        dev_cli._commands, "run", lambda ctx, **kw: seen.append(kw) or 0
+    )
+    ctx = _ctx(repo, environ)
+    for flags in ([], ["--no-background"], ["--no-reload", "--no-background"]):
+        args = dev_cli._parser().parse_args(["run", *flags])
+        assert dev_cli._dispatch(ctx, args) == 0
+    assert [kw["background"] for kw in seen] == [True, False, False]
+    assert [kw["reload"] for kw in seen] == [True, True, False]
 
 
 @pytest.mark.parametrize(
@@ -1733,8 +1816,10 @@ def test_dev_run_says_nothing_about_a_worker_without_a_required_periodic_need(
     environ: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    out = _dev_run_output(repo, environ, monkeypatch, encode_index({"edges": edges}))
+    out, served = _dev_run(repo, environ, monkeypatch, encode_index({"edges": edges}))
     assert "sandloom worker" not in out and "sandloom beat" not in out
+    assert "started" not in out
+    assert served["background"] == {}
 
 
 @pytest.mark.parametrize(
@@ -1764,9 +1849,11 @@ def test_dev_run_without_a_readable_composition_record_serves_without_the_line(
     environ: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    out = _dev_run_output(repo, environ, monkeypatch, index)
+    out, served = _dev_run(repo, environ, monkeypatch, index)
     assert "sandloom dev run: http://127.0.0.1:" in out
     assert "sandloom worker" not in out
+    assert "started" not in out
+    assert served["background"] == {}
 
 
 def test_dev_run_names_a_free_port_when_the_sticky_one_is_taken(

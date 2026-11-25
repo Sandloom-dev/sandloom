@@ -178,8 +178,24 @@ INFRA='{"taskqueue": {"default": {"driver": "celery", "worker_pool": "solo"}}}'
 
 Or run the worker on Linux, in a container.
 
-Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
-importable Celery app of the Celery driver is for `celery inspect` and Flower: a
+**In development,** `sandloom dev run` starts them for you. A loaded module may
+require a periodic job: Billing's reconciler is one, a `taskqueue` need with the
+`periodic` feature, `required`. Then `dev run` runs `sandloom worker` and
+`sandloom beat` beside the app server and says so in one line. They get the
+app server's environment and working directory. Their output reaches the same
+terminal behind `worker |` and `beat |`. The beat keeps its schedule file in
+`.sandloom/run/`, which git ignores.
+
+Ctrl-C or SIGTERM stops all three, and so does the app server exiting. A worker
+or beat that exits early is reported in one line while the app keeps running.
+On macOS that is a `prefork` worker, which refuses to start (the note above).
+`--reload` restarts the app server only: restart `dev run` after you change a
+task. `--no-background` serves the app alone and prints the two commands. A
+deployment still runs `sandloom worker` and `sandloom beat` as processes of their
+own.
+
+Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`;
+`dev run` runs these two commands. The importable Celery app of the Celery driver is for `celery inspect` and Flower: a
 `celery -A ... worker` or `beat` on it stops with exit code 1. It reads its broker
 from `INFRA.taskqueue.default.broker`, through `Settings`, when the app is first
 used. With no broker it fails and names that option. It has no result backend

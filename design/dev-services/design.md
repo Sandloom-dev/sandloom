@@ -61,6 +61,9 @@ another `sandloom dev up` in <path>") and then finds everything already up.
   is taken, say what holds it (`lsof` / `psutil` where available) and suggest a free one; `--port
   auto` picks one and prints the URL (agents use this). A pid file per checkout makes a second `dev
   run` in the same checkout answer "already running at http://127.0.0.1:N" instead of failing.
+  Since owner decision 2026-11-25 (task `dev-run-background`) it also runs `sandloom worker` and
+  `sandloom beat` beside uvicorn when the composition requires a periodic job (see "`dev run` and
+  its background processes" below); `--no-background` keeps uvicorn alone.
 - `sandloom dev reset`: drop and recreate this checkout's database and flush its Redis indexes. The
   servers and every other checkout are untouched.
 - `sandloom dev down [--all]`: stop the repository's containers. Without `--all` it refuses while
@@ -270,3 +273,19 @@ uvicorn's "Application startup complete". Then it prints one block, once, after 
 lines. The block lists the app, the admin console when `/admin/` answers, the API docs when
 `/docs` answers, and `/health`. Outside production the app also serves `/favicon.ico`: the
 caracal of `docs/assets/sandloom-mark.svg` in the brand colours. The start page links it.
+
+**`dev run` and its background processes** (owner decision 2026-11-25). A new app made `--with
+billing` answered 503 on checkout and portal until a reconciler ran once, and that needs a worker
+and a beat, which `dev run` did not start. It now does, when the composition record
+(`.sandloom/inspection.json`) names a module with a required `periodic` taskqueue need
+(`background_modules`). They are children of `dev run`, started after uvicorn with the same
+environment (plus `PYTHONUNBUFFERED=1`) and working directory, through the interpreter's own
+`sandloom` entry point (`python -c "import sandloom; sandloom.main()" worker`; the package has no
+`__main__`). The beat's state file is `.sandloom/run/celerybeat-schedule`, which every scaffold
+git-ignores. Their output reaches the terminal behind a `worker |` / `beat |` prefix; uvicorn's
+output is untouched. Stopping: Ctrl-C, SIGTERM and uvicorn exiting stop all three (SIGTERM to the
+two, then a kill after 20 seconds); a worker or beat that exits early is reported in one line and
+uvicorn keeps running. They stay in `dev run`'s process group, so a closing terminal reaches them as
+it reaches uvicorn. `--reload` reloads uvicorn only: there is no reloader for the worker or the
+beat. `--no-background` keeps the old behaviour (uvicorn alone, plus the hint line that names the
+two commands).

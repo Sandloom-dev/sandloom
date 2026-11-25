@@ -15,8 +15,11 @@ the installed driver package describes
                                       in the state
     sandloom dev up --services docker back to the compose project
     sandloom dev status [--json]      services, ports, reachability, URLs
-    sandloom dev run [--port N|auto]  uvicorn for this checkout (its own port:
-                                      8000, else the next free, chosen once)
+    sandloom dev run [--port N|auto] [--no-reload] [--no-background]
+                                      uvicorn for this checkout (its own port:
+                                      8000, else the next free, chosen once);
+                                      with a required periodic job in the
+                                      composition, a worker and a beat too
     sandloom dev reset [--force]      drop and recreate this checkout's database
     sandloom dev down [--all] [--volumes] [--force] [--verbose]
     sandloom dev prune                databases of removed worktrees, stale test
@@ -107,7 +110,18 @@ def _parser() -> argparse.ArgumentParser:
         help="a port number, or auto (default: this checkout's port, which the "
         "first `dev up` chose: 8000, else the next free one)",
     )
-    run.add_argument("--no-reload", action="store_true", help="no auto-reload")
+    run.add_argument(
+        "--no-reload",
+        action="store_true",
+        help="no auto-reload (of the app server; a worker and a beat are never "
+        "reloaded)",
+    )
+    run.add_argument(
+        "--no-background",
+        action="store_true",
+        help="serve the app only: no worker and no beat, even when a module needs "
+        "periodic jobs (it prints the commands that start them)",
+    )
     reset = sub.add_parser("reset", help="drop and recreate this checkout's database")
     reset.add_argument("--force", action="store_true", help="even while in use")
     down = sub.add_parser("down", help="stop the repository's services")
@@ -186,7 +200,12 @@ def _dispatch(ctx: _commands.Context, args: argparse.Namespace) -> int:
     if args.action == "status":
         return _commands.status(ctx, as_json=args.json)
     if args.action == "run":
-        return _commands.run(ctx, port=args.port, reload=not args.no_reload)
+        return _commands.run(
+            ctx,
+            port=args.port,
+            reload=not args.no_reload,
+            background=not args.no_background,
+        )
     if args.action == "reset":
         return _commands.reset(ctx, force=args.force)
     if args.action == "down":

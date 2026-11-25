@@ -204,9 +204,12 @@ worker's deployment status and logs when the lease is healthy and runs are
 missing.
 
 In `ENVIRONMENT=dev` only, a reconciler that has never run is not a failure.
-`sandloom dev run` starts no worker and no beat. The check reports `ok` with
-`state: never_ran` and a note: run `uv run sandloom worker` and
-`uv run sandloom beat`. A run that went silent still fails there. So does open
+`sandloom dev run` starts the worker and the beat itself. The first run comes
+within 5 minutes. Until it completes, the check reports `ok` with
+`state: never_ran`. It does so for ever when the app is served with
+`--no-background` or by `uvicorn`. The note then reads: run
+`uv run sandloom worker` and `uv run sandloom beat`. A run that went silent
+still fails there. So does open
 compensation. The `test` and `prod` environments fail a reconciler that never ran.
 
 `/health/simple` reports web liveness. `/ready` checks the web process and its
@@ -331,11 +334,14 @@ Set up once:
    non-empty string) to `.env` and restart the app. Without it every webhook is
    `400`, also on the fake PSP.
 3. **The reconciler running.** Checkout answers `503` until a reconciler run
-   has completed in the last 15 minutes (see [HTTP API](#http-api)). Start
-   `uv run sandloom worker` and `uv run sandloom beat`, then wait for the first
-   beat, up to 5 minutes. On macOS set `"worker_pool": "solo"` in the
-   `taskqueue` instance of `INFRA`
-   ([the worker and beat](../background/tasks.md#the-worker-and-beat)).
+   has completed in the last 15 minutes (see [HTTP API](#http-api)).
+   `uv run sandloom dev run` starts the worker and the beat beside the app
+   server. It says so in one line. Wait for the first beat, up to 5 minutes.
+   With `--no-background` you start `uv run sandloom worker` and
+   `uv run sandloom beat` yourself. So you do when you serve the app another
+   way. On macOS set `"worker_pool": "solo"` in the `taskqueue` instance of
+   `INFRA`. Otherwise the worker refuses to start. `dev run` then reports its
+   exit ([the worker and beat](../background/tasks.md#the-worker-and-beat)).
 4. **An access token** of the user who buys (register, verify and log in:
    [Identity](identity.md)).
 

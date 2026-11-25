@@ -1748,13 +1748,20 @@ def _start_services(ctx: Context) -> None:
         )
 
 
-def run(ctx: Context, *, port: str | None, reload: bool) -> int:
+def run(
+    ctx: Context, *, port: str | None, reload: bool, background: bool = True
+) -> int:
     """Serve this checkout's app. The person's "run my app": stopped dev
     services are started first (unlike every other command), so the app
     never boots without its database. Not in CI, and not for a checkout
     that points ``DATABASE_URL`` at its own server instead of ``dev up``:
     exported, or set in ``.env`` outside the managed block (a SQLite file,
-    say: ``DATABASE_URL=sqlite+aiosqlite:///./data/app.db``)."""
+    say: ``DATABASE_URL=sqlite+aiosqlite:///./data/app.db``).
+
+    A composition with a required periodic job (:func:`background_modules`)
+    also gets a worker and a beat, started beside the app server with the same
+    environment and stopped with it; ``background=False`` (``--no-background``)
+    serves the app alone and prints the hint instead."""
     block = _read_block(ctx.root)
     own_database = _own_database_url(ctx.root)
     own_services = not own_database and (
@@ -1821,10 +1828,14 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
     ]
     ctx.say(f"sandloom dev run: {ctx.style.accent(url)} (health: {url}/health)")
     needing = background_modules(ctx.root)
-    if needing:
+    processes: dict[str, list[str]] = {}
+    if needing and background:
+        processes = background_argv(ctx.root)
+        ctx.say(background_started_note(needing, reload=reload))
+    elif needing:
         ctx.say(background_note(needing))
     try:
-        return _serve(ctx, argv, env, url=url)
+        return _serve(ctx, argv, env, url=url, background=processes)
     finally:
         with contextlib.suppress(OSError, ValueError):
             data = json.loads(marker.read_text(encoding="utf-8"))
@@ -1836,9 +1847,10 @@ def background_modules(root: Path) -> list[str]:
     """The modules of the checkout's composition that require periodic jobs
     (a ``taskqueue`` need with the ``periodic`` feature, ``required``), read
     from the composition record ``sandloom generate`` keeps in
-    ``.sandloom/inspection.json``. ``dev run`` starts only the web process, so
-    these jobs wait for a worker and a beat. An absent or unreadable record
-    names none: this is a hint, and ``generate`` is where it is repaired."""
+    ``.sandloom/inspection.json``. These jobs need a worker and a beat:
+    ``dev run`` starts them beside the app server. An absent or unreadable
+    record names none, so none is started: ``generate`` is where it is
+    repaired."""
     try:
         doc = parse_inspection_index((root / INSPECTION_INDEX).read_text("utf-8"))
     except (OSError, ValueError):
@@ -1862,13 +1874,44 @@ def background_modules(root: Path) -> list[str]:
 
 
 def background_note(modules: list[str]) -> str:
-    """The one line ``dev run`` prints for ``modules`` (see
+    """The one line ``dev run --no-background`` prints for ``modules`` (see
     :func:`background_modules`)."""
     return (
         f"background jobs of {', '.join(modules)} wait for a worker and a beat: "
         "run `uv run sandloom worker` and `uv run sandloom beat` in two other "
         "terminals"
     )
+
+
+def background_started_note(modules: list[str], *, reload: bool) -> str:
+    """The one line ``dev run`` prints when it starts the worker and the beat
+    for ``modules``. A reload restarts the app server only, which it says."""
+    return (
+        f"worker and beat started for {', '.join(modules)} (stop with Ctrl-C; "
+        "--no-background to skip"
+        + ("; a code change reloads the web process only)" if reload else ")")
+    )
+
+
+#: The ``sandloom`` entry point of the interpreter that runs ``dev run``: the
+#: package has no ``__main__`` for ``python -m sandloom``, and the console
+#: script may not be on ``PATH`` (``uv run`` puts it there, a bare venv does not).
+_SANDLOOM_ENTRY = "import sandloom; sandloom.main()"
+
+#: The beat's state file, beside the run marker: ``.sandloom/run/`` is ignored by
+#: git in every scaffold, so no schedule file lands in the repository.
+BEAT_SCHEDULE = "celerybeat-schedule"
+
+
+def background_argv(root: Path) -> dict[str, list[str]]:
+    """The argv of each background process ``dev run`` starts for the checkout
+    at ``root``, by name: ``sandloom worker`` and ``sandloom beat``."""
+    entry = [sys.executable, "-c", _SANDLOOM_ENTRY]
+    schedule = run_file(root).parent / BEAT_SCHEDULE
+    return {
+        "worker": [*entry, "worker"],
+        "beat": [*entry, "beat", "--schedule", str(schedule)],
+    }
 
 
 #: The setting ``dev run`` turns on for the app it serves
@@ -1940,11 +1983,56 @@ def announce_when_up(
     return True
 
 
+def _start_background(
+    ctx: Context,
+    env: Mapping[str, str],
+    processes: Mapping[str, list[str]],
+    started: list[_process.Background],
+) -> None:
+    """Start each of ``processes`` (name to argv) beside the app server, into
+    ``started``, which the caller stops. They get the app server's
+    environment (unbuffered, so their lines are not held back by the pipe);
+    one that cannot start is reported and the others still run."""
+    lock = threading.Lock()
+
+    def died(name: str, code: int) -> None:
+        ctx.warn(
+            f"{name} exited with status {code}; the app keeps running without it "
+            f"(its last lines are above, `uv run sandloom {name}` starts it by hand)"
+        )
+
+    for name, argv in processes.items():
+        try:
+            started.append(
+                _process.Background(
+                    name,
+                    argv,
+                    env={**env, "PYTHONUNBUFFERED": "1"},
+                    cwd=ctx.root,
+                    out=ctx.out,
+                    lock=lock,
+                    died=died,
+                )
+            )
+        except OSError as exc:
+            ctx.warn(f"{name} did not start: {exc}")
+
+
 def _serve(
-    ctx: Context, argv: list[str], env: dict[str, str], *, url: str | None = None
+    ctx: Context,
+    argv: list[str],
+    env: dict[str, str],
+    *,
+    url: str | None = None,
+    background: Mapping[str, list[str]] | None = None,
 ) -> int:
+    """Run the app server in the foreground and the ``background`` processes
+    (name to argv) beside it. Ctrl-C and SIGTERM stop all of them, and so does
+    the app server exiting; a background process that exits early is reported
+    and the app server keeps running."""
     child = _process.spawn(argv, cwd=ctx.root, env=env)
     stop = threading.Event()
+    started: list[_process.Background] = []
     if url is not None:
         threading.Thread(
             target=announce_when_up,
@@ -1955,14 +2043,19 @@ def _serve(
     def _forward(signum: int, _frame: object) -> None:
         with contextlib.suppress(ProcessLookupError):
             child.send_signal(signum)
+        for process in started:
+            process.terminate()
 
     previous = signal.signal(signal.SIGTERM, _forward)
     try:
+        _start_background(ctx, env, background or {}, started)
         return int(child.wait())
     except KeyboardInterrupt:
         # Ctrl-C is how a person stops the server: a clean stop, exit 0.
         with contextlib.suppress(ProcessLookupError):
             child.send_signal(signal.SIGINT)
+        for process in started:
+            process.terminate()
         try:
             child.wait(timeout=20)
         except (subprocess.TimeoutExpired, KeyboardInterrupt):
@@ -1971,6 +2064,7 @@ def _serve(
         return 0
     finally:
         stop.set()
+        _process.stop_all(started)
         signal.signal(signal.SIGTERM, previous)
 
 
