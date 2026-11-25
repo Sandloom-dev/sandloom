@@ -83,9 +83,9 @@ Scripts and coding agents pass `--yes`.
 Open [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health);
 with the services healthy, it returns HTTP 200. Generated module routes require
 a bearer token by default. To call one in development, run
-`uv run sandloom dev token`; a `--no-batteries` app already binds one tenant in
+`uv run sandloom dev token`; an app without `tenancy` already binds one tenant in
 `.env` (`TENANCY_MODE=single`), as
-[your first access token](docs/modules/batteries/first-access-token.md#an-application-without-batteries)
+[your first access token](docs/modules/batteries/first-access-token.md#an-application-without-tenancy)
 shows. For signup and login, use `--with identity` instead of `--no-batteries`
 when generating the app; add `tenancy` and `billing` when needed. After
 `uv sync`, run `uv run sandloom generate` to create snapshots, contract stubs

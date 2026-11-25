@@ -709,7 +709,9 @@ def test_an_app_with_batteries_but_no_tenancy_binds_one_tenant(
     assert "SINGLE_TENANT_ID" not in _live_lines(example)
     assert f"# TENANCY_MODE=single\n# SINGLE_TENANT_ID={tenant}\n" in example
     assert "TENANCY_MODE" not in _read(root, ".env.test")
-    assert "composes no tenancy battery" in _read(root, "README.md")
+    readme = _read(root, "README.md")
+    assert "composes no tenancy battery" in readme
+    assert ("admin console's tenant scope" in readme) == ("admin" in batteries)
 
 
 def test_billing_apps_must_choose_a_psp(tmp_path: Path) -> None:

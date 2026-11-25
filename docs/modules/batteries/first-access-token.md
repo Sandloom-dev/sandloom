@@ -105,11 +105,13 @@ root do not load, the command says so. It leaves out the settings' own error
 text, which can echo the value that failed. `uv run sandloom --debug dev token`
 adds the last error line of the failed process, without urls.
 
-### An application without batteries
+### An application without tenancy
 
-`sandloom new --no-batteries` composes no identity and no tenancy, so no module
-vouches for a role or a tenant: `--role` and `--tenant` are refused. A token
-without flags is still a valid login for routes that need nothing more.
+`sandloom new --no-batteries` composes neither identity nor tenancy. No module
+vouches for a role or a tenant, so the command refuses both flags, `--role` and
+`--tenant`. With `--with identity` alone, identity vouches for roles. There
+`--role` works and only `--tenant` is refused. A token without flags is a valid
+login for routes that need nothing more.
 
 A tenant-scoped route, such as the generated module's, still has to know the
 tenant. With `TENANCY_MODE=multi`, the default of the settings, nothing can

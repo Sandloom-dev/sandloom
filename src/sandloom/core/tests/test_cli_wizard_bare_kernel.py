@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.metadata
 import io
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -235,9 +236,16 @@ def _marked(monkeypatch: pytest.MonkeyPatch) -> FakeStack:
     return fake
 
 
+#: The generated ``SINGLE_TENANT_ID`` of an app without tenancy: a random UUID
+#: per app, also written commented into ``.env.example``.
+_TENANT_LINE = re.compile(rb"SINGLE_TENANT_ID=[0-9a-f-]{36}")
+
+
 def _tree(root: Path) -> dict[str, bytes]:
     return {
-        path.relative_to(root).as_posix(): path.read_bytes()
+        path.relative_to(root).as_posix(): _TENANT_LINE.sub(
+            b"SINGLE_TENANT_ID=<uuid>", path.read_bytes()
+        )
         for path in sorted(root.rglob("*"))
         if path.is_file() and path.name != ".env"  # the one random secret
     }

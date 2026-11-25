@@ -146,6 +146,12 @@ recreate `.env`). Add the tenancy battery and switch to `TENANCY_MODE=multi`
 for several tenants.
 """
 
+#: The admin console's addition to :data:`_SINGLE_TENANT_NOTE`.
+_SINGLE_TENANT_ADMIN_NOTE = """
+The admin console's tenant scope is that `SINGLE_TENANT_ID`: any other UUID
+answers 403 `tenant_mismatch`.
+"""
+
 #: The tenant lines of an app with no tenancy module (``--no-batteries``, or
 #: identity / billing / admin without tenancy): no module grants a tenant (a
 #: login token carries no ``tenant_ids``), so under the default
@@ -1526,7 +1532,12 @@ def generate_project(
             if "identity" in bundled
             else (_BARE_APP_NOTE if not bundled else "")
         )
-        + (_SINGLE_TENANT_NOTE if bundled and "tenancy" not in bundled else ""),
+        + (_SINGLE_TENANT_NOTE if bundled and "tenancy" not in bundled else "")
+        + (
+            _SINGLE_TENANT_ADMIN_NOTE
+            if "admin" in bundled and "tenancy" not in bundled
+            else ""
+        ),
         "billing_note": _BILLING_NOTE if "billing" in bundled else "",
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
