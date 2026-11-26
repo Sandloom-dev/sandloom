@@ -219,11 +219,15 @@ def test_sigterm_and_a_hang_up_stop_the_app_the_worker_and_the_beat(
         _eventually(lambda: _both_ready(ctx), "the worker and the beat")
         os.kill(os.getpid(), signum)
 
+    sender = threading.Thread(target=signal_dev_run, daemon=True)
     try:
-        threading.Thread(target=signal_dev_run, daemon=True).start()
+        sender.start()
         assert commands._serve(ctx, ["uvicorn"], {}, background=_stand_ins()) == 0
         assert signal.getsignal(signum) is idle  # the handler it replaced is back
     finally:
+        # the sender is done before the handler is restored: a signal it sent
+        # late would reach the restored (default) handler and end pytest
+        sender.join(timeout=30)
         signal.signal(signum, before)
     assert web.signals == [signal.SIGTERM]  # forwarded to the app server
     assert len(spawned) == 2
@@ -274,11 +278,23 @@ def test_a_background_process_that_cannot_start_is_reported_and_the_other_runs(
         "worker": [str(ctx.root / "no-such-interpreter"), "-c", "pass"],
         "beat": [sys.executable, "-c", _BEAT],
     }
-    assert commands._serve(ctx, ["uvicorn"], {}, background=background) == 0
+    announced: list[list[str]] = []
+    assert (
+        commands._serve(
+            ctx,
+            ["uvicorn"],
+            {},
+            background=background,
+            announce=lambda names: announced.append(list(names)),
+        )
+        == 0
+    )
     report = _err(ctx).splitlines()
     assert len(report) == 1
     assert report[0].startswith("warning: worker did not start: ")
     assert len(spawned) == 1  # the beat
+    # said after the start, of the process that did start
+    assert announced == [["beat"]]
     assert _terminated(spawned) == [-signal.SIGTERM]
 
 
@@ -919,6 +935,20 @@ _RUN_TO_KILL = (
 )
 
 
+def _exited(pid: int) -> bool:
+    """Gone, or a zombie (its parent has not reaped it yet: it runs no more,
+    but a pid check still finds it)."""
+    if not commands.pid_alive(pid):
+        return True
+    state = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    return state == "" or state.startswith("Z")
+
+
 def test_the_next_run_stops_what_a_killed_run_left_running(
     ctx: commands.Context,
 ) -> None:
@@ -936,9 +966,7 @@ def test_the_next_run_stops_what_a_killed_run_left_running(
         run.wait()
         assert all(commands.pid_alive(pid) for pid in pids)  # they stayed
         commands.stop_leftovers(ctx)
-        _eventually(
-            lambda: not any(commands.pid_alive(pid) for pid in pids), "their exit"
-        )
+        _eventually(lambda: all(_exited(pid) for pid in pids), "their exit")
         assert len(_err(ctx).splitlines()) == 1
     finally:
         if run.poll() is None:
@@ -948,6 +976,353 @@ def test_the_next_run_stops_what_a_killed_run_left_running(
             if commands.pid_alive(pid):
                 with contextlib.suppress(OSError):
                     os.kill(pid, signal.SIGKILL)
+
+
+# --------------------------------------------------------------------------- #
+# One SIGTERM per process, an interrupt after the start, a hung app server
+# --------------------------------------------------------------------------- #
+
+#: A worker that counts the SIGTERMs it gets: its warm shutdown takes a while, so
+#: a second signal of the stop would land inside it and print a second line.
+_COUNTS_TERMS = (
+    "import signal, sys, time\n"
+    "def on_term(signum, frame):\n"
+    "    print('term', flush=True)\n"
+    "    time.sleep(1.0)\n"
+    "    sys.exit(0)\n"
+    "signal.signal(signal.SIGTERM, on_term)\n"
+    "print('ready', flush=True)\n"
+    "time.sleep(300)\n"
+)
+
+
+def test_a_background_process_is_asked_to_stop_once_however_many_paths_ask(
+    tmp_path: Path,
+) -> None:
+    out = io.StringIO()
+    deaths: list[tuple[str, int]] = []
+    background = _background(
+        tmp_path, _COUNTS_TERMS, out=out, died=lambda n, c: deaths.append((n, c))
+    )
+    try:
+        _eventually(lambda: "worker | ready" in out.getvalue(), "the handler")
+        background.terminate()
+        background.terminate()
+        _eventually(lambda: "worker | term" in out.getvalue(), "the first signal")
+        process.stop_all([background])  # the `finally` of a run: a third ask
+    finally:
+        if background.child.poll() is None:
+            background.child.kill()
+            background.child.wait()
+    assert background.child.returncode == 0
+    assert out.getvalue().splitlines().count("worker | term") == 1
+    assert deaths == []
+
+
+@contextlib.contextmanager
+def _delivered(
+    ctx: commands.Context,
+    signum: signal.Signals,
+    ready: Callable[[commands.Context], bool] = _both_ready,
+) -> Iterator[None]:
+    """``signum`` reaches this process once ``ready`` holds (by default the
+    worker and the beat stand-ins run). A handler of the test's own stands in, so
+    that a `_serve` that installs none fails a test and does not end pytest; the
+    sender is done before the handler is restored."""
+
+    def idle(_signum: int, _frame: object) -> None:
+        return None
+
+    before = signal.signal(signum, idle)
+
+    def send() -> None:
+        _eventually(lambda: ready(ctx), "the worker and the beat")
+        os.kill(os.getpid(), signum)
+
+    sender = threading.Thread(target=send, daemon=True)
+    try:
+        sender.start()
+        yield
+    finally:
+        sender.join(timeout=30)
+        signal.signal(signum, before)
+
+
+@pytest.mark.parametrize("how", ["ctrl-c", "sigterm"])
+def test_every_stop_path_signals_each_background_process_once(
+    ctx: commands.Context,
+    spawned: list[subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+    how: str,
+) -> None:
+    """Ctrl-C (`_stop_run`) and a forwarded signal (`_forward`) both ask, and so
+    does the `finally`: the worker still sees one SIGTERM, the beat releases its
+    lease once."""
+    stand_ins = {
+        "worker": [sys.executable, "-c", _COUNTS_TERMS],
+        "beat": [sys.executable, "-c", _BEAT],
+    }
+
+    def ready(ctx: commands.Context) -> bool:
+        return "worker | ready" in _out(ctx) and "beat | tick" in _out(ctx)
+
+    # Ctrl-C: the app's wait is interrupted once they run; SIGTERM: it waits
+    # until the signal was forwarded to it
+    web = _Web(lambda: ready(ctx), interrupt=how == "ctrl-c")
+    monkeypatch.setattr(process, "spawn", lambda argv, env, cwd: web)
+    if how == "ctrl-c":
+        assert commands._serve(ctx, ["uvicorn"], {}, background=stand_ins) == 0
+    else:
+        with _delivered(ctx, signal.SIGTERM, ready):
+            assert commands._serve(ctx, ["uvicorn"], {}, background=stand_ins) == 0
+    assert _out(ctx).splitlines().count("worker | term") == 1
+    assert _terminated(spawned) == [0, -signal.SIGTERM]
+    assert _err(ctx) == ""
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt, RuntimeError])
+def test_an_interrupt_between_the_start_and_the_owner_holding_it_kills_the_process(
+    tmp_path: Path, spawned: list[subprocess.Popen[bytes]], error: type[BaseException]
+) -> None:
+    """The process has a session of its own, so nothing else would stop it: a
+    Ctrl-C (or an error) before it joined the owner's list kills it and is
+    raised again."""
+
+    class Refusing(list[process.Background]):
+        def append(self, item: process.Background) -> None:
+            raise error
+
+    deaths: list[tuple[str, int]] = []
+    with pytest.raises(error):
+        process.Background(
+            "worker",
+            [sys.executable, "-c", _WORKER],
+            env=os.environ,
+            cwd=tmp_path,
+            out=io.StringIO(),
+            lock=threading.Lock(),
+            died=lambda name, code: deaths.append((name, code)),
+            into=Refusing(),
+        )
+    assert len(spawned) == 1
+    assert spawned[0].poll() == -signal.SIGKILL  # gone, and reaped
+    _eventually(
+        lambda: (
+            not any(
+                t.name == "dev-run-worker-exit" and t.is_alive()
+                for t in threading.enumerate()
+            )
+        ),
+        "the exit watcher",
+    )
+    assert deaths == []  # killed by us: no early death to report
+
+
+def test_a_background_process_joins_the_owners_list_when_it_starts(
+    tmp_path: Path,
+) -> None:
+    owned: list[process.Background] = []
+    background = process.Background(
+        "worker",
+        [sys.executable, "-c", _WORKER],
+        env=os.environ,
+        cwd=tmp_path,
+        out=io.StringIO(),
+        lock=threading.Lock(),
+        died=lambda name, code: None,
+        into=owned,
+    )
+    try:
+        assert owned == [background]
+    finally:
+        process.stop_all(owned)
+
+
+class _Stuck:
+    """An app server that never finishes its shutdown: ``wait`` runs out its
+    timeout each time; only a kill ends it."""
+
+    pid = 0
+
+    def __init__(self) -> None:
+        self.killed = False
+        self.signals: list[int] = []
+
+    def wait(self, timeout: float | None = None) -> int:
+        if self.killed:
+            return -signal.SIGKILL
+        time.sleep(min(timeout, 0.05) if timeout else 0.05)
+        raise subprocess.TimeoutExpired("uvicorn", timeout or 0.0)
+
+    def send_signal(self, signum: int) -> None:
+        self.signals.append(signum)
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def test_an_app_server_that_hangs_after_sigterm_is_killed_at_the_deadline(
+    ctx: commands.Context,
+    spawned: list[subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wait on the app server has an end once a stop began: the background
+    processes are stopped, gracefully, and the run ends."""
+    grace = 1.0
+    monkeypatch.setattr(process, "STOP_GRACE_SECONDS", grace)
+    web = _Stuck()
+    monkeypatch.setattr(process, "spawn", lambda argv, env, cwd: web)
+    # `_serve` installs signal handlers: it runs in this (the main) thread, and
+    # a thread sends the signal once the stand-ins run
+    with _delivered(ctx, signal.SIGTERM):
+        stopped_at = time.monotonic()
+        result = commands._serve(ctx, ["uvicorn"], {}, background=_stand_ins())
+    assert web.killed and web.signals == [signal.SIGTERM]
+    assert result == -signal.SIGKILL
+    assert _terminated(spawned) == [-signal.SIGTERM, -signal.SIGTERM]
+    assert time.monotonic() - stopped_at < 30 * grace  # not for ever
+
+
+def test_the_wait_on_the_app_server_is_unbounded_until_a_stop_began() -> None:
+    """Before any stop the server may run as long as it likes."""
+    clock = commands._StopClock()
+    answers = iter([subprocess.TimeoutExpired("uvicorn", 0.5)] * 3 + [7])
+
+    class Running:
+        def wait(self, timeout: float | None = None) -> int:
+            answer = next(answers)
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+
+        def kill(self) -> None:  # pragma: no cover - a failing test
+            raise AssertionError("killed with no stop begun")
+
+    assert commands._wait_app(Running(), clock) == 7  # type: ignore[arg-type]
+
+
+def test_the_app_server_ignores_the_hang_up_and_this_process_keeps_its_handler(
+    tmp_path: Path,
+) -> None:
+    """The app server shares the terminal's process group: a closing terminal
+    would end it before `dev run` forwards its own SIGTERM."""
+    answer = tmp_path / "answer"
+    script = (
+        "import signal, sys\n"
+        "ignored = signal.getsignal(signal.SIGHUP) == signal.SIG_IGN\n"
+        "open(sys.argv[1], 'w').write(str(ignored))\n"
+    )
+
+    def mine(_signum: int, _frame: object) -> None:
+        return None
+
+    before = signal.signal(signal.SIGHUP, mine)
+    try:
+        child = process.spawn(
+            [sys.executable, "-c", script, str(answer)], env=os.environ, cwd=tmp_path
+        )
+        child.wait()
+        assert signal.getsignal(signal.SIGHUP) is mine  # this process: as it was
+    finally:
+        signal.signal(signal.SIGHUP, before)
+    assert answer.read_text() == "True"
+
+
+# --------------------------------------------------------------------------- #
+# The run marker's own pid, the tolerance, the check before SIGKILL
+# --------------------------------------------------------------------------- #
+
+
+def _marker_of(ctx: commands.Context, record: dict[str, object]) -> None:
+    marker = commands.run_file(ctx.root)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({"host": socket.gethostname(), **record}))
+
+
+def test_a_pid_the_system_reused_is_no_live_run(
+    ctx: commands.Context, sleepers: Callable[..., subprocess.Popen[bytes]]
+) -> None:
+    """After a reboot a marker's pid may belong to any process: one that started
+    at another time than the run did is not that run."""
+    other = sleepers()
+    now = _started(other)
+    _marker_of(ctx, {"pid": other.pid, "pid_started": now - 3600})
+    assert commands.live_run(ctx.root) is None
+    _marker_of(ctx, {"pid": other.pid, "pid_started": now})
+    found = commands.live_run(ctx.root)
+    assert found is not None and found["pid"] == other.pid
+    # a marker from before the start time was recorded: the pid alone, as before
+    _marker_of(ctx, {"pid": other.pid})
+    assert commands.live_run(ctx.root) is not None
+
+
+def test_a_run_whose_start_cannot_be_read_is_taken_for_live(
+    ctx: commands.Context,
+    sleepers: Callable[..., subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other = sleepers()
+    _marker_of(ctx, {"pid": other.pid, "pid_started": 1.0})
+    monkeypatch.setattr(process, "started_at", lambda pid, env: None)
+    assert commands.live_run(ctx.root) is not None
+
+
+def test_a_leftover_that_started_seconds_off_the_record_is_not_ours(
+    ctx: commands.Context, sleepers: Callable[..., subprocess.Popen[bytes]]
+) -> None:
+    """The tolerance is about the second `ps` rounds to, not ten of them."""
+    stranger = sleepers()
+    _write_marker(ctx, {"worker": (stranger.pid, _started(stranger) - 5)})
+    commands.stop_leftovers(ctx)
+    assert stranger.poll() is None
+    assert _err(ctx) == ""
+
+
+def test_a_leftover_that_is_another_process_by_the_time_of_the_kill_is_spared(
+    ctx: commands.Context,
+    sleepers: Callable[..., subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It ignored SIGTERM; during the wait its pid went to another process: the
+    check made again before SIGKILL says so, and nothing is killed."""
+    monkeypatch.setattr(commands, "LEFTOVER_STOP_SECONDS", 0.3)
+    stubborn = sleepers(ignore_sigterm=True)
+    recorded = _started(stubborn)
+    _write_marker(ctx, {"worker": (stubborn.pid, recorded)})
+    real = process.started_at
+    calls: list[int] = []
+
+    def reused(pid: int, env: object) -> float | None:
+        calls.append(pid)
+        found = real(pid, os.environ)
+        return found if len(calls) == 1 else (found or 0) - 3600
+
+    monkeypatch.setattr(process, "started_at", reused)
+    commands.stop_leftovers(ctx)
+    assert len(calls) == 2  # once to name it, once before the kill
+    assert stubborn.poll() is None
+    warning = _err(ctx)
+    assert f"worker (pid {stubborn.pid})" in warning and "left alone" in warning
+
+
+def test_the_wait_after_a_kill_is_bounded(
+    ctx: commands.Context,
+    sleepers: Callable[..., subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A process that SIGKILL does not take away at once (uninterruptible sleep)
+    does not hold the run for ever."""
+    monkeypatch.setattr(commands, "LEFTOVER_STOP_SECONDS", 0.2)
+    monkeypatch.setattr(commands, "LEFTOVER_KILL_SECONDS", 0.3)
+    stubborn = sleepers(ignore_sigterm=True)
+    _write_marker(ctx, {"worker": (stubborn.pid, _started(stubborn))})
+    monkeypatch.setattr(commands, "pid_alive", lambda pid: True)
+    runner = threading.Thread(target=commands.stop_leftovers, args=(ctx,), daemon=True)
+    runner.start()
+    runner.join(timeout=30)
+    assert not runner.is_alive(), "stop_leftovers waits for ever for a killed process"
+    _eventually(lambda: stubborn.poll() is not None, "the kill")
+    assert stubborn.returncode == -signal.SIGKILL
 
 
 def test_bytes_that_are_not_text_do_not_stop_the_output(tmp_path: Path) -> None:

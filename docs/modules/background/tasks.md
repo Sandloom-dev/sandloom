@@ -181,7 +181,9 @@ needs none of this ([below](#the-worker-and-beat)).
 
 **In development,** `sandloom dev run` starts them for you. A loaded module may
 require a periodic job: Billing's reconciler is one, a `taskqueue` need with the
-`periodic` feature, `required`. Then `dev run` runs `sandloom worker` and
+`periodic` feature, `required`. `dev run` reads that need from the composition
+record in `.sandloom/inspection.json`, which `sandloom generate` refreshes: run it
+after a module or its tasks change, or `dev run` starts nothing. Then `dev run` runs `sandloom worker` and
 `sandloom beat` beside the app server and says so in one line. They get the
 app server's environment and working directory. Their output reaches the same
 terminal behind `worker |` and `beat |`. The beat keeps its schedule file in
@@ -191,9 +193,14 @@ Ctrl-C stops all three, and so does SIGTERM. A closing terminal (SIGHUP) does to
 and so does the app server exiting. A worker or beat that exits early is reported
 in one line while the app keeps running. On macOS `dev run` starts its worker in
 the `solo` pool and says so, because `prefork` refuses to start there. The option
-goes into that worker's environment only. Your `.env`, the app server and a
-deployed worker are unchanged. A `worker_pool` you set in `INFRA` for the worker's
-instance is kept.
+goes into that worker's environment only. Nothing else changes: not your `.env`, not
+the app server, not a deployed worker. A `worker_pool` you set for the worker's instance is
+kept, whether `INFRA` or the composition's `DEFAULT_INFRA` sets it.
+
+The periodic jobs may name one task queue instance other than `default`. The worker
+and the beat then run it. If they name several, `dev run` warns and `default` runs,
+unless you set `SANDLOOM_WORKER_TASKQUEUE`. An app server that has not exited 20
+seconds after a stop is killed. The worker and the beat are stopped after that.
 
 The worker and the beat have a session of their own. A closing terminal then does
 not hang them up. A Celery worker would restart on a hang-up and outlive `dev run`.
