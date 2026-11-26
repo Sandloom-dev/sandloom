@@ -35,6 +35,7 @@ from sandloom.core.cli.dev import (
     identity,
     locks,
     ports,
+    process,
 )
 from sandloom.core.cli.dev.state import (
     CheckoutRow,
@@ -1695,8 +1696,20 @@ def _dev_run(
     _reachable(monkeypatch, up=True)
     monkeypatch.setattr(commands, "_prefork_unavailable", lambda: prefork_unavailable)
     served: dict[str, Any] = {}
+
+    def serve(c: object, argv: object, env: dict[str, str], **kw: Any) -> int:
+        served.update(kw, env=env)
+        served["marker_record"] = json.loads(commands.run_file(repo).read_text())
+        if kw["announce"] is not None:  # what `_serve` does once they started
+            kw["announce"](list(kw["background"]))
+        return 0
+
+    monkeypatch.setattr(commands, "_serve", serve)
+    # the composition's selection is read by a child process: none here
     monkeypatch.setattr(
-        commands, "_serve", lambda c, argv, env, **kw: served.update(kw, env=env) or 0
+        commands,
+        "composition_selection",
+        lambda ctx, text, checkout=None: commands.CompositionSelection({}, {}),
     )
     if index is not None:
         (repo / ".sandloom").mkdir(exist_ok=True)
@@ -1758,6 +1771,17 @@ def test_dev_run_starts_a_worker_and_a_beat_when_a_composed_module_needs_them(
     assert "wait for a worker" not in out
 
 
+def test_dev_run_records_when_its_own_process_started_in_the_run_marker(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What `live_run` compares, so that a pid the system reused is no live run."""
+    _, served = _dev_run(repo, environ, monkeypatch, None)
+    mine = process.started_at(os.getpid(), os.environ)
+    assert mine is not None
+    assert served["marker_record"]["pid"] == os.getpid()
+    assert abs(served["marker_record"]["pid_started"] - mine) < 1
+
+
 def test_dev_run_where_prefork_cannot_start_runs_the_worker_in_the_solo_pool(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1805,10 +1829,19 @@ def _worker_infra(
     monkeypatch: pytest.MonkeyPatch,
     *,
     prefork_unavailable: bool = True,
+    default_infra: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """The ``INFRA`` the worker would get from :func:`commands.background_env`
-    for ``environ`` (``None``: it adds nothing)."""
+    for ``environ`` (``None``: it adds nothing). ``default_infra``: the
+    composition's ``DEFAULT_INFRA`` (read by a child process in real life)."""
     monkeypatch.setattr(commands, "_prefork_unavailable", lambda: prefork_unavailable)
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda ctx, text, checkout=None: commands.CompositionSelection(
+            default_infra or {}, {}
+        ),
+    )
     added = commands.background_env(_ctx(repo, dict(os.environ)), environ)
     if not added:
         return None
@@ -1896,6 +1929,121 @@ def test_the_pool_goes_to_the_instance_the_worker_runs(
     chosen = {"taskqueue": {"default": {}, "jobs": {"worker_pool": "threads"}}}
     selected["INFRA"] = json.dumps(chosen)
     assert _worker_infra(repo, selected, monkeypatch) is None
+
+
+def test_an_infra_line_of_env_with_a_trailing_comment_is_read_as_the_worker_reads_it(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`INFRA='{...}' # why` is a valid line for python-dotenv, which the worker
+    reads: the solo pool is added to the object, not skipped as unreadable."""
+    taskqueue = {"taskqueue": {"default": {"broker": "redis://from-env-file/1"}}}
+    (repo / ".env").write_text(f"INFRA='{json.dumps(taskqueue)}'  # my queue\n")
+    assert _worker_infra(repo, {}, monkeypatch) == {
+        "taskqueue": {
+            "default": {"broker": "redis://from-env-file/1", "worker_pool": "solo"}
+        }
+    }
+    # a pool the commented line sets is kept too
+    pooled = {"taskqueue": {"default": {"worker_pool": "threads"}}}
+    (repo / ".env").write_text(f"INFRA='{json.dumps(pooled)}' # threads\n")
+    assert _worker_infra(repo, {}, monkeypatch) is None
+
+
+@pytest.mark.parametrize(
+    "default_infra",
+    [
+        {"taskqueue": {"default": {"driver": "celery", "worker_pool": "threads"}}},
+        {"taskqueue": {"default": {"driver": "another"}}},
+    ],
+)
+def test_the_composition_default_infra_counts_as_the_infra_in_force(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, default_infra: dict[str, Any]
+) -> None:
+    """A pool or a driver the composition selects is the person's choice as much
+    as one in INFRA: no solo pool over it."""
+    assert (
+        _worker_infra(repo, {"INFRA": "{}"}, monkeypatch, default_infra=default_infra)
+        is None
+    )
+
+
+def test_infra_goes_over_the_composition_default_infra_for_the_pool_decision(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected = {"taskqueue": {"default": {"driver": "another", "worker_pool": "x"}}}
+    # INFRA names the celery driver: the composition's options are another
+    # driver's and drop out, so the worker has no pool
+    named = {"taskqueue": {"default": {"driver": "celery"}}}
+    assert _worker_infra(
+        repo, {"INFRA": json.dumps(named)}, monkeypatch, default_infra=selected
+    ) == {"taskqueue": {"default": {"driver": "celery", "worker_pool": "solo"}}}
+    # a composition on celery without a pool, INFRA without the instance
+    plain = {"taskqueue": {"default": {"driver": "celery"}}}
+    assert _worker_infra(repo, {}, monkeypatch, default_infra=plain) == {
+        "taskqueue": {"default": {"worker_pool": "solo"}}
+    }
+
+
+def _periodic_index(repo: Path, *instances: str) -> None:
+    (repo / ".sandloom").mkdir(exist_ok=True)
+    edges = [
+        {**_taskqueue_edge(f"mod{i}", required=True, features=["periodic"])}
+        | {"instance": instance}
+        for i, instance in enumerate(instances)
+    ]
+    (repo / commands.INSPECTION_INDEX).write_text(
+        encode_index({"edges": edges}), encoding="utf-8"
+    )
+
+
+def test_the_one_task_queue_instance_the_periodic_jobs_name_is_the_one_both_run(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A composition whose only task queue is `jobs` fails to start a worker that
+    looks for `default`: worker and beat get the instance variable."""
+    monkeypatch.setattr(commands, "_prefork_unavailable", lambda: False)
+    _periodic_index(repo, "jobs", "jobs")
+    ctx = _ctx(repo, {})
+    expected = {commands.WORKER_INSTANCE_ENV: "jobs"}
+    assert commands.background_env(ctx, {}) == {"worker": expected, "beat": expected}
+    assert _text(ctx.err) == ""
+    # the person's own choice is never overridden, and `default` needs none
+    assert commands.background_env(ctx, {commands.WORKER_INSTANCE_ENV: "other"}) == {}
+    _periodic_index(repo, "default")
+    assert commands.background_env(ctx, {}) == {}
+
+
+def test_several_task_queue_instances_are_warned_about_and_default_runs(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands, "_prefork_unavailable", lambda: False)
+    _periodic_index(repo, "jobs", "mail")
+    ctx = _ctx(repo, {})
+    assert commands.background_env(ctx, {}) == {}
+    warning = _text(ctx.err)
+    assert "jobs, mail" in warning and commands.WORKER_INSTANCE_ENV in warning
+    # chosen: no warning
+    quiet = _ctx(repo, {})
+    commands.background_env(quiet, {commands.WORKER_INSTANCE_ENV: "mail"})
+    assert _text(quiet.err) == ""
+
+
+def test_the_solo_pool_goes_to_the_instance_the_periodic_jobs_name(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands, "_prefork_unavailable", lambda: True)
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda ctx, text, checkout=None: commands.CompositionSelection({}, {}),
+    )
+    _periodic_index(repo, "jobs")
+    added = commands.background_env(_ctx(repo, {}), {})
+    assert added["beat"] == {commands.WORKER_INSTANCE_ENV: "jobs"}
+    assert added["worker"][commands.WORKER_INSTANCE_ENV] == "jobs"
+    assert json.loads(added["worker"]["INFRA"]) == {
+        "taskqueue": {"jobs": {"worker_pool": "solo"}}
+    }
 
 
 @pytest.mark.parametrize("raw", ["{not json", "[1]", '{"taskqueue": 1}'])

@@ -9,6 +9,7 @@ import contextlib
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -20,8 +21,10 @@ from typing import TextIO
 STOP_GRACE_SECONDS = 20.0
 
 #: How far the start time ``ps`` reports may be from the one ``dev run``
-#: recorded when it started the process (``ps`` counts whole seconds).
-START_TOLERANCE_SECONDS = 10.0
+#: recorded when it started the process (``ps`` counts whole seconds, and the
+#: recorded time is taken just after the start): tight, so that a pid the
+#: system handed to another process soon after is not taken for ours.
+START_TOLERANCE_SECONDS = 2.0
 
 
 def which(name: str) -> str | None:
@@ -80,8 +83,22 @@ def spawn(
     argv: Sequence[str], *, env: Mapping[str, str], cwd: Path
 ) -> subprocess.Popen[bytes]:
     """Start the app server (``sys.executable -m uvicorn ...``) in the
-    foreground of this process."""
-    return _popen(argv, env=env, cwd=cwd, background=False)
+    foreground of this process.
+
+    It ignores SIGHUP: it shares the terminal's process group, so a closing
+    terminal hangs it up too, and uvicorn handles SIGINT and SIGTERM only, so
+    it would die before the SIGTERM ``dev run`` forwards, skipping its own
+    shutdown. ``dev run`` receives the hang-up itself and stops the app server
+    (and its background processes) in order. The hang-up is ignored in this
+    process only while the child starts: an ignored signal is inherited over
+    ``exec``, a handler is not."""
+    if sys.platform == "win32":
+        return _popen(argv, env=env, cwd=cwd, background=False)
+    previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        return _popen(argv, env=env, cwd=cwd, background=False)
+    finally:
+        signal.signal(signal.SIGHUP, signal.SIG_DFL if previous is None else previous)
 
 
 def spawn_piped(
@@ -135,27 +152,47 @@ class Background:
         out: TextIO,
         lock: threading.Lock,
         died: Callable[[str, int], None],
+        into: list[Background] | None = None,
     ) -> None:
+        """Start the process. ``into``: the list its owner stops from, which
+        this process joins as the last step of its start, so that nothing
+        between the start and the owner holding it can leave it behind: an
+        interrupt (Ctrl-C) or an error up to then kills it and is raised again."""
         self.name = name
-        self.child = spawn_piped(argv, env=env, cwd=cwd)
-        #: Just after the start, for the run marker (:func:`started_at` checks it).
-        self.started = time.time()
-        stream = self.child.stdout
-        if stream is None:
-            raise RuntimeError(f"{name}: spawn_piped gave no output pipe")
-        self._stream = stream
-        self._out = out
-        self._lock = lock
-        self._died = died
         self._stopping = threading.Event()
-        self._copier = threading.Thread(
-            target=self._copy, name=f"dev-run-{name}-output", daemon=True
-        )
-        self._watcher = threading.Thread(
-            target=self._watch, name=f"dev-run-{name}-exit", daemon=True
-        )
-        self._copier.start()
-        self._watcher.start()
+        self.child = spawn_piped(argv, env=env, cwd=cwd)
+        copying = False
+        try:
+            #: Just after the start, for the run marker (:func:`started_at` checks it).
+            self.started = time.time()
+            stream = self.child.stdout
+            if stream is None:
+                raise RuntimeError(f"{name}: spawn_piped gave no output pipe")
+            self._stream = stream
+            self._out = out
+            self._lock = lock
+            self._died = died
+            self._copier = threading.Thread(
+                target=self._copy, name=f"dev-run-{name}-output", daemon=True
+            )
+            self._watcher = threading.Thread(
+                target=self._watch, name=f"dev-run-{name}-exit", daemon=True
+            )
+            self._copier.start()
+            copying = True
+            self._watcher.start()
+            if into is not None:
+                into.append(self)
+        except BaseException:
+            # Nobody holds it yet: it is its own session, so no Ctrl-C and no
+            # exit of ``dev run`` would reach it.
+            self._stopping.set()
+            self.child.kill()
+            self.child.wait()
+            if not copying and self.child.stdout is not None:
+                # (a running copier ends at the end of the pipe by itself)
+                self.child.stdout.close()
+            raise
 
     def _copy(self) -> None:
         for raw in self._stream:
@@ -180,7 +217,11 @@ class Background:
 
     def terminate(self) -> None:
         """Ask it to stop (SIGTERM: a worker finishes its running tasks); what
-        follows is no longer an early death."""
+        follows is no longer an early death. Asked once: every stop path of
+        ``dev run`` calls this, and a second SIGTERM would make a Celery worker
+        shut down warm twice and a beat release its lease twice."""
+        if self._stopping.is_set():
+            return
         self._stopping.set()
         if self.child.poll() is None:
             with contextlib.suppress(ProcessLookupError):
